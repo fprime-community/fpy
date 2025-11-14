@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from fprime_gds.common.fpy import main as fpy_main
-import fprime_gds.common.fpy.error as fpy_error
-import fprime_gds.common.fpy.model as fpy_model
+import fpy.error as fpy_error
+import fpy.model as fpy_model
 
 
 @pytest.mark.parametrize(

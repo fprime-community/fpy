@@ -140,6 +140,8 @@ class AstFuncCall(Ast):
 @dataclass
 class AstPass(Ast):
     pass  # ha ha
+
+
 @dataclass
 class AstBinaryOp(Ast):
     lhs: AstExpr
@@ -221,6 +223,15 @@ class AstContinue(Ast):
     pass
 
 
+@dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: AstExpr | None
+    persist: AstExpr | None
+    freq: AstExpr | None
+    body: AstBody
+
+
 AstStmt = Union[
     AstExpr,
     AstAssign,
@@ -232,8 +243,9 @@ AstStmt = Union[
     AstContinue,
     AstWhile,
     AstAssert,
+    AstCheck
 ]
-AstStmtWithExpr = Union[AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert]
+AstStmtWithExpr = Union[AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstCheck]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
@@ -244,6 +256,7 @@ AstNodeWithSideEffects = Union[
     AstAssert,
     AstBreak,
     AstContinue,
+    AstCheck
 ]
 
 
@@ -315,6 +328,10 @@ def handle_assert(meta, args):
         exit_code = None
     return AstAssert(meta, condition, exit_code)
 
+def handle_check(meta, args):
+    print(args)
+    return AstCheck(meta, None, None, None, None, None)
+
 
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
@@ -330,6 +347,7 @@ class FpyTransformer(Transformer):
     continue_stmt = AstContinue
 
     assert_stmt = no_inline(handle_assert)
+    check_stmt = no_inline(handle_check)
 
     if_stmt = AstIf
     elifs = no_inline(AstElifs)

@@ -6,7 +6,7 @@ _literal: number | string | boolean
 
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
 _small_stmt: _expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt
-_compound_stmt: if_stmt | for_stmt | while_stmt
+_compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
@@ -16,10 +16,9 @@ _expr_stmt: _expr
 
 assert_stmt: "assert" _expr ["," _expr]
 
-# assignment
-
 assign: _expr [":" _expr] "=" _expr
 
+check_stmt: "check" _expr ["timeout" _expr] ["persist" _expr] ["freq" _expr] ":" body
 
 # loops
 for_stmt: "for" var "in" _expr ":" body

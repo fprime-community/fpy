@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fprime_gds.common.fpy.syntax import (
+from fpy.syntax import (
     AstAssign,
     AstBoolean,
     AstLiteral,
@@ -12,7 +12,7 @@ from fprime_gds.common.fpy.syntax import (
     AstString,
     AstVar,
 )
-from fprime_gds.common.fpy.types import Transformer, Visitor, TopDownVisitor
+from fpy.types import Transformer, Visitor, TopDownVisitor
 
 
 class _State(SimpleNamespace):
