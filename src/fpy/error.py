@@ -84,6 +84,13 @@ class CompileError:
 class BackendError:
     msg: str
 
+    def __repr__(self):
+        file_name_optional = (
+            f"{file_name}" if file_name is not None else "<unknown file>"
+        )
+        return f"{file_name_optional}: {self.msg}"
+        
+
 
 def handle_lark_error(err):
     assert isinstance(err, LarkError), err

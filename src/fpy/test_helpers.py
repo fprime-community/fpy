@@ -1,10 +1,10 @@
 from pathlib import Path
 import tempfile
 import traceback
-from fprime_gds.common.fpy.types import deserialize_directives
-from fprime_gds.common.fpy.model import DirectiveErrorCode, FpySequencerModel
-from fprime_gds.common.fpy.bytecode.directives import AllocateDirective, Directive
-from fprime_gds.common.fpy.main import assemble_main, compile_main, disassemble_main
+from fpy.types import deserialize_directives
+from fpy.model import DirectiveErrorCode, FpySequencerModel
+from fpy.bytecode.directives import AllocateDirective, Directive
+from fpy.main import assemble_main, compile_main, disassemble_main
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
@@ -12,10 +12,8 @@ from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
 default_dictionary = str(
-    Path(__file__).parent.parent.parent.parent.parent
+    Path(__file__).parent.parent.parent
     / "test"
-    / "fprime_gds"
-    / "common"
     / "fpy"
     / "RefTopologyDictionary.json"
 )

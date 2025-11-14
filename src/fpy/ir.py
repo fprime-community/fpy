@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
-from fprime_gds.common.fpy.bytecode.directives import (
+from fpy.bytecode.directives import (
     Directive,
     GotoDirective,
     IfDirective,

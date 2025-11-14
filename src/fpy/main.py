@@ -15,6 +15,7 @@ from fpy.types import (
 )
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives
+import fpy.error
 
 
 def human_readable_size(size_bytes):
@@ -65,12 +66,12 @@ def compile_main(args: list[str] = None):
         parsed_args = arg_parser.parse_args()
 
     if parsed_args.debug:
-        fprime_gds.common.fpy.error.debug = True
+        fpy.error.debug = True
 
     if not parsed_args.input.exists():
         print(f"Input file {parsed_args.input} does not exist")
         sys.exit(1)
-    fprime_gds.common.fpy.error.file_name = str(parsed_args.input)
+    fpy.error.file_name = str(parsed_args.input)
     try:
         body = text_to_ast(parsed_args.input.read_text())
     except RecursionError:
@@ -84,8 +85,8 @@ def compile_main(args: list[str] = None):
     if isinstance(
         directives,
         (
-            fprime_gds.common.fpy.error.CompileError,
-            fprime_gds.common.fpy.error.BackendError,
+            fpy.error.CompileError,
+            fpy.error.BackendError,
         ),
     ):
         print(directives)  # directives is an error

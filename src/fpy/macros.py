@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fprime_gds.common.fpy.bytecode.directives import (
+from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
     PushTimeDirective,
@@ -7,9 +7,9 @@ from fprime_gds.common.fpy.bytecode.directives import (
     WaitAbsDirective,
     WaitRelDirective,
 )
-from fprime_gds.common.fpy.ir import Ir, IrIf, IrLabel
-from fprime_gds.common.fpy.syntax import Ast
-from fprime_gds.common.fpy.types import FpyMacro, NothingValue
+from fpy.ir import Ir, IrIf, IrLabel
+from fpy.syntax import Ast
+from fpy.types import FpyMacro, NothingValue
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fprime.common.models.serialize.numerical_types import (
     U8Type as U8Value,
@@ -17,7 +17,7 @@ from fprime.common.models.serialize.numerical_types import (
     I64Type as I64Value,
     F64Type as F64Value,
 )
-from fprime_gds.common.fpy.bytecode.directives import (
+from fpy.bytecode.directives import (
     FloatLessThanDirective,
     FloatMultiplyDirective,
     FloatSubtractDirective,

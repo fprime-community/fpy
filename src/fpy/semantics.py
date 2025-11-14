@@ -5,8 +5,8 @@ from numbers import Number
 import heapq
 from typing import Union
 
-from fprime_gds.common.fpy.error import CompileError
-from fprime_gds.common.fpy.types import (
+from fpy.error import CompileError
+from fpy.types import (
     ARBITRARY_PRECISION_TYPES,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
@@ -43,7 +43,7 @@ try:
 except ImportError:
     UNION_TYPES = (Union,)
 
-from fprime_gds.common.fpy.bytecode.directives import (
+from fpy.bytecode.directives import (
     BINARY_STACK_OPS,
     BOOLEAN_OPERATORS,
     NUMERIC_OPERATORS,
@@ -75,7 +75,7 @@ from fprime.common.models.serialize.numerical_types import (
 )
 from fprime.common.models.serialize.string_type import StringType as StringValue
 from fprime.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.fpy.syntax import (
+from fpy.syntax import (
     AstAssert,
     AstBinaryOp,
     AstBoolean,

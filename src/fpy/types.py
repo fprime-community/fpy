@@ -20,7 +20,7 @@ try:
 except ImportError:
     UNION_TYPES = (Union,)
 
-from fprime_gds.common.fpy.bytecode.directives import (
+from fpy.bytecode.directives import (
     Directive,
 )
 from fprime_gds.common.templates.ch_template import ChTemplate

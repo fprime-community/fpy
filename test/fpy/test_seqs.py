@@ -2,7 +2,7 @@ import pytest
 
 from fprime.common.models.serialize.numerical_types import U32Type as U32Value
 
-from fprime_gds.common.fpy.test_helpers import (
+from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
     assert_compile_success,
@@ -1463,7 +1463,7 @@ var: string = "test"
 
 
 def test_too_many_dirs(fprime_test_api):
-    from fprime_gds.common.fpy.types import MAX_DIRECTIVES_COUNT
+    from fpy.types import MAX_DIRECTIVES_COUNT
 
     seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * (MAX_DIRECTIVES_COUNT + 1)
     assert_compile_failure(fprime_test_api, seq)
@@ -1471,7 +1471,7 @@ def test_too_many_dirs(fprime_test_api):
 
 def test_dir_too_large(fprime_test_api):
     # TODO this doesn't actually crash cuz the dir is too large... not sure at the moment how to trigger this
-    from fprime_gds.common.fpy.types import MAX_DIRECTIVE_SIZE
+    from fpy.types import MAX_DIRECTIVE_SIZE
 
     seq = 'CdhCore.cmdDisp.CMD_NO_OP_STRING("' + "a" * MAX_DIRECTIVE_SIZE + '")'
     assert_compile_failure(fprime_test_api, seq)
