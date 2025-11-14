@@ -119,7 +119,7 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     if "Fw.TimeInterval" not in type_name_dict:
         type_name_dict["Fw.TimeInterval"] = StructValue.construct_type(
             "Fw.TimeInterval",
-            [("seconds", U32Value, "", ""), ("useconds", U32Value), "", ""],
+            [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
         )
     # note no string type at the moment
 

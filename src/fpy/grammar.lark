@@ -11,29 +11,29 @@ pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
 
-_expr_stmt: _expr
+_expr_stmt: expr
 
 
-assert_stmt: "assert" _expr ["," _expr]
+assert_stmt: "assert" expr ["," expr]
 
-assign: _expr [":" _expr] "=" _expr
+assign: expr [":" expr] "=" expr
 
-check_stmt: "check" _expr ["timeout" _expr] ["persist" _expr] ["freq" _expr] ":" body
+check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["freq" expr] ":" body
 
 # loops
-for_stmt: "for" var "in" _expr ":" body
-while_stmt: "while" _expr ":" body
+for_stmt: "for" var "in" expr ":" body
+while_stmt: "while" expr ":" body
 
 # branching
 
-if_stmt: "if" _expr ":" body elifs ["else" ":" body]
+if_stmt: "if" expr ":" body elifs ["else" ":" body]
 elifs: elif_*
-elif_: "elif" _expr ":" body
+elif_: "elif" expr ":" body
 
 body: _NEWLINE _INDENT _stmt+ _DEDENT
 scoped_body: _NEWLINE _INDENT _stmt+ _DEDENT
 
-_expr: _test
+?expr: _test
 
 # logical tests
 _test: or_test
@@ -68,18 +68,18 @@ _test: or_test
        | SUB_OP factor -> unary_op # unary minus (negation)
        | power
 
-?power: atom_expr POW_OP factor -> binary_op
-      | atom_expr
+?power: atomexpr POW_OP factor -> binary_op
+      | atomexpr
 
-arguments: _expr ("," _expr)*
+arguments: expr ("," expr)*
 
-?atom_expr: atom_expr "(" [arguments] ")" -> func_call
-          | atom_expr "[" _expr "]" -> get_item
-          | atom_expr "." name -> get_attr
+?atomexpr: atomexpr "(" [arguments] ")" -> func_call
+          | atomexpr "[" expr "]" -> get_item
+          | atomexpr "." name -> get_attr
           | atom
 
 ?atom: _literal
-     | "(" _expr ")"
+     | "(" expr ")"
      | var
 
 var: name
