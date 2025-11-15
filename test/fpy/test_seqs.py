@@ -2600,3 +2600,27 @@ check True timeout Fw.TimeInterval(0, 0):
     exit(1)
 """
     assert_run_success(fprime_test_api, seq)
+
+
+def test_time_cmp_vars(fprime_test_api):
+    seq = """
+one: Fw.Time = Fw.Time(0, 0, 123, 456)
+two: Fw.Time = Fw.Time(0, 0, 456, 789)
+assert one < two
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_time_cmp(fprime_test_api):
+    seq = """
+assert Fw.Time(0, 0, 123, 456) < Fw.Time(0, 0, 456, 789)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_struct_eq(fprime_test_api):
+    seq = """
+assert Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) == Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
+assert Svc.DpRecord(0, 1, 2, 3, 4, 6, Fw.DpState.UNTRANSMITTED) != Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
+"""
+    assert_run_success(fprime_test_api, seq)

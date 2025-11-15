@@ -482,7 +482,7 @@ class CompileState:
     expr_converted_types: dict[AstExpr, FppType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    expr_converted_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    const_expr_converted_values: dict[AstExpr, FppValue | NothingValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.

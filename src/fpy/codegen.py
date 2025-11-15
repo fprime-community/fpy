@@ -125,7 +125,7 @@ class GenerateCode:
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
         """if the expr has a compile time const value, emit that as a PUSH_VAL"""
-        expr_value = state.expr_converted_values.get(node)
+        expr_value = state.const_expr_converted_values.get(node)
 
         if expr_value is None:
             # no const value
@@ -666,13 +666,13 @@ class GenerateCode:
         dirs = []
         if is_instance_compat(func, FpyCmd):
             const_args = not any(
-                state.expr_converted_values[arg_node] is None for arg_node in node_args
+                state.const_expr_converted_values[arg_node] is None for arg_node in node_args
             )
             if const_args:
                 # can just hardcode this cmd
                 arg_bytes = bytes()
                 for arg_node in node_args:
-                    arg_value = state.expr_converted_values[arg_node]
+                    arg_value = state.const_expr_converted_values[arg_node]
                     arg_bytes += arg_value.serialize()
                 dirs.append(ConstCmdDirective(func.cmd.get_op_code(), arg_bytes))
             else:
@@ -739,7 +739,7 @@ class GenerateCode:
                 # the offset in base type.
 
                 # check if we have a value for it
-                const_idx_expr_value = state.expr_converted_values.get(lhs.idx_expr)
+                const_idx_expr_value = state.const_expr_converted_values.get(lhs.idx_expr)
                 if const_idx_expr_value is not None:
                     assert is_instance_compat(const_idx_expr_value, ArrayIndexType)
                     # okay, so we have a constant value index

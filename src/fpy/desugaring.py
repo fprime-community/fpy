@@ -42,7 +42,7 @@ class DesugarForLoops(Transformer):
         state.next_node_id += 1
         state.expr_converted_types[node] = expr_converted_type
         state.expr_unconverted_types[node] = expr_unconverted_type
-        state.expr_converted_values[node] = expr_converted_value
+        state.const_expr_converted_values[node] = expr_converted_value
         state.op_intermediate_types[node] = op_intermediate_type
         state.resolved_references[node] = resolved_reference
         return node
