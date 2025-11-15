@@ -2604,16 +2604,26 @@ check True timeout Fw.TimeInterval(0, 0):
 
 def test_time_cmp_vars(fprime_test_api):
     seq = """
-one: Fw.Time = Fw.Time(0, 0, 123, 456)
-two: Fw.Time = Fw.Time(0, 0, 456, 789)
-assert one < two
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(1, 6, 7, 8)
+assert less < more
+# assert less <= more
+# assert less == less and more == more
+# assert less != more
+# assert more > less
+# assert more >= less
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_const_time_cmp(fprime_test_api):
     seq = """
-assert Fw.Time(0, 0, 123, 456) < Fw.Time(0, 0, 456, 789)
+assert Fw.Time(0, 0, 123, 456) < Fw.Time(0, 0, 124, 456)
+assert Fw.Time(0, 0, 123, 456) <= Fw.Time(0, 0, 123, 457)
+assert Fw.Time(0, 0, 123, 456) == Fw.Time(0, 0, 123, 456)
+assert Fw.Time(0, 0, 123, 456) != Fw.Time(0, 0, 456, 789)
+assert Fw.Time(0, 0, 123, 456) > Fw.Time(0, 0, 122, 456)
+assert Fw.Time(0, 0, 123, 456) >= Fw.Time(0, 0, 123, 455)
 """
     assert_run_success(fprime_test_api, seq)
 

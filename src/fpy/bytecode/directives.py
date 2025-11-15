@@ -760,6 +760,7 @@ COMPARISON_OPERATORS = {
     BinaryStackOp.GREATER_THAN,
     BinaryStackOp.GREATER_THAN_OR_EQUAL,
     BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
     BinaryStackOp.LESS_THAN,
     BinaryStackOp.LESS_THAN_OR_EQUAL,
 }

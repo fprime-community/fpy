@@ -595,7 +595,10 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # if we currently have a float
         if issubclass(from_type, FloatValue):
             # the dest must be a float and must be >= width
-            return issubclass(to_type, FloatValue) and to_type.get_bits() >= from_type.get_bits()
+            return (
+                issubclass(to_type, FloatValue)
+                and to_type.get_bits() >= from_type.get_bits()
+            )
 
         # otherwise must be an int
         assert issubclass(from_type, IntegerValue)
@@ -629,7 +632,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                 return TimeValue
 
             # otherwise, we are allowed to check eq/ineq of any single type
-            if op == BinaryStackOp.EQUAL or op == BinaryStackOp.NOT_EQUAL and len(set(arg_types)) == 1:
+            if (
+                op == BinaryStackOp.EQUAL
+                or op == BinaryStackOp.NOT_EQUAL
+                and len(set(arg_types)) == 1
+            ):
                 # comparison of complex types (structs/strings/arrays/enum consts)
                 return arg_types[0]
 
@@ -1416,7 +1423,14 @@ class CalculateConstExprValues(Visitor):
 
         state.const_expr_converted_values[node] = expr_value
 
-    def constant_fold_numeric_binary_op(self, node: Ast, op: BinaryStackOp, lhs_value: FppValue, rhs_value: FppValue, state: CompileState) -> Number:
+    def constant_fold_numeric_binary_op(
+        self,
+        node: Ast,
+        op: BinaryStackOp,
+        lhs_value: FppValue,
+        rhs_value: FppValue,
+        state: CompileState,
+    ) -> Number:
 
         folded_value = None
         # Arithmetic operations
@@ -1472,18 +1486,26 @@ class CalculateConstExprValues(Visitor):
 
         return folded_value
 
-    def constant_fold_time_comparison(self, node: Ast, op: BinaryStackOp, lhs_value: TimeValue, rhs_value: TimeValue, state: CompileState) -> bool|None:
+    def constant_fold_time_comparison(
+        self,
+        node: Ast,
+        op: BinaryStackOp,
+        lhs_value: TimeValue,
+        rhs_value: TimeValue,
+        state: CompileState,
+    ) -> bool | None:
 
         if lhs_value.timeBase != rhs_value.timeBase:
             # incomparable
             state.err("Times with different time bases are incomparable", node)
             return None
-        
+
         lhs_micros = lhs_value.seconds * 1_000_000 + lhs_value.useconds
         rhs_micros = rhs_value.seconds * 1_000_000 + rhs_value.useconds
 
-        return self.constant_fold_numeric_binary_op(node, op, lhs_micros, rhs_micros, state)
-
+        return self.constant_fold_numeric_binary_op(
+            node, op, lhs_micros, rhs_micros, state
+        )
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
@@ -1496,9 +1518,13 @@ class CalculateConstExprValues(Visitor):
 
         # Both sides are constants, evaluate the operation if the operator is supported
 
-        if not is_instance_compat(lhs_value, NumericalValue) or not is_instance_compat(rhs_value, NumericalValue):
+        if not is_instance_compat(lhs_value, NumericalValue) or not is_instance_compat(
+            rhs_value, NumericalValue
+        ):
             if type(lhs_value) == TimeValue and type(rhs_value) == TimeValue:
-                folded_value = self.constant_fold_time_comparison(node, node.op, lhs_value, rhs_value, state)
+                folded_value = self.constant_fold_time_comparison(
+                    node, node.op, lhs_value, rhs_value, state
+                )
                 if folded_value is None:
                     # errored
                     return
@@ -1514,7 +1540,9 @@ class CalculateConstExprValues(Visitor):
             # get the actual pythonic value from the fpp type
             lhs_value = lhs_value.val
             rhs_value = rhs_value.val
-            folded_value = self.constant_fold_numeric_binary_op(node, node.op, lhs_value, rhs_value, state)
+            folded_value = self.constant_fold_numeric_binary_op(
+                node, node.op, lhs_value, rhs_value, state
+            )
             if folded_value is None:
                 # errored
                 return
@@ -1638,8 +1666,12 @@ class CheckConstArrayAccesses(Visitor):
 class WarnRangesAreNotEmpty(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        lower_value: LoopVarValue = state.const_expr_converted_values.get(node.lower_bound)
-        upper_value: LoopVarValue = state.const_expr_converted_values.get(node.lower_bound)
+        lower_value: LoopVarValue = state.const_expr_converted_values.get(
+            node.lower_bound
+        )
+        upper_value: LoopVarValue = state.const_expr_converted_values.get(
+            node.lower_bound
+        )
         if lower_value is None or upper_value is None:
             # cannot check at compile time
             return
