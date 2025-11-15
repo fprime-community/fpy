@@ -1518,19 +1518,23 @@ class CalculateConstExprValues(Visitor):
 
         # Both sides are constants, evaluate the operation if the operator is supported
 
-        if not is_instance_compat(lhs_value, (NumericalValue, BoolValue)) or not is_instance_compat(
-            rhs_value, (NumericalValue, BoolValue)
-        ):
-            if type(lhs_value) == TimeValue and type(rhs_value) == TimeValue:
-                folded_value = self.constant_fold_time_comparison(
-                    node, node.op, lhs_value, rhs_value, state
-                )
-                if folded_value is None:
-                    # errored
-                    return
-            # otherwise, comparing two complex types. only way this is possible is for struct/arr equality
+        intermediate_type = state.op_intermediate_types[node]
+
+        if intermediate_type == TimeValue:
+            # time comparison
+            folded_value = self.constant_fold_time_comparison(
+                node, node.op, lhs_value, rhs_value, state
+            )
+            if folded_value is None:
+                # errored
+                return
+        elif not issubclass(intermediate_type, NumericalValue) and node.op in [
+            BinaryStackOp.EQUAL,
+            BinaryStackOp.NOT_EQUAL,
+        ]:
+            # comparing two complex types. only way this is possible is for struct/arr equality
             # do bitwise equality
-            elif node.op == BinaryStackOp.EQUAL:
+            if node.op == BinaryStackOp.EQUAL:
                 folded_value = lhs_value.serialize() == rhs_value.serialize()
             elif node.op == BinaryStackOp.NOT_EQUAL:
                 folded_value = lhs_value.serialize() != rhs_value.serialize()

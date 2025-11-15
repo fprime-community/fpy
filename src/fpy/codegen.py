@@ -90,6 +90,7 @@ from fprime.common.models.serialize.numerical_types import (
     F32Type as F32Value,
     F64Type as F64Value,
     IntegerType as IntegerValue,
+    NumericalType as NumericalValue,
 )
 from fprime.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
@@ -634,7 +635,9 @@ class GenerateCode:
         dirs.append(GetFieldDirective(15, 8))
         return dirs
 
-    def generate_time_comparison(self, node: Ast, op: BinaryStackOp) -> list[Directive | Ir]:
+    def generate_time_comparison(
+        self, node: Ast, op: BinaryStackOp
+    ) -> list[Directive | Ir]:
         # first check that time bases are the same
         # then convert both to u64s
         # then do the op
@@ -650,7 +653,9 @@ class GenerateCode:
         # byte count of first time base field
         dirs.append(PushValDirective(StackSizeType(2).serialize()))
         # offset of first time base field
-        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2 + 4 + 4 + 1).serialize()))
+        dirs.append(
+            PushValDirective(StackSizeType(4 + 4 + 1 + 2 + 4 + 4 + 1).serialize())
+        )
         dirs.append(PeekDirective())
         # stack is:
         # BBCSSSSMMMMBBCSSSSMMMMBB
@@ -684,7 +689,6 @@ class GenerateCode:
         # L: lhs u64 micros
         # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLL
 
-
         # peek top (rhs) time value and convert to U64
         # byte count of top time value
         dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
@@ -716,13 +720,16 @@ class GenerateCode:
         dirs.append(time_base_not_equal_label)
         # time bases not equal
         # end program with error
-        dirs.append(PushValDirective(U8Value(DirectiveErrorCode.INCOMPARABLE_TIME.value).serialize()))
+        dirs.append(
+            PushValDirective(
+                U8Value(DirectiveErrorCode.INCOMPARABLE_TIME.value).serialize()
+            )
+        )
         dirs.append(ExitDirective())
 
         dirs.append(end_comparison_label)
 
         return dirs
-
 
     def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
@@ -735,27 +742,22 @@ class GenerateCode:
 
         intermediate_type = state.op_intermediate_types[node]
 
-        if intermediate_type not in SPECIFIC_NUMERIC_TYPES and intermediate_type != BoolValue:
-            # one of the special cases.
-            lhs_type = state.expr_converted_types[node.lhs]
-            rhs_type = state.expr_converted_types[node.rhs]
-
-            assert lhs_type == rhs_type, (lhs_type, rhs_type)
-
-            if lhs_type == TimeValue:
-                dirs.extend(self.generate_time_comparison(node, node.op))
-            else:
-                dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
-                if node.op == BinaryStackOp.NOT_EQUAL:
-                    dirs.append(NotDirective())
-        elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value:
+        if intermediate_type == TimeValue:
+            dirs.extend(self.generate_time_comparison(node, node.op))
+        elif not issubclass(intermediate_type, NumericalValue) and node.op in [
+            BinaryStackOp.EQUAL,
+            BinaryStackOp.NOT_EQUAL,
+        ]:
+            dirs.append(MemCompareDirective(intermediate_type.getMaxSize()))
+            if node.op == BinaryStackOp.NOT_EQUAL:
+                dirs.append(NotDirective())
+        elif intermediate_type == F64Value and node.op == BinaryStackOp.FLOOR_DIVIDE:
             # for float floor division, do float division, then convert to int, then
             # back to float
             dirs.append(FloatDivideDirective())
             dirs.append(FloatToSignedIntDirective())
             dirs.append(SignedIntToFloatDirective())
         else:
-
             dir = BINARY_STACK_OPS[node.op][intermediate_type]
             if dir != NoOpDirective:
                 # don't include no op
