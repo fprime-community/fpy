@@ -1518,8 +1518,8 @@ class CalculateConstExprValues(Visitor):
 
         # Both sides are constants, evaluate the operation if the operator is supported
 
-        if not is_instance_compat(lhs_value, NumericalValue) or not is_instance_compat(
-            rhs_value, NumericalValue
+        if not is_instance_compat(lhs_value, (NumericalValue, BoolValue)) or not is_instance_compat(
+            rhs_value, (NumericalValue, BoolValue)
         ):
             if type(lhs_value) == TimeValue and type(rhs_value) == TimeValue:
                 folded_value = self.constant_fold_time_comparison(

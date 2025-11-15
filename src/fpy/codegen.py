@@ -91,6 +91,7 @@ from fprime.common.models.serialize.numerical_types import (
     F64Type as F64Value,
     IntegerType as IntegerValue,
 )
+from fprime.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fpy.syntax import (
     Ast,
@@ -605,27 +606,32 @@ class GenerateCode:
         # get field
 
         dirs = []
+        # BBCSSSSMMMM
         dirs.append(IntegerZeroExtend32To64Directive())
+        # BBCSSSSMMMMMMMM
         # byte count of seconds field
         dirs.append(PushValDirective(StackSizeType(4).serialize()))
         # offset of seconds field
         dirs.append(PushValDirective(StackSizeType(8).serialize()))
         dirs.append(PeekDirective())  # get secs on top of stack
+        # BBCSSSSMMMMMMMMSSSS
         dirs.append(IntegerZeroExtend32To64Directive())
+        # BBCSSSSMMMMMMMMSSSSSSSS
         # push SECONDS_TO_MICROS
         dirs.append(PushValDirective(U64Value(SECONDS_TO_MICROS).serialize()))
+        # BBCSSSSMMMMMMMMSSSSSSSS(1_000_000)
         dirs.append(IntMultiplyDirective())
+        # T: total so far of micros
+        # BBCSSSSMMMMMMMMTTTTTTTT
         # now we have two u64 micro counts
         dirs.append(IntAddDirective())
+        # BBCSSSSTTTTTTTT
         # okay now drop the remainder of the timeval, leaving only total microseconds
-        # |  2 bytes  |    1 byte    | 4 bytes |   8 bytes          |
-        # |-----------|--------------|---------|--------------------|
-        # | Time Base | Time Context | Seconds | Total microseconds |
         # offset from start of parent is 7 bytes
-        # parent size is 16 bytes
+        # parent size is 15 bytes
         # field size is 8 bytes
         dirs.append(PushValDirective(StackSizeType(7).serialize()))
-        dirs.append(GetFieldDirective(16, 8))
+        dirs.append(GetFieldDirective(15, 8))
         return dirs
 
     def generate_time_comparison(self, node: Ast, op: BinaryStackOp) -> list[Directive | Ir]:
@@ -647,43 +653,61 @@ class GenerateCode:
         dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2 + 4 + 4 + 1).serialize()))
         dirs.append(PeekDirective())
         # stack is:
-        # |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |   2 bytes       |
-        # |-----------|--------------|---------|--------------|-----------|--------------|---------|--------------|-----------------|
-        # | Time Base | Time Context | Seconds | Microseconds | Time Base | Time Context | Seconds | Microseconds | First time base |
+        # BBCSSSSMMMMBBCSSSSMMMMBB
         # byte count of second time base field
         dirs.append(PushValDirective(StackSizeType(2).serialize()))
         # offset of second time base field
         dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
         dirs.append(PeekDirective())
+        # BBCSSSSMMMMBBCSSSSMMMMBBBB
         # check if the 2x2 byte fields are equal
         dirs.append(MemCompareDirective(2))
+        # E: bool true if bases are equal
+        # BBCSSSSMMMMBBCSSSSMMMME
         # if they are equal:
         time_base_not_equal_label = IrLabel(node, "time_base_not_equal")
         dirs.append(IrIf(time_base_not_equal_label))
+        # BBCSSSSMMMMBBCSSSSMMMM
         # convert both to U64
-        # convert top to U64
-        dirs.extend(self.convert_time_to_u64())
 
-        # stack is:
-        # |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |    8 bytes    |
-        # |-----------|--------------|---------|--------------|---------------|
-        # | Time Base | Time Context | Seconds | Microseconds |Total microseconds|
-
-        # peek bottom time value and convert to U64
-
+        # peek bottom (lhs) time value and convert to U64
+        # we do the bottom first because we want the lhs to be under the rhs on the stack
         # byte count of bottom time value
-        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1).serialize()))
+        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
         # offset of bottom time value
+        dirs.append(PushValDirective(StackSizeType(11).serialize()))
+        dirs.append(PeekDirective())
+        # BBCSSSSMMMMBBCSSSSMMMMBBCSSSSMMMM
+
+        # convert bottom (lhs) to U64
+        dirs.extend(self.convert_time_to_u64())
+        # L: lhs u64 micros
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLL
+
+
+        # peek top (rhs) time value and convert to U64
+        # byte count of top time value
+        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
+        # offset of top time value
         dirs.append(PushValDirective(StackSizeType(8).serialize()))
         dirs.append(PeekDirective())
-
-        # convert to u64
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLLBBCSSSSMMMM
+        # convert to U64
         dirs.extend(self.convert_time_to_u64())
 
-        # okay now both U64s are on top of stack, and nothing else
+        # okay now both U64s are on top of stack
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLLRRRRRRRR
         assert op in COMPARISON_OPERATORS, op
         # add the op
         dirs.append(BINARY_STACK_OPS[op][U64Value]())
+        # X: result
+        # BBCSSSSMMMMBBCSSSSMMMMX
+        # drop the rest
+        # offset from start of parent is 22 bytes
+        # parent size is 23 bytes
+        # field size is 1 byte
+        dirs.append(PushValDirective(StackSizeType(22).serialize()))
+        dirs.append(GetFieldDirective(23, 1))
 
         # go to end of this chunk
         end_comparison_label = IrLabel(node, "end")
@@ -711,7 +735,7 @@ class GenerateCode:
 
         intermediate_type = state.op_intermediate_types[node]
 
-        if intermediate_type not in SPECIFIC_NUMERIC_TYPES:
+        if intermediate_type not in SPECIFIC_NUMERIC_TYPES and intermediate_type != BoolValue:
             # one of the special cases.
             lhs_type = state.expr_converted_types[node.lhs]
             rhs_type = state.expr_converted_types[node.rhs]

@@ -2607,13 +2607,31 @@ def test_time_cmp_vars(fprime_test_api):
 less: Fw.Time = Fw.Time(1, 2, 3, 4)
 more: Fw.Time = Fw.Time(1, 6, 7, 8)
 assert less < more
-# assert less <= more
-# assert less == less and more == more
-# assert less != more
-# assert more > less
-# assert more >= less
+assert less <= more
+assert less == less and more == more
+assert less != more
+assert more > less
+assert more >= less
 """
     assert_run_success(fprime_test_api, seq)
+
+
+def test_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert less < more
+"""
+    assert_run_failure(fprime_test_api, seq)
+
+
+def test_const_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert Fw.Time(1, 2, 3, 4) < Fw.Time(2, 3, 4, 5)
+"""
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_const_time_cmp(fprime_test_api):
