@@ -764,6 +764,8 @@ COMPARISON_OPERATORS = {
     BinaryStackOp.LESS_THAN,
     BinaryStackOp.LESS_THAN_OR_EQUAL,
 }
+# all operators that are valid between time objects
+TIME_OPERATORS = COMPARISON_OPERATORS.union({BinaryStackOp.ADD, BinaryStackOp.SUBTRACT})
 BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
 
 UNARY_STACK_OPS: dict[str, dict[type[FppValue], type[StackOpDirective]]] = {

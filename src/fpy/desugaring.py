@@ -4,6 +4,7 @@ from fpy.syntax import (
     Ast,
     AstAssign,
     AstBinaryOp,
+    AstCheck,
     AstFor,
     AstNumber,
     AstRange,
@@ -279,3 +280,39 @@ class DesugarForLoops(Transformer):
 
         # turn one node into three
         return [initialize_loop_var, declare_upper_bound_var, while_loop]
+
+class DesugarCheckStatements(Transformer):
+    def visit_AstCheck(self, node: AstCheck, state: CompileState):
+        # persist: U64 = 10 * 1000000
+        # timeout: U64 = 100 * 1000000
+        # every_seconds: U32 = 1
+        # every_useconds: U32 = 123123
+        
+        # result: bool = False
+        # last_was_true: bool = False
+        # time_started_true_us: U64 = 0
+        # time_started_value: Fw.Time = now()
+        # time_started_us: U64 = time_started_value.seconds * 1000000 + time_started_value.useconds
+        # while True:
+        #     current_time_value: Fw.Time = now()
+        #     current_time_us: U64 = current_time_value.seconds * 1000000 + current_time_value.useconds
+        #     if current_time_us - time_started_us > timeout:
+        #         break
+        #     if a < b:
+        #         if not last_was_true:
+        #             time_started_true_us = current_time_us
+        #             last_was_true = True
+        #         if current_time_us - time_started_true_us >= persist:
+        #             result = True
+        #             break
+        #         # else--keep on waiting for persist
+        #     else:
+        #         last_was_true = False
+        #     sleep(every_seconds, every_useconds)
+            
+        # if result:
+        #     body
+        # else:
+        #     else
+
+        pass

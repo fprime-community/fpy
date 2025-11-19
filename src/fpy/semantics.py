@@ -26,6 +26,7 @@ from fpy.types import (
     LoopVarValue,
     NothingValue,
     RangeValue,
+    TimeIntervalValue,
     TopDownVisitor,
     Visitor,
     is_instance_compat,
@@ -47,6 +48,7 @@ from fpy.bytecode.directives import (
     BOOLEAN_OPERATORS,
     COMPARISON_OPERATORS,
     NUMERIC_OPERATORS,
+    TIME_OPERATORS,
     UNARY_STACK_OPS,
     ArrayIndexType,
     BinaryStackOp,
@@ -553,6 +555,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         )
         return False
 
+    # TODO FpyType
     def can_coerce_type(self, from_type: FppType, to_type: FppType) -> bool:
         """return True if the type coercion rules allow from_type to be implicitly converted to to_type"""
         if from_type == to_type:
@@ -627,9 +630,15 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         if non_numeric:
 
-            # we are allowed to compare time values
-            if op in COMPARISON_OPERATORS and set(arg_types) == {TimeValue}:
+            # time val - time val -> time interval
+            if set(arg_types) == {TimeValue} and op == BinaryStackOp.SUBTRACT:
+                return TimeIntervalValue
+            # time val +/- time interval -> time val
+            if set(arg_types) == {TimeValue, TimeIntervalValue} and op in NUMERIC_OPERATORS:
                 return TimeValue
+            # time interval +/- time interval -> time interval
+            if set(arg_types) == {TimeIntervalValue} and op in NUMERIC_OPERATORS:
+                return TimeIntervalValue
 
             # otherwise, we are allowed to check eq/ineq of any single type
             if (
@@ -911,6 +920,9 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
 
         result_type = None
+        if intermediate_type == TimeValue and node.op in [BinaryStackOp.ADD, BinaryStackOp.SUBTRACT]:
+            result_type = 
+
         if node.op in NUMERIC_OPERATORS:
             result_type = intermediate_type
         else:
@@ -1133,6 +1145,9 @@ class CalculateConstExprValues(Visitor):
                     return FpyFloatValue(Decimal(from_val))
 
                 # otherwise, we're going to a finite bitwidth float type
+
+                # if outside the representable range, fail
+                # round to nearest representable float?
 
                 # based on inspection of the underlying FloatValue classes,
                 # floats do not need narrowing handling

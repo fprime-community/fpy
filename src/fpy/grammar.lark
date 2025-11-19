@@ -18,7 +18,7 @@ assert_stmt: "assert" expr ["," expr]
 
 assign: expr [":" expr] "=" expr
 
-check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["freq" expr] ":" body
+check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["freq" expr] ":" body ["else" ":" body]
 
 # loops
 for_stmt: "for" var "in" expr ":" body

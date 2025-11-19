@@ -44,9 +44,11 @@ from fpy.types import (
     FpyCast,
     FpyCmd,
     FpyTypeCtor,
+    TimeIntervalValue,
     Visitor,
     create_scope,
 )
+import fpy.types
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
@@ -116,11 +118,16 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     for typ in SPECIFIC_NUMERIC_TYPES:
         type_name_dict[typ.get_canonical_name()] = typ
     type_name_dict["bool"] = BoolValue
+    # TODO add Value after
     if "Fw.TimeInterval" not in type_name_dict:
-        type_name_dict["Fw.TimeInterval"] = StructValue.construct_type(
-            "Fw.TimeInterval",
-            [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
-        )
+        type_name_dict["Fw.TimeInterval"] = fpy.types.TimeIntervalValue
+    else:
+        # update this placeholder with the real one
+        fpy.types.TimeIntervalValue = type_name_dict["Fw.TimeInterval"]
+        members = fpy.types.TimeIntervalValue.MEMBER_LIST
+        # make sure it's 2 u32s
+        assert len(members) == 2 and all(mem[1] == U32Value for mem in members)
+        
     # note no string type at the moment
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]

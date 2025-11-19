@@ -41,6 +41,8 @@ from fprime.common.models.serialize.numerical_types import (
     FloatType as FloatValue,
     NumericalType as NumericalValue,
 )
+from fprime.common.models.serialize.serializable_type import SerializableType as StructValue
+from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fprime.common.models.serialize.string_type import StringType as StringValue
 from fpy.syntax import (
     AstBreak,
@@ -75,11 +77,18 @@ def typename(typ: FppType) -> str:
         return "String"
     if typ == RangeValue:
         return "Range"
-    return str(typ)
+    if typ == TimeValue:
+        return "Fw.Time"
+    return str(typ.__name__)
 
 
 LoopVarValue = I64Value
 
+# this will be replaced with the TimeInterval type from the dict if
+TimeIntervalValue = StructValue.construct_type(
+    "Fw.TimeInterval",
+    [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
+)
 
 # this is the "internal" integer type that integer literals have by
 # default. it is arbitrary precision. it is also only used in places where
@@ -147,6 +156,7 @@ class RangeValue(FppValue):
 # default. it is arbitrary length. it is also only used in places where
 # we know the value is constant
 FpyStringValue = StringValue.construct_type("FpyStringValue", None)
+FpyStringType = type(FpyStringValue)
 
 
 SPECIFIC_NUMERIC_TYPES = (

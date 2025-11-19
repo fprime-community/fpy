@@ -230,6 +230,7 @@ class AstCheck(Ast):
     persist: AstExpr | None
     freq: AstExpr | None
     body: AstBody
+    els: AstBody | None
 
 
 AstStmt = Union[
@@ -243,9 +244,11 @@ AstStmt = Union[
     AstContinue,
     AstWhile,
     AstAssert,
-    AstCheck
+    AstCheck,
 ]
-AstStmtWithExpr = Union[AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstCheck]
+AstStmtWithExpr = Union[
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstCheck
+]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
@@ -256,7 +259,7 @@ AstNodeWithSideEffects = Union[
     AstAssert,
     AstBreak,
     AstContinue,
-    AstCheck
+    AstCheck,
 ]
 
 
