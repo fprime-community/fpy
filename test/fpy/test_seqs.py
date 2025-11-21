@@ -2020,12 +2020,15 @@ assert i == 0
 
 def test_nested_for_loops(fprime_test_api):
     seq = """
+counter: U64 = 0
 z: U8 = 123
 for i in 0 .. 7:
     for y in 20 .. 30:
         assert i < 8
         assert y >= 20 and y < 30
         assert z == 123
+        counter = counter + 1
+assert counter == 70
 """
 
     assert_run_success(fprime_test_api, seq)
@@ -2607,4 +2610,23 @@ def test_def_with_args(fprime_test_api):
 def test(arg: U8):
     pass
 """
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_invalid_var_name(fprime_test_api):
+    seq = """
+$value0: U8 = 0
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_newline_in_body(fprime_test_api):
+    seq = """
+if True:
+    val: U8 = 0
+
+    pass
+"""
+
     assert_run_success(fprime_test_api, seq)

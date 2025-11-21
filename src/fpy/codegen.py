@@ -12,9 +12,11 @@ try:
 except ImportError:
     UNION_TYPES = (Union,)
 
-from fpy.ir import Ir, IrGoto, IrIf, IrLabel
+from fpy.error import BackendError
+from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.model import DirectiveErrorCode
 from fpy.types import (
+    MAX_DIRECTIVES_COUNT,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
@@ -24,12 +26,14 @@ from fpy.types import (
     FpyCast,
     FpyCmd,
     FpyFloatValue,
+    FpyFunction,
     FpyInlineMacro,
     FpyTypeCtor,
     FpyVariable,
     FpyIntegerValue,
     FpyStringValue,
     NothingValue,
+    Visitor,
     is_instance_compat,
 )
 
@@ -39,6 +43,7 @@ from fpy.bytecode.directives import (
     AllocateDirective,
     ArrayIndexType,
     BinaryStackOp,
+    CallDirective,
     ConstCmdDirective,
     DiscardDirective,
     ExitDirective,
@@ -48,6 +53,8 @@ from fpy.bytecode.directives import (
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
     FwOpcodeType,
+    GotoDirective,
+    IfDirective,
     IntegerSignedExtend16To64Directive,
     IntegerSignedExtend32To64Directive,
     IntegerSignedExtend8To64Directive,
@@ -65,6 +72,7 @@ from fpy.bytecode.directives import (
     MemCompareDirective,
     NoOpDirective,
     IntegerTruncate64To32Directive,
+    ReturnDirective,
     SignedIntToFloatDirective,
     StackCmdDirective,
     Directive,
@@ -97,12 +105,14 @@ from fpy.syntax import (
     AstBody,
     AstBreak,
     AstContinue,
+    AstDef,
     AstExpr,
     AstFor,
     AstGetAttr,
     AstGetItem,
     AstLiteral,
     AstNodeWithSideEffects,
+    AstReturn,
     AstScopedBody,
     AstScopedBody,
     AstIf,
@@ -114,7 +124,12 @@ from fpy.syntax import (
 )
 
 
-class GenerateCode:
+class GenerateFunctions(Visitor):
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        code = GenerateFunctionBody().emit(node.body, state)
+        state.generated_funcs[node] = code
+
+class GenerateFunctionBody:
 
     def __init__(self):
         self.emitters: dict[type[Ast], Callable] = {}
@@ -342,15 +357,27 @@ class GenerateCode:
 
     def emit_AstScopedBody(self, node: AstScopedBody, state: CompileState):
         dirs = []
-        if state.root == node:
-            # calculate lvar array size bytes, also assign lvar offsets
-            for var in state.variables:
-                # doesn't have an lvar idx, allocate one
-                lvar_offset = state.lvar_array_size_bytes
-                state.lvar_array_size_bytes += var.type.getMaxSize()
-                var.lvar_offset = lvar_offset
+        # calculate lvar array size bytes, also assign lvar offsets
+        bytes_to_allocate = 0
+        lvar_array_size_bytes = 0
+        for name, ref in state.local_scopes[node].items():
+            if not is_instance_compat(ref, FpyVariable):
+                # doesn't require space to be allocated
+                continue
+            if ref.lvar_offset is not None:
+                # already have allocated space for it
+                lvar_array_size_bytes += ref.type.getMaxSize()
+                continue
+            # doesn't have an lvar offset, allocate one at the end of
+            # the current array
+            lvar_offset = lvar_array_size_bytes
+            lvar_array_size_bytes += ref.type.getMaxSize()
+            bytes_to_allocate += ref.type.getMaxSize()
+            ref.lvar_offset = lvar_offset
 
-            dirs.append(AllocateDirective(state.lvar_array_size_bytes))
+        if bytes_to_allocate > 0:
+            dirs.append(AllocateDirective(bytes_to_allocate))
+
         for stmt in node.stmts:
             if not is_instance_compat(stmt, AstNodeWithSideEffects):
                 # if the stmt can't do anything on its own, ignore it
@@ -468,6 +495,18 @@ class GenerateCode:
         else:
             loop_start = state.while_loop_end_labels[enclosing_loop]
         return [IrGoto(loop_start)]
+
+    def emit_AstDef(self, node: AstDef, state: CompileState):
+        # don't generate other functions, just do this one
+        return []
+
+    def visit_AstReturn(self, node: AstReturn, state: CompileState):
+        dirs = self.emit(node.value, state)
+        value_size = state.expr_converted_types[node.value].getMaxSize()
+        dirs.append(ReturnDirective(value_size))
+
+        return dirs
+
 
     def emit_AstFor(self, node: AstFor, state: CompileState):
         # should have been desugared out
@@ -704,6 +743,17 @@ class GenerateCode:
             # just putting the arg value on the stack should be good enough, the
             # conversion will happen below
             dirs.extend(self.emit(node_args[0], state))
+        elif is_instance_compat(func, FpyFunction):
+            # script-defined function
+            # okay.. calling convention says we're going to put the args on the stack
+            for arg_node in node_args:
+                dirs.extend(self.emit(arg_node, state))
+            # okay, args are on the stack. now we're going to generate CALL
+            func_entry_label = state.func_entry_labels[func]
+            # push the offset of the func
+            dirs.append(IrPushLabelOffset(func_entry_label))
+            # pop it off the stack and perform func call
+            dirs.append(CallDirective())
         else:
             assert False, func
 
@@ -721,6 +771,7 @@ class GenerateCode:
         const_lvar_offset = -1
         if is_instance_compat(lhs, FpyVariable):
             const_lvar_offset = lhs.lvar_offset
+            assert const_lvar_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldReference), lhs
@@ -811,3 +862,66 @@ class GenerateCode:
         dirs.append(end_label)
 
         return dirs
+
+class IrPass:
+    def run(
+        self, ir: list[Directive | Ir], state: CompileState
+    ) -> Union[list[Directive | Ir], BackendError]:
+        pass
+
+
+class ResolveLabels(IrPass):
+    def run(self, ir, state: CompileState):
+        labels: dict[str, int] = {}
+        idx = 0
+        dirs = []
+        for dir in ir:
+            if is_instance_compat(dir, IrLabel):
+                if dir.name in labels:
+                    return BackendError(f"Label {dir.name} already exists")
+                labels[dir.name] = idx
+                continue
+            idx += 1
+
+        # okay, we have all the labels
+        for dir in ir:
+            if is_instance_compat(dir, IrLabel):
+                # drop these from the result
+                continue
+            elif is_instance_compat(dir, IrGoto):
+                label = dir.label.name
+                if label not in labels:
+                    return BackendError(f"Unknown label {label}")
+                dirs.append(GotoDirective(labels[label]))
+            elif is_instance_compat(dir, IrIf):
+                label = dir.goto_if_false_label.name
+                if label not in labels:
+                    return BackendError(f"Unknown label {label}")
+                dirs.append(IfDirective(labels[label]))
+            elif is_instance_compat(dir, IrPushLabelOffset):
+                label = dir.label.name
+                if label not in labels:
+                    return BackendError(f"Unknown label {label}")
+                dirs.append(PushValDirective(StackSizeType(labels[label]).serialize()))
+            else:
+                dirs.append(dir)
+
+        return dirs
+
+
+class FinalChecks(IrPass):
+    def run(self, ir, state):
+        # if state.lvar_array_size_bytes > MAX_STACK_SIZE:
+        #     return BackendError(
+        #         f"Stack size too big (expected less than {MAX_STACK_SIZE}, had {state.lvar_array_size_bytes})"
+        #     )
+        if len(ir) > MAX_DIRECTIVES_COUNT:
+            return BackendError(
+                f"Too many directives in sequence (expected less than {MAX_DIRECTIVES_COUNT}, had {len(ir)})"
+            )
+
+        for dir in ir:
+            # double check we've got rid of all the IR
+            assert is_instance_compat(dir, Directive), dir
+
+        return ir

@@ -164,8 +164,6 @@ class CreateVariables(TopDownVisitor):
             var = FpyVariable(node.lhs.var, node.type_ann, node)
             # new var. put it in the table under this scope
             state.local_scopes[node][node.lhs.var] = var
-            # also put it in the big list
-            state.variables.append(var)
         else:
             # otherwise, it's a reference to an existing var
             resolved = resolve_var(node, node.lhs.var, state)
@@ -214,15 +212,14 @@ class CreateVariables(TopDownVisitor):
         else:
             # new var. put it in the table under this scope
             loop_var = FpyVariable(node.loop_var.var, None, node, LoopVarValue)
-            state.local_scopes[node][node.loop_var.var] = loop_var
-            state.variables.append(loop_var)
+            state.local_scopes[node][loop_var.name] = loop_var
 
         # each loop also declares an implicit ub variable
         # type of ub var is same as loop var type
         upper_bound_var = FpyVariable(
             state.new_anonymous_variable_name(), None, node, LoopVarValue
         )
-        state.variables.append(upper_bound_var)
+        state.local_scopes[node][upper_bound_var.name] = upper_bound_var
         analysis = ForLoopAnalysis(loop_var, upper_bound_var, reuse_existing_loop_var)
         state.for_loops[node] = analysis
 
@@ -231,7 +228,7 @@ class CreateVariables(TopDownVisitor):
         for arg in node.parameters:
             arg_name, arg_type = arg
             arg_var = FpyVariable(arg_name, arg_type, node)
-            
+            state.local_scopes[node][arg_name] = arg_var
 
 
 class SetEnclosingLoops(Visitor):
@@ -601,7 +598,10 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # if we currently have a float
         if issubclass(from_type, FloatValue):
             # the dest must be a float and must be >= width
-            return issubclass(to_type, FloatValue) and to_type.get_bits() >= from_type.get_bits()
+            return (
+                issubclass(to_type, FloatValue)
+                and to_type.get_bits() >= from_type.get_bits()
+            )
 
         # otherwise must be an int
         assert issubclass(from_type, IntegerValue)
@@ -1630,7 +1630,7 @@ class WarnRangesAreNotEmpty(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
         lower_value: LoopVarValue = state.expr_converted_values.get(node.lower_bound)
-        upper_value: LoopVarValue = state.expr_converted_values.get(node.lower_bound)
+        upper_value: LoopVarValue = state.expr_converted_values.get(node.upper_bound)
         if lower_value is None or upper_value is None:
             # cannot check at compile time
             return

@@ -5,38 +5,40 @@ input: (_NEWLINE | _stmt)*
 _literal: number | string | boolean
 
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
-_small_stmt: _expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt
+_small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
 _compound_stmt: if_stmt | for_stmt | while_stmt | def_stmt
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
 
-_expr_stmt: _expr
+expr_stmt: expr
 
 
-assert_stmt: "assert" _expr ["," _expr]
+assert_stmt: "assert" expr ["," expr]
+
+return_stmt: "return" [expr]
 
 # assignment
 
-assign: _expr [":" _expr] "=" _expr
+assign: expr [":" expr] "=" expr
 
-parameters: name ":" _expr ("," name ":" _expr)*
+parameters: name ":" expr ("," name ":" expr)*
 def_stmt: "def" name "(" [parameters] ")" ":" scoped_body
 
 # loops
-for_stmt: "for" var "in" _expr ":" body
-while_stmt: "while" _expr ":" body
+for_stmt: "for" var "in" expr ":" body
+while_stmt: "while" expr ":" body
 
 # branching
 
-if_stmt: "if" _expr ":" body elifs ["else" ":" body]
+if_stmt: "if" expr ":" body elifs ["else" ":" body]
 elifs: elif_*
-elif_: "elif" _expr ":" body
+elif_: "elif" expr ":" body
 
 body: _NEWLINE _INDENT _stmt+ _DEDENT
 scoped_body: _NEWLINE _INDENT _stmt+ _DEDENT
 
-_expr: _test
+?expr: _test
 
 # logical tests
 _test: or_test
@@ -71,18 +73,18 @@ _test: or_test
        | SUB_OP factor -> unary_op # unary minus (negation)
        | power
 
-?power: atom_expr POW_OP factor -> binary_op
-      | atom_expr
+?power: atomexpr POW_OP factor -> binary_op
+      | atomexpr
 
-arguments: _expr ("," _expr)*
+arguments: expr ("," expr)*
 
-?atom_expr: atom_expr "(" [arguments] ")" -> func_call
-          | atom_expr "[" _expr "]" -> get_item
-          | atom_expr "." name -> get_attr
+?atomexpr: atomexpr "(" [arguments] ")" -> func_call
+          | atomexpr "[" expr "]" -> get_item
+          | atomexpr "." name -> get_attr
           | atom
 
 ?atom: _literal
-     | "(" _expr ")"
+     | "(" expr ")"
      | var
 
 var: name

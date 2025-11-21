@@ -17,9 +17,12 @@ from fprime.common.models.serialize.type_base import BaseType as FppValue
 from lark import Lark
 from fprime_gds.common.fpy.bytecode.directives import Directive
 from fpy.codegen import (
-    GenerateCode,
+    FinalChecks,
+    GenerateFunctionBody,
+    GenerateFunctions,
+    IrPass,
+    ResolveLabels,
 )
-from fpy.ir import FinalChecks, IrPass, ResolveLabels
 from fpy.desugaring import DesugarForLoops
 from fpy.semantics import (
     AssignIds,
@@ -183,13 +186,13 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
 
 
 def ast_to_directives(
-    body: AstScopedBody,
+    main_body: AstScopedBody,
     dictionary: str,
     compile_args: dict | None = None,
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
     state = get_base_compile_state(dictionary, compile_args)
-    state.root = body
+    state.root = main_body
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
@@ -220,18 +223,25 @@ def ast_to_directives(
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]
-    code_generator = GenerateCode()
+    codegen_passes = [
+        GenerateFunctions()
+    ]
+    main_func_generator = GenerateFunctionBody()
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
 
     for compile_pass in semantics_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(main_body, state)
         if len(state.errors) != 0:
             return state.errors[0]
     for compile_pass in desugaring_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(main_body, state)
         if len(state.errors) != 0:
             return state.errors[0]
-    ir = code_generator.emit(body, state)
+    for compile_pass in codegen_passes:
+        compile_pass.run(main_body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
+    
     for compile_pass in ir_passes:
         ir = compile_pass.run(ir, state)
         if isinstance(ir, BackendError):

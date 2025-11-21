@@ -700,8 +700,8 @@ class ExitDirective(Directive):
 class GetFieldDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.GET_FIELD
     # pops an offset off the stack
-    parent_size: StackSizeType
-    member_size: StackSizeType
+    parent_size: Union[int, StackSizeType]
+    member_size: Union[int, StackSizeType]
 
 
 @dataclass
@@ -723,7 +723,7 @@ class CallDirective(Directive):
 class ReturnDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.RETURN
 
-    return_val_size: StackSizeType
+    return_val_size: Union[int, StackSizeType]
 
 
 for cls in Directive.__subclasses__():

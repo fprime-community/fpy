@@ -224,6 +224,11 @@ class AstContinue(Ast):
 
 
 @dataclass
+class AstReturn(Ast):
+    value: Union[AstExpr, None]
+
+
+@dataclass
 class AstDef(Ast):
     name: str
     parameters: list[tuple[str, AstExpr]]
@@ -317,33 +322,12 @@ def handle_parameters(meta, args):
     return pairs
 
 
-def handle_assign(meta, args):
-    # for some stupid reason i cannot get this to work without
-    # this hacky function
-    value = args[-1]
-    var = args[0]
-    if len(args) > 2:
-        type = args[1]
-    else:
-        type = None
-    return AstAssign(meta, var, type, value)
-
-
-def handle_assert(meta, args):
-    condition = args[0]
-    if len(args) > 1:
-        exit_code = args[1]
-    else:
-        exit_code = None
-    return AstAssert(meta, condition, exit_code)
-
-
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
     input = no_inline(AstScopedBody)
     pass_stmt = AstPass
 
-    assign = no_inline(handle_assign)
+    assign = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -351,7 +335,7 @@ class FpyTransformer(Transformer):
     break_stmt = AstBreak
     continue_stmt = AstContinue
 
-    assert_stmt = no_inline(handle_assert)
+    assert_stmt = AstAssert
 
     if_stmt = AstIf
     elifs = no_inline(AstElifs)
@@ -374,6 +358,7 @@ class FpyTransformer(Transformer):
 
     def_stmt = AstDef
     parameters = no_inline(handle_parameters)
+    return_stmt = AstReturn
 
     NAME = str
     DEC_NUMBER = int
