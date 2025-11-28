@@ -269,14 +269,14 @@ class CreateVariables(TopDownVisitor):
             return
 
         for arg in node.parameters:
-            arg_name, arg_type = arg
-            existing_local = state.local_scopes[node.body].get(arg_name)
+            arg_name_var, arg_type_expr = arg
+            existing_local = state.local_scopes[node.body].get(arg_name_var)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"'{arg_name}' has already been declared", node)
+                state.err(f"'{arg_name_var}' has already been declared", node)
                 return
-            arg_var = FpyVariable(arg_name, arg_type, node)
-            state.local_scopes[node.body][arg_name] = arg_var
+            arg_var = FpyVariable(arg_name_var, arg_type_expr, node)
+            state.local_scopes[node.body][arg_name_var.var] = arg_var
 
 
 class SetEnclosingLoops(Visitor):
@@ -614,7 +614,7 @@ class ResolveTypesAndFuncs(TopDownVisitor):
 
         if node.return_type is not None:
             return_type = self.finish_resolving_ref(
-                node, state.types, "type", type, state
+                node.return_type, state.types, "type", type, state
             )
             if return_type is None:
                 # already errored
@@ -625,6 +625,7 @@ class ResolveTypesAndFuncs(TopDownVisitor):
         if node.parameters is not None:
             for arg_name_var, arg_type_expr in node.parameters:
                 # don't need to do arg_name because it's a var, already done
+                arg_var = state.resolved_references[arg_name_var]
 
                 arg_type = self.finish_resolving_ref(
                     arg_type_expr, state.types, "type", type, state
@@ -638,6 +639,7 @@ class ResolveTypesAndFuncs(TopDownVisitor):
                 # okay now we know the type of the arg, we can go update it in the
                 # arg var struct
                 args.append((arg_name_var.var, arg_type))
+                arg_var.type = arg_type
 
         func.args = args
 
@@ -691,8 +693,8 @@ class CheckUseBeforeDeclare(Visitor):
             # not a variable, might be a type name or smth
             return
 
-        if is_instance_compat(ref.declaration, AstFor):
-            # this will be handled  by other pass
+        if is_instance_compat(ref.declaration, (AstFor, AstDef)):
+            # this will be handled by other pass, or not needed for checks
             return
         if (
             is_instance_compat(ref.declaration, AstAssign)
@@ -737,8 +739,8 @@ class CheckUseBeforeDeclareForLoopVariables(TopDownVisitor):
             # not a variable, might be a type name or smth
             return
 
-        if is_instance_compat(ref.declaration, AstAssign):
-            # handled by prev pass
+        if is_instance_compat(ref.declaration, (AstAssign, AstDef)):
+            # handled by prev pass or not needed to check
             return
         if (
             is_instance_compat(ref.declaration, AstFor)

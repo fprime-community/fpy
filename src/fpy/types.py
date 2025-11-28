@@ -607,7 +607,7 @@ class Visitor:
                 field_val = getattr(node, field.name)
                 if isinstance(field_val, list):
                     # also handle the one case where we have a list of tuples
-                    if isinstance(field_val[0], tuple):
+                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
                         field_val = itertools.chain.from_iterable(field_val)
                     children.extend(field_val)
                 else:
@@ -640,7 +640,7 @@ class TopDownVisitor(Visitor):
                 field_val = getattr(node, field.name)
                 if isinstance(field_val, list):
                     # also handle the one case where we have a list of tuples
-                    if isinstance(field_val[0], tuple):
+                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
                         field_val = itertools.chain.from_iterable(field_val)
                     children.extend(field_val)
                 else:
