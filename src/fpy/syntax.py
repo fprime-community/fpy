@@ -320,7 +320,7 @@ def handle_parameters(meta, args):
     assert len(args) % 2 == 0, args
     # pair up the arg name and arg type
     pairs = []
-    for i in range(len(args) // 2):
+    for i in range(0, len(args), 2):
         pairs.append((args[i], args[i + 1]))
     return pairs
 

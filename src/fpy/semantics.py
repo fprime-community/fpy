@@ -1869,8 +1869,12 @@ class CheckExpressionsInLocalScopeOrAreConsts(Visitor):
         if not is_instance_compat(var, (FpyVariable, FieldReference)):
             return
 
-        if node.var not in state.local_scopes[node]:
-            # if it wasn't declared in this scope
+        if (
+            node.var not in state.local_scopes[node]
+            and node not in state.expr_converted_values
+        ):
+            # if it wasn't declared in this scope, or it was declared outside this scope and it's not a
+            # const
             state.err(f"Cannot access {node.var} in this scope", node)
             return
 
@@ -1893,16 +1897,21 @@ class CheckAllBranchesReturn(Visitor):
 
     def visit_AstIf(self, node: AstIf, state: CompileState):
         # an if statement returns if all of its branches return
-        returns = [state.does_return[node.body]]
-        if node.els is not None:
-            returns.append(state.does_return[node.els])
-        for _elif in node.elifs.cases:
-            returns.append(state.does_return[_elif])
-        state.does_return[node] = all(returns)
+        branch_returns = [state.does_return[node.body]]
 
-    def visit_AstElif(
-        self, node: Union[AstElif], state: CompileState
-    ):
+        if node.elifs is not None:
+            for _elif in node.elifs.cases:
+                branch_returns.append(state.does_return[_elif])
+
+        if node.els is not None:
+            branch_returns.append(state.does_return[node.els])
+        else:
+            # implicit else branch that falls through without returning
+            branch_returns.append(False)
+
+        state.does_return[node] = all(branch_returns)
+
+    def visit_AstElif(self, node: Union[AstElif], state: CompileState):
         state.does_return[node] = state.does_return[node.body]
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -1911,7 +1920,9 @@ class CheckAllBranchesReturn(Visitor):
 
     def visit_AstAssign_AstPass_AstAssert_AstContinue_AstBreak_AstWhile_AstFor(
         self,
-        node: Union[AstAssign, AstPass, AstAssert, AstContinue, AstBreak, AstWhile, AstFor],
+        node: Union[
+            AstAssign, AstPass, AstAssert, AstContinue, AstBreak, AstWhile, AstFor
+        ],
         state: CompileState,
     ):
         state.does_return[node] = False
@@ -1931,7 +1942,9 @@ class CheckFunctionReturns(Visitor):
             return
         CheckAllBranchesReturn().run(node.body, state)
         if not state.does_return[node.body]:
-            state.err(f"Function '{node.name.var}' does not always return a value", node)
+            state.err(
+                f"Function '{node.name.var}' does not always return a value", node
+            )
             return
 
 
