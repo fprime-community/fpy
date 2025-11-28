@@ -351,7 +351,7 @@ class GenerateFunctionBody(Emitter):
             lvar_offset = lvar_array_size_bytes
             lvar_array_size_bytes += ref.type.getMaxSize()
             bytes_to_allocate += ref.type.getMaxSize()
-            ref.lvar_offset = lvar_offset
+            ref.frame_offset = lvar_offset
 
         if bytes_to_allocate > 0:
             dirs.append(AllocateDirective(bytes_to_allocate))
@@ -755,10 +755,10 @@ class GenerateFunctionBody(Emitter):
     def emit_AstAssign(self, node: AstAssign, state: CompileState):
         lhs = state.resolved_references[node.lhs]
 
-        const_lvar_offset = -1
+        const_frame_offset = -1
         if is_instance_compat(lhs, FpyVariable):
-            const_lvar_offset = lhs.frame_offset
-            assert const_lvar_offset is not None, lhs
+            const_frame_offset = lhs.frame_offset
+            assert const_frame_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldReference), lhs
@@ -768,7 +768,7 @@ class GenerateFunctionBody(Emitter):
             # okay, are we assigning to a member or an element?
             if lhs.is_struct_member:
                 # if it's a struct, then the lvar offset is always constant
-                const_lvar_offset = lhs.base_offset + lhs.base_ref.frame_offset
+                const_frame_offset = lhs.base_offset + lhs.base_ref.frame_offset
             else:
                 assert lhs.is_array_element
                 # again, offset is the offset in base type + offset of base lvar
@@ -782,7 +782,7 @@ class GenerateFunctionBody(Emitter):
                     assert is_instance_compat(const_idx_expr_value, ArrayIndexType)
                     # okay, so we have a constant value index
                     lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
-                    const_lvar_offset = (
+                    const_frame_offset = (
                         lhs.base_ref.frame_offset
                         + const_idx_expr_value.val
                         * lhs_parent_type.MEMBER_TYPE.getMaxSize()
@@ -792,10 +792,10 @@ class GenerateFunctionBody(Emitter):
         # start with rhs on stack
         dirs = self.emit(node.rhs, state)
 
-        if const_lvar_offset != -1:
+        if const_frame_offset != -1:
             # in this case, we can use StoreConstOffset
             dirs.append(
-                StoreConstOffsetDirective(const_lvar_offset, lhs.type.getMaxSize())
+                StoreConstOffsetDirective(const_frame_offset, lhs.type.getMaxSize())
             )
         else:
             # okay we don't know the offset at compile time

@@ -2775,7 +2775,7 @@ assert test2() == 1
     assert_run_success(fprime_test_api, seq)
 
 
-def test_two_func_args(fprime_test_api):
+def test_two_func_args_same_name(fprime_test_api):
     seq = """
 
 def test(arg: U8, arg: U8):
