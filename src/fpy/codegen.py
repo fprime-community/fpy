@@ -92,6 +92,7 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
 from fprime.common.models.serialize.array_type import ArrayType as ArrayValue
+from fprime.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U64Type as U64Value,
@@ -619,33 +620,36 @@ class GenerateFunctionBody(Emitter):
         if const_dirs is not None:
             return const_dirs
 
-        # push lhs and rhs to stack
-        dirs = self.emit(node.lhs, state)
-        dirs.extend(self.emit(node.rhs, state))
-
-        intermediate_type = state.op_intermediate_types[node]
-
-        if (
-            node.op == BinaryStackOp.EQUAL or node.op == BinaryStackOp.NOT_EQUAL
-        ) and intermediate_type not in SPECIFIC_NUMERIC_TYPES:
-            lhs_type = state.expr_converted_types[node.lhs]
-            rhs_type = state.expr_converted_types[node.rhs]
-            assert lhs_type == rhs_type, (lhs_type, rhs_type)
-            dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
-            if node.op == BinaryStackOp.NOT_EQUAL:
-                dirs.append(NotDirective())
-        elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value:
-            # for float floor division, do float division, then convert to int, then
-            # back to float
-            dirs.append(FloatDivideDirective())
-            dirs.append(FloatToSignedIntDirective())
-            dirs.append(SignedIntToFloatDirective())
+        if node.op in (BinaryStackOp.AND, BinaryStackOp.OR):
+            dirs = self.generate_short_circuit_boolean(node, state)
         else:
+            # push lhs and rhs to stack
+            dirs = self.emit(node.lhs, state)
+            dirs.extend(self.emit(node.rhs, state))
 
-            dir = BINARY_STACK_OPS[node.op][intermediate_type]
-            if dir != NoOpDirective:
-                # don't include no op
-                dirs.append(dir())
+            intermediate_type = state.op_intermediate_types[node]
+
+            if (
+                node.op == BinaryStackOp.EQUAL or node.op == BinaryStackOp.NOT_EQUAL
+            ) and intermediate_type not in SPECIFIC_NUMERIC_TYPES:
+                lhs_type = state.expr_converted_types[node.lhs]
+                rhs_type = state.expr_converted_types[node.rhs]
+                assert lhs_type == rhs_type, (lhs_type, rhs_type)
+                dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
+                if node.op == BinaryStackOp.NOT_EQUAL:
+                    dirs.append(NotDirective())
+            elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value:
+                # for float floor division, do float division, then convert to int, then
+                # back to float
+                dirs.append(FloatDivideDirective())
+                dirs.append(FloatToSignedIntDirective())
+                dirs.append(SignedIntToFloatDirective())
+            else:
+
+                dir = BINARY_STACK_OPS[node.op][intermediate_type]
+                if dir != NoOpDirective:
+                    # don't include no op
+                    dirs.append(dir())
 
         # and convert the result of the op into the desired result of this expr
         unconverted_type = state.expr_unconverted_types[node]
@@ -653,6 +657,34 @@ class GenerateFunctionBody(Emitter):
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
+        return dirs
+
+    def generate_short_circuit_boolean(
+        self, node: AstBinaryOp, state: CompileState
+    ) -> list[Directive | Ir]:
+        dirs: list[Directive | Ir] = []
+        end_label = IrLabel(node, "bool_end")
+
+        if node.op == BinaryStackOp.AND:
+            short_label = IrLabel(node, "and_short")
+            dirs.extend(self.emit(node.lhs, state))
+            # jump to short circuit when lhs is false
+            dirs.append(IrIf(short_label))
+            dirs.extend(self.emit(node.rhs, state))
+            dirs.append(IrGoto(end_label))
+            dirs.append(short_label)
+            dirs.append(PushValDirective(BoolValue(False).serialize()))
+        else:
+            rhs_label = IrLabel(node, "or_rhs")
+            dirs.extend(self.emit(node.lhs, state))
+            # only evaluate rhs if lhs is false
+            dirs.append(IrIf(rhs_label))
+            dirs.append(PushValDirective(BoolValue(True).serialize()))
+            dirs.append(IrGoto(end_label))
+            dirs.append(rhs_label)
+            dirs.extend(self.emit(node.rhs, state))
+
+        dirs.append(end_label)
         return dirs
 
     def emit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):

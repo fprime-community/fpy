@@ -2949,3 +2949,69 @@ assert add_vals(1, 2) == 3
 """
 
     assert_run_success(fprime_test_api, seq)
+
+
+def test_nested_func_capture_outer_local(fprime_test_api):
+    seq = """
+def outer() -> U32:
+    local_val: U32 = 42
+    def inner() -> U32:
+        return local_val
+    return inner()
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_nested_func_capture_outer_arg(fprime_test_api):
+    seq = """
+def outer(value: U32) -> U32:
+    def inner() -> U32:
+        return value
+    return inner()
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_const_float_downcast_rounding(fprime_test_api):
+    rounding_seq = """
+narrow: F32 = 16777217.0
+assert F64(narrow) == 16777216.0
+"""
+
+    assert_run_success(fprime_test_api, rounding_seq)
+
+    overflow_seq = """
+narrow: F32 = 3.5e38
+"""
+
+    assert_compile_failure(fprime_test_api, overflow_seq)
+
+
+def test_and_short_circuit_skips_rhs(fprime_test_api):
+    seq = """
+def boom() -> bool:
+    assert False
+    return True
+
+if False and boom():
+    exit(1)
+exit(0)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_or_short_circuit_skips_rhs(fprime_test_api):
+    seq = """
+def boom() -> bool:
+    assert False
+    return False
+
+if True or boom():
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)

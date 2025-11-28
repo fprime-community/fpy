@@ -1,6 +1,7 @@
 from __future__ import annotations
 from decimal import Decimal
 import decimal
+import struct
 from numbers import Number
 from typing import Union
 
@@ -266,12 +267,12 @@ class CreateVariables(TopDownVisitor):
 
         for arg in node.parameters:
             arg_name_var, arg_type_expr = arg
-            existing_local = state.local_scopes[node.body].get(arg_name_var)
+            existing_local = state.local_scopes[node.body].get(arg_name_var.var)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"'{arg_name_var}' has already been declared", node)
+                state.err(f"'{arg_name_var.var}' has already been declared", arg_name_var)
                 return
-            arg_var = FpyVariable(arg_name_var, arg_type_expr, node)
+            arg_var = FpyVariable(arg_name_var.var, arg_type_expr, node)
             state.local_scopes[node.body][arg_name_var.var] = arg_var
 
 
@@ -1353,6 +1354,17 @@ class CalculateConstExprValues(Visitor):
     """for each expr, try to calculate its constant value and store it in a map. stores None if no value could be
     calculated at compile time, and NothingType if the expr had no value"""
 
+    @staticmethod
+    def _round_float_to_type(value: float, to_type: type[FloatValue]) -> float | None:
+        fmt = to_type.get_serialize_format()
+        assert fmt is not None, to_type
+        try:
+            packed = struct.pack(fmt, value)
+        except OverflowError:
+            return None
+
+        return struct.unpack(fmt, packed)[0]
+
     def const_convert_type(
         self,
         from_val: FppValue,
@@ -1382,11 +1394,24 @@ class CalculateConstExprValues(Visitor):
                     return FpyFloatValue(Decimal(from_val))
 
                 # otherwise, we're going to a finite bitwidth float type
+                try:
+                    coerced_value = float(from_val)
+                except OverflowError:
+                    state.err(
+                        f"{from_val} is out of range for type {typename(to_type)}",
+                        node,
+                    )
+                    return None
 
-                # based on inspection of the underlying FloatValue classes,
-                # floats do not need narrowing handling
-                coerced_value = float(from_val)
-                converted = to_type(coerced_value)
+                rounded_value = self._round_float_to_type(coerced_value, to_type)
+                if rounded_value is None:
+                    state.err(
+                        f"{from_val} is out of range for type {typename(to_type)}",
+                        node,
+                    )
+                    return None
+
+                converted = to_type(rounded_value)
                 try:
                     # catch if we would crash the struct packing lib
                     converted.serialize()
@@ -1869,10 +1894,8 @@ class CheckExpressionsInLocalScopeOrAreConsts(Visitor):
         if not is_instance_compat(var, (FpyVariable, FieldReference)):
             return
 
-        if (
-            node.var not in state.local_scopes[node]
-            and node not in state.expr_converted_values
-        ):
+        const_value = state.expr_converted_values.get(node)
+        if node.var not in state.local_scopes[node] and const_value is None:
             # if it wasn't declared in this scope, or it was declared outside this scope and it's not a
             # const
             state.err(f"Cannot access {node.var} in this scope", node)

@@ -39,8 +39,9 @@ For types, Fpy has most of the same basic ones that FPP does:
 * Unsigned integers: `U8, U16, U32, U64`
 * Floats: `F32, F64`
 * Boolean: `bool`
+* Time: `Fw.Time`
 
-Float literals are denoted with a decimal point (`5.0`, `0.123`) and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
+Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
 Note there is currently no built-in `string` type. See [Strings](#16-strings).
 
@@ -175,6 +176,8 @@ value: bool = 1 > 2 and (3 + 4) != 5
 * Inequalities: `>, <, >=, <=`
 * Equalities: `==, !=`
 * Boolean functions: `and, or, not`
+
+Boolean `and` and `or` short-circuit just like Python: the right-hand expression only evaluates when the result is still undecided.
 
 
 The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two of the same complex type:
@@ -330,9 +333,9 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
 
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
-# sleep until 12345678900 seconds and 0 microseconds after the epoch
+# sleep until 1234567890 seconds and 0 microseconds after the epoch
 # time base of 0, time context of 1
-sleep_until(Fw.Time(0, 1, 12345678900, 0))
+sleep_until(Fw.Time(0, 1, 1234567890, 0))
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
