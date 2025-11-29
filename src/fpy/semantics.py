@@ -19,6 +19,7 @@ from fpy.types import (
     FpyCast,
     FpyFloatValue,
     FpyFunction,
+    FpyOverloadedFunction,
     FpyReference,
     FpyScope,
     FpyTypeCtor,
@@ -244,11 +245,8 @@ class CreateVariables(TopDownVisitor):
         state.for_loops[node] = analysis
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        existing_func = state.local_scopes[node].get(node.name.var)
-        if existing_func is not None:
-            state.err(f"'{node.name.var}' has already been declared", node.name)
-            return
-
+        existing = state.local_scopes[node].get(node.name.var)
+        
         func = FpyFunction(
             # we know the name
             node.name.var,
@@ -259,7 +257,27 @@ class CreateVariables(TopDownVisitor):
             definition=node,
         )
 
-        state.local_scopes[node][func.name] = func
+        if existing is not None:
+            # Check if it's a variable (not a function) - that's an error
+            if is_instance_compat(existing, FpyVariable):
+                state.err(f"'{node.name.var}' has already been declared as a variable", node.name)
+                return
+            # Check if it's already an overload set
+            if is_instance_compat(existing, FpyOverloadedFunction):
+                # Will be validated in ResolveTypesAndFuncs after we know the arg types
+                existing.overloads.append(func)
+            elif is_instance_compat(existing, FpyFunction):
+                # Convert to overload set
+                overload_set = FpyOverloadedFunction(
+                    name=node.name.var,
+                    overloads=[existing, func]
+                )
+                state.local_scopes[node][func.name] = overload_set
+            else:
+                state.err(f"'{node.name.var}' has already been declared", node.name)
+                return
+        else:
+            state.local_scopes[node][func.name] = func
 
         if node.parameters is None:
             # no arguments
@@ -624,9 +642,25 @@ class ResolveTypesAndFuncs(TopDownVisitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # don't need to do func because it's a var, already done
-        func = state.resolved_references[node.name]
+        ref = state.resolved_references[node.name]
 
-        assert is_instance_compat(func, FpyFunction), func
+        # ref might be FpyFunction or FpyOverloadedFunction
+        # Find the actual FpyFunction for this definition
+        if is_instance_compat(ref, FpyOverloadedFunction):
+            # Find the function in the overload set that corresponds to this definition
+            func = None
+            for f in ref.overloads:
+                if f.definition is node:
+                    func = f
+                    break
+            assert func is not None, "Could not find function in overload set"
+        else:
+            assert is_instance_compat(ref, FpyFunction), ref
+            func = ref
+        
+        # Store the specific FpyFunction for this definition's name AstVar
+        # This allows later passes to directly access the right function without iterating
+        state.resolved_references[node.name] = func
 
         if node.return_type is not None:
             return_type = self.finish_resolving_ref(
@@ -669,6 +703,25 @@ class ResolveTypesAndFuncs(TopDownVisitor):
             args = list(reversed(args))
 
         func.args = args
+        
+        # Now check for duplicate signatures in overload sets
+        if is_instance_compat(ref, FpyOverloadedFunction):
+            for other_func in ref.overloads:
+                if other_func is func:
+                    continue
+                # Only compare if the other function has resolved args
+                if other_func.args is None:
+                    continue
+                # Check if signatures match (same number and types of args)
+                other_args = other_func.args or []
+                func_args = func.args or []
+                if len(func_args) == len(other_args):
+                    if all(t1 == t2 for (_, t1), (_, t2) in zip(func_args, other_args)):
+                        state.err(
+                            f"Function '{func.name}' already has an overload with the same argument types",
+                            node.name
+                        )
+                        return
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
@@ -687,7 +740,7 @@ class ResolveTypesAndFuncs(TopDownVisitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         if not self.finish_resolving_ref(
-            node.func, state.callables, "function", FpyCallable, state
+            node.func, state.callables, "function", (FpyCallable, FpyOverloadedFunction), state
         ):
             return
 
@@ -977,6 +1030,9 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # it has a return type but you have to call it (with an AstFuncCall)
             # consider making a separate "reference" type
             result_type = NothingValue
+        elif isinstance(ref, FpyOverloadedFunction):
+            # a reference to an overload set isn't a type in and of itself
+            result_type = NothingValue
         elif isinstance(ref, FpyVariable):
             result_type = ref.type
         elif isinstance(ref, type):
@@ -997,7 +1053,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         parent_ref = state.resolved_references.get(node.parent)
 
-        if is_instance_compat(parent_ref, (type, FpyCallable)):
+        if is_instance_compat(parent_ref, (type, FpyCallable, FpyOverloadedFunction)):
             state.err("Unknown attribute", node)
             return
 
@@ -1196,22 +1252,25 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         func: FpyCallable,
         node_args: list[AstExpr],
         state: CompileState,
-    ) -> CompileError | None:
-        """check if a function call matches the expected arguments.
-        given args must be coercible to expected args, with a special case for casting
+        report_errors: bool = True,
+    ) -> int | None:
+        """Check if a function call matches the expected arguments.
+        Given args must be coercible to expected args, with a special case for casting
         where any numeric type is accepted.
-        returns a compile error if no match, otherwise none"""
-        func_args = func.args
-        if len(node_args) < len(func_args):
-            return CompileError(
-                f"Missing arguments (expected {len(func_args)} found {len(node_args)})",
-                node,
-            )
-        if len(node_args) > len(func_args):
-            return CompileError(
-                f"Too many arguments (expected {len(func_args)} found {len(node_args)})",
-                node,
-            )
+        
+        Returns an int score (lower is better, 0 = exact match) if args match,
+        or None if function cannot be called with these args.
+        
+        If report_errors is True, generates compile errors via state.err().
+        """
+        func_args = func.args or []
+        if len(node_args) != len(func_args):
+            if report_errors:
+                state.err(
+                    f"Wrong number of arguments (expected {len(func_args)} found {len(node_args)})",
+                    node,
+                )
+            return None
         if is_instance_compat(func, FpyCast):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
@@ -1222,27 +1281,85 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             assert output_type in SPECIFIC_NUMERIC_TYPES
             if not issubclass(input_type, NumericalValue):
                 # cannot convert a non-numeric type to a numeric type
-                return CompileError(
-                    f"Expected a number, found {typename(input_type)}", node_arg
-                )
+                if report_errors:
+                    state.err(f"Expected a number, found {typename(input_type)}", node_arg)
+                return None
             # no error! looks good to me
-            return
+            return 0
 
+        score = 0
         for value_expr, arg in zip(node_args, func_args):
             arg_name, arg_type = arg
 
             unconverted_type = state.expr_unconverted_types[value_expr]
+            if unconverted_type == arg_type:
+                # Exact match - best case
+                continue
             if not self.can_coerce_type(unconverted_type, arg_type):
-                return CompileError(
-                    f"Expected {typename(arg_type)}, found {typename(unconverted_type)}",
-                    node,
-                )
+                if report_errors:
+                    state.err(
+                        f"Expected {typename(arg_type)}, found {typename(unconverted_type)}",
+                        value_expr,
+                    )
+                return None
+            # Coercion needed - add a penalty for scoring
+            score += 1
         # all args r good
-        return
+        return score
+
+    def select_best_overload(
+        self,
+        node: AstFuncCall,
+        overload_set: FpyOverloadedFunction,
+        node_args: list[AstExpr],
+        state: CompileState,
+    ) -> FpyFunction | None:
+        """Select the best matching overload from an overload set.
+        Returns None if no overload matches or if there's an ambiguous match."""
+        best_score = None
+        best_func = None
+        ambiguous = False
+        
+        for func in overload_set.overloads:
+            score = self.check_args_coercible_to_func(node, func, node_args, state, report_errors=False)
+            if score is None:
+                continue
+            
+            if best_score is None or score < best_score:
+                best_score = score
+                best_func = func
+                ambiguous = False
+            elif score == best_score:
+                ambiguous = True
+        
+        if best_func is None:
+            # No matching overload found
+            # Generate a helpful error message showing available overloads
+            overload_sigs = []
+            for func in overload_set.overloads:
+                if func.args:
+                    sig = ", ".join(f"{name}: {typename(t)}" for name, t in func.args)
+                else:
+                    sig = ""
+                overload_sigs.append(f"  {func.name}({sig})")
+            state.err(
+                f"No matching overload for '{overload_set.name}'. Available overloads:\n" + "\n".join(overload_sigs),
+                node
+            )
+            return None
+        
+        if ambiguous:
+            state.err(
+                f"Ambiguous call to '{overload_set.name}': multiple overloads match with same score",
+                node
+            )
+            return None
+        
+        return best_func
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        func = state.resolved_references.get(node.func)
-        if func is None:
+        func_ref = state.resolved_references.get(node.func)
+        if func_ref is None:
             # if it were a reference to a callable, it would have already been resolved
             # if it were a ref to smth else, it would have already errored
             # so it's not even a ref, just some expr
@@ -1250,11 +1367,21 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
         node_args = node.args if node.args else []
 
-        error_or_none = self.check_args_coercible_to_func(node, func, node_args, state)
-        if is_instance_compat(error_or_none, CompileError):
-            state.errors.append(error_or_none)
+        # Handle overload resolution
+        func = None
+        if is_instance_compat(func_ref, FpyOverloadedFunction):
+            func = self.select_best_overload(node, func_ref, node_args, state)
+            if func is None:
+                # Error already reported
+                return
+            # Store the resolved function (not the overload set) for code generation
+            state.resolved_references[node.func] = func
+        else:
+            func = func_ref
+
+        if self.check_args_coercible_to_func(node, func, node_args, state) is None:
+            # Error already reported by check_args_coercible_to_func
             return
-        # otherwise, no error, we're good!
 
         # okay, we've made sure that the func is possible
         # to call with these args
@@ -1343,8 +1470,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         pass
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        func = state.enclosing_funcs[node]
-        func = state.resolved_references[func.name]
+        enclosing_func_def = state.enclosing_funcs[node]
+        # resolved_references[enclosing_func_def.name] is set to the specific FpyFunction
+        # in ResolveTypesAndFuncs.visit_AstDef
+        func = state.resolved_references[enclosing_func_def.name]
+        assert is_instance_compat(func, FpyFunction), func
+            
         if func.return_type is NothingValue and node.value is not None:
             state.err("Expected no return value", node.value)
             return
@@ -1612,7 +1743,7 @@ class CalculateConstExprValues(Visitor):
         converted_type = state.expr_converted_types[node]
         ref = state.resolved_references[node]
         expr_value = None
-        if is_instance_compat(ref, (type, dict, FpyCallable)):
+        if is_instance_compat(ref, (type, dict, FpyCallable, FpyOverloadedFunction)):
             # these types have no value
             state.expr_converted_values[node] = NothingValue()
             assert unconverted_type == converted_type, (

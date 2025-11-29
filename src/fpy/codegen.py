@@ -137,7 +137,11 @@ class GenerateFunctions(Visitor):
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
         code.extend(GenerateFunctionBody().emit(node.body, state))
+        # resolved_references[node.name] is set to the specific FpyFunction
+        # in ResolveTypesAndFuncs.visit_AstDef
         func = state.resolved_references[node.name]
+        assert isinstance(func, FpyFunction), func
+        
         if func.return_type is NothingValue and not state.does_return[node.body]:
             arg_bytes = sum(
                 arg_type.getMaxSize() for _, arg_type in (func.args or [])
@@ -489,8 +493,12 @@ class GenerateFunctionBody(Emitter):
         return []
 
     def emit_AstReturn(self, node: AstReturn, state: CompileState):
-        enclosing_func = state.enclosing_funcs[node]
-        enclosing_func = state.resolved_references[enclosing_func.name]
+        enclosing_func_def = state.enclosing_funcs[node]
+        # resolved_references[enclosing_func_def.name] is set to the specific FpyFunction
+        # in ResolveTypesAndFuncs.visit_AstDef
+        enclosing_func = state.resolved_references[enclosing_func_def.name]
+        assert isinstance(enclosing_func, FpyFunction), enclosing_func
+        
         func_args_size = sum(arg_type.getMaxSize() for arg_name, arg_type in enclosing_func.args)
 
         if node.value is not None:

@@ -274,6 +274,13 @@ class FpyFunction(FpyCallable):
 
 
 @dataclass
+class FpyOverloadedFunction:
+    """A set of overloaded functions with the same name but different argument signatures"""
+    name: str
+    overloads: list[FpyFunction]
+
+
+@dataclass
 class FpyTypeCtor(FpyCallable):
     type: FppType
 
@@ -435,6 +442,7 @@ FpyReference = typing.Union[
     PrmTemplate,
     FppValue,
     FpyCallable,
+    FpyOverloadedFunction,
     FppType,
     FpyVariable,
     FieldReference,

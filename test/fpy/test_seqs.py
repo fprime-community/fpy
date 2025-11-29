@@ -3038,3 +3038,202 @@ assert echo(5) == 5
 """
 
     assert_run_success(fprime_test_api, seq)
+
+
+# Function overloading tests
+
+def test_basic_function_overload_different_arg_count(fprime_test_api):
+    """Test that functions can be overloaded with different number of arguments"""
+    seq = """
+def greet() -> U64:
+    return 1
+
+def greet(a: U64) -> U64:
+    return a + 10
+
+def greet(a: U64, b: U64) -> U64:
+    return a + b
+
+assert greet() == 1
+assert greet(5) == 15
+assert greet(3, 4) == 7
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_function_overload_different_arg_types(fprime_test_api):
+    """Test that functions can be overloaded with different argument types"""
+    seq = """
+def process(a: U32) -> U64:
+    return a + 1
+
+def process(a: I32) -> I64:
+    return a - 1
+
+x: U32 = 10
+y: I32 = 10
+
+assert process(x) == 11
+assert process(y) == 9
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_overload_with_type_coercion(fprime_test_api):
+    """Test that overload resolution prefers exact matches over coercion"""
+    seq = """
+def convert(a: U64) -> U64:
+    return a + 100
+
+def convert(a: U32) -> U64:
+    return a + 10
+
+x: U32 = 5
+y: U64 = 5
+
+# U32 should match the U32 overload exactly
+assert convert(x) == 15
+# U64 should match the U64 overload exactly
+assert convert(y) == 105
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_overload_same_signature_fails(fprime_test_api):
+    """Test that declaring two functions with the same signature fails"""
+    seq = """
+def test(a: U32) -> U32:
+    return a
+
+def test(a: U32) -> U32:
+    return a + 1
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_overload_no_matching_signature(fprime_test_api):
+    """Test that calling an overloaded function with non-matching arguments fails"""
+    seq = """
+def foo(a: U32, b: U32) -> U32:
+    return a + b
+
+def foo(a: I32) -> I32:
+    return a
+
+# No overload matches 3 arguments
+foo(1, 2, 3)
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_overload_with_return_type_difference(fprime_test_api):
+    """Test that overloads can have different return types"""
+    seq = """
+def make(a: U32) -> U64:
+    return a * 2
+
+def make(a: I32) -> I64:
+    return a * 3
+
+x: U32 = 5
+y: I32 = 5
+
+result1: U64 = make(x)
+result2: I64 = make(y)
+
+assert result1 == 10
+assert result2 == 15
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_overload_multiple_args_type_selection(fprime_test_api):
+    """Test overload resolution with multiple arguments of different types"""
+    seq = """
+def combine(a: U32, b: U32) -> U64:
+    return 1
+
+def combine(a: U32, b: I32) -> U64:
+    return 2
+
+def combine(a: I32, b: U32) -> U64:
+    return 3
+
+def combine(a: I32, b: I32) -> U64:
+    return 4
+
+x: U32 = 1
+y: I32 = 1
+
+assert combine(x, x) == 1
+assert combine(x, y) == 2
+assert combine(y, x) == 3
+assert combine(y, y) == 4
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_overload_recursive_function(fprime_test_api):
+    seq = """
+def factorial(n: U64) -> U64:
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+def factorial(n: U64, acc: U64) -> U64:
+    if n <= 1:
+        return acc
+    return factorial(n - 1, acc * n)
+
+assert factorial(5) == 120
+assert factorial(5, 1) == 120
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_overload_select_by_arg_count_not_type(fprime_test_api):
+    """Test overload selection primarily by argument count"""
+    seq = """
+def calc(a: U32) -> U64:
+    return a + 1
+
+def calc(a: U32, b: U32) -> U64:
+    return a + b + 2
+
+assert calc(10) == 11
+assert calc(10, 20) == 32
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_three_overloads(fprime_test_api):
+    """Test three overloaded functions"""
+    seq = """
+def triple() -> U64:
+    return 0
+
+def triple(a: U64) -> U64:
+    return a
+
+def triple(a: U64, b: U64) -> U64:
+    return a + b
+
+def triple(a: U64, b: U64, c: U64) -> U64:
+    return a + b + c
+
+assert triple() == 0
+assert triple(1) == 1
+assert triple(1, 2) == 3
+assert triple(1, 2, 3) == 6
+"""
+
+    assert_run_success(fprime_test_api, seq)
