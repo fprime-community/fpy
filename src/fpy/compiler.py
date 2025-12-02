@@ -29,6 +29,7 @@ from fpy.semantics import (
     AssignIds,
     AssignLocalScopes,
     CalculateConstExprValues,
+    CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
     CheckConstArrayAccesses,
     CheckFunctionReturns,
@@ -220,6 +221,11 @@ def ast_to_directives(
         CheckUseBeforeDeclareForLoopVariables(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveAttrsAndItems(),
+        # Calculate const values for default arguments first (and check they're const).
+        # This must happen before CalculateConstExprValues because call sites may
+        # reference functions defined later in the source, and we need the default
+        # values' const values to be available.
+        CalculateDefaultArgConstValues(),
         # okay, now that we're sure we're passing in all the right args to each func,
         # we can calculate values of type ctors etc etc
         CalculateConstExprValues(),

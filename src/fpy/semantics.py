@@ -305,7 +305,9 @@ class CreateVariables(TopDownVisitor):
             existing_local = state.local_scopes[node.body].get(arg_name_var.var)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"'{arg_name_var.var}' has already been declared", arg_name_var)
+                state.err(
+                    f"'{arg_name_var.var}' has already been declared", arg_name_var
+                )
                 return
             arg_var = FpyVariable(arg_name_var.var, arg_type_expr, node)
             state.local_scopes[node.body][arg_name_var.var] = arg_var
@@ -441,11 +443,15 @@ class ResolveNameRoots(TopDownVisitor):
             # Handle both positional args (AstExpr) and named args (AstNamedArgument)
             if is_instance_compat(arg, AstNamedArgument):
                 # For named arguments, resolve the value expression
-                if not self.try_resolve_root_ref(arg.value, state.runtime_values, "value", state):
+                if not self.try_resolve_root_ref(
+                    arg.value, state.runtime_values, "value", state
+                ):
                     return
             else:
                 # arg value refs must have values at runtime
-                if not self.try_resolve_root_ref(arg, state.runtime_values, "value", state):
+                if not self.try_resolve_root_ref(
+                    arg, state.runtime_values, "value", state
+                ):
                     return
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
@@ -1246,21 +1252,21 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         state: CompileState,
     ) -> list[AstExpr] | CompileError:
         """Resolve named arguments to positional order.
-        
+
         Returns a list of argument expressions in positional order, filling in
         None for arguments that were not provided (will be filled with defaults later).
         Returns a CompileError if there's an issue with the arguments.
         """
         func_args = func.args
-        
+
         # Build a map of parameter name to index
         param_name_to_idx = {arg[0]: i for i, arg in enumerate(func_args)}
-        
+
         # Track which arguments have been assigned
         assigned_args: list[AstExpr | None] = [None] * len(func_args)
         seen_named = False
         positional_count = 0
-        
+
         for arg in node_args:
             if is_instance_compat(arg, AstNamedArgument):
                 seen_named = True
@@ -1299,10 +1305,10 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                     )
                 assigned_args[positional_count] = arg
                 positional_count += 1
-        
+
         return assigned_args
 
-    def check_args_coercible_to_func(
+    def check_arg_types_compatible_with_func(
         self,
         node: AstFuncCall,
         func: FpyCallable,
@@ -1315,7 +1321,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         resolved_args should be in positional order, with None for missing args.
         returns a compile error if no match, otherwise none"""
         func_args = func.args
-        
+
         # Check that all required args (those without defaults) are provided
         for i, arg in enumerate(func_args):
             has_default = arg[2] is not None
@@ -1324,7 +1330,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                     f"Missing required argument '{arg[0]}'",
                     node,
                 )
-        
+
         if is_instance_compat(func, FpyCast):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
@@ -1346,7 +1352,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             if value_expr is None:
                 # This arg has a default value, will be filled in during desugaring
                 continue
-                
+
             arg_name = arg[0]
             arg_type = arg[1]
 
@@ -1368,17 +1374,19 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             state.err(f"Unknown function", node.func)
             return
         node_args = node.args if node.args else []
-        
-        # Resolve named arguments to positional order
+
+        # Resolve named arguments to positional order with None placeholders for defaults
         resolved_args = self.resolve_named_args(node, func, node_args, state)
         if is_instance_compat(resolved_args, CompileError):
             state.errors.append(resolved_args)
             return
-        
+
         # Store the resolved args for use in desugaring
         state.resolved_func_args[node] = resolved_args
 
-        error_or_none = self.check_args_coercible_to_func(node, func, resolved_args, state)
+        error_or_none = self.check_arg_types_compatible_with_func(
+            node, func, resolved_args, state
+        )
         if is_instance_compat(error_or_none, CompileError):
             state.errors.append(error_or_none)
             return
@@ -1403,7 +1411,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                 if value_expr is None:
                     # This arg has a default value, will be filled in during desugaring
                     continue
-                    
+
                 arg_name = arg[0]
                 arg_type = arg[1]
 
@@ -1474,11 +1482,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # Validate that default argument types are compatible with parameter types
         if node.parameters is None:
             return
-        
+
         func = state.resolved_references[node.name]
         if not is_instance_compat(func, FpyFunction):
             return
-        
+
         for (arg_name_var, arg_type_expr, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
         ):
@@ -1506,6 +1514,39 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def visit_default(self, node, state):
         # coding error, missed an expr
         assert not is_instance_compat(node, AstStmtWithExpr), node
+
+
+class CalculateDefaultArgConstValues(Visitor):
+    """Pass that calculates const values for default argument expressions.
+    
+    This must run before CalculateConstExprValues because function call sites may
+    reference functions defined later in the source. When we visit a call site that
+    uses default arguments, we need the default value's const value to be available.
+    
+    This pass also enforces that default values are const expressions.
+    """
+    
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node.parameters is None:
+            return
+        
+        for arg_name_var, _, default_value in node.parameters:
+            if default_value is None:
+                continue
+            
+            # Run the full CalculateConstExprValues pass on just this default expr
+            CalculateConstExprValues().run(default_value, state)
+            if len(state.errors) != 0:
+                return
+            
+            # Check that the default value is a const expression
+            const_value = state.expr_converted_values.get(default_value)
+            if const_value is None:
+                state.err(
+                    f"Default value for argument '{arg_name_var.var}' must be a constant expression",
+                    default_value,
+                )
+                return
 
 
 class CalculateConstExprValues(Visitor):
@@ -1561,7 +1602,9 @@ class CalculateConstExprValues(Visitor):
                     )
                     return None
 
-                rounded_value = CalculateConstExprValues._round_float_to_type(coerced_value, to_type)
+                rounded_value = CalculateConstExprValues._round_float_to_type(
+                    coerced_value, to_type
+                )
                 if rounded_value is None:
                     state.err(
                         f"{from_val} is out of range for type {typename(to_type)}",
@@ -1766,7 +1809,12 @@ class CalculateConstExprValues(Visitor):
             )
             return
         elif is_instance_compat(ref, (ChTemplate, PrmTemplate, FpyVariable)):
-            # has a value but won't try to calc at compile time
+            # Has a value but we don't try to calculate it at compile time.
+            # NOTE: If you ever add const-folding for FpyVariable here, you must also
+            # update CalculateDefaultArgConstValues. That pass runs CalculateConstExprValues
+            # on default argument expressions BEFORE this pass runs on variable assignments.
+            # So if a default value references a variable, the variable's const value won't
+            # be available yet, and the default value will incorrectly be rejected as non-const.
             state.expr_converted_values[node] = None
             return
         elif is_instance_compat(ref, FppValue):
@@ -1793,22 +1841,33 @@ class CalculateConstExprValues(Visitor):
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_references[node.func]
         assert is_instance_compat(func, FpyCallable)
-        
-        # Use resolved args from semantic analysis (already in positional order)
+
+        # Use resolved args from semantic analysis (already in positional order, with
+        # None placeholders for defaults)
         # This is guaranteed to be set by PickTypesAndResolveAttrsAndItems
         resolved_args = state.resolved_func_args[node]
+
+        # Gather arg values, using default values where args are not provided.
+        # Since default values are required to be const exprs (enforced by 
+        # CheckDefaultArgsAreConstExprs), we can safely use their const values.
+        # Note: We use .get() because if the function is defined after this call site,
+        # the default value expr may not have been visited yet.
+        arg_values = []
+        for i, arg_expr in enumerate(resolved_args):
+            if arg_expr is not None:
+                # Argument was provided - use its const value
+                arg_values.append(state.expr_converted_values.get(arg_expr))
+            else:
+                # Argument uses default value - get const value from default expr.
+                # The default value is guaranteed to be const (enforced by 
+                # CalculateDefaultArgConstValues which runs before this pass).
+                default_expr = func.args[i][2]
+                assert default_expr is not None, (
+                    f"Missing default value for argument at position {i}. "
+                    f"This should have been caught by semantic analysis."
+                )
+                arg_values.append(state.expr_converted_values[default_expr])
         
-        # For const folding, we need all arguments to be provided and constant
-        # Check if any args are missing (None in resolved_args means not provided)
-        if any(arg is None for arg in resolved_args):
-            state.expr_converted_values[node] = None
-            return
-        
-        # gather arg values
-        arg_values = [
-            state.expr_converted_values[e]
-            for e in resolved_args
-        ]
         unknown_value = any(v is None for v in arg_values)
         if unknown_value:
             # we will have to calculate this at runtime
@@ -2054,19 +2113,9 @@ class CalculateConstExprValues(Visitor):
 
 
 class CheckNonConstVarAccess(Visitor):
-    """Check that non-const variable access is only to allowed scopes.
-    
-    This is used for two cases:
-    1. Function bodies: can access own locals/args, but not outer function locals
-    2. Default values: can't access any locals
-    
-    The check is: if a variable is not a compile-time constant, it must be declared
-    in the `allowed_scope` (or the variable access is rejected).
-    
-    For function bodies, `allowed_scope` is the function's body scope.
-    For default values, `allowed_scope` is None
-    """
-    def __init__(self, allowed_scope: FpyScope | None):
+    """Check that non-const variable access is only to allowed scopes."""
+
+    def __init__(self, allowed_scope: FpyScope):
         super().__init__()
         self.allowed_scope = allowed_scope
 
@@ -2079,39 +2128,24 @@ class CheckNonConstVarAccess(Visitor):
             return
 
         const_value = state.expr_converted_values.get(node)
-        
+
         # Compile-time constants are always allowed because we can inline their value
         if const_value is not None:
             return
-        
+
         # Check if variable is declared in the allowed scope
-        if self.allowed_scope is not None and node.var in self.allowed_scope:
+        if node.var not in self.allowed_scope:
+            # Not allowed - emit error
+            state.err(f"Cannot access '{node.var}' in this scope", node)
             return
-        
-        # Not allowed - emit error
-        state.err(f"Cannot access '{node.var}' in this scope", node)
 
 
 class CheckFunctionsAccessConstExprsFromOutsideScope(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Inside the function body: can access own locals/args, but not outer function locals
         CheckNonConstVarAccess(
-            state.local_scopes[node.body], 
+            state.local_scopes[node.body],
         ).run(node.body, state)
-        
-        # Default values: can only access constants, no access to locals is allowed
-        # yes, it is true that default values get evaluated at the call site, so you could 
-        # call the func in a place where the var is in scope. however, nothing prevents you from calling
-        # the func in a place where the var is out of scope. this can happen if the function
-        # recursively calls itself. if the default value accesses a variable outside of the function scope,
-        # then to recursively call with that default value would be to access that value inside of the
-        # function scope, which is not allowed.
-        if node.parameters is not None:
-            for _, _, default_value in node.parameters:
-                if default_value is not None:
-                    CheckNonConstVarAccess(
-                        None,  # No local scope is allowed
-                    ).run(default_value, state)
 
 
 class CheckAllBranchesReturn(Visitor):

@@ -3184,44 +3184,52 @@ assert test() == 232
 
 
 def test_default_arg_with_tlm(fprime_test_api):
-    """Default value can be a runtime value like telemetry - evaluated at call site."""
+    """Default value cannot be a runtime value like telemetry - must be const expr."""
     seq = """
-CdhCore.cmdDisp.CMD_NO_OP()
-
 def test(a: U32 = CdhCore.cmdDisp.CommandsDispatched) -> U32:
     return a
-
-# Default gets evaluated at call time, not definition time
-# So this should get the current telemetry value
-assert test() >= 1
 """
 
-    assert_run_success(
-        fprime_test_api,
-        seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(1).serialize()},
-    )
+    # Should fail because telemetry is not a const expression
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_default_arg_with_function_call(fprime_test_api):
-    """Default value can be a function call - evaluated at call site."""
+    """Default value cannot be a function call - must be const expr."""
     seq = """
 def helper() -> U64:
     return 42
 
 def test(a: U64 = helper()) -> U64:
     return a
+"""
 
-# Function call default is evaluated each time test() is called without args
-assert test() == 42
-assert test(100) == 100
+    # Should fail because function call is not a const expression
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_default_arg_forward_called_function(fprime_test_api):
+    """Default arg const values are calculated even for forward-called functions.
+    
+    This tests that when a function is called before it's defined in the source,
+    the default argument's const value is still properly available.
+    """
+    seq = """
+def caller() -> U64:
+    # Call test() before it's defined, using default arg
+    return test()
+
+def test(a: U64 = 42) -> U64:
+    return a
+
+assert caller() == 42
 """
 
     assert_run_success(fprime_test_api, seq)
 
 
 def test_default_arg_with_variable(fprime_test_api):
-    """Default value cannot reference a variable - evaluated at call site."""
+    """Default value cannot reference a variable - must be const expr."""
     seq = """
 x: U64 = 10
 
@@ -3229,15 +3237,12 @@ def test(a: U64 = x) -> U64:
     return test()
 """
 
+    # Should fail because variable is not a const expression
     assert_compile_failure(fprime_test_api, seq)
 
 
 def test_default_arg_nested_func_cannot_access_outer_local(fprime_test_api):
-    """Default value in nested function cannot access outer function's non-const local variables.
-    
-    This is rejected because if the nested function is called recursively,
-    the outer function's locals won't be on the correct stack frame.
-    """
+    """Default value cannot reference a variable - must be const expr."""
     seq = """
 def outer() -> U64:
     x: U64 = 10
@@ -3248,7 +3253,7 @@ def outer() -> U64:
     return inner()
 """
 
-    # Should fail: outer local not accessible in default (recursion safety)
+    # Should fail because x is not a const expression
     assert_compile_failure(fprime_test_api, seq)
 
 

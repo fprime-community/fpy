@@ -4,7 +4,6 @@ from fpy.syntax import (
     Ast,
     AstAssign,
     AstBinaryOp,
-    AstExpr,
     AstFor,
     AstFuncCall,
     AstNumber,
@@ -16,11 +15,9 @@ from fpy.types import (
     CompileState,
     ForLoopAnalysis,
     FppType,
-    FpyFunction,
     FpyReference,
     FpyIntegerValue,
     Transformer,
-    is_instance_compat,
 )
 from fprime.common.models.serialize.type_base import BaseType as FppValue
 from fprime.common.models.serialize.bool_type import BoolType as BoolValue
