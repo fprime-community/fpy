@@ -6,7 +6,7 @@ This guide is a quick overview of the most important features of Fpy. It should 
 
 ## 1. Compiling and Running a Sequence
 
-First, make sure `fprime-gds` is installed.
+First, make sure `fprime-fpy` is installed.
 
 Fpy sequences are suffixed with `.fpy`. Let's make a test sequence that dispatches a no-op:
 ```py
