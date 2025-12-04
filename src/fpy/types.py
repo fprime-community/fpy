@@ -569,6 +569,10 @@ class CompileState:
         self.warnings.append(CompileError("Warning: " + msg, n))
 
 
+# Cache for visitor method mappings, keyed by visitor class
+_visitor_cache: dict[type, dict[type, str]] = {}
+
+
 class Visitor:
     """visits each class, calling a custom visit function, if one is defined, for each
     node type"""
@@ -579,7 +583,17 @@ class Visitor:
         self.build_visitor_dict()
 
     def build_visitor_dict(self):
-        for name, func in inspect.getmembers(type(self), inspect.isfunction):
+        cls = type(self)
+        # Check if this class's visitor mapping is already cached
+        if cls in _visitor_cache:
+            # Use cached mapping (maps node type -> method name)
+            for node_type, method_name in _visitor_cache[cls].items():
+                self.visitors[node_type] = getattr(self, method_name)
+            return
+
+        # Build the mapping and cache it
+        class_cache: dict[type, str] = {}
+        for name, func in inspect.getmembers(cls, inspect.isfunction):
             if not name.startswith("visit") or name == "visit_default":
                 # not a visitor, or the default visit func
                 continue
@@ -594,10 +608,14 @@ class Visitor:
             if origin in UNION_TYPES:
                 # It's a Union type, so get its arguments.
                 for t in get_args(param_type):
+                    class_cache[t] = name
                     self.visitors[t] = getattr(self, name)
             else:
                 # It's not a Union, so it's a regular type
+                class_cache[param_type] = name
                 self.visitors[param_type] = getattr(self, name)
+
+        _visitor_cache[cls] = class_cache
 
     def _visit(self, node: Ast, state: CompileState):
         visit_func = self.visitors.get(type(node), self.visit_default)
@@ -748,6 +766,11 @@ class Transformer(Visitor):
         _descend(start)
         self._visit(start, state)
 
+
+# Cache for emitter method mappings, keyed by emitter class
+_emitter_cache: dict[type, dict[type, str]] = {}
+
+
 class Emitter:
     # Default: not in a function (top-level code)
     # Subclasses override this to indicate function body context
@@ -759,9 +782,19 @@ class Emitter:
         self.build_emitter_dict()
 
     def build_emitter_dict(self):
-        for name, func in inspect.getmembers(type(self), inspect.isfunction):
+        cls = type(self)
+        # Check if this class's emitter mapping is already cached
+        if cls in _emitter_cache:
+            # Use cached mapping (maps node type -> method name)
+            for node_type, method_name in _emitter_cache[cls].items():
+                self.emitters[node_type] = getattr(self, method_name)
+            return
+
+        # Build the mapping and cache it
+        class_cache: dict[type, str] = {}
+        for name, func in inspect.getmembers(cls, inspect.isfunction):
             if not name.startswith("emit_"):
-                # not a visitor, or the default visit func
+                # not an emitter
                 continue
             signature = inspect.signature(func)
             params = list(signature.parameters.values())
@@ -774,10 +807,14 @@ class Emitter:
             if origin in UNION_TYPES:
                 # It's a Union type, so get its arguments.
                 for t in get_args(param_type):
+                    class_cache[t] = name
                     self.emitters[t] = getattr(self, name)
             else:
                 # It's not a Union, so it's a regular type
+                class_cache[param_type] = name
                 self.emitters[param_type] = getattr(self, name)
+
+        _emitter_cache[cls] = class_cache
 
     def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
         return self.emitters[type(node)](node, state)

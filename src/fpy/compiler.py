@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+from functools import lru_cache
 from pathlib import Path
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fprime.common.models.serialize.bool_type import BoolType as BoolValue
@@ -68,25 +69,31 @@ from lark import Lark, LarkError
 from fpy.error import BackendError, CompileError, handle_lark_error
 import fpy.error
 
-fpy_grammar_str = (Path(__file__).parent / "grammar.lark").read_text()
+# Load grammar once at module level
+_fpy_grammar_path = Path(__file__).parent / "grammar.lark"
+_fpy_grammar_str = _fpy_grammar_path.read_text()
+
+# Create parser once at module level with LALR and cache enabled.
+# PythonIndenter.process() resets its internal state on each call,
+# so it's safe to reuse the same parser instance.
+_fpy_indenter = PythonIndenter()
+_fpy_parser = Lark(
+    _fpy_grammar_str,
+    start="input",
+    parser="lalr",
+    postlex=_fpy_indenter,
+    propagate_positions=True,
+    maybe_placeholders=True,
+)
 
 
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
 
-    parser = Lark(
-        fpy_grammar_str,
-        start="input",
-        parser="lalr",
-        postlex=PythonIndenter(),
-        propagate_positions=True,
-        maybe_placeholders=True,
-    )
-
     fpy.error.input_text = text
     fpy.error.input_lines = text.splitlines()
     try:
-        tree = parser.parse(text, on_error=handle_lark_error)
+        tree = _fpy_parser.parse(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
         return None
@@ -105,8 +112,12 @@ def text_to_ast(text: str):
     return transformed
 
 
-def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
-    """return the initial state of the compiler, based on the given dict path"""
+@lru_cache(maxsize=4)
+def _load_dictionary(dictionary: str) -> tuple:
+    """
+    Load and parse the dictionary file once, caching the results.
+    Returns a tuple of (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict).
+    """
     cmd_json_dict_loader = CmdJsonLoader(dictionary)
     (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
 
@@ -116,12 +127,27 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
     event_json_dict_loader = EventJsonLoader(dictionary)
     (_, _, _) = event_json_dict_loader.construct_dicts(dictionary)
+
     # the type name dict is a mapping of a fully qualified name to an fprime type
     # here we put into it all types found while parsing all cmds, params and tlm channels
-    type_name_dict: dict[str, FppType] = cmd_json_dict_loader.parsed_types
+    type_name_dict: dict[str, FppType] = dict(cmd_json_dict_loader.parsed_types)
     type_name_dict.update(ch_json_dict_loader.parsed_types)
     type_name_dict.update(prm_json_dict_loader.parsed_types)
     type_name_dict.update(event_json_dict_loader.parsed_types)
+
+    return (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict)
+
+
+@lru_cache(maxsize=4)
+def _build_scopes(dictionary: str) -> tuple:
+    """
+    Build and cache the scopes for a dictionary.
+    Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
+    """
+    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(dictionary)
+    
+    # Make a copy of type_name_dict since we'll mutate it
+    type_name_dict = dict(type_name_dict)
 
     # enum const dict is a dict of fully qualified enum const name (like Ref.Choice.ONE) to its fprime value
     enum_const_name_dict: dict[str, FppValue] = {}
@@ -188,12 +214,25 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     for macro_name, macro in MACROS.items():
         callable_name_dict[macro_name] = macro
 
+    return (
+        create_scope(ch_name_dict),
+        create_scope(prm_name_dict),
+        create_scope(type_name_dict),
+        create_scope(callable_name_dict),
+        create_scope(enum_const_name_dict),
+    )
+
+
+def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
+    """return the initial state of the compiler, based on the given dict path"""
+    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(dictionary)
+
     state = CompileState(
-        tlms=create_scope(ch_name_dict),
-        prms=create_scope(prm_name_dict),
-        types=create_scope(type_name_dict),
-        callables=create_scope(callable_name_dict),
-        consts=create_scope(enum_const_name_dict),
+        tlms=tlm_scope,
+        prms=prm_scope,
+        types=type_scope,
+        callables=callable_scope,
+        consts=const_scope,
         compile_args=compile_args or dict(),
     )
     return state
