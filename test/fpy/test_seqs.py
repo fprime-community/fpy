@@ -1553,17 +1553,8 @@ low_bitwidth_float: F32 = 123.0
 high_bitwidth_float: F64 = low_bitwidth_float
 # high_bitwidth_float == 123.0
 
-def print_foo():
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
-
-def recurse(limit: U64):
-    if limit == 0:
-        return
-
-    print_foo()
-    recurse(limit - 1)
-
-recurse(5) # prints "foo" 5 times
+# Global variable for increment example - must be declared before functions that use it
+counter_global: I64 = 0
 
 def foobar():
     if 1 + 2 == 3:
@@ -1575,6 +1566,28 @@ def add_vals(a: U64, b: U64) -> U64:
     return a + b
     
 assert add_vals(1, 2) == 3
+
+def greet(times: I64 = 3):
+    for i in 0..times:
+        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
+
+greet()  # uses default: prints 3 times
+greet(1) # prints once
+
+def increment():
+    counter_global = counter_global + 1
+
+increment()
+increment()
+assert counter_global == 2
+
+def recurse(limit: U64):
+    if limit == 0:
+        return
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
+    recurse(limit - 1)
+
+recurse(5) # prints "tick" 5 times
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2715,12 +2728,13 @@ for i in 0..2:
 
 def test_get_outside_var_in_func(fprime_test_api):
     seq = """
-i: U8 = 0
+i: U8 = 1
 def test():
-    assert i == 0
+    assert i == 1
+test()
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_get_outside_struct_member_in_func(fprime_test_api):
@@ -2728,9 +2742,24 @@ def test_get_outside_struct_member_in_func(fprime_test_api):
 var: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 def test():
     assert var.priority == 3
+test()
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_modify_global_var_in_func(fprime_test_api):
+    """Test that functions can modify top-level (global) variables"""
+    seq = """
+i: I64 = 0
+def increment():
+    i = i + 1
+increment()
+increment()
+assert i == 2
+"""
+
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_use_lvar_from_func_outside_func(fprime_test_api):
@@ -2764,10 +2793,45 @@ def test(arg: U8):
     assert test2() == 0
 """
 
-    assert_run_success(fprime_test_api, seq)
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_func_in_if(fprime_test_api):
+    """Function definitions are only allowed at the top level, not inside if blocks"""
+    seq = """
+if True:
+    def test():
+        pass
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_func_in_for(fprime_test_api):
+    """Function definitions are only allowed at the top level, not inside for loops"""
+    seq = """
+for i in 0..10:
+    def test():
+        pass
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_func_in_while(fprime_test_api):
+    """Function definitions are only allowed at the top level, not inside while loops"""
+    seq = """
+while True:
+    def test():
+        pass
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_use_func_outside_scope(fprime_test_api):
+    # This test previously tested nested function scoping, but nested functions
+    # are now disallowed at the syntax level. Keep as a syntax error test.
     seq = """
 def test(arg: U8):
     def test2() -> U8:

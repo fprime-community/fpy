@@ -27,7 +27,8 @@ from fpy.bytecode.directives import (
     SignedIntDivideDirective,
     SignedModuloDirective,
     StackSizeType,
-    StoreConstOffsetDirective,
+    StoreLocalConstOffsetDirective,
+    StoreGlobalConstOffsetDirective,
     UnsignedIntDivideDirective,
     IntMultiplyDirective,
     FloatLogDirective,
@@ -40,12 +41,14 @@ from fpy.bytecode.directives import (
     IntEqualDirective,
     IntNotEqualDirective,
     IntSubtractDirective,
-    LoadDirective,
+    LoadLocalDirective,
+    LoadGlobalDirective,
     NoOpDirective,
     NotDirective,
     OrDirective,
     PushValDirective,
-    StoreDirective,
+    StoreLocalDirective,
+    StoreGlobalDirective,
     UnsignedLessThanDirective,
     UnsignedLessThanOrEqualDirective,
     UnsignedGreaterThanDirective,
@@ -85,7 +88,8 @@ from fprime.common.models.serialize.time_type import TimeType as TimeValue
 debug = True
 
 # store return addr and prev stack frame offset in stack frame header
-STACK_FRAME_HEADER_SIZE = 16
+# each is StackSizeType (U32), so 4 bytes each = 8 bytes total
+STACK_FRAME_HEADER_SIZE = StackSizeType.getMaxSize() * 2
 MAX_INT64 = 2**63 - 1
 MIN_INT64 = -(2**63)
 MASK_64_BIT = 2**64 - 1
@@ -308,7 +312,7 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         self.pop(size=dir.size, type=bytes)
 
-    def handle_load(self, dir: LoadDirective):
+    def handle_load_local(self, dir: LoadLocalDirective):
         if len(self.stack) + dir.size > self.max_stack_size:
             return DirectiveErrorCode.STACK_OVERFLOW
 
@@ -323,7 +327,20 @@ class FpySequencerModel:
         ]
         self.push(value)
 
-    def handle_store(self, dir: StoreDirective):
+    def handle_load_global(self, dir: LoadGlobalDirective):
+        """Load a value from a global variable (absolute offset from start of stack)"""
+        if len(self.stack) + dir.size > self.max_stack_size:
+            return DirectiveErrorCode.STACK_OVERFLOW
+
+        if dir.global_offset < 0:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        if dir.global_offset + dir.size > len(self.stack):
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        value = self.stack[dir.global_offset : (dir.global_offset + dir.size)]
+        self.push(value)
+
+    def handle_store_local(self, dir: StoreLocalDirective):
 
         if len(self.stack) < dir.size + 4:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
@@ -343,7 +360,27 @@ class FpySequencerModel:
         for i in range(0, len(value)):
             self.stack[lvar_offset + self.stack_frame_start + i] = value[i]
 
-    def handle_store_const_offset(self, dir: StoreConstOffsetDirective):
+    def handle_store_global(self, dir: StoreGlobalDirective):
+        """Store a value to a global variable (absolute offset popped from stack)"""
+        if len(self.stack) < dir.size + 4:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        global_offset = self.pop(size=4, signed=True)
+
+        if global_offset < 0:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        if global_offset + dir.size > len(self.stack):
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        # get the last `dir.size` bytes of the stack
+        value = self.stack[-dir.size :]
+        # remove them from top of stack
+        self.stack = self.stack[: -dir.size]
+        # put into stack at the given absolute offset
+        for i in range(0, len(value)):
+            self.stack[global_offset + i] = value[i]
+
+    def handle_store_local_const_offset(self, dir: StoreLocalConstOffsetDirective):
         if len(self.stack) < dir.size:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
@@ -359,6 +396,24 @@ class FpySequencerModel:
         # put into lvar array at the given offset
         for i in range(0, len(value)):
             self.stack[dir.lvar_offset + self.stack_frame_start + i] = value[i]
+
+    def handle_store_global_const_offset(self, dir: StoreGlobalConstOffsetDirective):
+        """Store a value to a global variable at a constant absolute offset"""
+        if len(self.stack) < dir.size:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        if dir.global_offset < 0:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        if dir.global_offset + dir.size > len(self.stack):
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        # get the last `dir.size` bytes of the stack
+        value = self.stack[-dir.size :]
+        # remove them from top of stack
+        self.stack = self.stack[: -dir.size]
+        # put into stack at the given absolute offset
+        for i in range(0, len(value)):
+            self.stack[dir.global_offset + i] = value[i]
 
     def handle_push_val(self, dir: PushValDirective):
         if len(self.stack) + 8 > self.max_stack_size:

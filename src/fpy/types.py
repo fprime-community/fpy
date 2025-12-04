@@ -324,6 +324,8 @@ class FpyVariable:
     """the resolved type of the variable. None if type unsure at the moment"""
     frame_offset: int | None = None
     """the offset in the lvar array where this var is stored"""
+    is_global: bool = False
+    """whether this variable is a top-level (global) variable"""
 
 
 @dataclass
@@ -525,11 +527,11 @@ class CompileState:
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time"""
 
-    resolved_func_args: dict[AstFuncCall, list[AstExpr | None]] = field(
+    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(
         default_factory=dict
     )
     """function call to resolved arguments in positional order.
-    None entries are for arguments that will be filled with defaults."""
+    Default values are filled in for arguments not provided at the call site."""
 
     while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
     """while loop node mapped to the label pointing to the end of the loop"""
@@ -747,6 +749,9 @@ class Transformer(Visitor):
         self._visit(start, state)
 
 class Emitter:
+    # Default: not in a function (top-level code)
+    # Subclasses override this to indicate function body context
+    in_function = False
 
     def __init__(self):
         self.emitters: dict[type[Ast], Callable] = {}

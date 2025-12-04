@@ -6,9 +6,11 @@ goto_tag: NAME ":"
 
 !op_with_args: "stack_cmd" _uint
   | "memcmp" _uint
-  | "load" _int _uint
+  | "load_local" _int _uint
+  | "load_global" _int _uint
   | "allocate" _uint
-  | "store" _uint
+  | "store_local" _uint
+  | "store_global" _uint
   | "discard" _uint
   | "push_val" bytes
   | "const_cmd" _int bytes
@@ -16,7 +18,8 @@ goto_tag: NAME ":"
   | "if" (_uint|NAME)
   | "push_tlm_val" _int
   | "push_prm" _int
-  | "store_const_offset" _int _uint
+  | "store_local_const_offset" _int _uint
+  | "store_global_const_offset" _int _uint
   | "get_field" _uint _uint
   | "return" _uint _uint
 

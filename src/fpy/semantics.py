@@ -53,7 +53,6 @@ from fpy.bytecode.directives import (
     LoopVarType,
     BinaryStackOp,
     MemCompareDirective,
-    StackSizeType,
     UnaryStackOp,
 )
 from fprime_gds.common.templates.ch_template import ChTemplate
@@ -202,7 +201,10 @@ class CreateVariables(TopDownVisitor):
                 state.err(f"'{node.lhs.var}' has already been declared", node)
                 return
             # okay, declare the var
-            var = FpyVariable(node.lhs.var, node.type_ann, node)
+            # Check if we're in the root (global) scope
+            current_scope = state.local_scopes[node]
+            is_global = state.scope_parents.get(current_scope) is None
+            var = FpyVariable(node.lhs.var, node.type_ann, node, is_global=is_global)
             # new var. put it in the table under this scope
             state.local_scopes[node][node.lhs.var] = var
         else:
@@ -372,7 +374,7 @@ class CheckReturnInFunc(TopDownVisitor):
 
 class ResolveNameRoots(TopDownVisitor):
     """
-    vars are the only thing that get resolved in global scope
+    vars are the only thing that get resolved in global scope (in addition to local)
     resolve them first. then, types and funcs should be resolvable too at this point
     really the only thing we can't resolve is (Some + Complex * Expr).attr and same with (Some + Complex * Expr)[item]
     """
@@ -695,11 +697,7 @@ class ResolveTypesAndFuncs(TopDownVisitor):
 
         args = []
         if node.parameters is not None:
-            # go in reverse because that's easiest to calc stack offset relative
-            # to frame ptr
-            # start out at -8 bytes because that's where the fp/ip will go
-            offset = -StackSizeType.getMaxSize() * 2
-            for arg_name_var, arg_type_expr, default_value in reversed(node.parameters):
+            for arg_name_var, arg_type_expr, default_value in node.parameters:
                 # don't need to do arg_name because it's a var, already done
                 arg_var = state.resolved_references[arg_name_var]
 
@@ -709,18 +707,8 @@ class ResolveTypesAndFuncs(TopDownVisitor):
                 if arg_type is None:
                     # already errored
                     return
-                offset -= arg_type.getMaxSize()
-                arg_var.frame_offset = offset
-
-                # must be a type because we resolved it in type
-                assert is_instance_compat(arg_type, type), arg_type
-                # okay now we know the type of the arg, we can go update it in the
-                # arg var struct
-                args.append((arg_name_var.var, arg_type, default_value))
                 arg_var.type = arg_type
-
-            # unreverse the args
-            args = list(reversed(args))
+                args.append((arg_name_var.var, arg_type, default_value))
 
         func.args = args
 
@@ -1244,17 +1232,20 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         state.expr_unconverted_types[node] = BoolValue
         state.expr_converted_types[node] = BoolValue
 
-    def resolve_named_args(
+    def build_resolved_call_args(
         self,
         node: AstFuncCall,
         func: FpyCallable,
         node_args: list,
-        state: CompileState,
     ) -> list[AstExpr] | CompileError:
-        """Resolve named arguments to positional order.
+        """Build a complete list of argument expressions for a function call.
 
-        Returns a list of argument expressions in positional order, filling in
-        None for arguments that were not provided (will be filled with defaults later).
+        This function:
+        1. Reorders named arguments to positional order
+        2. Fills in default values for missing optional arguments
+        3. Checks for missing required arguments
+
+        Returns a list of argument expressions in positional order.
         Returns a CompileError if there's an issue with the arguments.
         """
         func_args = func.args
@@ -1306,30 +1297,35 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                 assigned_args[positional_count] = arg
                 positional_count += 1
 
+        # Fill in default values for missing arguments, error on missing required args
+        for i, arg_expr in enumerate(assigned_args):
+            if arg_expr is None:
+                default_value = func_args[i][2]
+                if default_value is not None:
+                    assigned_args[i] = default_value
+                else:
+                    return CompileError(
+                        f"Missing required argument '{func_args[i][0]}'",
+                        node,
+                    )
+
         return assigned_args
 
     def check_arg_types_compatible_with_func(
         self,
         node: AstFuncCall,
         func: FpyCallable,
-        resolved_args: list[AstExpr | None],
+        resolved_args: list[AstExpr],
         state: CompileState,
     ) -> CompileError | None:
-        """check if a function call matches the expected arguments.
-        given args must be coercible to expected args, with a special case for casting
-        where any numeric type is accepted.
-        resolved_args should be in positional order, with None for missing args.
-        returns a compile error if no match, otherwise none"""
-        func_args = func.args
+        """Check if a function call's arguments have compatible types.
 
-        # Check that all required args (those without defaults) are provided
-        for i, arg in enumerate(func_args):
-            has_default = arg[2] is not None
-            if not has_default and resolved_args[i] is None:
-                return CompileError(
-                    f"Missing required argument '{arg[0]}'",
-                    node,
-                )
+        Given args must be coercible to expected args, with a special case for casting
+        where any numeric type is accepted.
+        resolved_args must be in positional order with all values present (defaults filled in).
+        Returns a compile error if types don't match, otherwise None.
+        """
+        func_args = func.args
 
         if is_instance_compat(func, FpyCast):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
@@ -1348,13 +1344,16 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
 
         # Check provided args against expected
-        for i, (value_expr, arg) in enumerate(zip(resolved_args, func_args)):
-            if value_expr is None:
-                # This arg has a default value, will be filled in during desugaring
-                continue
-
+        for value_expr, arg in zip(resolved_args, func_args):
             arg_name = arg[0]
             arg_type = arg[1]
+
+            # Skip type check for default values from forward-called functions.
+            # These expressions haven't been visited yet, so they're not in
+            # expr_unconverted_types. Their type compatibility is verified when
+            # the function definition is visited.
+            if value_expr not in state.expr_unconverted_types:
+                continue
 
             unconverted_type = state.expr_unconverted_types[value_expr]
             if not self.can_coerce_type(unconverted_type, arg_type):
@@ -1375,13 +1374,13 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
         node_args = node.args if node.args else []
 
-        # Resolve named arguments to positional order with None placeholders for defaults
-        resolved_args = self.resolve_named_args(node, func, node_args, state)
+        # Build resolved args: reorder named args, fill in defaults, check for missing required
+        resolved_args = self.build_resolved_call_args(node, func, node_args)
         if is_instance_compat(resolved_args, CompileError):
             state.errors.append(resolved_args)
             return
 
-        # Store the resolved args for use in desugaring
+        # Store the resolved args for use in desugaring and codegen
         state.resolved_func_args[node] = resolved_args
 
         error_or_none = self.check_arg_types_compatible_with_func(
@@ -1408,13 +1407,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
-                if value_expr is None:
-                    # This arg has a default value, will be filled in during desugaring
+                # Skip coercion for default values from forward-called functions.
+                # These will be coerced when the function definition is visited.
+                if value_expr not in state.expr_unconverted_types:
                     continue
-
-                arg_name = arg[0]
                 arg_type = arg[1]
-
                 # should be good 2 go based on the check func above
                 state.expr_converted_types[value_expr] = arg_type
 
@@ -1518,27 +1515,27 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
 class CalculateDefaultArgConstValues(Visitor):
     """Pass that calculates const values for default argument expressions.
-    
+
     This must run before CalculateConstExprValues because function call sites may
     reference functions defined later in the source. When we visit a call site that
     uses default arguments, we need the default value's const value to be available.
-    
+
     This pass also enforces that default values are const expressions.
     """
-    
+
     def visit_AstDef(self, node: AstDef, state: CompileState):
         if node.parameters is None:
             return
-        
+
         for arg_name_var, _, default_value in node.parameters:
             if default_value is None:
                 continue
-            
+
             # Run the full CalculateConstExprValues pass on just this default expr
             CalculateConstExprValues().run(default_value, state)
             if len(state.errors) != 0:
                 return
-            
+
             # Check that the default value is a const expression
             const_value = state.expr_converted_values.get(default_value)
             if const_value is None:
@@ -1842,32 +1839,17 @@ class CalculateConstExprValues(Visitor):
         func = state.resolved_references[node.func]
         assert is_instance_compat(func, FpyCallable)
 
-        # Use resolved args from semantic analysis (already in positional order, with
-        # None placeholders for defaults)
+        # Use resolved args from semantic analysis (already in positional order,
+        # with defaults filled in)
         # This is guaranteed to be set by PickTypesAndResolveAttrsAndItems
         resolved_args = state.resolved_func_args[node]
 
-        # Gather arg values, using default values where args are not provided.
-        # Since default values are required to be const exprs (enforced by 
-        # CheckDefaultArgsAreConstExprs), we can safely use their const values.
-        # Note: We use .get() because if the function is defined after this call site,
-        # the default value expr may not have been visited yet.
-        arg_values = []
-        for i, arg_expr in enumerate(resolved_args):
-            if arg_expr is not None:
-                # Argument was provided - use its const value
-                arg_values.append(state.expr_converted_values.get(arg_expr))
-            else:
-                # Argument uses default value - get const value from default expr.
-                # The default value is guaranteed to be const (enforced by 
-                # CalculateDefaultArgConstValues which runs before this pass).
-                default_expr = func.args[i][2]
-                assert default_expr is not None, (
-                    f"Missing default value for argument at position {i}. "
-                    f"This should have been caught by semantic analysis."
-                )
-                arg_values.append(state.expr_converted_values[default_expr])
-        
+        # Gather arg values. Since defaults are already filled in, we just need
+        # to look up each arg's const value.
+        arg_values = [
+            state.expr_converted_values.get(arg_expr) for arg_expr in resolved_args
+        ]
+
         unknown_value = any(v is None for v in arg_values)
         if unknown_value:
             # we will have to calculate this at runtime
@@ -2110,42 +2092,6 @@ class CalculateConstExprValues(Visitor):
     def visit_default(self, node, state):
         # coding error, missed an expr
         assert not is_instance_compat(node, AstExpr), node
-
-
-class CheckNonConstVarAccess(Visitor):
-    """Check that non-const variable access is only to allowed scopes."""
-
-    def __init__(self, allowed_scope: FpyScope):
-        super().__init__()
-        self.allowed_scope = allowed_scope
-
-    def visit_AstVar(self, node: AstVar, state: CompileState):
-        var = state.resolved_references[node]
-        # should be impossible
-        assert not is_instance_compat(var, FieldReference), var
-        if not is_instance_compat(var, FpyVariable):
-            # not a reference to something stored in the stack
-            return
-
-        const_value = state.expr_converted_values.get(node)
-
-        # Compile-time constants are always allowed because we can inline their value
-        if const_value is not None:
-            return
-
-        # Check if variable is declared in the allowed scope
-        if node.var not in self.allowed_scope:
-            # Not allowed - emit error
-            state.err(f"Cannot access '{node.var}' in this scope", node)
-            return
-
-
-class CheckFunctionsAccessConstExprsFromOutsideScope(Visitor):
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Inside the function body: can access own locals/args, but not outer function locals
-        CheckNonConstVarAccess(
-            state.local_scopes[node.body],
-        ).run(node.body, state)
 
 
 class CheckAllBranchesReturn(Visitor):

@@ -59,12 +59,15 @@ class DesugarForLoops(Transformer):
         else:
             loop_var_type_name = LoopVarType.get_canonical_name()
             # create a new node for the type_ann
-            loop_var_type_var = self.new(state, AstVar(None, loop_var_type_name),
-                                        expr_converted_type=None,
-                                        expr_unconverted_type=None,
-                                        expr_converted_value=None,
-                                        op_intermediate_type=None,
-                                        resolved_reference=LoopVarType)
+            loop_var_type_var = self.new(
+                state,
+                AstVar(None, loop_var_type_name),
+                expr_converted_type=None,
+                expr_unconverted_type=None,
+                expr_converted_value=None,
+                op_intermediate_type=None,
+                resolved_reference=LoopVarType,
+            )
 
         lhs = loop_node.loop_var
         rhs = loop_node.range.lower_bound
@@ -98,12 +101,15 @@ class DesugarForLoops(Transformer):
 
         loop_var_type_name = LoopVarType.get_canonical_name()
         # create a new node for the type_ann
-        loop_var_type_var = self.new(state, AstVar(None, loop_var_type_name),
-                                     expr_converted_type=None,
-                                     expr_unconverted_type=None,
-                                     expr_converted_value=None,
-                                     op_intermediate_type=None,
-                                     resolved_reference=LoopVarType)
+        loop_var_type_var = self.new(
+            state,
+            AstVar(None, loop_var_type_name),
+            expr_converted_type=None,
+            expr_unconverted_type=None,
+            expr_converted_value=None,
+            op_intermediate_type=None,
+            resolved_reference=LoopVarType,
+        )
 
         # assign ub to ub var
         # not an expr, not a ref
@@ -272,8 +278,10 @@ class DesugarForLoops(Transformer):
         # Update any break/continue statements in the body to point to new while loop
         # instead of the original for loop
         for key, value in list(state.enclosing_loops.items()):
-            if value == node: # If a break/continue was pointing to our for loop
-                state.enclosing_loops[key] = while_loop # Point it to while loop instead
+            if value == node:  # If a break/continue was pointing to our for loop
+                state.enclosing_loops[key] = (
+                    while_loop  # Point it to while loop instead
+                )
 
         state.desugared_for_loops[while_loop] = node
 
@@ -286,15 +294,15 @@ class DesugarDefaultArgs(Transformer):
     Desugars function calls with named or missing arguments by:
     1. Reordering named arguments to positional order
     2. Filling in default values for missing arguments
-    
+
     For example, if we have:
         def foo(a: U8, b: U8 = 5, c: U8 = 10):
             pass
         foo(c=15, a=1)
-    
+
     This becomes:
         foo(1, 5, 15)
-    
+
     Note: The type coercion for default values is handled during semantic analysis
     in PickTypesAndResolveAttrsAndItems.visit_AstDef. By the time this desugaring
     runs, expr_converted_types already has the correct coerced types for default
@@ -302,41 +310,15 @@ class DesugarDefaultArgs(Transformer):
     """
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        func = state.resolved_references.get(node.func)
-        
-        if func is None or not hasattr(func, 'args') or func.args is None:
-            # Not a callable with known args
-            return node
-        
-        func_args = func.args
-        
-        # Get the resolved arguments from semantic analysis
+        # Get the resolved arguments from semantic analysis.
+        # This list is already in positional order with defaults filled in.
         resolved_args = state.resolved_func_args.get(node)
-        if resolved_args is None:
-            # No resolved args stored - this means the original args are already fine
-            # (e.g., all positional and no named args)
-            return node
-        
-        # Build the final argument list by filling in defaults for None entries
-        new_args = []
-        for i, arg_expr in enumerate(resolved_args):
-            if arg_expr is not None:
-                new_args.append(arg_expr)
-            else:
-                # Fill in the default value
-                arg_info = func_args[i]
-                default_value = arg_info[2]
-                # Assert that default_value is not None because:
-                # 1. Semantic checks verify that non-default args come before default args
-                # 2. Semantic checks verify that if resolved_args[i] is None, arg must have default
-                # If this assertion fails, the semantic checker has a bug.
-                assert default_value is not None, (
-                    f"Missing default value for argument '{arg_info[0]}' at position {i}. "
-                    f"This should have been caught by semantic analysis."
-                )
-                new_args.append(default_value)
-        
-        # Update the node's args with the reordered and filled-in arguments
-        node.args = new_args
-        
+        assert resolved_args is not None, (
+            f"No resolved args for function call {node}. "
+            f"This should have been set by PickTypesAndResolveAttrsAndItems."
+        )
+
+        # Update the node's args with the resolved arguments
+        node.args = resolved_args
+
         return node

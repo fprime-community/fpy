@@ -134,10 +134,29 @@ Each concrete numeric type provides a callable whose name matches the type (for 
 ## User-defined functions
 You can define new callables with Python-like syntax:
 ```
-def name(param_0: Type0, param_1: Type1, ...) [-> ReturnType]:
+def name(param_0: Type0, param_1: Type1 = default_value, ...) [-> ReturnType]:
     body
 ```
-Each parameter must have a type. The optional return type defaults to `None` (meaning the function cannot return a value). If a return type is specified, every path through the function must return a value of that type; omitting a return value or returning the wrong type is a compile-time error. Functions form their own scope: only parameters, variables declared inside the body, dictionary objects (commands, telemetry, parameters, enum constants, etc.), and compile-time constants can be referenced. Reading or writing non-constant variables defined outside the function body is not allowed. Functions may call other user-defined functions, commands, macros, constructors, and even recurse.
+
+### Parameters
+Each parameter must have a type annotation. Parameters may optionally have default values (e.g., `param: Type = value`). Default values must be constant expressions; they cannot reference runtime values like telemetry channels, variables, or function calls.
+
+### Return type
+The optional return type defaults to `None` (meaning the function cannot return a value). If a return type is specified, every path through the function must return a value of that type; omitting a return value or returning the wrong type is a compile-time error.
+
+### Scope
+Functions form their own scope and can access:
+* Parameters
+* Variables declared inside the function body
+* Top-level (global) variables defined before the function call site
+* Dictionary objects (commands, telemetry, parameters, enum constants, types, etc.)
+* Other user-defined functions (including forward references to functions defined later)
+
+Functions may read and write top-level variables, call other user-defined functions, commands, macros, constructors, and even recurse.
+
+### Restrictions
+* Function definitions are only allowed at the top level of the sequence. Nested function definitions (defining a function inside another function, loop, or conditional) are not allowed.
+* Default argument values must be constant expressions.
 
 # Type conversion
 

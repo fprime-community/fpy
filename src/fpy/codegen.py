@@ -69,7 +69,8 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     IntAddDirective,
     IntMultiplyDirective,
-    LoadDirective,
+    LoadLocalDirective,
+    LoadGlobalDirective,
     MemCompareDirective,
     NoOpDirective,
     IntegerTruncate64To32Directive,
@@ -81,12 +82,13 @@ from fpy.bytecode.directives import (
     NotDirective,
     PushValDirective,
     StackSizeType,
-    StoreConstOffsetDirective,
-    StoreDirective,
+    StoreLocalConstOffsetDirective,
+    StoreGlobalConstOffsetDirective,
+    StoreLocalDirective,
+    StoreGlobalDirective,
     PushPrmDirective,
     PushTlmValDirective,
     UnaryStackOp,
-    UnsignedGreaterThanOrEqualDirective,
     UnsignedIntToFloatDirective,
 )
 from fprime_gds.common.templates.ch_template import ChTemplate
@@ -127,10 +129,56 @@ from fpy.syntax import (
     AstWhile,
 )
 
+
+class AssignVariableOffsets(Visitor):
+    """Assigns frame offsets to variables before code generation.
+
+    This must run before GenerateFunctions so that global variable offsets
+    are known when generating function bodies that access them.
+    """
+
+    def visit_AstScopedBody(self, node: AstScopedBody, state: CompileState):
+        # Assign offsets to variables in this scope
+        lvar_array_size_bytes = 0
+        for name, ref in state.local_scopes[node].items():
+            if not is_instance_compat(ref, FpyVariable):
+                # doesn't require space to be allocated
+                continue
+            if ref.frame_offset is not None:
+                # Already has an offset (e.g., function argument or global)
+                continue
+            # Assign new offset
+            ref.frame_offset = lvar_array_size_bytes
+            lvar_array_size_bytes += ref.type.getMaxSize()
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        # Assign offsets for function arguments (negative offsets before frame start)
+        # The args come before the call frame header (return addr + prev frame ptr)
+        # so they have negative offsets relative to the function's stack frame start
+        func = state.resolved_references[node.name]
+        if func.args is None or len(func.args) == 0:
+            # no args
+            return
+
+        # Args are pushed left-to-right, so first arg is deepest
+        # After CALL, the stack looks like:
+        #   [args...] [return_addr] [prev_frame_ptr] <-- stack_frame_start points here
+        # So to access args, we use negative offsets from stack_frame_start
+        from fpy.model import STACK_FRAME_HEADER_SIZE
+
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg in reversed(func.args):
+            arg_name, arg_type, _ = arg
+            arg_var = state.local_scopes[node.body][arg_name]
+            arg_offset -= arg_type.getMaxSize()
+            arg_var.frame_offset = arg_offset
+
+
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
         entry_label = IrLabel(node, "entry")
         state.func_entry_labels[node] = entry_label
+
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -139,14 +187,15 @@ class GenerateFunctions(Visitor):
         code.extend(GenerateFunctionBody().emit(node.body, state))
         func = state.resolved_references[node.name]
         if func.return_type is NothingValue and not state.does_return[node.body]:
-            arg_bytes = sum(
-                arg[1].getMaxSize() for arg in (func.args or [])
-            )
+            arg_bytes = sum(arg[1].getMaxSize() for arg in (func.args or []))
             code.append(ReturnDirective(0, arg_bytes))
         state.generated_funcs[node] = code
 
 
 class GenerateFunctionBody(Emitter):
+    # Flag indicating we're generating code inside a function body
+    # This affects how we access global variables (need GLOBAL directives)
+    in_function = True
 
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
@@ -339,30 +388,30 @@ class GenerateFunctionBody(Emitter):
         # okay we're good. should still have the idx on the stack
 
         # multiply the index by the member type size
-        dirs.append(PushValDirective(U64Value(array_type.MEMBER_TYPE.getMaxSize())))
+        dirs.append(PushValDirective(U64Value(array_type.MEMBER_TYPE.getMaxSize()).serialize()))
         dirs.append(IntMultiplyDirective())
         return dirs
 
     def emit_AstScopedBody(self, node: AstScopedBody, state: CompileState):
         dirs = []
-        # calculate lvar array size bytes, also assign lvar offsets
-        bytes_to_allocate = 0
+        # Calculate lvar array size bytes (offsets already assigned by AssignVariableOffsets)
         lvar_array_size_bytes = 0
         for name, ref in state.local_scopes[node].items():
             if not is_instance_compat(ref, FpyVariable):
                 # doesn't require space to be allocated
                 continue
-            if ref.frame_offset is not None:
-                # it's on the stack, before the start of the frame
-                assert ref.frame_offset < 0
+            if ref.frame_offset is None or ref.frame_offset < 0:
+                # No offset or function argument (negative)
                 continue
-            # doesn't have an lvar offset, allocate one at the end of
-            # the current array
-            lvar_offset = lvar_array_size_bytes
-            lvar_array_size_bytes += ref.type.getMaxSize()
-            bytes_to_allocate += ref.type.getMaxSize()
-            ref.frame_offset = lvar_offset
+            if ref.is_global and self.in_function:
+                # Global variable accessed from inside a function - already allocated at top level
+                continue
+            # Track the max offset to know how much space to allocate
+            end_of_var = ref.frame_offset + ref.type.getMaxSize()
+            if end_of_var > lvar_array_size_bytes:
+                lvar_array_size_bytes = end_of_var
 
+        bytes_to_allocate = lvar_array_size_bytes
         if bytes_to_allocate > 0:
             dirs.append(AllocateDirective(bytes_to_allocate))
 
@@ -563,8 +612,13 @@ class GenerateFunctionBody(Emitter):
 
         assert is_instance_compat(ref, FpyVariable), ref
 
-        # already should be in an lvar
-        dirs = [LoadDirective(ref.frame_offset, ref.type.getMaxSize())]
+        # Use global directives only when inside a function AND accessing a global variable
+        # At top level, stack_frame_start = 0, so local and global offsets are the same
+        use_global = self.in_function and ref.is_global
+        if use_global:
+            dirs = [LoadGlobalDirective(ref.frame_offset, ref.type.getMaxSize())]
+        else:
+            dirs = [LoadLocalDirective(ref.frame_offset, ref.type.getMaxSize())]
 
         unconverted_type = state.expr_unconverted_types[node]
         converted_type = state.expr_converted_types[node]
@@ -595,8 +649,14 @@ class GenerateFunctionBody(Emitter):
         elif is_instance_compat(ref, PrmTemplate):
             dirs.append(PushPrmDirective(ref.get_id()))
         elif is_instance_compat(ref, FpyVariable):
-            # already should be in an lvar
-            dirs.append(LoadDirective(ref.frame_offset, ref.type.getMaxSize()))
+            # Use global directives only when inside a function AND accessing a global variable
+            use_global = self.in_function and ref.is_global
+            if use_global:
+                dirs.append(
+                    LoadGlobalDirective(ref.frame_offset, ref.type.getMaxSize())
+                )
+            else:
+                dirs.append(LoadLocalDirective(ref.frame_offset, ref.type.getMaxSize()))
         elif is_instance_compat(ref, FieldReference):
             # okay, put parent dirs in first
             dirs.extend(self.emit(ref.parent_expr, state))
@@ -644,7 +704,9 @@ class GenerateFunctionBody(Emitter):
                 dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
                 if node.op == BinaryStackOp.NOT_EQUAL:
                     dirs.append(NotDirective())
-            elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value:
+            elif (
+                node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value
+            ):
                 # for float floor division, do float division, then convert to int, then
                 # back to float
                 dirs.append(FloatDivideDirective())
@@ -797,13 +859,16 @@ class GenerateFunctionBody(Emitter):
         lhs = state.resolved_references[node.lhs]
 
         const_frame_offset = -1
+        is_global_var = False
         if is_instance_compat(lhs, FpyVariable):
             const_frame_offset = lhs.frame_offset
+            is_global_var = lhs.is_global
             assert const_frame_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldReference), lhs
             assert is_instance_compat(lhs.base_ref, FpyVariable), lhs.base_ref
+            is_global_var = lhs.base_ref.is_global
 
             # is the lvar array offset a constant?
             # okay, are we assigning to a member or an element?
@@ -830,14 +895,26 @@ class GenerateFunctionBody(Emitter):
                     )
                 # otherwise, the array idx is unknown at compile time. we will have to calculate it
 
+        # Use global directives only when inside a function AND accessing a global variable
+        use_global = self.in_function and is_global_var
+
         # start with rhs on stack
         dirs = self.emit(node.rhs, state)
 
         if const_frame_offset != -1:
             # in this case, we can use StoreConstOffset
-            dirs.append(
-                StoreConstOffsetDirective(const_frame_offset, lhs.type.getMaxSize())
-            )
+            if use_global:
+                dirs.append(
+                    StoreGlobalConstOffsetDirective(
+                        const_frame_offset, lhs.type.getMaxSize()
+                    )
+                )
+            else:
+                dirs.append(
+                    StoreLocalConstOffsetDirective(
+                        const_frame_offset, lhs.type.getMaxSize()
+                    )
+                )
         else:
             # okay we don't know the offset at compile time
             # only one case where that can be:
@@ -866,7 +943,10 @@ class GenerateFunctionBody(Emitter):
             dirs.extend(self.convert_numeric_type(U64Value, I32Value))
 
             # now that lvar array offset is pushed, use it to store in lvar array
-            dirs.append(StoreDirective(lhs.type.getMaxSize()))
+            if use_global:
+                dirs.append(StoreGlobalDirective(lhs.type.getMaxSize()))
+            else:
+                dirs.append(StoreLocalDirective(lhs.type.getMaxSize()))
 
         return dirs
 
@@ -898,6 +978,10 @@ class GenerateFunctionBody(Emitter):
 
 
 class GenerateModule(Emitter):
+    # Flag indicating we're generating top-level code (not inside a function)
+    # At top level, all variables use LOCAL directives since stack_frame_start = 0
+    in_function = False
+
     def emit_AstScopedBody(self, node: AstScopedBody, state: CompileState):
         if node is not state.root:
             return []
@@ -910,9 +994,17 @@ class GenerateModule(Emitter):
             funcs_code.extend(code)
         funcs_code.append(func_code_end_label)
 
-        # now generate the main function
-        main_body = GenerateFunctionBody().emit(node, state)
+        # now generate the main function using GenerateTopLevel (not in a function context)
+        main_body = GenerateTopLevel().emit(node, state)
         return funcs_code + main_body
+
+
+class GenerateTopLevel(GenerateFunctionBody):
+    """Generates top-level (main) code, not inside any function.
+    At top level, stack_frame_start = 0, so local and global offsets are equivalent.
+    All variables use LOCAL directives."""
+
+    in_function = False
 
 
 class IrPass:

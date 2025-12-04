@@ -138,8 +138,8 @@ class DirectiveId(Enum):
 
     EXIT = 57
     ALLOCATE = 58
-    STORE_CONST_OFFSET = 59
-    LOAD = 60
+    STORE_LOCAL_CONST_OFFSET = 59
+    LOAD_LOCAL = 60
     PUSH_VAL = 61
     DISCARD = 62
     MEMCMP = 63
@@ -150,9 +150,12 @@ class DirectiveId(Enum):
     GET_FLAG = 68
     GET_FIELD = 69
     PEEK = 70
-    STORE = 71
+    STORE_LOCAL = 71
     CALL = 72
     RETURN = 73
+    LOAD_GLOBAL = 74
+    STORE_GLOBAL = 75
+    STORE_GLOBAL_CONST_OFFSET = 76
 
 
 class Directive:
@@ -287,8 +290,8 @@ class MemCompareDirective(Directive):
 
 
 @dataclass
-class LoadDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.LOAD
+class LoadLocalDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_LOCAL
 
     lvar_offset: Union[int, I32Value]
     size: Union[int, StackSizeType]
@@ -356,15 +359,15 @@ class AllocateDirective(Directive):
 
 
 @dataclass
-class StoreDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.STORE
+class StoreLocalDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.STORE_LOCAL
 
     size: Union[int, StackSizeType]
 
 
 @dataclass
-class StoreConstOffsetDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.STORE_CONST_OFFSET
+class StoreLocalConstOffsetDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.STORE_LOCAL_CONST_OFFSET
 
     lvar_offset: Union[int, I32Value]
     size: Union[int, StackSizeType]
@@ -726,6 +729,32 @@ class ReturnDirective(Directive):
 
     return_val_size: Union[int, StackSizeType]
     call_args_size: Union[int, StackSizeType]
+
+
+@dataclass
+class LoadGlobalDirective(Directive):
+    """Load a value from a global variable (absolute offset from start of stack)"""
+    opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_GLOBAL
+
+    global_offset: Union[int, I32Value]
+    size: Union[int, StackSizeType]
+
+
+@dataclass
+class StoreGlobalDirective(Directive):
+    """Store a value to a global variable (absolute offset popped from stack)"""
+    opcode: ClassVar[DirectiveId] = DirectiveId.STORE_GLOBAL
+
+    size: Union[int, StackSizeType]
+
+
+@dataclass
+class StoreGlobalConstOffsetDirective(Directive):
+    """Store a value to a global variable at a constant absolute offset"""
+    opcode: ClassVar[DirectiveId] = DirectiveId.STORE_GLOBAL_CONST_OFFSET
+
+    global_offset: Union[int, I32Value]
+    size: Union[int, StackSizeType]
 
 
 for cls in Directive.__subclasses__():

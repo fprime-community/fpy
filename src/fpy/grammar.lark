@@ -1,12 +1,17 @@
 # Adapted from: https://docs.python.org/3/reference/grammar.html and the Lark Python grammar
 
-input: (_NEWLINE | _stmt)*
+input: (_NEWLINE | _toplevel_stmt)*
 
 _literal: number | string | boolean
 
+# Top-level statements: function definitions OR regular statements
+# Function definitions can ONLY appear here, not nested in any control structure
+_toplevel_stmt: def_stmt | _stmt
+
+# Regular statements (no function definitions allowed)
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
 _small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
-_compound_stmt: if_stmt | for_stmt | while_stmt | def_stmt
+_compound_stmt: if_stmt | for_stmt | while_stmt
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
@@ -26,16 +31,16 @@ parameter: var ":" expr ["=" expr]
 parameters: parameter ("," parameter)*
 def_stmt: "def" var "(" [parameters] ")" ["->" expr] ":" scoped_body
 
-# loops
+# loops (cannot contain function definitions since they use body, not toplevel)
 for_stmt: "for" var "in" expr ":" body
 while_stmt: "while" expr ":" body
 
-# branching
-
+# branching (cannot contain function definitions since they use body, not toplevel)
 if_stmt: "if" expr ":" body elifs ["else" ":" body]
 elifs: elif_*
 elif_: "elif" expr ":" body
 
+# Bodies that cannot contain function definitions
 body: _NEWLINE _INDENT _stmt+ _DEDENT
 scoped_body: _NEWLINE _INDENT _stmt+ _DEDENT
 

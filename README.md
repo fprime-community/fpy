@@ -299,29 +299,42 @@ def add_vals(a: U64, b: U64) -> U64:
 assert add_vals(1, 2) == 3
 ```
 
-Functions can call other each other or themselves:
+Functions can have default argument values:
 ```py
+def greet(times: I64 = 3):
+    for i in 0..times:
+        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
 
-def print_foo():
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
+greet()  # uses default: prints 3 times
+greet(1) # prints once
+```
 
+Default values must be constant expressions (literals, enum constants, type constructors with const args, etc.). You can't use telemetry, variables, or function calls as defaults.
+
+Functions can access top-level variables:
+```py
+counter: I64 = 0
+
+def increment():
+    counter = counter + 1
+
+increment()
+increment()
+assert counter == 2
+```
+
+Functions can call each other or themselves:
+```py
 def recurse(limit: U64):
     if limit == 0:
         return
-
-    print_foo()
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
     recurse(limit - 1)
 
-recurse(5) # prints "foo" 5 times
+recurse(5) # prints "tick" 5 times
 ```
 
-One important limitation is that functions cannot access variables declared outside the function:
-```py
-some_global_var: U64 = 123123
-
-def foo():
-    assert some_global_var == 123123 # compile error
-```
+Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
 
 ## 13. Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:

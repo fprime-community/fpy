@@ -98,9 +98,10 @@ class BackendError:
 
 
 def handle_lark_error(err):
+    import sys
     assert isinstance(err, LarkError), err
     if isinstance(err, UnexpectedToken):
-        print(str(CompileError("Invalid syntax", err.token)))
+        print(str(CompileError("Invalid syntax", err.token)), file=sys.stderr)
     elif isinstance(err, DedentError):
-        print(str(CompileError(err.args[0])))
+        print(str(CompileError(err.args[0])), file=sys.stderr)
     exit(1)

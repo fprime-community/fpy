@@ -565,19 +565,19 @@ Pushes a hard-coded count of 0x00-bytes to the stack.
 | ------------------|-------------|
 | bytes | A series of 0 bytes of length `size` |
 
-## STORE_CONST_OFFSET (61)
-Pops a hard-coded number of bytes off the stack, and writes them to the local variable array at a hard-coded offset.
+## STORE_LOCAL_CONST_OFFSET (59)
+Pops a hard-coded number of bytes off the stack, and writes them to the local variable array at a hard-coded offset relative to the current stack frame start.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
-| lvar_offset | U32      | hardcoded  | Local variable offset |
+| lvar_offset | I32      | hardcoded  | Local variable offset (relative to stack frame start) |
 | size        | U32      | hardcoded  | Number of bytes |
 | value       | bytes    | stack      | Value to store |
 
-## LOAD (62)
-Reads a hard-coded number of bytes from the local variable array at a specific offset, and pushes them to the stack.
+## LOAD_LOCAL (60)
+Reads a hard-coded number of bytes from the local variable array at a specific offset relative to the current stack frame start, and pushes them to the stack.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
-| lvar_offset | U32      | hardcoded  | Local variable offset |
+| lvar_offset | I32      | hardcoded  | Local variable offset (relative to stack frame start, can be negative for function args) |
 | size        | U32      | hardcoded  | Number of bytes |
 
 | Stack Result Type | Description |
@@ -678,17 +678,54 @@ Pops a StackSizeType `offset` off the stack, then a StackSizeType `byteCount`. L
 | ------------------|-------------|
 | bytes | The peeked bytes |
 
-## ASSERT (73)
-Pops one byte for a condition and one byte for an error code off the stack. If condition is false, raise the error code as an event.
-| Arg Name | Arg Type | Source | Description |
-|----------|----------|--------|-------------|
-| error_code | U8 | stack | Error code to exit with if assertion fails |
-| condition | bool | stack | Condition to assert |
-
-## STORE (74)
-Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and moves them to the start of the lvar array plus the offset previously popped off the stack.
+## STORE_LOCAL (71)
+Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and moves them to the local variable array at the offset relative to the current stack frame start.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
 | size        | U32      | hardcoded  | Number of bytes |
-| lvar_offset | U32      | stack      | Local variable offset |
+| lvar_offset | I32      | stack      | Local variable offset (relative to stack frame start) |
 | value       | bytes    | stack      | Value to store |
+
+## LOAD_GLOBAL (74)
+Reads a hard-coded number of bytes from the global variable area at an absolute offset from the start of the stack, and pushes them to the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| global_offset | U32      | hardcoded  | Absolute offset from start of stack |
+| size          | U32      | hardcoded  | Number of bytes |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| bytes | The bytes from the global variable area |
+
+## STORE_GLOBAL (75)
+Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and stores them at the absolute offset from the start of the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| size          | U32      | hardcoded  | Number of bytes |
+| global_offset | U32      | stack      | Absolute offset from start of stack |
+| value         | bytes    | stack      | Value to store |
+
+## STORE_GLOBAL_CONST_OFFSET (76)
+Pops a hard-coded number of bytes off the stack, and writes them to the global variable area at a hard-coded absolute offset from the start of the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| global_offset | U32      | hardcoded  | Absolute offset from start of stack |
+| size          | U32      | hardcoded  | Number of bytes |
+| value         | bytes    | stack      | Value to store |
+
+## CALL (72)
+Pops a StackSizeType offset from the stack (the target directive index), saves the current instruction pointer and frame pointer to the stack, then jumps to the target. The stack frame start is updated to point past the saved frame information.
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| target   | StackSizeType | stack | Directive index to jump to |
+
+## RETURN (73)
+Returns from a function call. Pops the return value (if any), restores the stack frame start and instruction pointer from the stack, discards the function arguments, then pushes the return value back.
+| Arg Name        | Arg Type | Source     | Description |
+|-----------------|----------|------------|-------------|
+| return_val_size | U32      | hardcoded  | Size of return value in bytes (0 if no return value) |
+| call_args_size  | U32      | hardcoded  | Total size of function arguments in bytes |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| bytes | The return value (if return_val_size > 0) |
