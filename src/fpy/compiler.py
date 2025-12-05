@@ -44,9 +44,11 @@ from fpy.types import (
     FpyCast,
     FpyCmd,
     FpyTypeCtor,
+    TimeIntervalValue,
     Visitor,
     create_scope,
 )
+import fpy.types
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
@@ -85,22 +87,14 @@ def text_to_ast(text: str):
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
 
     ch_json_dict_loader = ChJsonLoader(dictionary)
-    (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(dictionary)
     prm_json_dict_loader = PrmJsonLoader(dictionary)
-    (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
     event_json_dict_loader = EventJsonLoader(dictionary)
-    (_, _, _) = event_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    (_, _, _) = event_json_dict_loader.construct_dicts(dictionary)
     # the type name dict is a mapping of a fully qualified name to an fprime type
     # here we put into it all types found while parsing all cmds, params and tlm channels
     type_name_dict: dict[str, FppType] = cmd_json_dict_loader.parsed_types
@@ -124,6 +118,16 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     for typ in SPECIFIC_NUMERIC_TYPES:
         type_name_dict[typ.get_canonical_name()] = typ
     type_name_dict["bool"] = BoolValue
+    # TODO add Value after
+    if "Fw.TimeInterval" not in type_name_dict:
+        type_name_dict["Fw.TimeInterval"] = fpy.types.TimeIntervalValue
+    else:
+        # update this placeholder with the real one
+        fpy.types.TimeIntervalValue = type_name_dict["Fw.TimeInterval"]
+        members = fpy.types.TimeIntervalValue.MEMBER_LIST
+        # make sure it's 2 u32s
+        assert len(members) == 2 and all(mem[1] == U32Value for mem in members)
+        
     # note no string type at the moment
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
@@ -214,7 +218,7 @@ def ast_to_directives(
         # we can calculate values of type ctors etc etc
         CalculateConstExprValues(),
         CheckConstArrayAccesses(),
-        WarnRangesAreNotEmpty()
+        WarnRangesAreNotEmpty(),
     ]
     desugaring_passes: list[Visitor] = [
         # now that semantic analysis is done, we can desugar things. start with for loops

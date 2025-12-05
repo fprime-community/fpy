@@ -2592,3 +2592,104 @@ for i in 7..0:
     exit(1)
 """
     assert_run_success(fprime_test_api, seq)
+
+
+def test_simple_check(fprime_test_api):
+    seq = """
+check True timeout Fw.TimeInterval(0, 0):
+    exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_cmp_vars(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(1, 6, 7, 8)
+assert less < more
+assert less <= more
+assert less == less and more == more
+assert less != more
+assert more > less
+assert more >= less
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert less < more
+"""
+    assert_run_failure(fprime_test_api, seq)
+
+
+def test_const_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert Fw.Time(1, 2, 3, 4) < Fw.Time(2, 3, 4, 5)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_const_time_cmp(fprime_test_api):
+    seq = """
+assert Fw.Time(0, 0, 123, 456) < Fw.Time(0, 0, 124, 456)
+assert Fw.Time(0, 0, 123, 456) <= Fw.Time(0, 0, 123, 457)
+assert Fw.Time(0, 0, 123, 456) == Fw.Time(0, 0, 123, 456)
+assert Fw.Time(0, 0, 123, 456) != Fw.Time(0, 0, 456, 789)
+assert Fw.Time(0, 0, 123, 456) > Fw.Time(0, 0, 122, 456)
+assert Fw.Time(0, 0, 123, 456) >= Fw.Time(0, 0, 123, 455)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+def test_time_op_vars(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(1, 6, 7, 8)
+assert less + more == Fw.Time(1, 2, 10, 12)
+really_big: Fw.Time = Fw.Time(1, 3, 1000, 10_000_000)
+assert less + more + really_big == Fw.Time(1, 2, 1010, 10_000_012)
+assert really_big - less - more == Fw.Time(1, 3, 990, 9_999_988)
+assert more - less
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert less < more
+"""
+    assert_run_failure(fprime_test_api, seq)
+
+
+def test_const_times_incomparable(fprime_test_api):
+    seq = """
+less: Fw.Time = Fw.Time(1, 2, 3, 4)
+more: Fw.Time = Fw.Time(2, 6, 7, 8)
+assert Fw.Time(1, 2, 3, 4) < Fw.Time(2, 3, 4, 5)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_const_time_cmp(fprime_test_api):
+    seq = """
+assert Fw.Time(0, 0, 123, 456) < Fw.Time(0, 0, 124, 456)
+assert Fw.Time(0, 0, 123, 456) <= Fw.Time(0, 0, 123, 457)
+assert Fw.Time(0, 0, 123, 456) == Fw.Time(0, 0, 123, 456)
+assert Fw.Time(0, 0, 123, 456) != Fw.Time(0, 0, 456, 789)
+assert Fw.Time(0, 0, 123, 456) > Fw.Time(0, 0, 122, 456)
+assert Fw.Time(0, 0, 123, 456) >= Fw.Time(0, 0, 123, 455)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+def test_const_struct_eq(fprime_test_api):
+    seq = """
+assert Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) == Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
+assert Svc.DpRecord(0, 1, 2, 3, 4, 6, Fw.DpState.UNTRANSMITTED) != Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
+"""
+    assert_run_success(fprime_test_api, seq)

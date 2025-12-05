@@ -35,6 +35,7 @@ from fpy.types import (
 
 from fpy.bytecode.directives import (
     BINARY_STACK_OPS,
+    COMPARISON_OPERATORS,
     UNARY_STACK_OPS,
     AllocateDirective,
     ArrayIndexType,
@@ -89,7 +90,10 @@ from fprime.common.models.serialize.numerical_types import (
     F32Type as F32Value,
     F64Type as F64Value,
     IntegerType as IntegerValue,
+    NumericalType as NumericalValue,
 )
+from fprime.common.models.serialize.bool_type import BoolType as BoolValue
+from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fpy.syntax import (
     Ast,
     AstAssert,
@@ -113,6 +117,8 @@ from fpy.syntax import (
     AstWhile,
 )
 
+SECONDS_TO_MICROS = 1_000_000
+
 
 class GenerateCode:
 
@@ -125,7 +131,7 @@ class GenerateCode:
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
         """if the expr has a compile time const value, emit that as a PUSH_VAL"""
-        expr_value = state.expr_converted_values.get(node)
+        expr_value = state.const_expr_converted_values.get(node)
 
         if expr_value is None:
             # no const value
@@ -171,7 +177,8 @@ class GenerateCode:
         self, from_type: FppType, to_type: FppType
     ) -> list[Directive]:
         """
-        return a list of dirs needed to convert a numeric stack value of from_type to a stack value of to_type"""
+        return a list of dirs needed to convert a numeric stack value of from_type to a stack value of to_type
+        """
         if from_type == to_type:
             return []
 
@@ -269,7 +276,9 @@ class GenerateCode:
             else:
                 return [IntegerZeroExtend32To64Directive()]
 
-    def calc_lvar_offset_of_array_element(self, node: Ast, idx_expr: AstExpr, array_type: FppType, state: CompileState) -> list[Directive|Ir]:
+    def calc_lvar_offset_of_array_element(
+        self, node: Ast, idx_expr: AstExpr, array_type: FppType, state: CompileState
+    ) -> list[Directive | Ir]:
         """generates code to push to stack the U64 byte offset in the array for an array access, while performing an array oob
         check. idx_expr is the expression to calculate the index, and dest is the FieldReference containing info about the
         dest array"""
@@ -309,14 +318,12 @@ class GenerateCode:
         # okay we're good. should still have the idx on the stack
 
         # multiply the index by the member type size
-        dirs.append(
-            PushValDirective(U64Value(array_type.MEMBER_TYPE.getMaxSize()))
-        )
+        dirs.append(PushValDirective(U64Value(array_type.MEMBER_TYPE.getMaxSize())))
         dirs.append(IntMultiplyDirective())
         return dirs
 
-
     def build_emitter_dict(self):
+        """construct a dict of all of our handler funcs so we don't have to look them up all the time"""
         for name, func in inspect.getmembers(type(self), inspect.isfunction):
             if not name.startswith("emit_"):
                 # not a visitor, or the default visit func
@@ -491,7 +498,7 @@ class GenerateCode:
             parent_type.MEMBER_TYPE,
             unconverted_type,
         )
-        
+
         # okay, we want to get an element from an array on the stack
 
         # TODO optimization: leave it in the lvar array instead of pushing the whole thing to stack
@@ -499,7 +506,9 @@ class GenerateCode:
         dirs = self.emit(node.parent, state)
 
         # calculate the offset in the parent array
-        dirs.extend(self.calc_lvar_offset_of_array_element(node, node.item, parent_type, state))
+        dirs.extend(
+            self.calc_lvar_offset_of_array_element(node, node.item, parent_type, state)
+        )
         # truncate back to StackSizeType which is what get field uses
         dirs.extend(self.convert_numeric_type(U64Value, StackSizeType))
 
@@ -585,6 +594,143 @@ class GenerateCode:
 
         return dirs
 
+    def convert_time_to_u64(self) -> list[Directive]:
+        # |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |
+        # |-----------|--------------|---------|--------------|
+        # | Time Base | Time Context | Seconds | Microseconds |
+
+        # extend micros to u64
+        # peek seconds
+        # extend seconds to u64
+        # push 1000000
+        # int multiply
+        # get field
+
+        dirs = []
+        # BBCSSSSMMMM
+        dirs.append(IntegerZeroExtend32To64Directive())
+        # BBCSSSSMMMMMMMM
+        # byte count of seconds field
+        dirs.append(PushValDirective(StackSizeType(4).serialize()))
+        # offset of seconds field
+        dirs.append(PushValDirective(StackSizeType(8).serialize()))
+        dirs.append(PeekDirective())  # get secs on top of stack
+        # BBCSSSSMMMMMMMMSSSS
+        dirs.append(IntegerZeroExtend32To64Directive())
+        # BBCSSSSMMMMMMMMSSSSSSSS
+        # push SECONDS_TO_MICROS
+        dirs.append(PushValDirective(U64Value(SECONDS_TO_MICROS).serialize()))
+        # BBCSSSSMMMMMMMMSSSSSSSS(1_000_000)
+        dirs.append(IntMultiplyDirective())
+        # T: total so far of micros
+        # BBCSSSSMMMMMMMMTTTTTTTT
+        # now we have two u64 micro counts
+        dirs.append(IntAddDirective())
+        # BBCSSSSTTTTTTTT
+        # okay now drop the remainder of the timeval, leaving only total microseconds
+        # offset from start of parent is 7 bytes
+        # parent size is 15 bytes
+        # field size is 8 bytes
+        dirs.append(PushValDirective(StackSizeType(7).serialize()))
+        dirs.append(GetFieldDirective(15, 8))
+        return dirs
+
+    def generate_time_comparison(
+        self, node: Ast, op: BinaryStackOp
+    ) -> list[Directive | Ir]:
+        # first check that time bases are the same
+        # then convert both to u64s
+        # then do the op
+        dirs = []
+
+        # stack is:
+
+        # |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |  2 bytes  |    1 byte    | 4 bytes |   4 bytes    |
+        # |-----------|--------------|---------|--------------|-----------|--------------|---------|--------------|
+        # | Time Base | Time Context | Seconds | Microseconds | Time Base | Time Context | Seconds | Microseconds |
+
+        # peek both time bases
+        # byte count of first time base field
+        dirs.append(PushValDirective(StackSizeType(2).serialize()))
+        # offset of first time base field
+        dirs.append(
+            PushValDirective(StackSizeType(4 + 4 + 1 + 2 + 4 + 4 + 1).serialize())
+        )
+        dirs.append(PeekDirective())
+        # stack is:
+        # BBCSSSSMMMMBBCSSSSMMMMBB
+        # byte count of second time base field
+        dirs.append(PushValDirective(StackSizeType(2).serialize()))
+        # offset of second time base field
+        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
+        dirs.append(PeekDirective())
+        # BBCSSSSMMMMBBCSSSSMMMMBBBB
+        # check if the 2x2 byte fields are equal
+        dirs.append(MemCompareDirective(2))
+        # E: bool true if bases are equal
+        # BBCSSSSMMMMBBCSSSSMMMME
+        # if they are equal:
+        time_base_not_equal_label = IrLabel(node, "time_base_not_equal")
+        dirs.append(IrIf(time_base_not_equal_label))
+        # BBCSSSSMMMMBBCSSSSMMMM
+        # convert both to U64
+
+        # peek bottom (lhs) time value and convert to U64
+        # we do the bottom first because we want the lhs to be under the rhs on the stack
+        # byte count of bottom time value
+        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
+        # offset of bottom time value
+        dirs.append(PushValDirective(StackSizeType(11).serialize()))
+        dirs.append(PeekDirective())
+        # BBCSSSSMMMMBBCSSSSMMMMBBCSSSSMMMM
+
+        # convert bottom (lhs) to U64
+        dirs.extend(self.convert_time_to_u64())
+        # L: lhs u64 micros
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLL
+
+        # peek top (rhs) time value and convert to U64
+        # byte count of top time value
+        dirs.append(PushValDirective(StackSizeType(4 + 4 + 1 + 2).serialize()))
+        # offset of top time value
+        dirs.append(PushValDirective(StackSizeType(8).serialize()))
+        dirs.append(PeekDirective())
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLLBBCSSSSMMMM
+        # convert to U64
+        dirs.extend(self.convert_time_to_u64())
+
+        # okay now both U64s are on top of stack
+        # BBCSSSSMMMMBBCSSSSMMMMLLLLLLLLRRRRRRRR
+        assert op in COMPARISON_OPERATORS, op
+        # add the op
+        dirs.append(BINARY_STACK_OPS[op][U64Value]())
+        # X: result
+        # BBCSSSSMMMMBBCSSSSMMMMX
+        # drop the rest
+        # offset from start of parent is 22 bytes
+        # parent size is 23 bytes
+        # field size is 1 byte
+        dirs.append(PushValDirective(StackSizeType(22).serialize()))
+        dirs.append(GetFieldDirective(23, 1))
+
+        # go to end of this chunk
+        end_comparison_label = IrLabel(node, "end")
+        dirs.append(IrGoto(end_comparison_label))
+
+        dirs.append(time_base_not_equal_label)
+        # time bases not equal
+        # end program with error
+        dirs.append(
+            PushValDirective(
+                U8Value(DirectiveErrorCode.INCOMPARABLE_TIME.value).serialize()
+            )
+        )
+        dirs.append(ExitDirective())
+
+        dirs.append(end_comparison_label)
+
+        return dirs
+
     def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
@@ -596,23 +742,22 @@ class GenerateCode:
 
         intermediate_type = state.op_intermediate_types[node]
 
-        if (
-            node.op == BinaryStackOp.EQUAL or node.op == BinaryStackOp.NOT_EQUAL
-        ) and intermediate_type not in SPECIFIC_NUMERIC_TYPES:
-            lhs_type = state.expr_converted_types[node.lhs]
-            rhs_type = state.expr_converted_types[node.rhs]
-            assert lhs_type == rhs_type, (lhs_type, rhs_type)
-            dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
+        if intermediate_type == TimeValue:
+            dirs.extend(self.generate_time_comparison(node, node.op))
+        elif not issubclass(intermediate_type, NumericalValue) and node.op in [
+            BinaryStackOp.EQUAL,
+            BinaryStackOp.NOT_EQUAL,
+        ]:
+            dirs.append(MemCompareDirective(intermediate_type.getMaxSize()))
             if node.op == BinaryStackOp.NOT_EQUAL:
                 dirs.append(NotDirective())
-        elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value:
+        elif intermediate_type == F64Value and node.op == BinaryStackOp.FLOOR_DIVIDE:
             # for float floor division, do float division, then convert to int, then
             # back to float
             dirs.append(FloatDivideDirective())
             dirs.append(FloatToSignedIntDirective())
             dirs.append(SignedIntToFloatDirective())
         else:
-
             dir = BINARY_STACK_OPS[node.op][intermediate_type]
             if dir != NoOpDirective:
                 # don't include no op
@@ -666,13 +811,14 @@ class GenerateCode:
         dirs = []
         if is_instance_compat(func, FpyCmd):
             const_args = not any(
-                state.expr_converted_values[arg_node] is None for arg_node in node_args
+                state.const_expr_converted_values[arg_node] is None
+                for arg_node in node_args
             )
             if const_args:
                 # can just hardcode this cmd
                 arg_bytes = bytes()
                 for arg_node in node_args:
-                    arg_value = state.expr_converted_values[arg_node]
+                    arg_value = state.const_expr_converted_values[arg_node]
                     arg_bytes += arg_value.serialize()
                 dirs.append(ConstCmdDirective(func.cmd.get_op_code(), arg_bytes))
             else:
@@ -739,7 +885,9 @@ class GenerateCode:
                 # the offset in base type.
 
                 # check if we have a value for it
-                const_idx_expr_value = state.expr_converted_values.get(lhs.idx_expr)
+                const_idx_expr_value = state.const_expr_converted_values.get(
+                    lhs.idx_expr
+                )
                 if const_idx_expr_value is not None:
                     assert is_instance_compat(const_idx_expr_value, ArrayIndexType)
                     # okay, so we have a constant value index
@@ -764,16 +912,21 @@ class GenerateCode:
             # only one case where that can be:
             assert is_instance_compat(lhs, FieldReference) and lhs.is_array_element, lhs
 
-
             # we need to calculate absolute offset in lvar array
             # == (parent offset) + (offset in parent)
 
             # offset in parent:
             lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
-            dirs.extend(self.calc_lvar_offset_of_array_element(node, lhs.idx_expr, lhs_parent_type, state))
+            dirs.extend(
+                self.calc_lvar_offset_of_array_element(
+                    node, lhs.idx_expr, lhs_parent_type, state
+                )
+            )
 
             # parent offset:
-            dirs.append(PushValDirective(U64Value(lhs.base_ref.lvar_offset).serialize()))
+            dirs.append(
+                PushValDirective(U64Value(lhs.base_ref.lvar_offset).serialize())
+            )
 
             # add them
             dirs.append(IntAddDirective())

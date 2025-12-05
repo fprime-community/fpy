@@ -111,6 +111,7 @@ class DirectiveErrorCode(Enum):
     ARRAY_OUT_OF_BOUNDS = 12
     ARITHMETIC_OVERFLOW = 13
     ARITHMETIC_UNDERFLOW = 14
+    INCOMPARABLE_TIME = 15
 
 
 class FpySequencerModel:

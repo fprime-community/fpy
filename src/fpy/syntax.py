@@ -140,6 +140,8 @@ class AstFuncCall(Ast):
 @dataclass
 class AstPass(Ast):
     pass  # ha ha
+
+
 @dataclass
 class AstBinaryOp(Ast):
     lhs: AstExpr
@@ -221,6 +223,16 @@ class AstContinue(Ast):
     pass
 
 
+@dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: AstExpr | None
+    persist: AstExpr | None
+    freq: AstExpr | None
+    body: AstBody
+    els: AstBody | None
+
+
 AstStmt = Union[
     AstExpr,
     AstAssign,
@@ -232,8 +244,11 @@ AstStmt = Union[
     AstContinue,
     AstWhile,
     AstAssert,
+    AstCheck,
 ]
-AstStmtWithExpr = Union[AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert]
+AstStmtWithExpr = Union[
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstCheck
+]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
@@ -244,6 +259,7 @@ AstNodeWithSideEffects = Union[
     AstAssert,
     AstBreak,
     AstContinue,
+    AstCheck,
 ]
 
 
@@ -295,33 +311,12 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
-def handle_assign(meta, args):
-    # for some stupid reason i cannot get this to work without
-    # this hacky function
-    value = args[-1]
-    var = args[0]
-    if len(args) > 2:
-        type = args[1]
-    else:
-        type = None
-    return AstAssign(meta, var, type, value)
-
-
-def handle_assert(meta, args):
-    condition = args[0]
-    if len(args) > 1:
-        exit_code = args[1]
-    else:
-        exit_code = None
-    return AstAssert(meta, condition, exit_code)
-
-
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
     input = no_inline(AstScopedBody)
     pass_stmt = AstPass
 
-    assign = no_inline(handle_assign)
+    assign = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -329,7 +324,8 @@ class FpyTransformer(Transformer):
     break_stmt = AstBreak
     continue_stmt = AstContinue
 
-    assert_stmt = no_inline(handle_assert)
+    assert_stmt = AstAssert
+    check_stmt = AstCheck
 
     if_stmt = AstIf
     elifs = no_inline(AstElifs)
