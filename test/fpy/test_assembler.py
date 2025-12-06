@@ -949,8 +949,8 @@ class TestMultipleDirectives:
         deserialized = deserialize_directives(serialized)
         
         assert len(deserialized) == len(dirs)
-        for orig, deser in zip(dirs, deserialized):
-            assert type(orig) == type(deser)
+        for orig, d in zip(dirs, deserialized):
+            assert type(orig) == type(d)
 
     def test_empty_directive_list(self):
         dirs = []

@@ -10,8 +10,6 @@ cls
 codegen
 ctx
 cuz
-deser
-Deser
 downcasted
 downcasting
 elifs
