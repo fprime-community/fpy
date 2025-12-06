@@ -9,7 +9,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import FpyMacro, NothingValue
+from fpy.types import FpyInlineBuiltin, NothingValue
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fprime.common.models.serialize.numerical_types import (
     U8Type as U8Value,
@@ -62,7 +62,7 @@ def generate_abs_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_FLOAT = FpyMacro("abs", F64Value, [("value", F64Value)], generate_abs_float)
+MACRO_ABS_FLOAT = FpyInlineBuiltin("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
 
 
 def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
@@ -88,19 +88,20 @@ def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_SIGNED_INT = FpyMacro(
-    "abs", I64Value, [("value", I64Value)], generate_abs_signed_int
+MACRO_ABS_SIGNED_INT = FpyInlineBuiltin(
+    "abs", I64Value, [("value", I64Value, None)], generate_abs_signed_int
 )
 
-MACRO_SLEEP_SECONDS_USECONDS = FpyMacro(
+MACRO_SLEEP_SECONDS_USECONDS = FpyInlineBuiltin(
     "sleep",
     NothingValue,
     [
         (
             "seconds",
             U32Value,
+            None,
         ),
-        ("microseconds", U32Value),
+        ("microseconds", U32Value, None),
     ],
     lambda n: [WaitRelDirective()],
 )
@@ -139,8 +140,8 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_SLEEP_FLOAT = FpyMacro(
-    "sleep", NothingValue, [("seconds", F64Value)], generate_sleep_float
+MACRO_SLEEP_FLOAT = FpyInlineBuiltin(
+    "sleep", NothingValue, [("seconds", F64Value, None)], generate_sleep_float
 )
 
 
@@ -152,21 +153,21 @@ def generate_log_signed_int(node: Ast) -> list[Directive | Ir]:
     ]
 
 
-MACROS: dict[str, FpyMacro] = {
+MACROS: dict[str, FpyInlineBuiltin] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
-    "sleep_until": FpyMacro(
+    "sleep_until": FpyInlineBuiltin(
         "sleep_until",
         NothingValue,
-        [("wakeup_time", TimeValue)],
+        [("wakeup_time", TimeValue, None)],
         lambda n: [WaitAbsDirective()],
     ),
-    "exit": FpyMacro(
-        "exit", NothingValue, [("exit_code", U8Value)], lambda n: [ExitDirective()]
+    "exit": FpyInlineBuiltin(
+        "exit", NothingValue, [("exit_code", U8Value, None)], lambda n: [ExitDirective()]
     ),
-    "log": FpyMacro(
-        "log", F64Value, [("operand", F64Value)], lambda n: [FloatLogDirective()]
+    "log": FpyInlineBuiltin(
+        "log", F64Value, [("operand", F64Value, None)], lambda n: [FloatLogDirective()]
     ),
-    "now": FpyMacro("now", TimeValue, [], lambda n: [PushTimeDirective()]),
+    "now": FpyInlineBuiltin("now", TimeValue, [], lambda n: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
 }

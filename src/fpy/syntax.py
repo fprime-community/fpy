@@ -132,14 +132,23 @@ class AstGetItem(Ast):
 
 
 @dataclass
+class AstNamedArgument(Ast):
+    name: str
+    value: "AstExpr"
+
+
+@dataclass
 class AstFuncCall(Ast):
     func: "AstExpr"
-    args: list["AstExpr"] | None
+    # args can contain both positional (AstExpr) and named arguments (AstNamedArgument)
+    args: list[Union["AstExpr", AstNamedArgument]] | None
 
 
 @dataclass
 class AstPass(Ast):
     pass  # ha ha
+
+
 @dataclass
 class AstBinaryOp(Ast):
     lhs: AstExpr
@@ -221,6 +230,21 @@ class AstContinue(Ast):
     pass
 
 
+@dataclass
+class AstReturn(Ast):
+    value: Union[AstExpr, None]
+
+
+@dataclass
+class AstDef(Ast):
+    name: AstVar
+    # parameters is a list of (name, type, default_value) tuples
+    # default_value is None if no default is provided
+    parameters: list[tuple[AstVar, AstExpr, AstExpr | None]]
+    return_type: Union[AstExpr, None]
+    body: AstScopedBody
+
+
 AstStmt = Union[
     AstExpr,
     AstAssign,
@@ -232,8 +256,12 @@ AstStmt = Union[
     AstContinue,
     AstWhile,
     AstAssert,
+    AstDef,
+    AstReturn
 ]
-AstStmtWithExpr = Union[AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert]
+AstStmtWithExpr = Union[
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstDef, AstReturn
+]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
@@ -244,6 +272,8 @@ AstNodeWithSideEffects = Union[
     AstAssert,
     AstBreak,
     AstContinue,
+    AstDef,
+    AstReturn
 ]
 
 
@@ -295,25 +325,12 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
-def handle_assign(meta, args):
-    # for some stupid reason i cannot get this to work without
-    # this hacky function
-    value = args[-1]
-    var = args[0]
-    if len(args) > 2:
-        type = args[1]
-    else:
-        type = None
-    return AstAssign(meta, var, type, value)
-
-
-def handle_assert(meta, args):
-    condition = args[0]
-    if len(args) > 1:
-        exit_code = args[1]
-    else:
-        exit_code = None
-    return AstAssert(meta, condition, exit_code)
+def handle_parameter(meta, args):
+    """Parse a single parameter: (name, type, default_value or None)"""
+    assert len(args) in (2, 3), f"Expected 2 or 3 args, got {len(args)}: {args}"
+    name, type_expr = args[0], args[1]
+    default_value = args[2] if len(args) == 3 else None
+    return (name, type_expr, default_value)
 
 
 @v_args(meta=True, inline=True)
@@ -321,7 +338,7 @@ class FpyTransformer(Transformer):
     input = no_inline(AstScopedBody)
     pass_stmt = AstPass
 
-    assign = no_inline(handle_assign)
+    assign = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -329,7 +346,7 @@ class FpyTransformer(Transformer):
     break_stmt = AstBreak
     continue_stmt = AstContinue
 
-    assert_stmt = no_inline(handle_assert)
+    assert_stmt = AstAssert
 
     if_stmt = AstIf
     elifs = no_inline(AstElifs)
@@ -340,6 +357,12 @@ class FpyTransformer(Transformer):
 
     func_call = AstFuncCall
     arguments = no_inline_or_meta(list)
+    named_argument = AstNamedArgument
+
+    @v_args(meta=True, inline=True)
+    def positional_argument(self, meta, value):
+        # Just return the expression directly for positional arguments
+        return value
 
     string = AstString
     number = AstNumber
@@ -349,6 +372,11 @@ class FpyTransformer(Transformer):
     get_item = AstGetItem
     var = AstVar
     range = AstRange
+
+    def_stmt = AstDef
+    parameter = no_inline(handle_parameter)
+    parameters = no_inline_or_meta(list)  # Just convert to list
+    return_stmt = AstReturn
 
     NAME = str
     DEC_NUMBER = int

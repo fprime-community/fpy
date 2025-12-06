@@ -39,10 +39,11 @@ For types, Fpy has most of the same basic ones that FPP does:
 * Unsigned integers: `U8, U16, U32, U64`
 * Floats: `F32, F64`
 * Boolean: `bool`
+* Time: `Fw.Time`
 
-Float literals are denoted with a decimal point (`5.0`, `0.123`) and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
+Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
-Note there is currently no built-in `string` type. See [Strings](#15-strings).
+Note there is currently no built-in `string` type. See [Strings](#16-strings).
 
 ## 3. Type coercion and casting
 If you have a lower-bitwidth numerical type and want to turn it into a higher-bitwidth type, this happens automatically:
@@ -55,10 +56,10 @@ high_bitwidth_float: F64 = low_bitwidth_float
 # high_bitwidth_float == 123.0
 ```
 
-However, the opposite produces a compiler error:
+However, the opposite produces a compile error:
 ```py
 high_bitwidth: U32 = 25565
-low_bitwidth: U8 = high_bitwidth # compiler error
+low_bitwidth: U8 = high_bitwidth # compile error
 ```
 
 If you are sure you want to do this, you can manually cast the type to the lower-bitwidth type:
@@ -78,10 +79,10 @@ int_value: U8 = 123
 float_value: F32 = int_value
 ```
 
-But the opposite produces a compiler error:
+But the opposite produces a compile error:
 ```py
 float_value: F32 = 123.0
-int_value: U8 = float_value # compiler error
+int_value: U8 = float_value # compile error
 ```
 
 Instead, you have to manually cast:
@@ -94,7 +95,7 @@ int_value: U8 = U8(float_value)
 In addition, you have to cast between signed/unsigned ints:
 ```py
 uint: U32 = 123123
-int: I32 = uint # compiler error
+int: I32 = uint # compile error
 int: I32 = I32(uint)
 # int == 123123
 ```
@@ -144,9 +145,9 @@ param4: F32 = 15.0
 Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
 ```
 
-You can also pass variable arguments to the [`sleep`](#12-relative-and-absolute-sleep), [`exit`](#13-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
+You can also pass variable arguments to the [`sleep`](#13-relative-and-absolute-sleep), [`exit`](#14-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
 
-There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#15-strings).
+There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#16-strings).
 
 ## 7. Getting Telemetry Channels and Parameters
 
@@ -175,6 +176,8 @@ value: bool = 1 > 2 and (3 + 4) != 5
 * Inequalities: `>, <, >=, <=`
 * Equalities: `==, !=`
 * Boolean functions: `and, or, not`
+
+Boolean `and` and `or` short-circuit just like Python: the right-hand expression only evaluates when the result is still undecided.
 
 
 The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two of the same complex type:
@@ -278,7 +281,62 @@ for i in 0..10:
 # odd_numbers_sum == 25
 ```
 
-## 12. Relative and Absolute Sleep
+## 12. Functions
+You can define and call functions:
+```py
+def foobar():
+    if 1 + 2 == 3:
+        CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
+
+foobar()
+```
+
+Functions can have arguments and return types:
+```py
+def add_vals(a: U64, b: U64) -> U64:
+    return a + b
+    
+assert add_vals(1, 2) == 3
+```
+
+Functions can have default argument values:
+```py
+def greet(times: I64 = 3):
+    for i in 0..times:
+        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
+
+greet()  # uses default: prints 3 times
+greet(1) # prints once
+```
+
+Default values must be constant expressions (literals, enum constants, type constructors with const args, etc.). You can't use telemetry, variables, or function calls as defaults.
+
+Functions can access top-level variables:
+```py
+counter: I64 = 0
+
+def increment():
+    counter = counter + 1
+
+increment()
+increment()
+assert counter == 2
+```
+
+Functions can call each other or themselves:
+```py
+def recurse(limit: U64):
+    if limit == 0:
+        return
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
+    recurse(limit - 1)
+
+recurse(5) # prints "tick" 5 times
+```
+
+Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
+
+## 13. Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
@@ -288,15 +346,15 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
 
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
-# sleep until 12345678900 seconds and 0 microseconds after the epoch
+# sleep until 1234567890 seconds and 0 microseconds after the epoch
 # time base of 0, time context of 1
-sleep_until(Fw.Time(0, 1, 12345678900, 0))
+sleep_until(Fw.Time(0, 1, 1234567890, 0))
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## 13. Exit Macro
+## 14. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
 ```py
 # exit takes a U8 argument
@@ -306,7 +364,7 @@ exit(0)
 exit(123)
 ```
 
-## 14. Assertions
+## 15. Assertions
 You can assert that a Boolean condition is true:
 ```py
 # won't end the sequence
@@ -321,5 +379,5 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
-## 15. Strings
+## 16. Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.

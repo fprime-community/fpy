@@ -137,6 +137,7 @@ class FpyBcTransformer(Transformer):
 
     NAME = str
     DEC_NUMBER = int
+    NEG_DEC_NUMBER = int
     HEX_NUMBER = handle_hex
     bytes = no_inline(handle_bytes)
     FLOAT_NUMBER = float

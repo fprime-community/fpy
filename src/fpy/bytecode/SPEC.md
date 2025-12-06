@@ -20,13 +20,13 @@ Sleeps until an absolute time.
 | time_context | FwTimeContextStoreType       | stack  | Time context (user defined value, unused by Fpy) |
 | time_base    | U16      | stack  | Time base |
 
-## GOTO (4)
+## GOTO (3)
 Sets the index of the next directive to execute.
 | Arg Name | Arg Type | Source     | Description |
 |----------|----------|------------|-------------|
 | dir_idx  | U32      | hardcoded | The statement index to execute next |
 
-## IF (5)
+## IF (4)
 Pops a byte off the stack. If the byte is not 0, proceed to the next directive, otherwise goto a hardcoded directive index.
  
 | Arg Name             | Arg Type | Source     | Description |
@@ -34,10 +34,10 @@ Pops a byte off the stack. If the byte is not 0, proceed to the next directive, 
 | false_goto_dir_index| U32      | hardcoded | Directive index to jump to if false |
 | condition          | bool     | stack     | Condition to evaluate |
 
-## NO_OP (6)
+## NO_OP (5)
 Does nothing.
 
-## PUSH_TLM_VAL (7)
+## PUSH_TLM_VAL (6)
 Pushes a telemetry value buffer to the stack.
 | Arg Name     | Arg Type | Source     | Description |
 |--------------|----------|------------|-------------|
@@ -46,7 +46,7 @@ Pushes a telemetry value buffer to the stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bytes | The raw bytes of the telemetry value buffer |
-## PUSH_PRM (8)
+## PUSH_PRM (7)
 Pushes a parameter buffer to the stack.
 | Arg Name     | Arg Type | Source     | Description |
 |--------------|----------|------------|-------------|
@@ -56,7 +56,7 @@ Pushes a parameter buffer to the stack.
 | ------------------|-------------|
 | bytes | The raw bytes of the parameter buffer |
 
-## CONST_CMD (9)
+## CONST_CMD (8)
 Runs a command with a constant opcode and a constant byte array of arguments.
 | Arg Name   | Arg Type | Source     | Description |
 |------------|----------|------------|-------------|
@@ -68,7 +68,7 @@ Runs a command with a constant opcode and a constant byte array of arguments.
 | Fw.CmdResponse | The CmdResponse that the command returned |
 
 
-## OR (10)
+## OR (9)
 Performs an `or` between two booleans, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -79,7 +79,7 @@ Performs an `or` between two booleans, pushes result to stack.
 | ------------------|-------------|
 | bool | The result |
 
-## AND (11)
+## AND (10)
 Performs an `and` between two booleans, pushes result to stack.
 
 | Arg Name | Arg Type | Source | Description |
@@ -90,7 +90,7 @@ Performs an `and` between two booleans, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## IEQ (12)
+## IEQ (11)
 Compares two integers for equality, pushes result to stack. Doesn't differentiate between signed and unsigned.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -100,7 +100,7 @@ Compares two integers for equality, pushes result to stack. Doesn't differentiat
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## INE (13)
+## INE (12)
 Compares two integers for inequality, pushes result to stack. Doesn't differentiate between signed and unsigned.
 
 | Arg Name | Arg Type | Source | Description |
@@ -111,7 +111,7 @@ Compares two integers for inequality, pushes result to stack. Doesn't differenti
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## ULT (14)
+## ULT (13)
 Performs an unsigned less than comparison on two unsigned integers, pushes result to stack
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -121,7 +121,7 @@ Performs an unsigned less than comparison on two unsigned integers, pushes resul
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## ULE (15)
+## ULE (14)
 Performs an unsigned less than or equal to comparison on two unsigned integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -131,7 +131,7 @@ Performs an unsigned less than or equal to comparison on two unsigned integers, 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## UGT (16)
+## UGT (15)
 Performs an unsigned greater than comparison on two unsigned integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -141,7 +141,7 @@ Performs an unsigned greater than comparison on two unsigned integers, pushes re
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## UGE (17)
+## UGE (16)
 Performs an unsigned greater than or equal to comparison on two unsigned integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -151,7 +151,7 @@ Performs an unsigned greater than or equal to comparison on two unsigned integer
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## SLT (18)
+## SLT (17)
 Performs a signed less than comparison on two signed integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -161,7 +161,7 @@ Performs a signed less than comparison on two signed integers, pushes result to 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## SLE (19)
+## SLE (18)
 Performs a signed less than or equal to comparison on two signed integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -171,7 +171,7 @@ Performs a signed less than or equal to comparison on two signed integers, pushe
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## SGT (20)
+## SGT (19)
 Performs a signed greater than comparison on two signed integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -181,7 +181,7 @@ Performs a signed greater than comparison on two signed integers, pushes result 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## SGE (21)
+## SGE (20)
 Performs a signed greater than or equal to comparison on two signed integers, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -191,7 +191,7 @@ Performs a signed greater than or equal to comparison on two signed integers, pu
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FEQ (22)
+## FEQ (21)
 Compares two floats for equality, pushes result to stack. If neither is NaN and they are otherwise equal, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -201,7 +201,7 @@ Compares two floats for equality, pushes result to stack. If neither is NaN and 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FNE (23)
+## FNE (22)
 Compares two floats for inequality, pushes result to stack. If either is NaN or they are not equal, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -211,7 +211,7 @@ Compares two floats for inequality, pushes result to stack. If either is NaN or 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FLT (24)
+## FLT (23)
 Performs a less than comparison on two floats, pushes result to stack. If neither is NaN and the second < first, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -221,7 +221,7 @@ Performs a less than comparison on two floats, pushes result to stack. If neithe
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FLE (25)
+## FLE (24)
 Performs a less than or equal to comparison on two floats, pushes result to stack. If neither is NaN and the second <= first, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -231,7 +231,7 @@ Performs a less than or equal to comparison on two floats, pushes result to stac
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FGT (26)
+## FGT (25)
 Performs a greater than comparison on two floats, pushes result to stack. If neither is NaN and the second > first, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -241,7 +241,7 @@ Performs a greater than comparison on two floats, pushes result to stack. If nei
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FGE (27)
+## FGE (26)
 Performs a greater than or equal to comparison on two floats, pushes result to stack. If neither is NaN and the second >= first, pushes 1 to stack, otherwise 0. Infinity is handled consistent with C++.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -251,7 +251,7 @@ Performs a greater than or equal to comparison on two floats, pushes result to s
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## NOT (28)
+## NOT (27)
 Performs a boolean not operation on a boolean, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -260,7 +260,7 @@ Performs a boolean not operation on a boolean, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bool | The result |
-## FPTOSI (29)
+## FPTOSI (28)
 Converts a float to a signed integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -269,7 +269,7 @@ Converts a float to a signed integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## FPTOUI (30)
+## FPTOUI (29)
 Converts a float to an unsigned integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -278,7 +278,7 @@ Converts a float to an unsigned integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## SITOFP (31)
+## SITOFP (30)
 Converts a signed integer to a float, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -286,7 +286,7 @@ Converts a signed integer to a float, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## UITOFP (32)
+## UITOFP (31)
 Converts an unsigned integer to a float, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -295,7 +295,7 @@ Converts an unsigned integer to a float, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## IADD (33)
+## ADD (32)
 Performs integer addition, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -305,7 +305,7 @@ Performs integer addition, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## ISUB (34)
+## SUB (33)
 Performs integer subtraction, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -315,7 +315,7 @@ Performs integer subtraction, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## IMUL (35)
+## MUL (34)
 Performs integer multiplication, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -325,7 +325,7 @@ Performs integer multiplication, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## UDIV (36)
+## UDIV (35)
 Performs unsigned integer division, pushes result to stack. A divisor of 0 will result in DOMAIN_ERROR.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -335,7 +335,7 @@ Performs unsigned integer division, pushes result to stack. A divisor of 0 will 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## SDIV (37)
+## SDIV (36)
 Performs signed integer division, pushes result to stack. A divisor of 0 will result in DOMAIN_ERROR.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -345,7 +345,7 @@ Performs signed integer division, pushes result to stack. A divisor of 0 will re
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## UMOD (38)
+## UMOD (37)
 Performs unsigned integer modulo, pushes result to stack. A 0 divisor (rhs) will result in DOMAIN_ERROR.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -355,7 +355,7 @@ Performs unsigned integer modulo, pushes result to stack. A 0 divisor (rhs) will
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## SMOD (39)
+## SMOD (38)
 Performs signed integer modulo, pushes result to stack. A 0 divisor (rhs) will result in DOMAIN_ERROR.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -365,7 +365,7 @@ Performs signed integer modulo, pushes result to stack. A 0 divisor (rhs) will r
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## FADD (40)
+## FADD (39)
 Performs float addition, pushes result to stack. NaN, and infinity are handled consistently with C++ addition.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -375,7 +375,7 @@ Performs float addition, pushes result to stack. NaN, and infinity are handled c
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FSUB (41)
+## FSUB (40)
 Performs float subtraction, pushes result to stack. NaN, and infinity are handled consistently with C++ subtraction.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -385,7 +385,7 @@ Performs float subtraction, pushes result to stack. NaN, and infinity are handle
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FMUL (42)
+## FMUL (41)
 Performs float multiplication, pushes result to stack. NaN, and infinity are handled consistently with C++ multiplication.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -395,7 +395,7 @@ Performs float multiplication, pushes result to stack. NaN, and infinity are han
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FDIV (43)
+## FDIV (42)
 Performs float division, pushes result to stack. Zero divisors, NaN, and infinity are handled consistently with C++ division.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -406,17 +406,7 @@ Performs float division, pushes result to stack. Zero divisors, NaN, and infinit
 | ------------------|-------------|
 | F64 | The result |
 
-## FLOAT_FLOOR_DIV (44)
-Performs float floor division, pushes result to stack. Zero divisors, NaN, and infinity are handled consistently with C++ division and `std::floor`.
-| Arg Name | Arg Type | Source | Description |
-|----------|----------|--------|-------------|
-| rhs      | F64      | stack  | Right operand |
-| lhs      | F64      | stack  | Left operand |
-
-| Stack Result Type | Description |
-| ------------------|-------------|
-| F64 | The result |
-## FPOW (45)
+## FPOW (43)
 Performs float exponentiation, pushes result to stack. NaN and infinity values are handled consistently with C++ `std::pow`.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -426,7 +416,7 @@ Performs float exponentiation, pushes result to stack. NaN and infinity values a
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FLOG (46)
+## FLOG (44)
 Performs float logarithm, pushes result to stack. Negatives yield a DOMAIN_ERROR, NaN and infinity values are handled consistently with C++ `std::log`.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -435,7 +425,7 @@ Performs float logarithm, pushes result to stack. Negatives yield a DOMAIN_ERROR
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FMOD (47)
+## FMOD (45)
 Performs float modulo, pushes result to stack. A 0 divisor (rhs) will result in a DOMAIN_ERROR. A NaN will produce a NaN result or infinity as either argument yields NaN.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -445,17 +435,7 @@ Performs float modulo, pushes result to stack. A 0 divisor (rhs) will result in 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | F64 | The result |
-## FPTRUNC (49)
-Truncates a 64-bit float to a 32-bit float, pushes result to stack.
-| Arg Name | Arg Type | Source | Description |
-|----------|----------|--------|-------------|
-| value    | F64      | stack  | Value to truncate |
-
-| Stack Result Type | Description |
-| ------------------|-------------|
-| F32 | The result |
-
-## FPEXT (48)
+## FPEXT (46)
 Extends a 32-bit float to a 64-bit float, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -465,7 +445,17 @@ Extends a 32-bit float to a 64-bit float, pushes result to stack.
 | ------------------|-------------|
 | F64 | The result |
 
-## SIEXT_8_64 (50)
+## FPTRUNC (47)
+Truncates a 64-bit float to a 32-bit float, pushes result to stack.
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| value    | F64      | stack  | Value to truncate |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| F32 | The result |
+
+## SIEXT_8_64 (48)
 Sign-extends an 8-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -475,7 +465,7 @@ Sign-extends an 8-bit integer to a 64-bit integer, pushes result to stack.
 | ------------------|-------------|
 | I64 | The result |
 
-## SIEXT_16_64 (51)
+## SIEXT_16_64 (49)
 Sign-extends a 16-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -484,7 +474,7 @@ Sign-extends a 16-bit integer to a 64-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## SIEXT_32_64 (52)
+## SIEXT_32_64 (50)
 Sign-extends a 32-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -493,7 +483,7 @@ Sign-extends a 32-bit integer to a 64-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I64 | The result |
-## ZIEXT_8_64 (53)
+## ZIEXT_8_64 (51)
 Zero-extends an 8-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -502,7 +492,7 @@ Zero-extends an 8-bit integer to a 64-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## ZIEXT_16_64 (54)
+## ZIEXT_16_64 (52)
 Zero-extends a 16-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -511,7 +501,7 @@ Zero-extends a 16-bit integer to a 64-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## ZIEXT_32_64 (55)
+## ZIEXT_32_64 (53)
 Zero-extends a 32-bit integer to a 64-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -520,7 +510,7 @@ Zero-extends a 32-bit integer to a 64-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U64 | The result |
-## ITRUNC_64_8 (56)
+## ITRUNC_64_8 (54)
 Truncates a 64-bit integer to an 8-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -529,7 +519,7 @@ Truncates a 64-bit integer to an 8-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | U8 | The result |
-## ITRUNC_64_16 (57)
+## ITRUNC_64_16 (55)
 Truncates a 64-bit integer to a 16-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -538,7 +528,7 @@ Truncates a 64-bit integer to a 16-bit integer, pushes result to stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | I16 | The result |
-## ITRUNC_64_32 (58)
+## ITRUNC_64_32 (56)
 Truncates a 64-bit integer to a 32-bit integer, pushes result to stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -548,14 +538,14 @@ Truncates a 64-bit integer to a 32-bit integer, pushes result to stack.
 | ------------------|-------------|
 | I32 | The result |
 
-## EXIT (59)
+## EXIT (57)
 Pops a byte off the stack. If the byte == 0, end sequence as if it had finished nominally, otherwise exit the sequence and raise an event with an error code.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | success    | U8      | stack  | 0 if should exit without error |
 
 
-## ALLOCATE (60)
+## ALLOCATE (58)
 Pushes a hard-coded count of 0x00-bytes to the stack.
 | Arg Name | Arg Type | Source     | Description |
 |----------|----------|------------|-------------|
@@ -565,26 +555,26 @@ Pushes a hard-coded count of 0x00-bytes to the stack.
 | ------------------|-------------|
 | bytes | A series of 0 bytes of length `size` |
 
-## STORE_CONST_OFFSET (61)
-Pops a hard-coded number of bytes off the stack, and writes them to the local variable array at a hard-coded offset.
+## STORE_LOCAL_CONST_OFFSET (59)
+Pops a hard-coded number of bytes off the stack, and writes them to the local variable array at a hard-coded offset relative to the current stack frame start.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
-| lvar_offset | U32      | hardcoded  | Local variable offset |
+| lvar_offset | I32      | hardcoded  | Local variable offset (relative to stack frame start) |
 | size        | U32      | hardcoded  | Number of bytes |
 | value       | bytes    | stack      | Value to store |
 
-## LOAD (62)
-Reads a hard-coded number of bytes from the local variable array at a specific offset, and pushes them to the stack.
+## LOAD_LOCAL (60)
+Reads a hard-coded number of bytes from the local variable array at a specific offset relative to the current stack frame start, and pushes them to the stack.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
-| lvar_offset | U32      | hardcoded  | Local variable offset |
+| lvar_offset | I32      | hardcoded  | Local variable offset (relative to stack frame start, can be negative for function args) |
 | size        | U32      | hardcoded  | Number of bytes |
 
 | Stack Result Type | Description |
 | ------------------|-------------|
 | bytes | The bytes from the lvar array |
 
-## PUSH_VAL (63)
+## PUSH_VAL (61)
 Pushes a constant array of bytes to the stack.
 | Arg Name | Arg Type | Source     | Description |
 |----------|----------|------------|-------------|
@@ -594,14 +584,14 @@ Pushes a constant array of bytes to the stack.
 | ------------------|-------------|
 | bytes | The byte array from the arg |
 
-## DISCARD (64)
+## DISCARD (62)
 Discards bytes from the top of the stack.
 | Arg Name | Arg Type | Source     | Description |
 |----------|----------|------------|-------------|
 | size     | U32      | hardcoded  | Bytes to discard |
 
 
-## MEMCMP (65)
+## MEMCMP (63)
 Compares two memory regions on the stack.
 | Arg Name | Arg Type | Source     | Description |
 |----------|----------|------------|-------------|
@@ -611,7 +601,7 @@ Compares two memory regions on the stack.
 | ------------------|-------------|
 | bool | The result |
 
-## STACK_CMD (66)
+## STACK_CMD (64)
 Dispatches a command with arguments from the stack.
 | Arg Name  | Arg Type | Source     | Description |
 |-----------|----------|------------|-------------|
@@ -621,7 +611,7 @@ Dispatches a command with arguments from the stack.
 | ------------------|-------------|
 | Fw.CmdResponse | The CmdResponse that the command returned |
 
-## PUSH_TLM_VAL_AND_TIME (67)
+## PUSH_TLM_VAL_AND_TIME (65)
 Gets a telemetry channel and pushes its value, and then its time, onto the stack.
 | Arg Name     | Arg Type | Source     | Description |
 |--------------|----------|------------|-------------|
@@ -632,20 +622,20 @@ Gets a telemetry channel and pushes its value, and then its time, onto the stack
 | bytes | The raw bytes of the telemetry value buffer |
 | Fw.Time | The time tag of the telemetry value |
 
-## PUSH_TIME (68)
+## PUSH_TIME (66)
 Pushes the current time, from the `timeCaller` port, to the stack.
 | Stack Result Type | Description |
 | ------------------|-------------|
 | Fw.Time | The current time |
 
-## SET_FLAG (69)
+## SET_FLAG (67)
 Pops a bool off the stack, sets a flag with a specific index to that bool.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | flag_idx | U8 | hardcoded | Index of the flag to set |
 | value | bool | stack | Value to set the flag to |
 
-## GET_FLAG (70)
+## GET_FLAG (68)
 Gets a flag and pushes its value as a U8 to the stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -655,7 +645,7 @@ Gets a flag and pushes its value as a U8 to the stack.
 | ------------------|-------------|
 | bool | The value of the flag |
 
-## GET_FIELD (71)
+## GET_FIELD (69)
 Pops an offset (StackSizeType) off the stack. Takes a hard-coded number of bytes from top of stack, and then inside of that a second array of hard-coded number of bytes. The second array is offset by the value previously popped off the stack, with offset 0 meaning the second array starts furthest down the stack. Leaves only the second array of bytes, deleting the surrounding bytes.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -667,7 +657,7 @@ Pops an offset (StackSizeType) off the stack. Takes a hard-coded number of bytes
 | ------------------|-------------|
 | bytes | The raw bytes of the field |
 
-## PEEK (72)
+## PEEK (70)
 Pops a StackSizeType `offset` off the stack, then a StackSizeType `byteCount`. Let `top` be the top of the stack. Takes the region starting at `top - offset - byteCount` and going to `top - offset`, and pushes this region to the top of the stack.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -678,17 +668,54 @@ Pops a StackSizeType `offset` off the stack, then a StackSizeType `byteCount`. L
 | ------------------|-------------|
 | bytes | The peeked bytes |
 
-## ASSERT (73)
-Pops one byte for a condition and one byte for an error code off the stack. If condition is false, raise the error code as an event.
-| Arg Name | Arg Type | Source | Description |
-|----------|----------|--------|-------------|
-| error_code | U8 | stack | Error code to exit with if assertion fails |
-| condition | bool | stack | Condition to assert |
-
-## STORE (74)
-Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and moves them to the start of the lvar array plus the offset previously popped off the stack.
+## STORE_LOCAL (71)
+Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and moves them to the local variable array at the offset relative to the current stack frame start.
 | Arg Name    | Arg Type | Source     | Description |
 |-------------|----------|------------|-------------|
 | size        | U32      | hardcoded  | Number of bytes |
-| lvar_offset | U32      | stack      | Local variable offset |
+| lvar_offset | I32      | stack      | Local variable offset (relative to stack frame start) |
 | value       | bytes    | stack      | Value to store |
+
+## CALL (72)
+Pops a StackSizeType offset from the stack (the target directive index), saves the current instruction pointer and frame pointer to the stack as StackSizeTypes, then jumps to the target. The stack frame start is updated to point to the top of the stack.
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| target   | StackSizeType | stack | Directive index to jump to |
+
+## RETURN (73)
+Returns from a function call. Pops the return value (if any), restores the stack frame start and instruction pointer from the stack, discards the function arguments, then pushes the return value back.
+| Arg Name        | Arg Type | Source     | Description |
+|-----------------|----------|------------|-------------|
+| return_val_size | U32      | hardcoded  | Size of return value in bytes (0 if no return value) |
+| call_args_size  | U32      | hardcoded  | Total size of function arguments in bytes |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| bytes | The return value (if return_val_size > 0) |
+
+## LOAD_GLOBAL (74)
+Reads a hard-coded number of bytes from the global variable area at an absolute offset from the start of the stack, and pushes them to the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| global_offset | U32      | hardcoded  | Absolute offset from start of stack |
+| size          | U32      | hardcoded  | Number of bytes |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| bytes | The bytes from the global variable area |
+
+## STORE_GLOBAL (75)
+Pops an offset (StackSizeType) off the stack. Pops a hardcoded number of bytes from the top of the stack, and stores them at the absolute offset from the start of the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| size          | U32      | hardcoded  | Number of bytes |
+| global_offset | U32      | stack      | Absolute offset from start of stack |
+| value         | bytes    | stack      | Value to store |
+
+## STORE_GLOBAL_CONST_OFFSET (76)
+Pops a hard-coded number of bytes off the stack, and writes them to the global variable area at a hard-coded absolute offset from the start of the stack.
+| Arg Name      | Arg Type | Source     | Description |
+|---------------|----------|------------|-------------|
+| global_offset | U32      | hardcoded  | Absolute offset from start of stack |
+| size          | U32      | hardcoded  | Number of bytes |
+| value         | bytes    | stack      | Value to store |
