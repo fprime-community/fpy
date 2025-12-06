@@ -42,7 +42,7 @@ capsys
 cata
 CCB
 CCFF
-ccsds
+Ccsds
 Cdh
 Cdioux
 cdn
@@ -87,6 +87,7 @@ deframed
 deframer
 deframing
 DEPRECATEDLIST
+Deser
 DESER
 Deserial
 deserializes

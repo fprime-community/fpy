@@ -3434,7 +3434,7 @@ test(a=1, a=2)
 
 
 def test_named_arg_positional_and_named(fprime_test_api):
-    """Error when same argument specified positionally and by name."""
+    """Error when same argument specified by position and by name."""
     seq = """
 def test(a: U64, b: U64) -> U64:
     return a + b
