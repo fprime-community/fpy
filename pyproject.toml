@@ -3,7 +3,7 @@ requires = ["setuptools", "setuptools_scm[toml]>=6.2", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fpy"
+name = "fprime-fpy"
 dynamic = ["version"]
 description = "Fpy Advanced Sequencing Language for F Prime"
 readme = "README.md"
@@ -12,6 +12,7 @@ license = {file = "LICENSE.txt"}
 keywords = ["fprime", "embedded", "nasa", "flight", "software"]
 authors = [
   {name = "Zimri Leisher", email = "zimri.leisher@gmail.com"},
+  {name = "Michael Starch", email = "Michael.D.Starch@jpl.nasa.gov"},
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
