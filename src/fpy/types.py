@@ -487,7 +487,7 @@ class CompileState:
     )
     """reference to its singular resolution"""
 
-    expr_unconverted_types: dict[AstExpr, FppType | NothingType] = field(
+    synthesized_types: dict[AstExpr, FppType | NothingType] = field(
         default_factory=dict
     )
     """expr to its fprime type, before type conversions are applied"""
@@ -497,10 +497,10 @@ class CompileState:
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
     """a list of nodes which are explicit casts"""
-    expr_converted_types: dict[AstExpr, FppType] = field(default_factory=dict)
+    contextual_types: dict[AstExpr, FppType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    expr_converted_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    contextual_values: dict[AstExpr, FppValue | NothingValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.

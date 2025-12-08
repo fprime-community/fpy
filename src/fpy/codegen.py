@@ -201,7 +201,7 @@ class GenerateFunctionBody(Emitter):
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
         """if the expr has a compile time const value, emit that as a PUSH_VAL"""
-        expr_value = state.expr_converted_values.get(node)
+        expr_value = state.contextual_values.get(node)
 
         if expr_value is None:
             # no const value
@@ -227,7 +227,7 @@ class GenerateFunctionBody(Emitter):
             # nothing to discard
             return []
 
-        result_type = state.expr_converted_types[node]
+        result_type = state.contextual_types[node]
         if result_type == NothingValue:
             return []
         if result_type.getMaxSize() > 0:
@@ -543,7 +543,7 @@ class GenerateFunctionBody(Emitter):
 
         if node.value is not None:
             dirs = self.emit(node.value, state)
-            value_size = state.expr_converted_types[node.value].getMaxSize()
+            value_size = state.contextual_types[node.value].getMaxSize()
         else:
             dirs = []
             value_size = 0
@@ -564,9 +564,9 @@ class GenerateFunctionBody(Emitter):
         assert is_instance_compat(sym, FieldSymbol), sym
 
         # use the unconverted for this expr for now, because we haven't run conversion
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
         # however, for parent, use converted because conversion has been run
-        parent_type = state.expr_converted_types[node.parent]
+        parent_type = state.contextual_types[node.parent]
 
         assert issubclass(parent_type, ArrayValue)
         assert unconverted_type == parent_type.MEMBER_TYPE, (
@@ -596,7 +596,7 @@ class GenerateFunctionBody(Emitter):
         )
 
         # now convert the type if necessary
-        converted_type = state.expr_converted_types[node]
+        converted_type = state.contextual_types[node]
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -619,8 +619,8 @@ class GenerateFunctionBody(Emitter):
         else:
             dirs = [LoadLocalDirective(sym.frame_offset, sym.type.getMaxSize())]
 
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -639,7 +639,7 @@ class GenerateFunctionBody(Emitter):
             return []
 
         # start with the unconverted type, because we haven't applied runtime type conversion yet
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
 
         dirs = []
 
@@ -661,7 +661,7 @@ class GenerateFunctionBody(Emitter):
             dirs.extend(self.emit(sym.parent_expr, state))
             assert sym.local_offset is not None
             # use the converted type of parent
-            parent_type = state.expr_converted_types[sym.parent_expr]
+            parent_type = state.contextual_types[sym.parent_expr]
             # push the offset to the stack
             dirs.append(PushValDirective(StackSizeType(sym.local_offset).serialize()))
             dirs.append(
@@ -674,7 +674,7 @@ class GenerateFunctionBody(Emitter):
                 False
             ), sym  # sym should either be impossible to put on stack or should have a compile time val
 
-        converted_type = state.expr_converted_types[node]
+        converted_type = state.contextual_types[node]
         if converted_type != unconverted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -697,8 +697,8 @@ class GenerateFunctionBody(Emitter):
             if (
                 node.op == BinaryStackOp.EQUAL or node.op == BinaryStackOp.NOT_EQUAL
             ) and intermediate_type not in SPECIFIC_NUMERIC_TYPES:
-                lhs_type = state.expr_converted_types[node.lhs]
-                rhs_type = state.expr_converted_types[node.rhs]
+                lhs_type = state.contextual_types[node.lhs]
+                rhs_type = state.contextual_types[node.rhs]
                 assert lhs_type == rhs_type, (lhs_type, rhs_type)
                 dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
                 if node.op == BinaryStackOp.NOT_EQUAL:
@@ -719,8 +719,8 @@ class GenerateFunctionBody(Emitter):
                     dirs.append(dir())
 
         # and convert the result of the op into the desired result of this expr
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -777,8 +777,8 @@ class GenerateFunctionBody(Emitter):
         dirs.append(dir())
 
         # and convert the result of the op into the desired result of this expr
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -794,13 +794,13 @@ class GenerateFunctionBody(Emitter):
         dirs = []
         if is_instance_compat(func, CommandSymbol):
             const_args = not any(
-                state.expr_converted_values[arg_node] is None for arg_node in node_args
+                state.contextual_values[arg_node] is None for arg_node in node_args
             )
             if const_args:
                 # can just hardcode this cmd
                 arg_bytes = bytes()
                 for arg_node in node_args:
-                    arg_value = state.expr_converted_values[arg_node]
+                    arg_value = state.contextual_values[arg_node]
                     arg_bytes += arg_value.serialize()
                 dirs.append(ConstCmdDirective(func.cmd.get_op_code(), arg_bytes))
             else:
@@ -809,7 +809,7 @@ class GenerateFunctionBody(Emitter):
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
                     dirs.extend(self.emit(arg_node, state))
-                    arg_converted_type = state.expr_converted_types[arg_node]
+                    arg_converted_type = state.contextual_types[arg_node]
                     arg_byte_count += arg_converted_type.getMaxSize()
                 # then push cmd opcode to stack as u32
                 dirs.append(
@@ -847,8 +847,8 @@ class GenerateFunctionBody(Emitter):
             assert False, func
 
         # perform type conversion if called for
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         if unconverted_type != converted_type:
             dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
@@ -882,11 +882,11 @@ class GenerateFunctionBody(Emitter):
                 # the offset in base type.
 
                 # check if we have a value for it
-                const_idx_expr_value = state.expr_converted_values.get(lhs.idx_expr)
+                const_idx_expr_value = state.contextual_values.get(lhs.idx_expr)
                 if const_idx_expr_value is not None:
                     assert is_instance_compat(const_idx_expr_value, ArrayIndexType)
                     # okay, so we have a constant value index
-                    lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
+                    lhs_parent_type = state.contextual_types[lhs.parent_expr]
                     const_frame_offset = (
                         lhs.base_sym.frame_offset
                         + const_idx_expr_value.val
@@ -923,7 +923,7 @@ class GenerateFunctionBody(Emitter):
             # == (parent offset) + (offset in parent)
 
             # offset in parent:
-            lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
+            lhs_parent_type = state.contextual_types[lhs.parent_expr]
             dirs.extend(
                 self.calc_lvar_offset_of_array_element(
                     node, lhs.idx_expr, lhs_parent_type, state

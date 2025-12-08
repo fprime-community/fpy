@@ -210,8 +210,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             state.local_scopes[node][node.lhs.var] = var
         else:
             # otherwise, it's a reference to an existing var
-            resolved = lookup_symbol(node, node.lhs.var, state)
-            if resolved is None:
+            sym = lookup_symbol(node, node.lhs.var, state)
+            if sym is None:
                 # unable to find this symbol
                 state.err(
                     f"'{node.lhs.var}' has not been declared",
@@ -388,27 +388,27 @@ class ResolveTypeNames(TopDownVisitor):
         Returns None if the type could not be resolved (error already reported).
         """
         # Start from the first part
-        resolved = state.types.get(node.parts[0])
-        if resolved is None:
+        sym = state.types.get(node.parts[0])
+        if sym is None:
             state.err("Unknown type", node)
             return None
 
         # Walk through the remaining parts
         for part in node.parts[1:]:
-            if not is_instance_compat(resolved, dict):
+            if not is_instance_compat(sym, dict):
                 state.err("Unknown type", node)
                 return None
-            resolved = resolved.get(part)
-            if resolved is None:
+            sym = sym.get(part)
+            if sym is None:
                 state.err("Unknown type", node)
                 return None
 
-        if not is_instance_compat(resolved, type):
+        if not is_instance_compat(sym, type):
             state.err("Unknown type", node)
             return None
 
-        state.resolved_symbols[node] = resolved
-        return resolved
+        state.resolved_symbols[node] = sym
+        return sym
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Get the function that was created in CreateVariablesAndFuncs
@@ -472,14 +472,14 @@ class ResolveVars(TopDownVisitor):
     ) -> Symbol | None:
         """resolves a name in local scope only. return None if could not be resolved"""
         local_scope = state.local_scopes[node]
-        resolved = None
-        while local_scope is not None and resolved is None:
-            resolved = local_scope.get(node.var)
+        sym = None
+        while local_scope is not None and sym is None:
+            sym = local_scope.get(node.var)
             local_scope = state.scope_parents[local_scope]
 
-        if resolved is not None:
-            state.resolved_symbols[node] = resolved
-        return resolved
+        if sym is not None:
+            state.resolved_symbols[node] = sym
+        return sym
 
     def try_resolve_root_ref(
         self,
@@ -507,20 +507,20 @@ class ResolveVars(TopDownVisitor):
 
         # okay now we have a var
         # see if it's something defined in the script
-        resolved = None
+        sym = None
         if search_local_scope:
-            resolved = self.resolve_local_name(node, state)
+            sym = self.resolve_local_name(node, state)
 
-        if resolved is None:
+        if sym is None:
             # unable to find this symbol in the hierarchy of local scopes
             # look it up in the global scope
-            resolved = global_scope.get(node.var)
+            sym = global_scope.get(node.var)
 
-        if resolved is None:
+        if sym is None:
             state.err(f"Unknown {global_scope_name}", node)
             return False
 
-        state.resolved_symbols[node] = resolved
+        state.resolved_symbols[node] = sym
         return True
 
     def finish_resolving_func(
@@ -545,33 +545,33 @@ class ResolveVars(TopDownVisitor):
                 return None
 
             if is_instance_compat(n, AstVar):
-                resolved = state.resolved_symbols.get(n)
-                if resolved is None:
+                sym = state.resolved_symbols.get(n)
+                if sym is None:
                     state.err("Unknown function", n)
                     return None
                 expected_type = CallableSymbol if expect_callable else dict
-                if not is_instance_compat(resolved, expected_type):
+                if not is_instance_compat(sym, expected_type):
                     state.err("Unknown function", n)
                     return None
-                return resolved
+                return sym
 
             # It's an AstMemberAccess - resolve the parent first (always expecting a namespace)
             parent_scope = resolve(n.parent, expect_callable=False)
             if parent_scope is None:
                 return None
 
-            resolved = parent_scope.get(n.attr)
-            if resolved is None:
+            sym = parent_scope.get(n.attr)
+            if sym is None:
                 state.err("Unknown function", n)
                 return None
 
             expected_type = CallableSymbol if expect_callable else dict
-            if not is_instance_compat(resolved, expected_type):
+            if not is_instance_compat(sym, expected_type):
                 state.err("Unknown function", n)
                 return None
 
-            state.resolved_symbols[n] = resolved
-            return resolved
+            state.resolved_symbols[n] = sym
+            return sym
 
         return resolve(node, expect_callable=True)
 
@@ -834,14 +834,14 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def coerce_expr_type(
         self, node: AstExpr, type: FppType, state: CompileState
     ) -> bool:
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
         # make sure it isn't already being coerced
-        assert unconverted_type == state.expr_converted_types[node], (
+        assert unconverted_type == state.contextual_types[node], (
             unconverted_type,
-            state.expr_converted_types[node],
+            state.contextual_types[node],
         )
         if self.can_coerce_type(unconverted_type, type):
-            state.expr_converted_types[node] = type
+            state.contextual_types[node] = type
             return True
         state.err(
             f"Expected {typename(type)}, found {typename(unconverted_type)}", node
@@ -1066,7 +1066,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # sym may be None (if parent is some complex expr), or it may be
             # a tlm chan or var or etc...
             # it may or may not have a compile time value, but it definitely has a type
-            parent_type = state.expr_unconverted_types[node.parent]
+            parent_type = state.synthesized_types[node.parent]
 
             # field symbols store their "base symbol", which is the first non-field-symbol parent of
             # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
@@ -1114,8 +1114,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         sym_type = self.get_sym_type(sym)
 
         state.resolved_symbols[node] = sym
-        state.expr_unconverted_types[node] = sym_type
-        state.expr_converted_types[node] = sym_type
+        state.synthesized_types[node] = sym_type
+        state.contextual_types[node] = sym_type
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         parent_sym = state.resolved_symbols.get(node.parent)
@@ -1126,7 +1126,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         # otherwise, we should definitely have a well-defined type for our parent expr
 
-        parent_type = state.expr_unconverted_types[node.parent]
+        parent_type = state.synthesized_types[node.parent]
 
         if not self.is_type_constant_size(parent_type):
             state.err(
@@ -1158,8 +1158,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         )
 
         state.resolved_symbols[node] = sym
-        state.expr_unconverted_types[node] = parent_type.MEMBER_TYPE
-        state.expr_converted_types[node] = parent_type.MEMBER_TYPE
+        state.synthesized_types[node] = parent_type.MEMBER_TYPE
+        state.contextual_types[node] = parent_type.MEMBER_TYPE
 
     def visit_AstVar(self, node: AstVar, state: CompileState):
         # already been resolved by SetScopes pass
@@ -1168,8 +1168,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
         sym_type = self.get_sym_type(sym)
 
-        state.expr_unconverted_types[node] = sym_type
-        state.expr_converted_types[node] = sym_type
+        state.synthesized_types[node] = sym_type
+        state.contextual_types[node] = sym_type
 
     def visit_AstNumber(self, node: AstNumber, state: CompileState):
         # give a best guess as to the final type of this node. we don't actually know
@@ -1179,12 +1179,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         else:
             result_type = FpyIntegerValue
 
-        state.expr_unconverted_types[node] = result_type
-        state.expr_converted_types[node] = result_type
+        state.synthesized_types[node] = result_type
+        state.contextual_types[node] = result_type
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        lhs_type = state.expr_unconverted_types[node.lhs]
-        rhs_type = state.expr_unconverted_types[node.rhs]
+        lhs_type = state.synthesized_types[node.lhs]
+        rhs_type = state.synthesized_types[node.rhs]
 
         intermediate_type = self.pick_intermediate_type([lhs_type, rhs_type], node.op)
         if intermediate_type is None:
@@ -1206,11 +1206,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             result_type = BoolValue
 
         state.op_intermediate_types[node] = intermediate_type
-        state.expr_unconverted_types[node] = result_type
-        state.expr_converted_types[node] = result_type
+        state.synthesized_types[node] = result_type
+        state.contextual_types[node] = result_type
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        val_type = state.expr_unconverted_types[node.val]
+        val_type = state.synthesized_types[node.val]
 
         intermediate_type = self.pick_intermediate_type([val_type], node.op)
         if intermediate_type is None:
@@ -1227,16 +1227,16 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             result_type = BoolValue
 
         state.op_intermediate_types[node] = intermediate_type
-        state.expr_unconverted_types[node] = result_type
-        state.expr_converted_types[node] = result_type
+        state.synthesized_types[node] = result_type
+        state.contextual_types[node] = result_type
 
     def visit_AstString(self, node: AstString, state: CompileState):
-        state.expr_unconverted_types[node] = FpyStringValue
-        state.expr_converted_types[node] = FpyStringValue
+        state.synthesized_types[node] = FpyStringValue
+        state.contextual_types[node] = FpyStringValue
 
     def visit_AstBoolean(self, node: AstBoolean, state: CompileState):
-        state.expr_unconverted_types[node] = BoolValue
-        state.expr_converted_types[node] = BoolValue
+        state.synthesized_types[node] = BoolValue
+        state.contextual_types[node] = BoolValue
 
     def build_resolved_call_args(
         self,
@@ -1337,7 +1337,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
             node_arg = resolved_args[0]
-            input_type = state.expr_unconverted_types[node_arg]
+            input_type = state.synthesized_types[node_arg]
             output_type = func.to_type
             # right now we only have casting to numbers
             assert output_type in SPECIFIC_NUMERIC_TYPES
@@ -1355,12 +1355,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
             # Skip type check for default values from forward-called functions.
             # These expressions haven't been visited yet, so they're not in
-            # expr_unconverted_types. Their type compatibility is verified when
+            # synthesized_types. Their type compatibility is verified when
             # the function definition is visited.
-            if value_expr not in state.expr_unconverted_types:
+            if value_expr not in state.synthesized_types:
                 continue
 
-            unconverted_type = state.expr_unconverted_types[value_expr]
+            unconverted_type = state.synthesized_types[value_expr]
             if not self.can_coerce_type(unconverted_type, arg_type):
                 return CompileError(
                     f"Expected {typename(arg_type)}, found {typename(unconverted_type)}",
@@ -1405,7 +1405,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             output_type = func.to_type
             # we're going from input_type to output type, and we're going to ignore
             # the coercion rules
-            state.expr_converted_types[node_arg] = output_type
+            state.contextual_types[node_arg] = output_type
             # keep track of which ones we explicitly cast. this will
             # let us turn off some checks for boundaries later when we do const folding
             # we turn off the checks because the user is asking us to force this!
@@ -1414,14 +1414,14 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             for value_expr, arg in zip(resolved_args, func.args):
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.
-                if value_expr not in state.expr_unconverted_types:
+                if value_expr not in state.synthesized_types:
                     continue
                 arg_type = arg[1]
                 # should be good 2 go based on the check func above
-                state.expr_converted_types[value_expr] = arg_type
+                state.contextual_types[value_expr] = arg_type
 
-        state.expr_unconverted_types[node] = func.return_type
-        state.expr_converted_types[node] = func.return_type
+        state.synthesized_types[node] = func.return_type
+        state.contextual_types[node] = func.return_type
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         if not self.coerce_expr_type(node.lower_bound, LoopVarType, state):
@@ -1429,8 +1429,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         if not self.coerce_expr_type(node.upper_bound, LoopVarType, state):
             return
 
-        state.expr_unconverted_types[node] = RangeValue
-        state.expr_converted_types[node] = RangeValue
+        state.synthesized_types[node] = RangeValue
+        state.contextual_types[node] = RangeValue
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         # should be present in resolved refs because we only let it through if
@@ -1451,10 +1451,10 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                 state.err("Can only assign variables", node.lhs)
                 return
             assert (
-                state.expr_converted_types[node.lhs]
-                == state.expr_unconverted_types[node.lhs]
+                state.contextual_types[node.lhs]
+                == state.synthesized_types[node.lhs]
             )
-            lhs_type = state.expr_converted_types[node.lhs]
+            lhs_type = state.contextual_types[node.lhs]
 
         # coerce the rhs into the lhs type
         if not self.coerce_expr_type(node.rhs, lhs_type, state):
@@ -1542,7 +1542,7 @@ class CalculateDefaultArgConstValues(Visitor):
                 return
 
             # Check that the default value is a const expression
-            const_value = state.expr_converted_values.get(default_value)
+            const_value = state.contextual_values.get(default_value)
             if const_value is None:
                 state.err(
                     f"Default value for argument '{arg_name_var.var}' must be a constant expression",
@@ -1677,7 +1677,7 @@ class CalculateConstExprValues(Visitor):
             return None
 
     def visit_AstLiteral(self, node: AstLiteral, state: CompileState):
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
 
         try:
             expr_value = unconverted_type(node.value)
@@ -1687,7 +1687,7 @@ class CalculateConstExprValues(Visitor):
             return
 
         skip_range_check = node in state.expr_explicit_casts
-        converted_type = state.expr_converted_types[node]
+        converted_type = state.contextual_types[node]
         if converted_type != unconverted_type:
             expr_value = self.const_convert_type(
                 expr_value, converted_type, node, state, skip_range_check
@@ -1695,16 +1695,16 @@ class CalculateConstExprValues(Visitor):
             if expr_value is None:
                 return
 
-        state.expr_converted_values[node] = expr_value
+        state.contextual_values[node] = expr_value
 
     def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
         expr_value = None
         if is_instance_compat(sym, (type, dict, CallableSymbol)):
             # these types have no value
-            state.expr_converted_values[node] = NothingValue()
+            state.contextual_values[node] = NothingValue()
             assert unconverted_type == converted_type, (
                 unconverted_type,
                 converted_type,
@@ -1712,15 +1712,15 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
             # has a value but won't try to calc at compile time
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
         elif is_instance_compat(sym, FieldSymbol):
-            parent_value = state.expr_converted_values[node.parent]
+            parent_value = state.contextual_values[node.parent]
             if parent_value is None:
                 # no compile time constant value for our parent here
-                state.expr_converted_values[node] = None
+                state.contextual_values[node] = None
                 return
 
             # we are accessing an attribute of something with an fprime value at compile time
@@ -1755,56 +1755,56 @@ class CalculateConstExprValues(Visitor):
             )
             if expr_value is None:
                 return
-        state.expr_converted_values[node] = expr_value
+        state.contextual_values[node] = expr_value
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         sym = state.resolved_symbols[node]
         # index expression can only be a field symbol
         assert is_instance_compat(sym, FieldSymbol), sym
 
-        parent_value = state.expr_converted_values[node.parent]
+        parent_value = state.contextual_values[node.parent]
 
         if parent_value is None:
             # no compile time constant value for our parent here
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         assert is_instance_compat(parent_value, ArrayValue), parent_value
 
-        idx = state.expr_converted_values.get(node.item)
+        idx = state.contextual_values.get(node.item)
         if idx is None:
             # no compile time constant value for our index
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         assert is_instance_compat(idx, ArrayIndexType)
 
         expr_value = parent_value._val[idx._val]
 
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
         assert is_instance_compat(expr_value, unconverted_type), (
             expr_value,
             unconverted_type,
         )
 
         skip_range_check = node in state.expr_explicit_casts
-        converted_type = state.expr_converted_types[node]
+        converted_type = state.contextual_types[node]
         if converted_type != unconverted_type:
             expr_value = self.const_convert_type(
                 expr_value, converted_type, node, state, skip_range_check
             )
             if expr_value is None:
                 return
-        state.expr_converted_values[node] = expr_value
+        state.contextual_values[node] = expr_value
 
     def visit_AstVar(self, node: AstVar, state: CompileState):
-        unconverted_type = state.expr_unconverted_types[node]
-        converted_type = state.expr_converted_types[node]
+        unconverted_type = state.synthesized_types[node]
+        converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
         expr_value = None
         if is_instance_compat(sym, (type, dict, CallableSymbol)):
             # these types have no value
-            state.expr_converted_values[node] = NothingValue()
+            state.contextual_values[node] = NothingValue()
             assert unconverted_type == converted_type, (
                 unconverted_type,
                 converted_type,
@@ -1817,7 +1817,7 @@ class CalculateConstExprValues(Visitor):
             # on default argument expressions BEFORE this pass runs on variable assignments.
             # So if a default value references a variable, the variable's const value won't
             # be available yet, and the default value will incorrectly be rejected as non-const.
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
@@ -1838,7 +1838,7 @@ class CalculateConstExprValues(Visitor):
             )
             if expr_value is None:
                 return
-        state.expr_converted_values[node] = expr_value
+        state.contextual_values[node] = expr_value
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols[node.func]
@@ -1852,13 +1852,13 @@ class CalculateConstExprValues(Visitor):
         # Gather arg values. Since defaults are already filled in, we just need
         # to look up each arg's const value.
         arg_values = [
-            state.expr_converted_values.get(arg_expr) for arg_expr in resolved_args
+            state.contextual_values.get(arg_expr) for arg_expr in resolved_args
         ]
 
         unknown_value = any(v is None for v in arg_values)
         if unknown_value:
             # we will have to calculate this at runtime
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         expr_value = None
@@ -1892,17 +1892,17 @@ class CalculateConstExprValues(Visitor):
         else:
             # don't try to calculate the value of this function call
             # it's something like a user defined func, cmd or builtin
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
-        unconverted_type = state.expr_unconverted_types[node]
+        unconverted_type = state.synthesized_types[node]
         assert is_instance_compat(expr_value, unconverted_type), (
             expr_value,
             unconverted_type,
         )
 
         skip_range_check = node in state.expr_explicit_casts
-        converted_type = state.expr_converted_types[node]
+        converted_type = state.contextual_types[node]
         if converted_type != unconverted_type:
             expr_value = self.const_convert_type(
                 expr_value, converted_type, node, state, skip_range_check
@@ -1910,15 +1910,15 @@ class CalculateConstExprValues(Visitor):
             if expr_value is None:
                 return
 
-        state.expr_converted_values[node] = expr_value
+        state.contextual_values[node] = expr_value
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
-        lhs_value: FppValue = state.expr_converted_values.get(node.lhs)
-        rhs_value: FppValue = state.expr_converted_values.get(node.rhs)
+        lhs_value: FppValue = state.contextual_values.get(node.lhs)
+        rhs_value: FppValue = state.contextual_values.get(node.rhs)
 
         if lhs_value is None or rhs_value is None:
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         # Both sides are constants, evaluate the operation if the operator is supported
@@ -2004,7 +2004,7 @@ class CalculateConstExprValues(Visitor):
 
         if folded_value is None:
             # give up, don't try to calculate the value of this expr at compile time
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         if type(folded_value) == int:
@@ -2020,13 +2020,13 @@ class CalculateConstExprValues(Visitor):
 
         # then if the expression is some other type, convert:
         skip_range_check = node in state.expr_explicit_casts
-        unconverted_type = state.expr_unconverted_types.get(node)
+        unconverted_type = state.synthesized_types.get(node)
         # the intent of this is to handle situations where we're constant folding and the results cannot be arbitrary precision
         folded_value = self.const_convert_type(
             folded_value, unconverted_type, node, state, skip_range_check=False
         )
 
-        converted_type = state.expr_converted_types.get(node)
+        converted_type = state.contextual_types.get(node)
         # okay and now perform type coercion/casting
         if converted_type != unconverted_type:
             folded_value = self.const_convert_type(
@@ -2034,13 +2034,13 @@ class CalculateConstExprValues(Visitor):
             )
             if folded_value is None:
                 return
-        state.expr_converted_values[node] = folded_value
+        state.contextual_values[node] = folded_value
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        value: FppValue = state.expr_converted_values.get(node.val)
+        value: FppValue = state.contextual_values.get(node.val)
 
         if value is None:
-            state.expr_converted_values[node] = None
+            state.contextual_values[node] = None
             return
 
         # input is constant, evaluate the operation if the operator is supported
@@ -2075,24 +2075,24 @@ class CalculateConstExprValues(Visitor):
 
         # then if the expression is some other type, convert:
         skip_range_check = node in state.expr_explicit_casts
-        unconverted_type = state.expr_unconverted_types.get(node)
+        unconverted_type = state.synthesized_types.get(node)
         # the intent of this is to handle situations where we're constant folding and the results cannot be arbitrary precision
         folded_value = self.const_convert_type(
             folded_value, unconverted_type, node, state, skip_range_check=False
         )
 
-        converted_type = state.expr_converted_types.get(node)
+        converted_type = state.contextual_types.get(node)
         if converted_type != unconverted_type:
             folded_value = self.const_convert_type(
                 folded_value, converted_type, node, state, skip_range_check
             )
             if folded_value is None:
                 return
-        state.expr_converted_values[node] = folded_value
+        state.contextual_values[node] = folded_value
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # ranges don't really end up having a value, they kinda just exist as a type
-        state.expr_converted_values[node] = None
+        state.contextual_values[node] = None
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -2161,12 +2161,12 @@ class CheckFunctionReturns(Visitor):
 class CheckConstArrayAccesses(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        idx_value = state.expr_converted_values.get(node.item)
+        idx_value = state.contextual_values.get(node.item)
         if idx_value is None:
             # can't check at compile time
             return
 
-        parent_type = state.expr_converted_types[node.parent]
+        parent_type = state.contextual_types[node.parent]
         assert issubclass(parent_type, ArrayValue), parent_type
 
         if idx_value.val < 0 or idx_value.val >= parent_type.LENGTH:
@@ -2180,8 +2180,8 @@ class CheckConstArrayAccesses(Visitor):
 class WarnRangesAreNotEmpty(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        lower_value: LoopVarType = state.expr_converted_values.get(node.lower_bound)
-        upper_value: LoopVarType = state.expr_converted_values.get(node.upper_bound)
+        lower_value: LoopVarType = state.contextual_values.get(node.lower_bound)
+        upper_value: LoopVarType = state.contextual_values.get(node.upper_bound)
         if lower_value is None or upper_value is None:
             # cannot check at compile time
             return

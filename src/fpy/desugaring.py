@@ -33,17 +33,17 @@ class DesugarForLoops(Transformer):
         self,
         state: CompileState,
         node: Ast,
-        expr_converted_type: FppType | None,
-        expr_unconverted_type: FppType | None,
-        expr_converted_value: FppValue | None,
+        contextual_type: FppType | None,
+        synthesized_type: FppType | None,
+        contextual_value: FppValue | None,
         op_intermediate_type: type[Directive] | None,
         resolved_symbol: Symbol | None,
     ) -> Ast:
         node.id = state.next_node_id
         state.next_node_id += 1
-        state.expr_converted_types[node] = expr_converted_type
-        state.expr_unconverted_types[node] = expr_unconverted_type
-        state.expr_converted_values[node] = expr_converted_value
+        state.contextual_types[node] = contextual_type
+        state.synthesized_types[node] = synthesized_type
+        state.contextual_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
         state.resolved_symbols[node] = resolved_symbol
         return node
@@ -63,9 +63,9 @@ class DesugarForLoops(Transformer):
             loop_var_type_var = self.new(
                 state,
                 AstTypeExpr(None, [loop_var_type_name]),
-                expr_converted_type=None,
-                expr_unconverted_type=None,
-                expr_converted_value=None,
+                contextual_type=None,
+                synthesized_type=None,
+                contextual_value=None,
                 op_intermediate_type=None,
                 resolved_symbol=LoopVarType,
             )
@@ -75,9 +75,9 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstAssign(None, lhs, loop_var_type_var, rhs),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -93,9 +93,9 @@ class DesugarForLoops(Transformer):
         upper_bound_var: AstVar = self.new(
             state,
             AstVar(None, loop_info.upper_bound_var.name),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
@@ -105,9 +105,9 @@ class DesugarForLoops(Transformer):
         loop_var_type_var = self.new(
             state,
             AstTypeExpr(None, [loop_var_type_name]),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=LoopVarType,
         )
@@ -119,9 +119,9 @@ class DesugarForLoops(Transformer):
             AstAssign(
                 None, upper_bound_var, loop_var_type_var, loop_node.range.upper_bound
             ),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -136,18 +136,18 @@ class DesugarForLoops(Transformer):
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=LoopVarType,
-            expr_unconverted_type=LoopVarType,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
             state,
             AstNumber(None, 1),
-            expr_converted_type=LoopVarType,
-            expr_unconverted_type=FpyIntegerValue,
-            expr_converted_value=LoopVarType(1),
+            contextual_type=LoopVarType,
+            synthesized_type=FpyIntegerValue,
+            contextual_value=LoopVarType(1),
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -155,9 +155,9 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstBinaryOp(None, lhs, BinaryStackOp.ADD, rhs),
-            expr_converted_type=LoopVarType,
-            expr_unconverted_type=LoopVarType,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=LoopVarType,
             resolved_symbol=None,
         )
@@ -171,9 +171,9 @@ class DesugarForLoops(Transformer):
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=loop_info.loop_var,
         )
@@ -183,9 +183,9 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstAssign(None, lhs, None, rhs),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -198,18 +198,18 @@ class DesugarForLoops(Transformer):
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=LoopVarType,
-            expr_unconverted_type=LoopVarType,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
             state,
             AstVar(None, loop_info.upper_bound_var.name),
-            expr_converted_type=LoopVarType,
-            expr_unconverted_type=LoopVarType,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
@@ -217,9 +217,9 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstBinaryOp(None, lhs, BinaryStackOp.LESS_THAN, rhs),
-            expr_converted_type=BoolValue,
-            expr_unconverted_type=BoolValue,
-            expr_converted_value=None,
+            contextual_type=BoolValue,
+            synthesized_type=BoolValue,
+            contextual_value=None,
             op_intermediate_type=LoopVarType,
             resolved_symbol=None,
         )
@@ -241,9 +241,9 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstWhile(None, condition, body),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -306,7 +306,7 @@ class DesugarDefaultArgs(Transformer):
 
     Note: The type coercion for default values is handled during semantic analysis
     in PickTypesAndResolveAttrsAndItems.visit_AstDef. By the time this desugaring
-    runs, expr_converted_types already has the correct coerced types for default
+    runs, contextual_types already has the correct coerced types for default
     value expressions.
     """
 
