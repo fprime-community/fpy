@@ -39,10 +39,10 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDeclare,
     CheckUseBeforeDeclareForLoopVariables,
-    CreateVariables,
+    CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
-    ResolveNameRoots,
-    ResolveTypesAndFuncs,
+    ResolveTypeNames,
+    ResolveVars,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstScopedBody, FpyTransformer, PythonIndenter
@@ -56,7 +56,7 @@ from fpy.types import (
     FpyCmd,
     FpyTypeCtor,
     Visitor,
-    create_scope,
+    create_symbol_table,
 )
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
@@ -215,11 +215,11 @@ def _build_scopes(dictionary: str) -> tuple:
         callable_name_dict[macro_name] = macro
 
     return (
-        create_scope(ch_name_dict),
-        create_scope(prm_name_dict),
-        create_scope(type_name_dict),
-        create_scope(callable_name_dict),
-        create_scope(enum_const_name_dict),
+        create_symbol_table(ch_name_dict),
+        create_symbol_table(prm_name_dict),
+        create_symbol_table(type_name_dict),
+        create_symbol_table(callable_name_dict),
+        create_symbol_table(enum_const_name_dict),
     )
 
 
@@ -252,17 +252,15 @@ def ast_to_directives(
         # based on position of node in tree, figure out which scope it is in
         AssignLocalScopes(),
         # based on assignment syntax nodes, we know which variables exist where
-        CreateVariables(),
+        CreateVariablesAndFuncs(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        # now that variables have been defined, we can resolve all "single word"
-        # nodes in the tree, to either some namespace or a var probs
-        # also, because types have a restricted set of possible syntax, resolve them
-        # before we resolve other things. this means we can also figure out the type of variables
-        # at this stage
-        ResolveNameRoots(),
-        ResolveTypesAndFuncs(),
+        # resolve type annotations first, since they use a restricted syntax (AstTypeName)
+        # and we need to know variable types before resolving other references
+        ResolveTypeNames(),
+        # resolve all variable and function references
+        ResolveVars(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDeclare(),
         CheckUseBeforeDeclareForLoopVariables(),

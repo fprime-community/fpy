@@ -51,6 +51,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
+    AstTypeName,
     AstOp,
     AstReference,
     Ast,
@@ -290,8 +291,8 @@ class FieldReference:
 
     parent_expr: AstExpr
     """the complete qualifier"""
-    base_ref: FpyReference
-    """the base ref, up through all the layers of field refs"""
+    base_ref: "Symbol"
+    """the base symbol, up through all the layers of field refs"""
     type: FppType
     """the fprime type of this reference"""
     is_struct_member: bool = False
@@ -311,11 +312,11 @@ class FieldReference:
 
 # named variables can be tlm chans, prms, callables, or directly referenced consts (usually enums)
 @dataclass
-class FpyVariable:
-    """a mutable, typed value referenced by an unqualified name"""
+class VariableSymbol:
+    """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstExpr
+    type_ref: AstTypeName | None
     """the expression denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
@@ -329,8 +330,8 @@ class FpyVariable:
 
 @dataclass
 class ForLoopAnalysis:
-    loop_var: FpyVariable
-    upper_bound_var: FpyVariable
+    loop_var: VariableSymbol
+    upper_bound_var: VariableSymbol
     reuse_existing_loop_var: bool
     
 @dataclass
@@ -338,45 +339,45 @@ class FuncDefAnalysis:
     func: FpyFunction
 
 
-# a scope
-next_scope_id = 0
+next_symbol_table_id = 0
 
 
-class FpyScope(dict):
+# a symbol table (scope) 
+class SymbolTable(dict):
     def __init__(self):
-        global next_scope_id
-        self.id = next_scope_id
-        next_scope_id += 1
+        global next_symbol_table_id
+        self.id = next_symbol_table_id
+        next_symbol_table_id += 1
 
-    def __getitem__(self, key: str) -> FpyReference:
+    def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
 
-    def get(self, key) -> FpyReference | None:
+    def get(self, key) -> Symbol | None:
         return super().get(key, None)
 
     def __hash__(self):
         return hash(self.id)
 
     def __eq__(self, value):
-        return isinstance(value, FpyScope) and value.id == self.id
+        return isinstance(value, SymbolTable) and value.id == self.id
 
 
-def create_scope(
-    references: dict[str, "FpyReference"],
-) -> FpyScope:
-    """from a flat dict of strs to references, creates a hierarchical, scoped
-    dict. no two leaf nodes may have the same name"""
+def create_symbol_table(
+    symbols: dict[str, "Symbol"],
+) -> SymbolTable:
+    """from a flat dict of strs to symbols, creates a hierarchical symbol table.
+    no two leaf nodes may have the same name"""
 
-    base = FpyScope()
+    base = SymbolTable()
 
-    for fqn, ref in references.items():
+    for fqn, sym in symbols.items():
         names_strs = fqn.split(".")
 
         ns = base
         while len(names_strs) > 1:
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
-                # this scope is not defined atm
+                # this symbol table is not defined atm
                 existing_child = {}
                 ns[names_strs[0]] = existing_child
 
@@ -401,13 +402,13 @@ def create_scope(
             # uh oh, something already had this name with a diff value
             continue
 
-        ns[name] = ref
+        ns[name] = sym
 
     return base
 
 
-def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
-    """returns the two scopes, joined into one. if there is a conflict, chooses lhs over rhs"""
+def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
+    """returns the two symbol tables, joined into one. if there is a conflict, chooses lhs over rhs"""
     lhs_keys = set(lhs.keys())
     rhs_keys = set(rhs.keys())
     common_keys = lhs_keys.intersection(rhs_keys)
@@ -415,15 +416,15 @@ def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    new = FpyScope()
+    new = SymbolTable()
 
     for key in common_keys:
         if not isinstance(lhs[key], dict) or not isinstance(rhs[key], dict):
-            # cannot be merged cleanly. one of the two is not a scope
+            # cannot be merged cleanly. one of the two is not a symbol table
             new[key] = lhs[key]
             continue
 
-        new[key] = union_scope(lhs[key], rhs[key])
+        new[key] = merge_symbol_tables(lhs[key], rhs[key])
 
     for key in only_lhs_keys:
         new[key] = lhs[key]
@@ -433,26 +434,26 @@ def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
     return new
 
 
-FpyReference = typing.Union[
+Symbol = typing.Union[
     ChTemplate,
     PrmTemplate,
     FppValue,
     FpyCallable,
     FppType,
-    FpyVariable,
+    VariableSymbol,
     FieldReference,
-    dict,  # dict of FpyReference
+    SymbolTable
 ]
-"""some named concept in fpy"""
+"""a named entity in fpy that can be looked up in a symbol table"""
 
 
-def resolve_var(node: Ast, name: str, state: CompileState) -> FpyVariable:
-    # check this scope and all parent scopes
-    local_scope = state.local_scopes[node]
+def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
+    """look up a symbol by name, searching this scope and all parent scopes"""
+    symbol_table = state.local_scopes[node]
     resolved = None
-    while local_scope is not None and resolved is None:
-        resolved = local_scope.get(name)
-        local_scope = state.scope_parents[local_scope]
+    while symbol_table is not None and resolved is None:
+        resolved = symbol_table.get(name)
+        symbol_table = state.scope_parents[symbol_table]
 
     return resolved
 
@@ -461,26 +462,26 @@ def resolve_var(node: Ast, name: str, state: CompileState) -> FpyVariable:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    types: FpyScope
-    """a scope whose leaf nodes are subclasses of BaseType"""
-    callables: FpyScope
-    """a scope whose leaf nodes are FpyCallable instances"""
-    tlms: FpyScope
-    """a scope whose leaf nodes are ChTemplates"""
-    prms: FpyScope
-    """a scope whose leaf nodes are PrmTemplates"""
-    consts: FpyScope
-    """a scope whose leaf nodes are FpyVariables"""
-    runtime_values: FpyScope = None
-    """a scope whose leaf nodes are tlms/prms/consts, all of which
+    types: SymbolTable
+    """a symbol table whose leaf nodes are subclasses of BaseType"""
+    callables: SymbolTable
+    """a symbol table whose leaf nodes are FpyCallable instances"""
+    tlms: SymbolTable
+    """a symbol table whose leaf nodes are ChTemplates"""
+    prms: SymbolTable
+    """a symbol table whose leaf nodes are PrmTemplates"""
+    consts: SymbolTable
+    """a symbol table whose leaf nodes are VariableSymbols"""
+    runtime_values: SymbolTable = None
+    """a symbol table whose leaf nodes are tlms/prms/consts, all of which
     have some value at runtime."""
 
     compile_args: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        self.runtime_values = union_scope(
+        self.runtime_values = merge_symbol_tables(
             self.tlms,
-            union_scope(self.prms, self.consts),
+            merge_symbol_tables(self.prms, self.consts),
         )
 
     next_node_id: int = 0
@@ -489,8 +490,8 @@ class CompileState:
         default_factory=dict, repr=False
     )
     """map of a scoped body node to the parent scoped body node it should use"""
-    local_scopes: dict[Ast, FpyScope] = field(default_factory=dict, repr=False)
-    """map of node to the FpyScope it should resolve names in"""
+    local_scopes: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
+    """map of node to the SymbolTable it should resolve names in"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -502,7 +503,7 @@ class CompileState:
 
     enclosing_funcs: dict[AstReturn, AstDef] = field(default_factory=dict)
 
-    resolved_references: dict[AstReference, FpyReference] = field(
+    resolved_references: dict[AstReference, Symbol] = field(
         default_factory=dict, repr=False
     )
     """reference to its singular resolution"""

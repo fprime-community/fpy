@@ -101,6 +101,12 @@ class AstVar(Ast):
     var: str
 
 
+@dataclass
+class AstTypeName(Ast):
+    """A qualified name like A.b.c - used for type annotations"""
+    parts: list[str]
+
+
 @dataclass()
 class AstString(Ast):
     value: str
@@ -178,7 +184,7 @@ AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
-    type_ann: AstExpr | None
+    type_ann: AstTypeName | None
     rhs: AstExpr
 
 
@@ -188,16 +194,11 @@ class AstElif(Ast):
     body: "AstBody"
 
 
-@dataclass
-class AstElifs(Ast):
-    cases: list[AstElif]
-
-
 @dataclass()
 class AstIf(Ast):
     condition: AstExpr
     body: "AstBody"
-    elifs: AstElifs | None
+    elifs: list[AstElif]
     els: Union["AstBody", None]
 
 
@@ -240,8 +241,8 @@ class AstDef(Ast):
     name: AstVar
     # parameters is a list of (name, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: list[tuple[AstVar, AstExpr, AstExpr | None]]
-    return_type: Union[AstExpr, None]
+    parameters: list[tuple[AstVar, AstTypeName, AstExpr | None]]
+    return_type: Union[AstTypeName, None]
     body: AstScopedBody
 
 
@@ -349,7 +350,7 @@ class FpyTransformer(Transformer):
     assert_stmt = AstAssert
 
     if_stmt = AstIf
-    elifs = no_inline(AstElifs)
+    elifs = no_inline_or_meta(list)
     elif_ = AstElif
     body = no_inline(AstBody)
     binary_op = AstBinaryOp
@@ -372,6 +373,8 @@ class FpyTransformer(Transformer):
     get_item = AstGetItem
     var = AstVar
     range = AstRange
+
+    type_name = no_inline(AstTypeName)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)

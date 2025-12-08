@@ -25,11 +25,11 @@ return_stmt: "return" [expr]
 
 # assignment
 
-assign: expr [":" expr] "=" expr
+assign: expr [":" type_name] "=" expr
 
-parameter: var ":" expr ["=" expr]
+parameter: var ":" type_name ["=" expr]
 parameters: parameter ("," parameter)*
-def_stmt: "def" var "(" [parameters] ")" ["->" expr] ":" scoped_body
+def_stmt: "def" var "(" [parameters] ")" ["->" type_name] ":" scoped_body
 
 # loops (cannot contain function definitions since they use body, not toplevel)
 for_stmt: "for" var "in" expr ":" body
@@ -85,6 +85,10 @@ _test: or_test
 argument: name "=" expr -> named_argument
         | expr -> positional_argument
 arguments: argument ("," argument)*
+
+# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
+# Used in type annotations and return types where only names are allowed
+type_name: name ("." name)*
 
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> get_item

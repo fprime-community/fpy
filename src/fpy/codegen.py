@@ -30,7 +30,7 @@ from fpy.types import (
     FpyFunction,
     FpyInlineBuiltin,
     FpyTypeCtor,
-    FpyVariable,
+    VariableSymbol,
     FpyIntegerValue,
     FpyStringValue,
     NothingValue,
@@ -141,7 +141,7 @@ class AssignVariableOffsets(Visitor):
         # Assign offsets to variables in this scope
         lvar_array_size_bytes = 0
         for name, ref in state.local_scopes[node].items():
-            if not is_instance_compat(ref, FpyVariable):
+            if not is_instance_compat(ref, VariableSymbol):
                 # doesn't require space to be allocated
                 continue
             if ref.frame_offset is not None:
@@ -397,7 +397,7 @@ class GenerateFunctionBody(Emitter):
         # Calculate lvar array size bytes (offsets already assigned by AssignVariableOffsets)
         lvar_array_size_bytes = 0
         for name, ref in state.local_scopes[node].items():
-            if not is_instance_compat(ref, FpyVariable):
+            if not is_instance_compat(ref, VariableSymbol):
                 # doesn't require space to be allocated
                 continue
             if ref.frame_offset < 0:
@@ -444,9 +444,8 @@ class GenerateFunctionBody(Emitter):
 
         cases.append((node.condition, node.body))
 
-        if node.elifs is not None:
-            for case in node.elifs.cases:
-                cases.append((case.condition, case.body))
+        for case in node.elifs:
+            cases.append((case.condition, case.body))
 
         if_end_label = IrLabel(node, "end")
 
@@ -610,7 +609,7 @@ class GenerateFunctionBody(Emitter):
 
         ref = state.resolved_references.get(node)
 
-        assert is_instance_compat(ref, FpyVariable), ref
+        assert is_instance_compat(ref, VariableSymbol), ref
 
         # Use global directives only when inside a function AND accessing a global variable
         # At top level, stack_frame_start = 0, so local and global offsets are the same
@@ -648,7 +647,7 @@ class GenerateFunctionBody(Emitter):
             dirs.append(PushTlmValDirective(ref.get_id()))
         elif is_instance_compat(ref, PrmTemplate):
             dirs.append(PushPrmDirective(ref.get_id()))
-        elif is_instance_compat(ref, FpyVariable):
+        elif is_instance_compat(ref, VariableSymbol):
             # Use global directives only when inside a function AND accessing a global variable
             use_global = self.in_function and ref.is_global
             if use_global:
@@ -860,14 +859,14 @@ class GenerateFunctionBody(Emitter):
 
         const_frame_offset = -1
         is_global_var = False
-        if is_instance_compat(lhs, FpyVariable):
+        if is_instance_compat(lhs, VariableSymbol):
             const_frame_offset = lhs.frame_offset
             is_global_var = lhs.is_global
             assert const_frame_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldReference), lhs
-            assert is_instance_compat(lhs.base_ref, FpyVariable), lhs.base_ref
+            assert is_instance_compat(lhs.base_ref, VariableSymbol), lhs.base_ref
             is_global_var = lhs.base_ref.is_global
 
             # is the lvar array offset a constant?
