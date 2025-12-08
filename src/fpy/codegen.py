@@ -24,12 +24,12 @@ from fpy.types import (
     Emitter,
     FieldReference,
     FppType,
-    FpyCast,
-    FpyCmd,
+    CastSymbol,
+    CommandSymbol,
     FpyFloatValue,
-    FpyFunction,
-    FpyInlineBuiltin,
-    FpyTypeCtor,
+    FunctionSymbol,
+    BuiltinSymbol,
+    TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
     FpyStringValue,
@@ -792,7 +792,7 @@ class GenerateFunctionBody(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_references[node.func]
         dirs = []
-        if is_instance_compat(func, FpyCmd):
+        if is_instance_compat(func, CommandSymbol):
             const_args = not any(
                 state.expr_converted_values[arg_node] is None for arg_node in node_args
             )
@@ -818,21 +818,21 @@ class GenerateFunctionBody(Emitter):
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
-        elif is_instance_compat(func, FpyInlineBuiltin):
+        elif is_instance_compat(func, BuiltinSymbol):
             # put all arg values on stack
             for arg_node in node_args:
                 dirs.extend(self.emit(arg_node, state))
 
             dirs.extend(func.generate(node))
-        elif is_instance_compat(func, FpyTypeCtor):
+        elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
                 dirs.extend(self.emit(arg_node, state))
-        elif is_instance_compat(func, FpyCast):
+        elif is_instance_compat(func, CastSymbol):
             # just putting the arg value on the stack should be good enough, the
             # conversion will happen below
             dirs.extend(self.emit(node_args[0], state))
-        elif is_instance_compat(func, FpyFunction):
+        elif is_instance_compat(func, FunctionSymbol):
             # script-defined function
             # okay.. calling convention says we're going to put the args on the stack
             for arg_node in node_args:

@@ -51,10 +51,10 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     CompileState,
     FppType,
-    FpyCallable,
-    FpyCast,
-    FpyCmd,
-    FpyTypeCtor,
+    CallableSymbol,
+    CastSymbol,
+    CommandSymbol,
+    TypeCtorSymbol,
     Visitor,
     create_symbol_table,
 )
@@ -168,7 +168,7 @@ def _build_scopes(dictionary: str) -> tuple:
     # note no string type at the moment
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
-    callable_name_dict: dict[str, FpyCallable] = {}
+    callable_name_dict: dict[str, CallableSymbol] = {}
     # add all cmds to the callable dict
     for name, cmd in cmd_name_dict.items():
         cmd: CmdTemplate
@@ -176,17 +176,17 @@ def _build_scopes(dictionary: str) -> tuple:
         for arg_name, _, arg_type in cmd.arguments:
             args.append((arg_name, arg_type, None))  # No default values for cmds
         # cmds are thought of as callables with a Fw.CmdResponse return value
-        callable_name_dict[name] = FpyCmd(
+        callable_name_dict[name] = CommandSymbol(
             cmd.get_full_name(), cmd_response_type, args, cmd
         )
 
     # add numeric type casts to callable dict
     for typ in SPECIFIC_NUMERIC_TYPES:
-        callable_name_dict[typ.get_canonical_name()] = FpyCast(
+        callable_name_dict[typ.get_canonical_name()] = CastSymbol(
             typ.get_canonical_name(), typ, [("value", NumericalValue, None)], typ
         )
 
-    # for each type in the dict, if it has a constructor, create an FpyTypeCtor
+    # for each type in the dict, if it has a constructor, create an TypeCtorSymbol
     # object to track the constructor and put it in the callable name dict
     for name, typ in type_name_dict.items():
         args = []
@@ -208,7 +208,7 @@ def _build_scopes(dictionary: str) -> tuple:
             # none of these have callable ctors
             continue
 
-        callable_name_dict[name] = FpyTypeCtor(name, typ, args, typ)
+        callable_name_dict[name] = TypeCtorSymbol(name, typ, args, typ)
 
     # for each macro function, add it to the callable dict
     for macro_name, macro in MACROS.items():

@@ -149,27 +149,6 @@ class RangeValue(FppValue):
 # we know the value is constant
 FpyStringValue = StringValue.construct_type("FpyStringValue", None)
 
-class FpyCallableValue(FppValue):
-    """the type of a callable"""
-    def serialize(self):
-        raise NotImplementedError()
-
-    def deserialize(self, data, offset):
-        raise NotImplementedError()
-
-    def getSize(self):
-        raise NotImplementedError()
-
-    @classmethod
-    def getMaxSize(cls):
-        raise NotImplementedError()
-
-    def __repr__(self):
-        return self.__class__.__name__
-
-    def to_jsonable(self):
-        raise NotImplementedError()
-
 SPECIFIC_NUMERIC_TYPES = (
     U32Value,
     U16Value,
@@ -252,7 +231,7 @@ NothingType = type[NothingValue]
 
 
 @dataclass
-class FpyCallable:
+class CallableSymbol:
     name: str
     return_type: FppType | NothingType
     # args is a list of (name, type, default_value) tuples
@@ -261,27 +240,27 @@ class FpyCallable:
 
 
 @dataclass
-class FpyCmd(FpyCallable):
+class CommandSymbol(CallableSymbol):
     cmd: CmdTemplate
 
 
 @dataclass
-class FpyInlineBuiltin(FpyCallable):
+class BuiltinSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
     """a function which instantiates the builtin given the calling node"""
 
 @dataclass
-class FpyFunction(FpyCallable):
+class FunctionSymbol(CallableSymbol):
     definition: AstDef
 
 
 @dataclass
-class FpyTypeCtor(FpyCallable):
+class TypeCtorSymbol(CallableSymbol):
     type: FppType
 
 
 @dataclass
-class FpyCast(FpyCallable):
+class CastSymbol(CallableSymbol):
     to_type: FppType
 
 
@@ -336,7 +315,7 @@ class ForLoopAnalysis:
     
 @dataclass
 class FuncDefAnalysis:
-    func: FpyFunction
+    func: FunctionSymbol
 
 
 next_symbol_table_id = 0
@@ -438,7 +417,7 @@ Symbol = typing.Union[
     ChTemplate,
     PrmTemplate,
     FppValue,
-    FpyCallable,
+    CallableSymbol,
     FppType,
     VariableSymbol,
     FieldReference,
@@ -465,7 +444,7 @@ class CompileState:
     types: SymbolTable
     """a symbol table whose leaf nodes are subclasses of BaseType"""
     callables: SymbolTable
-    """a symbol table whose leaf nodes are FpyCallable instances"""
+    """a symbol table whose leaf nodes are CallableSymbol instances"""
     tlms: SymbolTable
     """a symbol table whose leaf nodes are ChTemplates"""
     prms: SymbolTable

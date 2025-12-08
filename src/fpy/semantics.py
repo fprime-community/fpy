@@ -15,13 +15,13 @@ from fpy.types import (
     FieldReference,
     ForLoopAnalysis,
     FppType,
-    FpyCallable,
-    FpyCast,
+    CallableSymbol,
+    CastSymbol,
     FpyFloatValue,
-    FpyFunction,
+    FunctionSymbol,
     Symbol,
     SymbolTable,
-    FpyTypeCtor,
+    TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
     FpyStringValue,
@@ -273,7 +273,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             state.err(f"'{node.name.var}' has already been declared", node.name)
             return
 
-        func = FpyFunction(
+        func = FunctionSymbol(
             # we know the name
             node.name.var,
             # we don't know the return type yet
@@ -413,7 +413,7 @@ class ResolveTypeNames(TopDownVisitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Get the function that was created in CreateVariablesAndFuncs
         func = state.local_scopes[node].get(node.name.var)
-        assert is_instance_compat(func, FpyFunction), func
+        assert is_instance_compat(func, FunctionSymbol), func
 
         # Resolve return type
         if node.return_type is not None:
@@ -527,17 +527,17 @@ class ResolveVars(TopDownVisitor):
         self,
         node: Ast,
         state: CompileState,
-    ) -> FpyCallable | None:
+    ) -> CallableSymbol | None:
         """
         Finishes resolving a function reference (AstVar/AstMemberAccess chain) to a callable.
         The root AstVar should already be resolved by try_resolve_root_ref.
         Returns None if the reference could not be resolved (error already reported).
         """
 
-        def resolve(n: Ast, expect_callable: bool) -> FpyCallable | dict | None:
+        def resolve(n: Ast, expect_callable: bool) -> CallableSymbol | dict | None:
             """
             Recursively resolve the reference chain.
-            expect_callable=True for the final node (must be FpyCallable),
+            expect_callable=True for the final node (must be CallableSymbol),
             expect_callable=False for intermediate nodes (must be dict/namespace).
             """
             if not is_instance_compat(n, (AstVar, AstMemberAccess)):
@@ -549,7 +549,7 @@ class ResolveVars(TopDownVisitor):
                 if resolved is None:
                     state.err("Unknown function", n)
                     return None
-                expected_type = FpyCallable if expect_callable else dict
+                expected_type = CallableSymbol if expect_callable else dict
                 if not is_instance_compat(resolved, expected_type):
                     state.err("Unknown function", n)
                     return None
@@ -565,7 +565,7 @@ class ResolveVars(TopDownVisitor):
                 state.err("Unknown function", n)
                 return None
 
-            expected_type = FpyCallable if expect_callable else dict
+            expected_type = CallableSymbol if expect_callable else dict
             if not is_instance_compat(resolved, expected_type):
                 state.err("Unknown function", n)
                 return None
@@ -1020,7 +1020,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         elif isinstance(ref, FppValue):
             # constant value
             result_type = type(ref)
-        elif isinstance(ref, FpyCallable):
+        elif isinstance(ref, CallableSymbol):
             # a reference to a callable isn't a type in and of itself
             # it has a return type but you have to call it (with an AstFuncCall)
             # consider making a separate "reference" type
@@ -1045,7 +1045,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
         parent_ref = state.resolved_references.get(node.parent)
 
-        if is_instance_compat(parent_ref, (type, FpyCallable)):
+        if is_instance_compat(parent_ref, (type, CallableSymbol)):
             state.err("Unknown attribute", node)
             return
 
@@ -1120,7 +1120,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         parent_ref = state.resolved_references.get(node.parent)
 
-        if is_instance_compat(parent_ref, (type, FpyCallable, dict)):
+        if is_instance_compat(parent_ref, (type, CallableSymbol, dict)):
             state.err("Unknown item", node)
             return
 
@@ -1241,7 +1241,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def build_resolved_call_args(
         self,
         node: AstFuncCall,
-        func: FpyCallable,
+        func: CallableSymbol,
         node_args: list,
     ) -> list[AstExpr] | CompileError:
         """Build a complete list of argument expressions for a function call.
@@ -1320,7 +1320,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
     def check_arg_types_compatible_with_func(
         self,
         node: AstFuncCall,
-        func: FpyCallable,
+        func: CallableSymbol,
         resolved_args: list[AstExpr],
         state: CompileState,
     ) -> CompileError | None:
@@ -1333,7 +1333,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         """
         func_args = func.args
 
-        if is_instance_compat(func, FpyCast):
+        if is_instance_compat(func, CastSymbol):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
             node_arg = resolved_args[0]
@@ -1400,7 +1400,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # to call with these args
 
         # go handle coercion/casting
-        if is_instance_compat(func, FpyCast):
+        if is_instance_compat(func, CastSymbol):
             node_arg = resolved_args[0]
             output_type = func.to_type
             # we're going from input_type to output type, and we're going to ignore
@@ -1486,7 +1486,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
 
         func = state.resolved_references[node.name]
-        if not is_instance_compat(func, FpyFunction):
+        if not is_instance_compat(func, FunctionSymbol):
             return
 
         for (arg_name_var, arg_type_expr, default_value), (_, arg_type, _) in zip(
@@ -1702,7 +1702,7 @@ class CalculateConstExprValues(Visitor):
         converted_type = state.expr_converted_types[node]
         ref = state.resolved_references[node]
         expr_value = None
-        if is_instance_compat(ref, (type, dict, FpyCallable)):
+        if is_instance_compat(ref, (type, dict, CallableSymbol)):
             # these types have no value
             state.expr_converted_values[node] = NothingValue()
             assert unconverted_type == converted_type, (
@@ -1802,7 +1802,7 @@ class CalculateConstExprValues(Visitor):
         converted_type = state.expr_converted_types[node]
         ref = state.resolved_references[node]
         expr_value = None
-        if is_instance_compat(ref, (type, dict, FpyCallable)):
+        if is_instance_compat(ref, (type, dict, CallableSymbol)):
             # these types have no value
             state.expr_converted_values[node] = NothingValue()
             assert unconverted_type == converted_type, (
@@ -1842,7 +1842,7 @@ class CalculateConstExprValues(Visitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_references[node.func]
-        assert is_instance_compat(func, FpyCallable)
+        assert is_instance_compat(func, CallableSymbol)
 
         # Use resolved args from semantic analysis (already in positional order,
         # with defaults filled in)
@@ -1864,7 +1864,7 @@ class CalculateConstExprValues(Visitor):
         expr_value = None
 
         # whether the conversion that will happen is due to an explicit cast
-        if is_instance_compat(func, FpyTypeCtor):
+        if is_instance_compat(func, TypeCtorSymbol):
             # actually construct the type
             if issubclass(func.type, StructValue):
                 instance = func.type()
@@ -1885,7 +1885,7 @@ class CalculateConstExprValues(Visitor):
             else:
                 # no other FppTypees have ctors
                 assert False, func.return_type
-        elif is_instance_compat(func, FpyCast):
+        elif is_instance_compat(func, CastSymbol):
             # should only be one value. it should be of some numeric type
             # our const convert type func will convert it for us
             expr_value = arg_values[0]

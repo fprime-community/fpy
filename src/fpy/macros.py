@@ -9,7 +9,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import FpyInlineBuiltin, NothingValue
+from fpy.types import BuiltinSymbol, NothingValue
 from fprime.common.models.serialize.time_type import TimeType as TimeValue
 from fprime.common.models.serialize.numerical_types import (
     U8Type as U8Value,
@@ -62,7 +62,7 @@ def generate_abs_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_FLOAT = FpyInlineBuiltin("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
+MACRO_ABS_FLOAT = BuiltinSymbol("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
 
 
 def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
@@ -88,11 +88,11 @@ def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_SIGNED_INT = FpyInlineBuiltin(
+MACRO_ABS_SIGNED_INT = BuiltinSymbol(
     "abs", I64Value, [("value", I64Value, None)], generate_abs_signed_int
 )
 
-MACRO_SLEEP_SECONDS_USECONDS = FpyInlineBuiltin(
+MACRO_SLEEP_SECONDS_USECONDS = BuiltinSymbol(
     "sleep",
     NothingValue,
     [
@@ -140,7 +140,7 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_SLEEP_FLOAT = FpyInlineBuiltin(
+MACRO_SLEEP_FLOAT = BuiltinSymbol(
     "sleep", NothingValue, [("seconds", F64Value, None)], generate_sleep_float
 )
 
@@ -153,21 +153,21 @@ def generate_log_signed_int(node: Ast) -> list[Directive | Ir]:
     ]
 
 
-MACROS: dict[str, FpyInlineBuiltin] = {
+MACROS: dict[str, BuiltinSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
-    "sleep_until": FpyInlineBuiltin(
+    "sleep_until": BuiltinSymbol(
         "sleep_until",
         NothingValue,
         [("wakeup_time", TimeValue, None)],
         lambda n: [WaitAbsDirective()],
     ),
-    "exit": FpyInlineBuiltin(
+    "exit": BuiltinSymbol(
         "exit", NothingValue, [("exit_code", U8Value, None)], lambda n: [ExitDirective()]
     ),
-    "log": FpyInlineBuiltin(
+    "log": BuiltinSymbol(
         "log", F64Value, [("operand", F64Value, None)], lambda n: [FloatLogDirective()]
     ),
-    "now": FpyInlineBuiltin("now", TimeValue, [], lambda n: [PushTimeDirective()]),
+    "now": BuiltinSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
 }
