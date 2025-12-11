@@ -2761,7 +2761,7 @@ test()
     assert_run_success(fprime_test_api, seq)
 
 
-def test_get_outside_array_element_nonconst_index_in_func(fprime_test_api):
+def test_get_outside_array_element_non_const_index_in_func(fprime_test_api):
     """Test that functions can access array elements of global variables with a non-constant index"""
     seq = """
 arr: Svc.ComQueueDepth = Svc.ComQueueDepth(123, 456)
