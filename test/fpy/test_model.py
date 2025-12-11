@@ -595,7 +595,8 @@ class TestArithmeticDirectives:
         model.push(-1)
         result = model.dispatch(SignedIntDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR or result is None
-        assert model.pop() == MIN_INT64
+        ret = model.pop() 
+        assert ret == MIN_INT64
 
     def test_float_add_stack_underflow(self):
         """Test fadd with insufficient stack."""
