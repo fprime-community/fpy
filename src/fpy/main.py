@@ -97,7 +97,7 @@ def compile_main(args: list[str] = None):
             fpy.error.BackendError,
         ),
     ):
-        print(directives)  # directives is an error
+        print(directives, file=sys.stderr)
         sys.exit(1)
 
     output = parsed_args.output

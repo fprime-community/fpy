@@ -1,4 +1,4 @@
-name: fprime-gds tests
+name: fprime-fpy tests
 
 on:
   push:

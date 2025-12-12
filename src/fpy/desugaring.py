@@ -1,10 +1,12 @@
 from __future__ import annotations
-from fpy.bytecode.directives import BinaryStackOp, Directive
+from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from fpy.syntax import (
     Ast,
     AstAssign,
     AstBinaryOp,
     AstFor,
+    AstFuncCall,
+    AstTypeExpr,
     AstNumber,
     AstRange,
     AstVar,
@@ -14,13 +16,12 @@ from fpy.types import (
     CompileState,
     ForLoopAnalysis,
     FppType,
-    FpyReference,
+    Symbol,
     FpyIntegerValue,
-    LoopVarValue,
     Transformer,
 )
-from fprime.common.models.serialize.type_base import BaseType as FppValue
-from fprime.common.models.serialize.bool_type import BoolType as BoolValue
+from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
+from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 
 
 class DesugarForLoops(Transformer):
@@ -32,19 +33,19 @@ class DesugarForLoops(Transformer):
         self,
         state: CompileState,
         node: Ast,
-        expr_converted_type: FppType | None,
-        expr_unconverted_type: FppType | None,
-        expr_converted_value: FppValue | None,
+        contextual_type: FppType | None,
+        synthesized_type: FppType | None,
+        contextual_value: FppValue | None,
         op_intermediate_type: type[Directive] | None,
-        resolved_reference: FpyReference | None,
+        resolved_symbol: Symbol | None,
     ) -> Ast:
         node.id = state.next_node_id
         state.next_node_id += 1
-        state.expr_converted_types[node] = expr_converted_type
-        state.expr_unconverted_types[node] = expr_unconverted_type
-        state.expr_converted_values[node] = expr_converted_value
+        state.contextual_types[node] = contextual_type
+        state.synthesized_types[node] = synthesized_type
+        state.contextual_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
-        state.resolved_references[node] = resolved_reference
+        state.resolved_symbols[node] = resolved_symbol
         return node
 
     def initialize_loop_var(
@@ -57,25 +58,28 @@ class DesugarForLoops(Transformer):
         if loop_info.reuse_existing_loop_var:
             loop_var_type_var = None
         else:
-            loop_var_type_name = LoopVarValue.get_canonical_name()
+            loop_var_type_name = LoopVarType.get_canonical_name()
             # create a new node for the type_ann
-            loop_var_type_var = self.new(state, AstVar(None, loop_var_type_name),
-                                        expr_converted_type=None,
-                                        expr_unconverted_type=None,
-                                        expr_converted_value=None,
-                                        op_intermediate_type=None,
-                                        resolved_reference=LoopVarValue)
+            loop_var_type_var = self.new(
+                state,
+                AstTypeExpr(None, [loop_var_type_name]),
+                contextual_type=None,
+                synthesized_type=None,
+                contextual_value=None,
+                op_intermediate_type=None,
+                resolved_symbol=LoopVarType,
+            )
 
         lhs = loop_node.loop_var
         rhs = loop_node.range.lower_bound
         return self.new(
             state,
             AstAssign(None, lhs, loop_var_type_var, rhs),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=None,
+            resolved_symbol=None,
         )
 
     def declare_upper_bound_var(
@@ -89,34 +93,37 @@ class DesugarForLoops(Transformer):
         upper_bound_var: AstVar = self.new(
             state,
             AstVar(None, loop_info.upper_bound_var.name),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=loop_info.upper_bound_var,
+            resolved_symbol=loop_info.upper_bound_var,
         )
 
-        loop_var_type_name = LoopVarValue.get_canonical_name()
+        loop_var_type_name = LoopVarType.get_canonical_name()
         # create a new node for the type_ann
-        loop_var_type_var = self.new(state, AstVar(None, loop_var_type_name),
-                                     expr_converted_type=None,
-                                     expr_unconverted_type=None,
-                                     expr_converted_value=None,
-                                     op_intermediate_type=None,
-                                     resolved_reference=LoopVarValue)
+        loop_var_type_var = self.new(
+            state,
+            AstTypeExpr(None, [loop_var_type_name]),
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
+            op_intermediate_type=None,
+            resolved_symbol=LoopVarType,
+        )
 
         # assign ub to ub var
-        # not an expr, not a ref
+        # not an expr, not a symbol
         return self.new(
             state,
             AstAssign(
                 None, upper_bound_var, loop_var_type_var, loop_node.range.upper_bound
             ),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=None,
+            resolved_symbol=None,
         )
 
     def loop_var_plus_one(
@@ -129,30 +136,30 @@ class DesugarForLoops(Transformer):
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=LoopVarValue,
-            expr_unconverted_type=LoopVarValue,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=loop_info.loop_var,
+            resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
             state,
             AstNumber(None, 1),
-            expr_converted_type=LoopVarValue,
-            expr_unconverted_type=FpyIntegerValue,
-            expr_converted_value=LoopVarValue(1),
+            contextual_type=LoopVarType,
+            synthesized_type=FpyIntegerValue,
+            contextual_value=LoopVarType(1),
             op_intermediate_type=None,
-            resolved_reference=None,
+            resolved_symbol=None,
         )
 
         return self.new(
             state,
             AstBinaryOp(None, lhs, BinaryStackOp.ADD, rhs),
-            expr_converted_type=LoopVarValue,
-            expr_unconverted_type=LoopVarValue,
-            expr_converted_value=None,
-            op_intermediate_type=LoopVarValue,
-            resolved_reference=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
+            op_intermediate_type=LoopVarType,
+            resolved_symbol=None,
         )
 
     def increment_loop_var(
@@ -160,15 +167,15 @@ class DesugarForLoops(Transformer):
     ) -> Ast:
         # <node.loop_var> = <node.loop_var> + 1
 
-        # create a new loop var ref for use in lhs of loop var inc
+        # create a new loop var symbol for use in lhs of loop var inc
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=loop_info.loop_var,
+            resolved_symbol=loop_info.loop_var,
         )
 
         rhs = self.loop_var_plus_one(state, loop_node, loop_info)
@@ -176,45 +183,45 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstAssign(None, lhs, None, rhs),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=None,
+            resolved_symbol=None,
         )
 
     def while_loop_condition(
         self, state: CompileState, loop_node: AstFor, loop_info: ForLoopAnalysis
     ) -> Ast:
         # <node.loop_var> < $upper_bound_var
-        # create a new loop var ref for use in lhs
+        # create a new loop var symbol for use in lhs
         lhs = self.new(
             state,
             AstVar(None, loop_info.loop_var.name),
-            expr_converted_type=LoopVarValue,
-            expr_unconverted_type=LoopVarValue,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=loop_info.loop_var,
+            resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
             state,
             AstVar(None, loop_info.upper_bound_var.name),
-            expr_converted_type=LoopVarValue,
-            expr_unconverted_type=LoopVarValue,
-            expr_converted_value=None,
+            contextual_type=LoopVarType,
+            synthesized_type=LoopVarType,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=loop_info.upper_bound_var,
+            resolved_symbol=loop_info.upper_bound_var,
         )
 
         return self.new(
             state,
             AstBinaryOp(None, lhs, BinaryStackOp.LESS_THAN, rhs),
-            expr_converted_type=BoolValue,
-            expr_unconverted_type=BoolValue,
-            expr_converted_value=None,
-            op_intermediate_type=LoopVarValue,
-            resolved_reference=None,
+            contextual_type=BoolValue,
+            synthesized_type=BoolValue,
+            contextual_value=None,
+            op_intermediate_type=LoopVarType,
+            resolved_symbol=None,
         )
 
     def while_loop(
@@ -234,11 +241,11 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstWhile(None, condition, body),
-            expr_converted_type=None,
-            expr_unconverted_type=None,
-            expr_converted_value=None,
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
             op_intermediate_type=None,
-            resolved_reference=None,
+            resolved_symbol=None,
         )
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
@@ -272,10 +279,47 @@ class DesugarForLoops(Transformer):
         # Update any break/continue statements in the body to point to new while loop
         # instead of the original for loop
         for key, value in list(state.enclosing_loops.items()):
-            if value == node: # If a break/continue was pointing to our for loop
-                state.enclosing_loops[key] = while_loop # Point it to while loop instead
+            if value == node:  # If a break/continue was pointing to our for loop
+                state.enclosing_loops[key] = (
+                    while_loop  # Point it to while loop instead
+                )
 
         state.desugared_for_loops[while_loop] = node
 
         # turn one node into three
         return [initialize_loop_var, declare_upper_bound_var, while_loop]
+
+
+class DesugarDefaultArgs(Transformer):
+    """
+    Desugars function calls with named or missing arguments by:
+    1. Reordering named arguments to positional order
+    2. Filling in default values for missing arguments
+
+    For example, if we have:
+        def foo(a: U8, b: U8 = 5, c: U8 = 10):
+            pass
+        foo(c=15, a=1)
+
+    This becomes:
+        foo(1, 5, 15)
+
+    Note: The type coercion for default values is handled during semantic analysis
+    in PickTypesAndResolveAttrsAndItems.visit_AstDef. By the time this desugaring
+    runs, contextual_types already has the correct coerced types for default
+    value expressions.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        # Get the resolved arguments from semantic analysis.
+        # This list is already in positional order with defaults filled in.
+        resolved_args = state.resolved_func_args.get(node)
+        assert resolved_args is not None, (
+            f"No resolved args for function call {node}. "
+            f"This should have been set by PickTypesAndResolveAttrsAndItems."
+        )
+
+        # Update the node's args with the resolved arguments
+        node.args = resolved_args
+
+        return node

@@ -1,40 +1,50 @@
 # Adapted from: https://docs.python.org/3/reference/grammar.html and the Lark Python grammar
 
-input: (_NEWLINE | _stmt)*
+input: (_NEWLINE | _toplevel_stmt)*
 
 _literal: number | string | boolean
 
+# Top-level statements: function definitions OR regular statements
+# Function definitions can ONLY appear here, not nested in any control structure
+_toplevel_stmt: def_stmt | _stmt
+
+# Regular statements (no function definitions allowed)
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
-_small_stmt: _expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt
+_small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
 _compound_stmt: if_stmt | for_stmt | while_stmt
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
 
-_expr_stmt: _expr
+?expr_stmt: expr
 
 
-assert_stmt: "assert" _expr ["," _expr]
+assert_stmt: "assert" expr ["," expr]
+
+return_stmt: "return" [expr]
 
 # assignment
 
-assign: _expr [":" _expr] "=" _expr
+assign: expr [":" type_expr] "=" expr
 
+parameter: var ":" type_expr ["=" expr]
+parameters: parameter ("," parameter)*
+def_stmt: "def" var "(" [parameters] ")" ["->" type_expr] ":" block
 
-# loops
-for_stmt: "for" var "in" _expr ":" body
-while_stmt: "while" _expr ":" body
+# loops (cannot contain function definitions since they use stmt_list, not toplevel)
+for_stmt: "for" var "in" expr ":" stmt_list
+while_stmt: "while" expr ":" stmt_list
 
-# branching
-
-if_stmt: "if" _expr ":" body elifs ["else" ":" body]
+# branching (cannot contain function definitions since they use stmt_list, not toplevel)
+if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]
 elifs: elif_*
-elif_: "elif" _expr ":" body
+elif_: "elif" expr ":" stmt_list
 
-body: _NEWLINE _INDENT _stmt+ _DEDENT
-scoped_body: _NEWLINE _INDENT _stmt+ _DEDENT
+# Bodies that cannot contain function definitions
+stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
+block: _NEWLINE _INDENT _stmt+ _DEDENT
 
-_expr: _test
+?expr: _test
 
 # logical tests
 _test: or_test
@@ -72,15 +82,21 @@ _test: or_test
 ?power: atom_expr POW_OP factor -> binary_op
       | atom_expr
 
-arguments: _expr ("," _expr)*
+argument: name "=" expr -> named_argument
+        | expr -> positional_argument
+arguments: argument ("," argument)*
+
+# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
+# Used in type annotations and return types where only names are allowed
+type_expr: name ("." name)*
 
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
-          | atom_expr "[" _expr "]" -> get_item
-          | atom_expr "." name -> get_attr
+          | atom_expr "[" expr "]" -> index_expr
+          | atom_expr "." name -> member_access
           | atom
 
 ?atom: _literal
-     | "(" _expr ")"
+     | "(" expr ")"
      | var
 
 var: name
