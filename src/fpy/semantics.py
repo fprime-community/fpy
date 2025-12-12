@@ -60,7 +60,7 @@ from fprime.common.models.serialize.serializable_type import (
     SerializableType as StructValue,
 )
 from fprime.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime.common.models.serialize.type_exceptions import TypeException
+from fprime_gds.common.models.serialize.type_exceptions import TypeException
 from fprime.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -802,7 +802,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                     )
                     break
                 offset += arg_type.getMaxSize()
-                base_offset += arg_type.getMaxSize()
+                if base_offset is not None:
+                    base_offset += arg_type.getMaxSize()
 
         if ref is None:
             state.err(

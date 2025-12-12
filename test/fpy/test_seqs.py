@@ -1706,7 +1706,77 @@ CdhCore.cmdDisp.CMD_NO_OP = 55
     assert_compile_failure(fprime_test_api, seq)
 
 
-# TODO test deep field access/assignments (2+ levels)
+# Test deep field access/assignments (2+ levels)
+
+
+def test_array_element_struct_member_read(fprime_test_api):
+    """Test accessing struct member within array element (2 levels deep)"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(1.0, 2.0), Ref.SignalPair(3.0, 4.0), Ref.SignalPair(5.0, 6.0), Ref.SignalPair(7.0, 8.0))
+if arr[0].time == 1.0 and arr[0].value == 2.0:
+    if arr[1].time == 3.0 and arr[1].value == 4.0:
+        if arr[2].time == 5.0 and arr[2].value == 6.0:
+            exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_element_struct_member_write(fprime_test_api):
+    """Test modifying struct member within array element (2 levels deep)"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
+arr[0].time = 10.5
+arr[0].value = 20.5
+arr[1].time = 30.5
+arr[1].value = 40.5
+if arr[0].time == 10.5 and arr[0].value == 20.5:
+    if arr[1].time == 30.5 and arr[1].value == 40.5:
+        exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_with_variable_index_deep_access(fprime_test_api):
+    """Test accessing deep field with variable array index (2 levels deep)"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(10.0, 20.0), Ref.SignalPair(30.0, 40.0), Ref.SignalPair(50.0, 60.0), Ref.SignalPair(70.0, 80.0))
+idx: U8 = 1
+if arr[idx].time == 30.0 and arr[idx].value == 40.0:
+    exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_deep_field_modify_in_loop(fprime_test_api):
+    """Test modifying deep fields in a loop"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
+for i in 0 .. 4:
+    idx: U8 = U8(i)
+    arr[idx].time = F32(F32(i) * 10.0)
+    arr[idx].value = F32(F32(i) * 20.0)
+    
+if arr[2].time == 20.0 and arr[2].value == 40.0:
+    if arr[3].time == 30.0 and arr[3].value == 60.0:
+        exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_deep_field_in_expression(fprime_test_api):
+    """Test using deep field access in arithmetic expressions"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(5.0, 10.0), Ref.SignalPair(15.0, 20.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
+sum: F64 = arr[0].time + arr[0].value + arr[1].time + arr[1].value
+if sum == 50.0:
+    exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_assign_tlm_struct_member_bad(fprime_test_api):
