@@ -6,6 +6,9 @@ from fpy import main as fpy_main
 import fpy.error as fpy_error
 import fpy.model as fpy_model
 
+# Path to the real dictionary file for tests that need DictionaryParser
+TEST_DICTIONARY = Path(__file__).parent / "RefTopologyDictionary.json"
+
 
 @pytest.mark.parametrize(
     "size,expected",
@@ -23,13 +26,12 @@ def test_human_readable_size(size, expected):
 
 def test_compile_main_missing_input(tmp_path, capsys):
     missing = tmp_path / "missing.fpy"
-    dict_path = tmp_path / "dict.json"
     with pytest.raises(SystemExit) as exc:
         fpy_main.compile_main(
             [
                 str(missing),
                 "--dictionary",
-                str(dict_path),
+                str(TEST_DICTIONARY),
             ]
         )
     assert exc.value.code == 1
@@ -40,15 +42,13 @@ def test_compile_main_missing_input(tmp_path, capsys):
 def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
-    dict_path = tmp_path / "dict.json"
-    dict_path.write_text("{}")
 
     monkeypatch.setattr(fpy_error, "debug", False, raising=False)
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
     def fake_ast_to_directives(body, dictionary):
         assert body == "AST"
-        assert Path(dictionary) == dict_path
+        assert Path(dictionary) == TEST_DICTIONARY
         return ["directive"]
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
@@ -63,7 +63,7 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
         [
             str(input_path),
             "--dictionary",
-            str(dict_path),
+            str(TEST_DICTIONARY),
             "--bytecode",
             "--debug",
         ]
@@ -77,8 +77,6 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
 def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
-    dict_path = tmp_path / "dict.json"
-    dict_path.write_text("{}")
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
@@ -97,7 +95,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
         [
             str(input_path),
             "--dictionary",
-            str(dict_path),
+            str(TEST_DICTIONARY),
         ]
     )
 

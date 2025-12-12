@@ -53,7 +53,7 @@ from fpy.bytecode.directives import (
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
-    FwOpcodeType,
+    get_fw_opcode_type,
     GotoDirective,
     IfDirective,
     IntegerSignedExtend16To64Directive,
@@ -812,9 +812,9 @@ class GenerateFunctionBody(Emitter):
                     dirs.extend(self.emit(arg_node, state))
                     arg_converted_type = state.contextual_types[arg_node]
                     arg_byte_count += arg_converted_type.getMaxSize()
-                # then push cmd opcode to stack as u32
+                # then push cmd opcode to stack
                 dirs.append(
-                    PushValDirective(FwOpcodeType(func.cmd.get_op_code()).serialize())
+                    PushValDirective(get_fw_opcode_type()(func.cmd.get_op_code()).serialize())
                 )
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command

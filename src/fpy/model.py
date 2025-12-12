@@ -10,7 +10,7 @@ from fpy.bytecode.directives import (
     CallDirective,
     ConstCmdDirective,
     Directive,
-    FwOpcodeType,
+    get_fw_opcode_type,
     PeekDirective,
     ExitDirective,
     FloatAddDirective,
@@ -448,22 +448,23 @@ class FpySequencerModel:
         self.push(0, size=1)
 
     def handle_stack_cmd(self, dir: StackCmdDirective):
-        if len(self.stack) < dir.args_size + FwOpcodeType.getMaxSize():
+        opcode_size = get_fw_opcode_type().getMaxSize()
+        if len(self.stack) < dir.args_size + opcode_size:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-        cmd = self.stack[-(dir.args_size + FwOpcodeType.getMaxSize()) :]
-        self.stack = self.stack[: -(dir.args_size + FwOpcodeType.getMaxSize())]
+        cmd = self.stack[-(dir.args_size + opcode_size) :]
+        self.stack = self.stack[: -(dir.args_size + opcode_size)]
         opcode = int.from_bytes(
-            cmd[-FwOpcodeType.getMaxSize() :], signed=False, byteorder="big"
+            cmd[-opcode_size:], signed=False, byteorder="big"
         )
 
         print(
             "cmd opcode",
             opcode,
             "args",
-            cmd[:-4],
+            cmd[:-opcode_size],
         )
-        if not self.validate_cmd(opcode, cmd[: -FwOpcodeType.getMaxSize()]):
+        if not self.validate_cmd(opcode, cmd[:-opcode_size]):
             raise RuntimeError("Invalid cmd")
         # always push CmdResponse.OK
         self.push(0, size=1)

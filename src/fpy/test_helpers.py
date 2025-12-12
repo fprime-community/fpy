@@ -9,6 +9,9 @@ from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
+from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
+from fprime_gds.common.models.dictionaries import Dictionaries
+from fprime_gds.common.utils.config_manager import ConfigManager
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
 from fpy.types import serialize_directives
@@ -19,6 +22,29 @@ default_dictionary = str(
     / "fpy"
     / "RefTopologyDictionary.json"
 )
+
+
+def _ensure_config_manager_loaded():
+    """Ensure ConfigManager is populated with types from the default dictionary.
+    
+    This is needed for serialization of directives that use dictionary-defined types.
+    """
+    # Load the dictionary and populate ConfigManager
+    dictionaries = Dictionaries()
+    dictionaries.load_dictionaries(default_dictionary, None, None)
+    
+    config = ConfigManager.get_instance()
+    # Update config to use type definitions defined in the JSON dictionary
+    if dictionaries.typedefs_name:
+        for type_name, type_dict in dictionaries.typedefs_name.items():
+            config.set_type(type_name, type_dict)
+    if dictionaries.constant_name:
+        for name, value in dictionaries.constant_name.items():
+            config.set_constant(name, value)
+
+
+# Ensure ConfigManager is loaded when this module is imported
+_ensure_config_manager_loaded()
 
 
 class CompilationFailed(Exception):

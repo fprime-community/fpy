@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from typing import Any, Dict, Tuple
 
 from fpy.bytecode.assembler import (
     assemble,
@@ -22,6 +23,46 @@ import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives
 
+from fprime_gds.executables.cli import DictionaryParser, ParserBase
+
+
+class FpyCompileParser(ParserBase):
+    """Parser for fpy compiler options"""
+
+    DESCRIPTION = "fpy compiler options"
+
+    def get_arguments(self) -> Dict[Tuple[str, ...], Dict[str, Any]]:
+        """Arguments specific to fpy compilation"""
+        return {
+            ("input",): {"help": "The input .fpy file", "type": Path},
+            ("-o", "--output"): {
+                "dest": "output",
+                "type": Path,
+                "required": False,
+                "default": None,
+                "help": "The output .bin path",
+            },
+            ("-b", "--bytecode"): {
+                "dest": "bytecode",
+                "action": "store_true",
+                "default": False,
+                "help": "Whether to output human-readable bytecode to stdout instead of binary",
+            },
+            ("--debug",): {
+                "dest": "debug",
+                "action": "store_true",
+                "default": False,
+                "help": "Pass this to print out compiler debugging information",
+            },
+        }
+
+    def handle_arguments(self, args, **kwargs):
+        """Handle fpy compiler arguments"""
+        args.input = Path(args.input)
+        if args.output is not None:
+            args.output = Path(args.output)
+        return args
+
 
 def human_readable_size(size_bytes):
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
@@ -37,41 +78,12 @@ def get_description() -> str:
 
 
 def compile_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=get_description())
-    arg_parser.add_argument("input", type=Path, help="The input .fpy file")
-    arg_parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        required=False,
-        default=None,
-        help="The output .bin path",
+    parsed_args, _ = ParserBase.parse_args(
+        [DictionaryParser, FpyCompileParser],
+        description=get_description(),
+        arguments=args,
+        client=True,
     )
-    arg_parser.add_argument(
-        "-d",
-        "--dictionary",
-        type=Path,
-        required=True,
-        help="The FPrime dictionary .json file",
-    )
-    arg_parser.add_argument(
-        "-b",
-        "--bytecode",
-        action="store_true",
-        default=False,
-        help="Whether to output human-readable bytecode to stdout instead of binary",
-    )
-    arg_parser.add_argument(
-        "--debug",
-        action="store_true",
-        default=False,
-        help="Pass this to print out compiler debugging information",
-    )
-
-    if args is not None:
-        parsed_args = arg_parser.parse_args(args)
-    else:
-        parsed_args = arg_parser.parse_args()
 
     if parsed_args.debug:
         fpy.error.debug = True

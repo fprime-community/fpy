@@ -30,15 +30,62 @@ from fprime_gds.common.models.serialize.numerical_types import (
     F64Type as F64Value,
 )
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
+from fprime_gds.common.utils.config_manager import ConfigManager
 from enum import Enum
 
+
+def get_fw_opcode_type():
+    """Get the FwOpcodeType from ConfigManager (populated by dictionary).
+    
+    Raises ConfigBadTypeException if dictionary hasn't been loaded.
+    """
+    return ConfigManager.get_instance().get_type("FwOpcodeType")
+
+
+def get_fw_chan_id_type():
+    """Get the FwChanIdType from ConfigManager (populated by dictionary).
+    
+    Raises ConfigBadTypeException if dictionary hasn't been loaded.
+    """
+    return ConfigManager.get_instance().get_type("FwChanIdType")
+
+
+def get_fw_prm_id_type():
+    """Get the FwPrmIdType from ConfigManager (populated by dictionary).
+    
+    Raises ConfigBadTypeException if dictionary hasn't been loaded.
+    """
+    return ConfigManager.get_instance().get_type("FwPrmIdType")
+
+
+# Mapping of type names to their getter functions for dynamic lookup during serialization
+_CONFIGURABLE_TYPE_GETTERS = {
+    "FwOpcodeType": get_fw_opcode_type,
+    "FwChanIdType": get_fw_chan_id_type,
+    "FwPrmIdType": get_fw_prm_id_type,
+}
+
+
+# Internal fpy types (not from dictionary)
 FwSizeType = U64Value
-FwChanIdType = U32Value
-FwPrmIdType = U32Value
-FwOpcodeType = U32Value
 ArrayIndexType = I64Value
 StackSizeType = U32Value
 LoopVarType = ArrayIndexType
+
+# Type aliases used ONLY for type annotations in dataclass fields.
+# The actual types used during serialization come from ConfigManager via the getter functions.
+# These must match the names used in _CONFIGURABLE_TYPE_GETTERS for the serialization logic to work.
+class FwChanIdType(U32Value):
+    """Placeholder type for annotations - actual type comes from dictionary."""
+    pass
+
+class FwPrmIdType(U32Value):
+    """Placeholder type for annotations - actual type comes from dictionary."""
+    pass
+
+class FwOpcodeType(U32Value):
+    """Placeholder type for annotations - actual type comes from dictionary."""
+    pass
 
 
 def get_union_members(type_hint: type) -> list[type]:
@@ -192,6 +239,13 @@ class Directive:
             primitive_type = None
             # find out which primitive type it is
             for arg in union_members:
+                if not isinstance(arg, type):
+                    continue
+                # Check if this is a configurable type that should come from dictionary
+                if arg.__name__ in _CONFIGURABLE_TYPE_GETTERS:
+                    # Use the getter to get the actual type from ConfigManager
+                    primitive_type = _CONFIGURABLE_TYPE_GETTERS[arg.__name__]()
+                    break
                 if issubclass(arg, FppValue):
                     # it is a primitive type
                     primitive_type = arg

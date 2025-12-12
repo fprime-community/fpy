@@ -11,6 +11,10 @@ These tests verify that:
 import pytest
 from dataclasses import fields
 
+# Import test_helpers to ensure ConfigManager is populated with dictionary types
+# This is required for serializing directives that use dictionary-defined types
+import fpy.test_helpers  # noqa: F401
+
 from fpy.bytecode.assembler import (
     parse as fpybc_parse,
     assemble,
