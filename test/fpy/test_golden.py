@@ -77,10 +77,6 @@ def test_golden(test_name: str):
 def update_golden(test_name: str):
     """
     Utility to update a golden file. Run manually if needed.
-    
-    Usage in Python:
-        from test.fpy.test_golden import update_golden
-        update_golden("empty")
     """
     fpy_file = GOLDEN_DIR / f"{test_name}.fpy"
     fpybc_file = GOLDEN_DIR / f"{test_name}.fpybc"
@@ -92,13 +88,9 @@ def update_golden(test_name: str):
     print(f"Updated {fpybc_file}")
 
 
-def update_all_goldens():
+def update_all_golden_seqs():
     """
     Utility to update all golden files. Run manually if needed.
-    
-    Usage in Python:
-        from test.fpy.test_golden import update_all_goldens
-        update_all_goldens()
     """
     for fpy_file in sorted(GOLDEN_DIR.glob("*.fpy")):
         test_name = fpy_file.stem
