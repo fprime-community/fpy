@@ -736,11 +736,26 @@ class ResolveVars(TopDownVisitor):
         assert not is_instance_compat(node, AstStmtWithExpr), node
 
 
-class CheckUseBeforeDeclare(Visitor):
+class CheckUseBeforeDeclare(TopDownVisitor):
+    """
+    Checks that variables are not used before they are declared.
+    Handles both regular variable assignments (AstAssign) and for loop variables (AstFor).
+    
+    Uses TopDownVisitor because for loops need the loop variable to be declared
+    before visiting the body. For assignments, we manually check the RHS before
+    marking the variable as declared.
+    """
 
     def __init__(self):
         super().__init__()
         self.currently_declared_vars: list[VariableSymbol] = []
+
+    def visit_AstFor(self, node: AstFor, state: CompileState):
+        var = state.resolved_symbols[node.loop_var]
+        # Check that the loop var isn't referenced in the range (before it's declared)
+        EnsureVariableNotReferenced(var).run(node.range, state)
+        # Now mark it as declared for the body
+        self.currently_declared_vars.append(var)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstVar):
@@ -754,8 +769,10 @@ class CheckUseBeforeDeclare(Visitor):
             # declaration of this var
             return
 
-        # this node declares this variable
+        # Before marking as declared, check that the variable isn't used in its own RHS
+        EnsureVariableNotReferenced(var).run(node.rhs, state)
 
+        # Now mark this variable as declared
         self.currently_declared_vars.append(var)
 
     def visit_AstVar(self, node: AstVar, state: CompileState):
@@ -764,14 +781,22 @@ class CheckUseBeforeDeclare(Visitor):
             # not a variable, might be a type name or smth
             return
 
-        if is_instance_compat(sym.declaration, (AstFor, AstDef)):
-            # this will be handled by other pass, or not needed for checks
+        if is_instance_compat(sym.declaration, AstDef):
+            # function parameters - no use-before-declare check needed
+            # this is because if it's in scope, it's declared, as its
+            # "declaration" is the start of the scope
             return
         if (
             is_instance_compat(sym.declaration, AstAssign)
             and sym.declaration.lhs == node
         ):
-            # this is the initial name of the variable. don't crash
+            # this is the declaring reference for an assignment
+            return
+        if (
+            is_instance_compat(sym.declaration, AstFor)
+            and sym.declaration.loop_var == node
+        ):
+            # this is the declaring reference for a for loop variable
             return
 
         if sym not in self.currently_declared_vars:
@@ -787,40 +812,6 @@ class EnsureVariableNotReferenced(Visitor):
     def visit_AstVar(self, node: AstVar, state: CompileState):
         sym = state.resolved_symbols[node]
         if sym == self.var:
-            state.err(f"'{node.var}' used before declared", node)
-            return
-
-
-class CheckUseBeforeDeclareForLoopVariables(TopDownVisitor):
-
-    def __init__(self):
-        super().__init__()
-        self.currently_declared_vars: list[VariableSymbol] = []
-
-    def visit_AstFor(self, node: AstFor, state: CompileState):
-        var = state.resolved_symbols[node.loop_var]
-
-        self.currently_declared_vars.append(var)
-        # also double check that the loop var isn't referenced in the range
-        EnsureVariableNotReferenced(var).run(node.range, state)
-
-    def visit_AstVar(self, node: AstVar, state: CompileState):
-        sym = state.resolved_symbols[node]
-        if not is_instance_compat(sym, VariableSymbol):
-            # not a variable, might be a type name or smth
-            return
-
-        if is_instance_compat(sym.declaration, (AstAssign, AstDef)):
-            # handled by prev pass or not needed to check
-            return
-        if (
-            is_instance_compat(sym.declaration, AstFor)
-            and sym.declaration.loop_var == node
-        ):
-            # this is the initial name of the variable. don't crash
-            return
-
-        if sym not in self.currently_declared_vars:
             state.err(f"'{node.var}' used before declared", node)
             return
 
