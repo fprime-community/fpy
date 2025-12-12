@@ -11,7 +11,6 @@ from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
-from fpy.types import serialize_directives
 
 default_dictionary = str(
     Path(__file__).parent.parent.parent
