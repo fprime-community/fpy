@@ -983,17 +983,20 @@ class GenerateModule(Emitter):
         if node is not state.root:
             return []
 
-        # otherwise, first emit all the funcs at the top, then emit the main body
-        funcs_code = []
-        func_code_end_label = IrLabel(node, "main")
-        funcs_code.append(IrGoto(func_code_end_label))
-        for func, code in state.generated_funcs.items():
-            funcs_code.extend(code)
-        funcs_code.append(func_code_end_label)
-
-        # now generate the main function using GenerateTopLevel (not in a function context)
+        # generate the main function using GenerateTopLevel (not in a function context)
         main_body = GenerateTopLevel().emit(node, state)
-        return funcs_code + main_body
+
+        # if there are functions, emit them at the top with a goto to skip past them
+        if state.generated_funcs:
+            funcs_code = []
+            func_code_end_label = IrLabel(node, "main")
+            funcs_code.append(IrGoto(func_code_end_label))
+            for func, code in state.generated_funcs.items():
+                funcs_code.extend(code)
+            funcs_code.append(func_code_end_label)
+            return funcs_code + main_body
+
+        return main_body
 
 
 class GenerateTopLevel(GenerateFunctionBody):
