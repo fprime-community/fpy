@@ -1,0 +1,11 @@
+allocate 4
+push_val 0 0 0 1
+store_local_const_offset 0 4
+load_local 0 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 1
+ieq
+if 11
+push_val 0 0 0 2
+store_local_const_offset 0 4
+goto 11

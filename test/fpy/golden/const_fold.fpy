@@ -1,0 +1,2 @@
+# Constant folding test: 1 + 2 = 3
+x: U32 = 1 + 2
