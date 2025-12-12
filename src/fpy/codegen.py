@@ -730,7 +730,9 @@ class GenerateCode:
             # okay, are we assigning to a member or an element?
             if lhs.is_struct_member:
                 # if it's a struct, then the lvar offset is always constant
-                const_lvar_offset = lhs.base_offset + lhs.base_ref.lvar_offset
+                # unless the parent is an array element with variable index
+                if lhs.base_offset is not None:
+                    const_lvar_offset = lhs.base_offset + lhs.base_ref.lvar_offset
             else:
                 assert lhs.is_array_element
                 # again, offset is the offset in base type + offset of base lvar
@@ -761,22 +763,44 @@ class GenerateCode:
             )
         else:
             # okay we don't know the offset at compile time
-            # only one case where that can be:
-            assert is_instance_compat(lhs, FieldReference) and lhs.is_array_element, lhs
+            # this can happen for:
+            # 1. array element with variable index (lhs.is_array_element)
+            # 2. struct member whose parent is an array element with variable index (lhs.is_struct_member)
+            assert is_instance_compat(lhs, FieldReference) and (lhs.is_array_element or lhs.is_struct_member), lhs
 
+            if lhs.is_array_element:
+                # we need to calculate absolute offset in lvar array
+                # == (parent offset) + (offset in parent)
 
-            # we need to calculate absolute offset in lvar array
-            # == (parent offset) + (offset in parent)
+                # offset in parent:
+                lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
+                dirs.extend(self.calc_lvar_offset_of_array_element(node, lhs.idx_expr, lhs_parent_type, state))
 
-            # offset in parent:
-            lhs_parent_type = state.expr_converted_types[lhs.parent_expr]
-            dirs.extend(self.calc_lvar_offset_of_array_element(node, lhs.idx_expr, lhs_parent_type, state))
+                # parent offset:
+                dirs.append(PushValDirective(U64Value(lhs.base_ref.lvar_offset).serialize()))
 
-            # parent offset:
-            dirs.append(PushValDirective(U64Value(lhs.base_ref.lvar_offset).serialize()))
-
-            # add them
-            dirs.append(IntAddDirective())
+                # add them
+                dirs.append(IntAddDirective())
+            else:
+                # struct member whose parent is an array element with variable index
+                # need to calculate: base_ref.lvar_offset + array_element_offset + local_offset
+                
+                # first, get the array element's offset
+                # find the parent field reference (should be the array element)
+                parent_ref = state.resolved_references.get(lhs.parent_expr)
+                assert is_instance_compat(parent_ref, FieldReference) and parent_ref.is_array_element, parent_ref
+                
+                # calculate the array element offset
+                parent_type = state.expr_converted_types[parent_ref.parent_expr]
+                dirs.extend(self.calc_lvar_offset_of_array_element(node, parent_ref.idx_expr, parent_type, state))
+                
+                # add the base reference offset
+                dirs.append(PushValDirective(U64Value(parent_ref.base_ref.lvar_offset).serialize()))
+                dirs.append(IntAddDirective())
+                
+                # add the local offset for this struct member
+                dirs.append(PushValDirective(U64Value(lhs.local_offset).serialize()))
+                dirs.append(IntAddDirective())
 
             # and now convert the u64 back into the StackSizeType that store expects
             dirs.extend(self.convert_numeric_type(U64Value, StackSizeType))

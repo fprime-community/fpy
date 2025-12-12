@@ -1755,8 +1755,9 @@ def test_deep_field_modify_in_loop(fprime_test_api):
     seq = """
 arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
 for i in 0 .. 4:
-    arr[i].time = F32(i) * 10.0
-    arr[i].value = F32(i) * 20.0
+    idx: U8 = U8(i)
+    arr[idx].time = F32(F32(i) * 10.0)
+    arr[idx].value = F32(F32(i) * 20.0)
     
 if arr[2].time == 20.0 and arr[2].value == 40.0:
     if arr[3].time == 30.0 and arr[3].value == 60.0:
@@ -1770,7 +1771,7 @@ def test_deep_field_in_expression(fprime_test_api):
     """Test using deep field access in arithmetic expressions"""
     seq = """
 arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(5.0, 10.0), Ref.SignalPair(15.0, 20.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
-sum: F32 = arr[0].time + arr[0].value + arr[1].time + arr[1].value
+sum: F64 = arr[0].time + arr[0].value + arr[1].time + arr[1].value
 if sum == 50.0:
     exit(0)
 exit(1)

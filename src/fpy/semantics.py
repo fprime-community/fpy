@@ -802,7 +802,8 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
                     )
                     break
                 offset += arg_type.getMaxSize()
-                base_offset += arg_type.getMaxSize()
+                if base_offset is not None:
+                    base_offset += arg_type.getMaxSize()
 
         if ref is None:
             state.err(
