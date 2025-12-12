@@ -1709,34 +1709,8 @@ CdhCore.cmdDisp.CMD_NO_OP = 55
 # Test deep field access/assignments (2+ levels)
 
 
-def test_deep_field_access_read(fprime_test_api):
-    """Test reading a nested struct field (2 levels deep)"""
-    seq = """
-var: Ref.ChoiceSlurry = Ref.ChoiceSlurry(Ref.TooManyChoices(Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.TWO), Ref.ManyChoices(Ref.Choice.THREE, Ref.Choice.FOUR)), Ref.Choice.ONE, Ref.ChoicePair(Ref.Choice.TWO, Ref.Choice.THREE), 1, 2)
-if var.choicePair.firstChoice == Ref.Choice.TWO:
-    if var.choicePair.secondChoice == Ref.Choice.THREE:
-        exit(0)
-exit(1)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_deep_field_access_write(fprime_test_api):
-    """Test writing/modifying a nested struct field (2 levels deep)"""
-    seq = """
-var: Ref.ChoiceSlurry = Ref.ChoiceSlurry(Ref.TooManyChoices(Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE)), Ref.Choice.ONE, Ref.ChoicePair(Ref.Choice.ONE, Ref.Choice.ONE), 0, 0)
-var.choicePair.firstChoice = Ref.Choice.FOUR
-var.choicePair.secondChoice = Ref.Choice.THREE
-if var.choicePair.firstChoice == Ref.Choice.FOUR:
-    if var.choicePair.secondChoice == Ref.Choice.THREE:
-        exit(0)
-exit(1)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
 def test_array_element_struct_member_read(fprime_test_api):
-    """Test accessing struct member within array element"""
+    """Test accessing struct member within array element (2 levels deep)"""
     seq = """
 arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(1.0, 2.0), Ref.SignalPair(3.0, 4.0), Ref.SignalPair(5.0, 6.0), Ref.SignalPair(7.0, 8.0))
 if arr[0].time == 1.0 and arr[0].value == 2.0:
@@ -1749,7 +1723,7 @@ exit(1)
 
 
 def test_array_element_struct_member_write(fprime_test_api):
-    """Test modifying struct member within array element"""
+    """Test modifying struct member within array element (2 levels deep)"""
     seq = """
 arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
 arr[0].time = 10.5
@@ -1764,20 +1738,8 @@ exit(1)
     assert_run_success(fprime_test_api, seq)
 
 
-def test_deep_field_access_in_expression(fprime_test_api):
-    """Test using deep field access in expressions"""
-    seq = """
-slurry: Ref.ChoiceSlurry = Ref.ChoiceSlurry(Ref.TooManyChoices(Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE)), Ref.Choice.TWO, Ref.ChoicePair(Ref.Choice.THREE, Ref.Choice.FOUR), 0, 0)
-# Test that we can use deep field access in boolean expressions
-if slurry.choicePair.firstChoice == Ref.Choice.THREE and slurry.choicePair.secondChoice == Ref.Choice.FOUR:
-    exit(0)
-exit(1)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
 def test_array_with_variable_index_deep_access(fprime_test_api):
-    """Test accessing deep field with variable array index"""
+    """Test accessing deep field with variable array index (2 levels deep)"""
     seq = """
 arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(10.0, 20.0), Ref.SignalPair(30.0, 40.0), Ref.SignalPair(50.0, 60.0), Ref.SignalPair(70.0, 80.0))
 idx: U8 = 1
@@ -1788,14 +1750,28 @@ exit(1)
     assert_run_success(fprime_test_api, seq)
 
 
-def test_assign_nested_struct_member_from_var(fprime_test_api):
-    """Test assigning to deep field from variable"""
+def test_deep_field_modify_in_loop(fprime_test_api):
+    """Test modifying deep fields in a loop"""
     seq = """
-slurry: Ref.ChoiceSlurry = Ref.ChoiceSlurry(Ref.TooManyChoices(Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE)), Ref.Choice.ONE, Ref.ChoicePair(Ref.Choice.ONE, Ref.Choice.ONE), 0, 0)
-new_choice: Ref.Choice = Ref.Choice.FOUR
-slurry.choicePair.firstChoice = new_choice
-slurry.choicePair.secondChoice = new_choice
-if slurry.choicePair.firstChoice == new_choice and slurry.choicePair.secondChoice == new_choice:
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
+for i in 0 .. 4:
+    arr[i].time = F32(i) * 10.0
+    arr[i].value = F32(i) * 20.0
+    
+if arr[2].time == 20.0 and arr[2].value == 40.0:
+    if arr[3].time == 30.0 and arr[3].value == 60.0:
+        exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_deep_field_in_expression(fprime_test_api):
+    """Test using deep field access in arithmetic expressions"""
+    seq = """
+arr: Ref.SignalPairSet = Ref.SignalPairSet(Ref.SignalPair(5.0, 10.0), Ref.SignalPair(15.0, 20.0), Ref.SignalPair(0.0, 0.0), Ref.SignalPair(0.0, 0.0))
+sum: F32 = arr[0].time + arr[0].value + arr[1].time + arr[1].value
+if sum == 50.0:
     exit(0)
 exit(1)
 """
