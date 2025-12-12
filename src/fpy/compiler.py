@@ -62,6 +62,8 @@ from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
+from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
+from fprime_gds.common.utils.config_manager import ConfigManager
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from pathlib import Path
 from lark import Lark, LarkError
@@ -117,6 +119,7 @@ def _load_dictionary(dictionary: str) -> tuple:
     """
     Load and parse the dictionary file once, caching the results.
     Returns a tuple of (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict).
+    Also populates the ConfigManager with type aliases from the dictionary.
     """
     cmd_json_dict_loader = CmdJsonLoader(dictionary)
     (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
@@ -127,6 +130,19 @@ def _load_dictionary(dictionary: str) -> tuple:
     (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
     event_json_dict_loader = EventJsonLoader(dictionary)
     (_, _, _) = event_json_dict_loader.construct_dicts(dictionary)
+
+    # Load all type definitions (including aliases like FwOpcodeType, FwPrmIdType, etc.)
+    # and populate the ConfigManager so they're available throughout the codebase
+    type_json_loader = TypeJsonLoader(dictionary)
+    (_, typedef_name_dict, _) = type_json_loader.construct_dicts(dictionary)
+    config = ConfigManager.get_instance()
+    for type_name, type_class in typedef_name_dict.items():
+        config.set_type(type_name, type_class)
+
+    # Update module-level type variables in directives.py so that type annotations
+    # used by serialize_args() reflect the dictionary's type definitions
+    from fpy.bytecode.directives import update_fw_types_from_config
+    update_fw_types_from_config()
 
     # the type name dict is a mapping of a fully qualified name to an fprime type
     # here we put into it all types found while parsing all cmds, params and tlm channels

@@ -812,7 +812,7 @@ class GenerateFunctionBody(Emitter):
                     dirs.extend(self.emit(arg_node, state))
                     arg_converted_type = state.contextual_types[arg_node]
                     arg_byte_count += arg_converted_type.getMaxSize()
-                # then push cmd opcode to stack
+                # then push cmd opcode to stack as the configured opcode type
                 dirs.append(
                     PushValDirective(get_fw_opcode_type()(func.cmd.get_op_code()).serialize())
                 )

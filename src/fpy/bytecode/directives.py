@@ -30,44 +30,22 @@ from fprime_gds.common.models.serialize.numerical_types import (
     F64Type as F64Value,
 )
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.utils.config_manager import ConfigManager
+from fprime_gds.common.utils.config_manager import ConfigManager, ConfigBadTypeException
 from enum import Enum
 
+# Default types - these are used as fallbacks if the dictionary doesn't specify them
+_DEFAULT_FW_SIZE_TYPE = U64Value
+_DEFAULT_FW_CHAN_ID_TYPE = U32Value
+_DEFAULT_FW_PRM_ID_TYPE = U32Value
+_DEFAULT_FW_OPCODE_TYPE = U32Value
 
-def get_fw_opcode_type():
-    """Get the FwOpcodeType from ConfigManager (populated by dictionary).
-    
-    Raises ConfigBadTypeException if dictionary hasn't been loaded.
-    """
-    return ConfigManager.get_instance().get_type("FwOpcodeType")
+# For backwards compatibility, maintain module-level aliases that use the defaults
+# These will be overwritten by the getter functions' returns in practice
+FwSizeType = _DEFAULT_FW_SIZE_TYPE
+FwChanIdType = _DEFAULT_FW_CHAN_ID_TYPE
+FwPrmIdType = _DEFAULT_FW_PRM_ID_TYPE
+FwOpcodeType = _DEFAULT_FW_OPCODE_TYPE
 
-
-def get_fw_chan_id_type():
-    """Get the FwChanIdType from ConfigManager (populated by dictionary).
-    
-    Raises ConfigBadTypeException if dictionary hasn't been loaded.
-    """
-    return ConfigManager.get_instance().get_type("FwChanIdType")
-
-
-def get_fw_prm_id_type():
-    """Get the FwPrmIdType from ConfigManager (populated by dictionary).
-    
-    Raises ConfigBadTypeException if dictionary hasn't been loaded.
-    """
-    return ConfigManager.get_instance().get_type("FwPrmIdType")
-
-
-# Mapping of type names to their getter functions for dynamic lookup during serialization
-_CONFIGURABLE_TYPE_GETTERS = {
-    "FwOpcodeType": get_fw_opcode_type,
-    "FwChanIdType": get_fw_chan_id_type,
-    "FwPrmIdType": get_fw_prm_id_type,
-}
-
-
-# Internal fpy types (not from dictionary)
-FwSizeType = U64Value
 ArrayIndexType = I64Value
 StackSizeType = U32Value
 LoopVarType = ArrayIndexType
@@ -86,6 +64,54 @@ class FwPrmIdType(U32Value):
 class FwOpcodeType(U32Value):
     """Placeholder type for annotations - actual type comes from dictionary."""
     pass
+
+
+def get_fw_size_type():
+    """Get FwSizeType from ConfigManager, falling back to default U64."""
+    try:
+        return ConfigManager().get_type("FwSizeType")
+    except ConfigBadTypeException:
+        return _DEFAULT_FW_SIZE_TYPE
+
+
+def get_fw_chan_id_type():
+    """Get FwChanIdType from ConfigManager, falling back to default U32."""
+    try:
+        return ConfigManager().get_type("FwChanIdType")
+    except ConfigBadTypeException:
+        return _DEFAULT_FW_CHAN_ID_TYPE
+
+
+def get_fw_prm_id_type():
+    """Get FwPrmIdType from ConfigManager, falling back to default U32."""
+    try:
+        return ConfigManager().get_type("FwPrmIdType")
+    except ConfigBadTypeException:
+        return _DEFAULT_FW_PRM_ID_TYPE
+
+
+def get_fw_opcode_type():
+    """Get FwOpcodeType from ConfigManager, falling back to default U32."""
+    try:
+        return ConfigManager().get_type("FwOpcodeType")
+    except ConfigBadTypeException:
+        return _DEFAULT_FW_OPCODE_TYPE
+
+
+def update_fw_types_from_config():
+    """
+    Update the module-level type variables from ConfigManager.
+    
+    This must be called after loading a dictionary that populates ConfigManager
+    with type aliases. The module-level variables are used by type annotations
+    in directive dataclasses, which are evaluated by serialize_args() via
+    typing.get_type_hints().
+    """
+    global FwSizeType, FwChanIdType, FwPrmIdType, FwOpcodeType
+    FwSizeType = get_fw_size_type()
+    FwChanIdType = get_fw_chan_id_type()
+    FwPrmIdType = get_fw_prm_id_type()
+    FwOpcodeType = get_fw_opcode_type()
 
 
 def get_union_members(type_hint: type) -> list[type]:
