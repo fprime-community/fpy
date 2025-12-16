@@ -1,0 +1,57 @@
+
+
+
+
+
+
+
+
+
+a: U8 = 123
+b: U8 = 255
+
+
+persist: U64 = 10 * 1000000
+timeout: U64 = 100 * 1000000
+every_seconds: U32 = 1
+every_useconds: U32 = 123123
+
+result: bool = False
+last_was_true: bool = False
+time_started_true_us: U64 = 0
+time_started_value: Fw.Time = now()
+time_started_us: U64 = time_started_value.seconds * 1000000 + time_started_value.useconds
+
+
+<if timeout_expr is Fw.TimeIntervalValue>:
+check_state: CheckState = CheckState(persist=<persist_expr>, timeout=time_add(now(), <timeout_expr>), every=<every_expr>)
+<else>:
+check_state: CheckState = CheckState(persist=<persist_expr>, timeout=<timeout_expr>)
+
+
+while True:
+     current_time: Fw.Time = now()
+     timed_out: I8 = time_cmp(current_time, check_state.timeout)
+     assert timed_out != 2, 1 # assert times are comparable
+     if timed_out == 1: # now > timeout
+          # end loop with result=False
+          break
+
+     if <condition_expr>:
+          if not check_state.last_was_true:
+               time_started_true_us = current_time_us
+               last_was_true = True
+          if current_time_us - time_started_true_us >= persist:
+               result = True
+               break
+          # else--keep on waiting for persist
+     else:
+          last_was_true = False
+     sleep(every_seconds, every_useconds)
+
+if result:
+     CdhCore.cmdDisp.CMD_NO_OP_STRING("succeed")
+else:
+     CdhCore.cmdDisp.CMD_NO_OP_STRING("fail")
+
+
