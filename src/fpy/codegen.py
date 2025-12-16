@@ -28,7 +28,7 @@ from fpy.types import (
     CommandSymbol,
     FpyFloatValue,
     FunctionSymbol,
-    BuiltinSymbol,
+    BuiltinFuncSymbol,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -130,6 +130,20 @@ from fpy.syntax import (
 )
 
 
+class CollectUsedFunctions(Visitor):
+    """Collects the set of functions that are called anywhere in the code.
+    
+    Any function that is called (even from within other functions) will be
+    marked as used and have code generated for it.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, FunctionSymbol):
+            return
+        state.used_funcs.add(func.definition)
+
+
 class AssignVariableOffsets(Visitor):
     """Assigns frame offsets to variables before code generation.
 
@@ -176,12 +190,18 @@ class AssignVariableOffsets(Visitor):
 
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip it
+            return
         entry_label = IrLabel(node, "entry")
         state.func_entry_labels[node] = entry_label
 
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip generating code for it
+            return
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
         code.extend(GenerateFunctionBody().emit(node.body, state))
@@ -819,7 +839,7 @@ class GenerateFunctionBody(Emitter):
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
-        elif is_instance_compat(func, BuiltinSymbol):
+        elif is_instance_compat(func, BuiltinFuncSymbol):
             # put all arg values on stack
             for arg_node in node_args:
                 dirs.extend(self.emit(arg_node, state))

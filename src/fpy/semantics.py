@@ -11,6 +11,7 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    BuiltinFuncSymbol,
     CompileState,
     FieldSymbol,
     ForLoopAnalysis,
@@ -2125,8 +2126,17 @@ class CheckAllBranchesReturn(Visitor):
         state.does_return[node] = False
 
     def visit_AstExpr(self, node: AstExpr, state: CompileState):
-        # expressions do not return
-        state.does_return[node] = False
+        # expressions do not return, except exit
+        if not is_instance_compat(node, AstFuncCall):
+            state.does_return[node] = False
+            return
+        func = state.resolved_symbols[node.func]
+        if not is_instance_compat(func, BuiltinFuncSymbol) or not func.name == "exit":
+            state.does_return[node] = False
+            return
+        # builtin exit "returns" (really just ends call stack entirely)
+        state.does_return[node] = True
+
 
     def visit_default(self, node, state):
         assert not is_instance_compat(node, AstStmt)

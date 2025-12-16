@@ -20,6 +20,7 @@ from lark import Lark
 from fprime_gds.common.fpy.bytecode.directives import Directive
 from fpy.codegen import (
     AssignVariableOffsets,
+    CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
     GenerateFunctions,
@@ -53,6 +54,7 @@ from fpy.types import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    TimeIntervalValue,
     TypeCtorSymbol,
     Visitor,
     create_symbol_table,
@@ -99,14 +101,27 @@ def text_to_ast(text: str):
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
-        print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+        print(
+            fpy.error.CompileError(
+                "Maximum recursion depth exceeded (code is too deeply nested)"
+            ),
+            file=sys.stderr,
+        )
         exit(1)
     except VisitError as e:
         # VisitError wraps exceptions that occur during tree transformation
         if isinstance(e.orig_exc, RecursionError):
-            print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(
+                    "Maximum recursion depth exceeded (code is too deeply nested)"
+                ),
+                file=sys.stderr,
+            )
         else:
-            print(fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),
+                file=sys.stderr,
+            )
         exit(1)
     return transformed
 
@@ -143,8 +158,10 @@ def _build_scopes(dictionary: str) -> tuple:
     Build and cache the scopes for a dictionary.
     Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
     """
-    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(dictionary)
-    
+    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(
+        dictionary
+    )
+
     # Make a copy of type_name_dict since we'll mutate it
     type_name_dict = dict(type_name_dict)
 
@@ -165,6 +182,27 @@ def _build_scopes(dictionary: str) -> tuple:
         type_name_dict[typ.get_canonical_name()] = typ
     type_name_dict["bool"] = BoolValue
     # note no string type at the moment
+
+    # this is a hack because right now the timeintervalvalue isn't in the dict
+    if "Fw.TimeIntervalValue" not in type_name_dict:
+        type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
+        time_interval_type = TimeIntervalValue
+    else:
+        time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+
+    # once we have timeintervalvalue, make the checkstate struct
+    CheckStateValue = StructValue.construct_type(
+        "$CheckState",
+        [
+            ("persist", time_interval_type, "", ""),
+            ("timeout", TimeValue, "", ""),
+            ("every", time_interval_type, "", ""),
+            ("result", BoolValue, "", ""),
+            ("last_was_true", BoolValue, "", ""),
+            ("last_time_true", TimeValue, "", ""),
+            ("time_started", TimeValue, "", ""),
+        ],
+    )
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
     callable_name_dict: dict[str, CallableSymbol] = {}
@@ -224,7 +262,9 @@ def _build_scopes(dictionary: str) -> tuple:
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(dictionary)
+    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(
+        dictionary
+    )
 
     state = CompileState(
         tlms=tlm_scope,
@@ -286,6 +326,8 @@ def ast_to_directives(
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
         AssignVariableOffsets(),
+        # Collect which functions are called anywhere in the code
+        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),
@@ -321,5 +363,5 @@ def ast_to_directives(
     for warning in state.warnings:
         print(warning)
 
-    # all the ir is guaranteed to have been converted to directives by now
+    # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir

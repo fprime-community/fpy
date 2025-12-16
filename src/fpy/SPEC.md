@@ -273,3 +273,17 @@ while <condition>:
 
 The condition is coerced to `bool` and re-evaluated before every iteration. `break` and `continue` are legal only within the loop body.
 
+# Check statement
+
+```
+check <condition_expr> timeout <timeout_expr> persist <persist_expr> every <every_expr>:
+     <check_body>
+timeout:
+     <timeout_body>
+```
+
+While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body
+
+`condition_expr` must be type `bool`
+`timeout_expr` may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated.
+`persist_expr` and `every_expr` must be type `Fw.TimeIntervalValue`

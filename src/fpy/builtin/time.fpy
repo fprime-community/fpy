@@ -1,0 +1,32 @@
+def time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.Time:
+     # print time base incomparable?
+     assert lhs.time_base == rhs.time_base, 1
+     lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
+     rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
+     
+     # check underflow
+     assert lhs_micros >= rhs_micros, 1
+     result_micros: U64 = lhs_micros - rhs_micros
+
+     result_context: FwTimeContextStoreType = lhs.context
+     if rhs.context != result_context:
+          result_context = 0
+     
+     return Fw.Time(lhs.time_base, result_context, result_micros // 1_000_000, result_micros % 1_000_000)
+
+
+def time_add(lhs: Fw.Time, rhs: Fw.Time) -> Fw.Time:
+     # print time base incomparable?
+     assert lhs.time_base == rhs.time_base, 1
+     lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
+     rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
+     
+     # check overflow. u64 max - lhs should leave enough space for rhs
+     assert U64(2**64) - 1 - lhs_micros >= rhs_micros, 1
+     result_micros: U64 = lhs_micros + rhs_micros
+     
+     result_context: FwTimeContextStoreType = lhs.context
+     if rhs.context != result_context:
+          result_context = 0
+     
+     return Fw.Time(lhs.time_base, result_context, result_micros // 1_000_000, result_micros % 1_000_000)
