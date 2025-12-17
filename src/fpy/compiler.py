@@ -28,7 +28,7 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, ResolveTimeoutPlaceholders, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
     AssignLocalScopes,
@@ -317,11 +317,14 @@ def ast_to_directives(
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
     
+    # Prepend builtin time functions to user code - always available
+    import copy
+    builtin_time_ast = _get_builtin_time_ast()
+    body.stmts = copy.deepcopy(builtin_time_ast.stmts) + body.stmts
+    
     # Early desugaring: transform check statements before semantic analysis
-    # This also injects builtin time functions if check statements are present
-    from fpy.desugaring import EarlyDesugarCheckStatements
-    early_desugarer = EarlyDesugarCheckStatements()
-    early_desugarer.run(body, _get_builtin_time_ast())
+    desugarer = DesugarCheckStatements()
+    desugarer.run(body)
     
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
@@ -359,6 +362,8 @@ def ast_to_directives(
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
+        # Resolve $timeout_to_absolute placeholders, which are used in check statements, based on argument type
+        ResolveTimeoutPlaceholders(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]

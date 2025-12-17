@@ -125,6 +125,16 @@ Available macros:
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
 
+## Time functions
+Fpy provides builtin functions for comparing and manipulating time values:
+
+* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs < rhs`, `0` if equal, `1` if `lhs > rhs`, or `2` if the time bases differ (incomparable).
+* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs < rhs`, `0` if equal, or `1` if `lhs > rhs`.
+* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs >= rhs` (no negative intervals).
+* `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
+
+These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
+
 ## Type constructors
 Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
 

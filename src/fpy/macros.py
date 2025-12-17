@@ -170,4 +170,13 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "now": BuiltinFuncSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
+    # Placeholder function for check statement timeout conversion.
+    # This gets replaced by ResolveTimeoutPlaceholders pass after semantic analysis.
+    # It accepts either Fw.Time or Fw.TimeIntervalValue and returns Fw.Time.
+    "$timeout_to_absolute": BuiltinFuncSymbol(
+        "$timeout_to_absolute",
+        TimeValue,
+        [("timeout", TimeValue, None)],  # Accepts TimeValue, but semantic pass allows TimeIntervalValue too
+        lambda n: (_ for _ in ()).throw(AssertionError("$timeout_to_absolute should have been replaced")),
+    ),
 }

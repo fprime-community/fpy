@@ -29,6 +29,8 @@ from fpy.types import (
     FpyIntegerValue,
     Transformer,
     TopDownVisitor,
+    is_instance_compat,
+    lookup_symbol,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
@@ -335,18 +337,79 @@ class DesugarDefaultArgs(Transformer):
         return node
 
 
-class HasCheckStatements(TopDownVisitor):
-    """Check if the AST contains any check statements."""
+class ResolveTimeoutPlaceholders(Transformer):
+    """
+    Resolves $timeout_to_absolute(timeout_expr) placeholder calls.
     
-    def __init__(self):
-        super().__init__()
-        self.has_check = False
+    After semantic analysis, we know the type of timeout_expr:
+    - If Fw.Time (absolute): replace with just timeout_expr
+    - If Fw.TimeIntervalValue (relative): replace with time_add(now(), timeout_expr)
     
-    def visit_AstCheck(self, node: AstCheck, state: CompileState):
-        self.has_check = True
+    This enables check statements to accept both absolute and relative timeouts
+    while keeping the early desugaring simple.
+    """
+    
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        from fpy.types import BuiltinFuncSymbol
+        from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+        
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, BuiltinFuncSymbol):
+            return node
+        if func.name != "$timeout_to_absolute":
+            return node
+        
+        # Get the timeout argument
+        timeout_arg = node.args[0]
+        timeout_type = state.synthesized_types.get(timeout_arg)
+        
+        # Check if it's absolute (Fw.Time) or relative (Fw.TimeIntervalValue)
+        is_absolute = issubclass(timeout_type, TimeValue)
+        
+        if is_absolute:
+            # Just return the argument directly - it's already an absolute time
+            return timeout_arg
+        else:
+            # It's relative (TimeIntervalValue), wrap with time_add(now(), timeout)
+            # We need to find the time_add function and now function
+            time_add_func = lookup_symbol(node, "time_add", state)
+            now_func = state.callables.get("now")
+            
+            assert time_add_func is not None, "time_add function not found"
+            assert now_func is not None, "now function not found"
+            
+            # Create now() call
+            now_var = AstVar(None, "now")
+            now_var.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[now_var] = now_func
+            
+            now_call = AstFuncCall(None, now_var, [])
+            now_call.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[now_call] = now_func
+            state.resolved_func_args[now_call] = []
+            state.synthesized_types[now_call] = TimeValue
+            state.contextual_types[now_call] = TimeValue
+            
+            # Create time_add(now(), timeout) call
+            time_add_var = AstVar(None, "time_add")
+            time_add_var.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[time_add_var] = time_add_func
+            
+            time_add_call = AstFuncCall(None, time_add_var, [now_call, timeout_arg])
+            time_add_call.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[time_add_call] = time_add_func
+            state.resolved_func_args[time_add_call] = [now_call, timeout_arg]
+            state.synthesized_types[time_add_call] = TimeValue
+            state.contextual_types[time_add_call] = TimeValue
+            
+            return time_add_call
 
 
-class EarlyDesugarCheckStatements:
+class DesugarCheckStatements:
     """
     Desugars check statements into while loops BEFORE semantic analysis.
     
@@ -494,24 +557,11 @@ class EarlyDesugarCheckStatements:
         # $CheckState(persist=<persist>, timeout=<timeout_or_time_add>, every=<every>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
-        # For timeout, we need to handle both Fw.Time and Fw.TimeIntervalValue
-        # Since we don't have type info yet, we'll create an expression that works for TimeIntervalValue
-        # and let semantic analysis handle the Fw.Time case
-        # Actually, we need to support both at runtime. Let's generate code that converts
-        # TimeIntervalValue to absolute time using time_add(now(), timeout)
-        # But since we don't know the type yet, we'll just use the timeout expression directly
-        # and assume the semantic analysis will handle it.
-        
-        # Actually, looking at the spec again:
-        # - timeout_expr may be Fw.Time (absolute) or Fw.TimeIntervalValue (relative)
-        # For now, let's handle the relative case by always converting with time_add
-        # This means if user passes Fw.Time, we'll add now() to it which would be wrong.
-        # 
-        # We need to determine the type at semantic analysis time. For now, let's always
-        # assume TimeIntervalValue (relative) since that's more common.
-        # TODO: Add proper type-based handling later
-        
-        timeout_expr_to_use = self.call("time_add", self.call("now"), copy.deepcopy(node.timeout))
+        # For timeout, we use a placeholder function $timeout_to_absolute that will be
+        # resolved in a late pass after semantic analysis determines the type.
+        # If timeout_expr is Fw.Time (absolute), it gets used directly.
+        # If timeout_expr is Fw.TimeIntervalValue (relative), it becomes time_add(now(), timeout_expr).
+        timeout_expr_to_use = self.call("$timeout_to_absolute", copy.deepcopy(node.timeout))
         
         check_state_init = self.call_expr(
             self.callable_ref("$CheckState"),               # Use callable_ref, not type_expr
@@ -657,45 +707,14 @@ class EarlyDesugarCheckStatements:
         
         return [init_check_state, while_loop, final_if]
     
-    def run(self, body: AstBlock, builtin_funcs_ast: AstBlock | None):
+    def run(self, body: AstBlock):
         """
-        Run the early desugaring pass.
+        Run the desugaring pass to transform all check statements.
         
         Args:
-            body: The user's AST root block
-            builtin_funcs_ast: The parsed builtin time.fpy AST, or None if not needed
+            body: The user's AST root block (with builtin functions already prepended)
         """
-        # First check if we have any check statements
-        # We need to do this without CompileState since it's early
-        has_check = self._has_check_statements(body)
-        
-        if not has_check:
-            return  # Nothing to do
-        
-        # Prepend builtin functions if we have check statements
-        if builtin_funcs_ast is not None:
-            # Copy the function definitions from builtin to the start of user code
-            builtin_stmts = copy.deepcopy(builtin_funcs_ast.stmts)
-            body.stmts = builtin_stmts + body.stmts
-        
-        # Now desugar all check statements
         self._desugar_all_checks(body)
-    
-    def _has_check_statements(self, node) -> bool:
-        """Recursively check if any check statements exist."""
-        if isinstance(node, AstCheck):
-            return True
-        if isinstance(node, Ast):
-            from dataclasses import fields
-            for field in fields(node):
-                val = getattr(node, field.name)
-                if isinstance(val, list):
-                    for item in val:
-                        if self._has_check_statements(item):
-                            return True
-                elif self._has_check_statements(val):
-                    return True
-        return False
     
     def _desugar_all_checks(self, node):
         """Recursively find and desugar all check statements."""

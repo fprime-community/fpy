@@ -22,6 +22,7 @@ from fpy.types import (
     FunctionSymbol,
     Symbol,
     SymbolTable,
+    TimeIntervalValue,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -1368,6 +1369,33 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             state.err(f"Unknown function", node.func)
             return
         node_args = node.args if node.args else []
+
+        # Special handling for $timeout_to_absolute placeholder function
+        # This accepts either Fw.Time (absolute) or Fw.TimeIntervalValue (relative)
+        # This is used in check statement desugaring
+        if is_instance_compat(func, BuiltinFuncSymbol) and func.name == "$timeout_to_absolute":
+            if len(node_args) != 1:
+                state.err("$timeout_to_absolute requires exactly one argument", node)
+                return
+            arg = node_args[0]
+            arg_type = state.synthesized_types.get(arg)
+            if arg_type is None:
+                return
+            # Check it's either Fw.Time or Fw.TimeIntervalValue
+            is_absolute = issubclass(arg_type, TimeValue)
+            is_relative = arg_type.__name__ == "Fw.TimeIntervalValue"
+            if not is_absolute and not is_relative:
+                state.err(
+                    f"check timeout must be Fw.Time or Fw.TimeIntervalValue, got {typename(arg_type)}",
+                    arg
+                )
+                return
+            # Store the resolved args and set types
+            state.resolved_func_args[node] = node_args
+            state.contextual_types[arg] = arg_type  # Keep original type for the arg
+            state.synthesized_types[node] = TimeValue
+            state.contextual_types[node] = TimeValue
+            return
 
         # Build resolved args: reorder named args, fill in defaults, check for missing required
         resolved_args = self.build_resolved_call_args(node, func, node_args)

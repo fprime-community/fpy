@@ -3748,3 +3748,29 @@ def do_check() -> bool:
 assert do_check()
 """
     assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_wrong_type(fprime_test_api):
+    """Test that check timeout with wrong type gives clear error."""
+    seq = """
+check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_absolute_timeout(fprime_test_api):
+    """Test that check works with absolute Fw.Time timeout."""
+    seq = """
+# Create an absolute timeout 100ms from now
+timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
+result: bool = False
+check True timeout timeout persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    result = True
+timeout:
+    pass
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
