@@ -38,6 +38,7 @@ FwPrmIdType = U32Value
 FwOpcodeType = U32Value
 ArrayIndexType = I64Value
 StackSizeType = U32Value
+SignedStackSizeType = I32Value
 LoopVarType = ArrayIndexType
 
 
@@ -293,7 +294,7 @@ class MemCompareDirective(Directive):
 class LoadLocalDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_LOCAL
 
-    lvar_offset: Union[int, I32Value]
+    lvar_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -369,7 +370,7 @@ class StoreLocalDirective(Directive):
 class StoreLocalConstOffsetDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.STORE_LOCAL_CONST_OFFSET
 
-    lvar_offset: Union[int, I32Value]
+    lvar_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -736,7 +737,7 @@ class LoadGlobalDirective(Directive):
     """Load a value from a global variable (absolute offset from start of stack)"""
     opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_GLOBAL
 
-    global_offset: Union[int, I32Value]
+    global_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -753,7 +754,7 @@ class StoreGlobalConstOffsetDirective(Directive):
     """Store a value to a global variable at a constant absolute offset"""
     opcode: ClassVar[DirectiveId] = DirectiveId.STORE_GLOBAL_CONST_OFFSET
 
-    global_offset: Union[int, I32Value]
+    global_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 

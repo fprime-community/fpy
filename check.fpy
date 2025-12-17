@@ -1,32 +1,9 @@
 
 
-
-
-
-
-
-
-
-a: U8 = 123
-b: U8 = 255
-
-
-persist: U64 = 10 * 1000000
-timeout: U64 = 100 * 1000000
-every_seconds: U32 = 1
-every_useconds: U32 = 123123
-
-result: bool = False
-last_was_true: bool = False
-time_started_true_us: U64 = 0
-time_started_value: Fw.Time = now()
-time_started_us: U64 = time_started_value.seconds * 1000000 + time_started_value.useconds
-
-
 <if timeout_expr is Fw.TimeIntervalValue>:
-check_state: CheckState = CheckState(persist=<persist_expr>, timeout=time_add(now(), <timeout_expr>), every=<every_expr>)
+check_state: CheckState = CheckState(persist=<persist_expr>, timeout=time_add(now(), <timeout_expr>), every=<every_expr>, result=False, last_was_true=False,time_started_true=Fw.Time(0, 0, 0, 0), time_started=now())
 <else>:
-check_state: CheckState = CheckState(persist=<persist_expr>, timeout=<timeout_expr>)
+check_state: CheckState = CheckState(persist=<persist_expr>, timeout=<timeout_expr>, every=<every_expr>, result=False, last_was_true=False,time_started_true=Fw.Time(0, 0, 0, 0), time_started=now())
 
 
 while True:
@@ -39,19 +16,22 @@ while True:
 
      if <condition_expr>:
           if not check_state.last_was_true:
-               time_started_true_us = current_time_us
-               last_was_true = True
-          if current_time_us - time_started_true_us >= persist:
-               result = True
+               check_state.last_started_true = current_time
+               check_state.last_was_true = True
+          
+          succeeded: I8 = time_interval_cmp(time_sub(current_time, check-state.time_started_true), check_state.persist)
+          assert succeeded != 2, 1 # assert times are comparable
+          if succeeded == 1 or succeeded == 0: # time condition has been true >= persist
+               check_state.result = True
                break
           # else--keep on waiting for persist
      else:
-          last_was_true = False
-     sleep(every_seconds, every_useconds)
+          check_state.last_was_true = False
+     sleep(check_state.every.seconds, check_state.every.useconds)
 
-if result:
-     CdhCore.cmdDisp.CMD_NO_OP_STRING("succeed")
+if check_state.result:
+     <check_body>
 else:
-     CdhCore.cmdDisp.CMD_NO_OP_STRING("fail")
+     <timeout_body>
 
 

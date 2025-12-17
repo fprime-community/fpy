@@ -42,7 +42,9 @@ class CompileError:
 
         source_start_line = meta.line - 1 - COMPILER_ERROR_CONTEXT_LINE_COUNT
         source_start_line = max(0, source_start_line)
-        source_end_line = meta.end_line - 1 + COMPILER_ERROR_CONTEXT_LINE_COUNT
+        # end_line can be None for $END token
+        end_line = meta.end_line if meta.end_line is not None else meta.line
+        source_end_line = end_line - 1 + COMPILER_ERROR_CONTEXT_LINE_COUNT
         source_end_line = min(len(input_lines), source_end_line)
 
         # this is the list of all the src lines we will display
@@ -54,14 +56,14 @@ class CompileError:
         # add two extra spaces for the caret to display multiline errors on lhs
         line_number_space = 6 if source_end_line < 998 else 10
 
-        node_lines = meta.end_line - meta.line
+        node_lines = end_line - meta.line
 
         # prefix all the lines with the prefix and line number
         # right justified line number, then a |, then the line
         # also if this is a multiline error, highlight the lines that errored with a >
         source_to_display = [
             (
-                ("> " if line_idx in range(meta.line - 1, meta.end_line - 1) else "")
+                ("> " if line_idx in range(meta.line - 1, end_line - 1) else "")
                 + str(source_start_line + line_idx + 1)
             ).rjust(line_number_space)
             + " | "
@@ -73,11 +75,13 @@ class CompileError:
             source_to_display_str = "\n".join(source_to_display)
             # it's a multiline node. don't try to highlight the whole thing
             # just print the err and the offending text
-            return f"{stack_trace_optional}{file_name_optional}:{meta.line}-{meta.end_line} {self.msg}\n{source_to_display_str}"
+            return f"{stack_trace_optional}{file_name_optional}:{meta.line}-{end_line} {self.msg}\n{source_to_display_str}"
 
         node_start_line_in_ctx = meta.line - 1 - source_start_line
+        # end_column can be None for $END token
+        end_column = meta.end_column if meta.end_column is not None else meta.column + 1
         error_highlight = " " * (meta.column - 1 + line_number_space + 3) + "^" * (
-            meta.end_column - meta.column
+            end_column - meta.column
         )
         source_to_display.insert(node_start_line_in_ctx + 1, error_highlight)
         result = f"{stack_trace_optional}{file_name_optional}:{meta.line} {self.msg}\n"

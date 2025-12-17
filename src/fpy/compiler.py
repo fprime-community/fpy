@@ -87,6 +87,35 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+# Load builtin time.fpy functions at module level
+_builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
+_builtin_time_text = _builtin_time_path.read_text()
+_builtin_time_ast = None  # Lazily initialized
+
+
+def _get_builtin_time_ast():
+    """Parse and cache the builtin time.fpy AST."""
+    global _builtin_time_ast
+    if _builtin_time_ast is None:
+        # Save current error state
+        old_input_text = fpy.error.input_text
+        old_input_lines = fpy.error.input_lines
+        old_file_name = fpy.error.file_name
+        
+        fpy.error.file_name = str(_builtin_time_path)
+        fpy.error.input_text = _builtin_time_text
+        fpy.error.input_lines = _builtin_time_text.splitlines()
+        
+        tree = _fpy_parser.parse(_builtin_time_text)
+        _builtin_time_ast = FpyTransformer().transform(tree)
+        
+        # Restore error state
+        fpy.error.input_text = old_input_text
+        fpy.error.input_lines = old_input_lines
+        fpy.error.file_name = old_file_name
+    
+    return _builtin_time_ast
+
 
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
@@ -191,6 +220,8 @@ def _build_scopes(dictionary: str) -> tuple:
         time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
 
     # once we have timeintervalvalue, make the checkstate struct
+    # This is an internal type (prefixed with $) not directly accessible to users,
+    # used for desugaring check statements
     CheckStateValue = StructValue.construct_type(
         "$CheckState",
         [
@@ -203,6 +234,8 @@ def _build_scopes(dictionary: str) -> tuple:
             ("time_started", TimeValue, "", ""),
         ],
     )
+    # Add to type dict so it can be used internally
+    type_name_dict["$CheckState"] = CheckStateValue
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
     callable_name_dict: dict[str, CallableSymbol] = {}
@@ -283,6 +316,13 @@ def ast_to_directives(
     compile_args: dict | None = None,
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
+    
+    # Early desugaring: transform check statements before semantic analysis
+    # This also injects builtin time functions if check statements are present
+    from fpy.desugaring import EarlyDesugarCheckStatements
+    early_desugarer = EarlyDesugarCheckStatements()
+    early_desugarer.run(body, _get_builtin_time_ast())
+    
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
     semantics_passes: list[Visitor] = [

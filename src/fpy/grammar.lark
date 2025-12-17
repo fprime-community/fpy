@@ -11,7 +11,7 @@ _toplevel_stmt: def_stmt | _stmt
 # Regular statements (no function definitions allowed)
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
 _small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
-_compound_stmt: if_stmt | for_stmt | while_stmt
+_compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
@@ -34,6 +34,9 @@ def_stmt: "def" var "(" [parameters] ")" ["->" type_expr] ":" block
 # loops (cannot contain function definitions since they use stmt_list, not toplevel)
 for_stmt: "for" var "in" expr ":" stmt_list
 while_stmt: "while" expr ":" stmt_list
+
+# check statement: check <cond> timeout <timeout> persist <persist> every <every>: <body> timeout: <timeout_body>
+check_stmt: "check" expr "timeout" expr "persist" expr "every" expr ":" stmt_list "timeout" ":" stmt_list
 
 # branching (cannot contain function definitions since they use stmt_list, not toplevel)
 if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]

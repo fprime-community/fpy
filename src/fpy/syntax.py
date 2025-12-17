@@ -216,6 +216,16 @@ class AstWhile(Ast):
 
 
 @dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: AstExpr
+    persist: AstExpr
+    every: AstExpr
+    body: "AstStmtList"
+    timeout_body: "AstStmtList"
+
+
+@dataclass
 class AstAssert(Ast):
     condition: AstExpr
     exit_code: Union[AstExpr, None]
@@ -256,12 +266,13 @@ AstStmt = Union[
     AstBreak,
     AstContinue,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstDef,
     AstReturn
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstDef, AstReturn
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
@@ -270,6 +281,7 @@ AstNodeWithSideEffects = Union[
     AstElif,
     AstFor,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstBreak,
     AstContinue,
@@ -343,6 +355,7 @@ class FpyTransformer(Transformer):
 
     for_stmt = AstFor
     while_stmt = AstWhile
+    check_stmt = AstCheck
     block = no_inline(AstBlock)
     break_stmt = AstBreak
     continue_stmt = AstContinue

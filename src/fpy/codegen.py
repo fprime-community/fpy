@@ -81,6 +81,7 @@ from fpy.bytecode.directives import (
     Directive,
     NotDirective,
     PushValDirective,
+    SignedStackSizeType,
     StackSizeType,
     StoreLocalConstOffsetDirective,
     StoreGlobalConstOffsetDirective,
@@ -98,7 +99,6 @@ from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U64Type as U64Value,
-    I32Type as I32Value,
     I64Type as I64Value,
     F32Type as F32Value,
     F64Type as F64Value,
@@ -959,8 +959,8 @@ class GenerateFunctionBody(Emitter):
             # add them
             dirs.append(IntAddDirective())
 
-            # and now convert the u64 back into the I32Value that store expects
-            dirs.extend(self.convert_numeric_type(U64Value, I32Value))
+            # and now convert the u64 back into the SignedStackSizeType that store expects
+            dirs.extend(self.convert_numeric_type(U64Value, SignedStackSizeType))
 
             # now that lvar array offset is pushed, use it to store in lvar array
             if use_global:

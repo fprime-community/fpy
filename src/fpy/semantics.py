@@ -80,6 +80,7 @@ from fpy.syntax import (
     AstStmtList,
     AstBoolean,
     AstBreak,
+    AstCheck,
     AstContinue,
     AstDef,
     AstElif,
@@ -325,7 +326,8 @@ class SetEnclosingLoops(Visitor):
         self, node: Union[AstBreak, AstContinue], state: CompileState
     ):
         if self.loop is None:
-            del state.enclosing_loops[node]
+            # Remove from dict if present (may not be for generated nodes)
+            state.enclosing_loops.pop(node, None)
         else:
             state.enclosing_loops[node] = self.loop
 
