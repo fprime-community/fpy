@@ -337,7 +337,7 @@ class DesugarDefaultArgs(Transformer):
         return node
 
 
-class ResolveTimeoutPlaceholders(Transformer):
+class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
     """
     Resolves $timeout_to_absolute(timeout_expr) placeholder calls.
     

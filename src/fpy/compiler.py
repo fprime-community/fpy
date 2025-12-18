@@ -28,7 +28,7 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, ResolveTimeoutPlaceholders, DesugarCheckStatements
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, ResolveRelativeToAbsoluteTimePlaceholders, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
     AssignLocalScopes,
@@ -363,7 +363,7 @@ def ast_to_directives(
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
         # Resolve $timeout_to_absolute placeholders, which are used in check statements, based on argument type
-        ResolveTimeoutPlaceholders(),
+        ResolveRelativeToAbsoluteTimePlaceholders(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]

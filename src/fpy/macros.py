@@ -171,7 +171,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # Placeholder function for check statement timeout conversion.
-    # This gets replaced by ResolveTimeoutPlaceholders pass after semantic analysis.
+    # This gets replaced by ResolveRelativeToAbsoluteTimePlaceholders pass after semantic analysis.
     # It accepts either Fw.Time or Fw.TimeIntervalValue and returns Fw.Time.
     "$timeout_to_absolute": BuiltinFuncSymbol(
         "$timeout_to_absolute",
