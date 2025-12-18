@@ -90,13 +90,13 @@ _fpy_parser = Lark(
 # Load builtin time.fpy functions at module level
 _builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
 _builtin_time_text = _builtin_time_path.read_text()
-_builtin_time_ast = None  # Lazily initialized
+_builtin_library_ast = None  # Lazily initialized
 
 
-def _get_builtin_time_ast():
-    """Parse and cache the builtin time.fpy AST."""
-    global _builtin_time_ast
-    if _builtin_time_ast is None:
+def _get_builtin_library_ast():
+    """Parse and cache the builtin library AST."""
+    global _builtin_library_ast
+    if _builtin_library_ast is None:
         # Save current error state
         old_input_text = fpy.error.input_text
         old_input_lines = fpy.error.input_lines
@@ -107,14 +107,14 @@ def _get_builtin_time_ast():
         fpy.error.input_lines = _builtin_time_text.splitlines()
         
         tree = _fpy_parser.parse(_builtin_time_text)
-        _builtin_time_ast = FpyTransformer().transform(tree)
+        _builtin_library_ast = FpyTransformer().transform(tree)
         
         # Restore error state
         fpy.error.input_text = old_input_text
         fpy.error.input_lines = old_input_lines
         fpy.error.file_name = old_file_name
     
-    return _builtin_time_ast
+    return _builtin_library_ast
 
 
 def text_to_ast(text: str):
@@ -317,17 +317,19 @@ def ast_to_directives(
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
     
-    # Prepend builtin time functions to user code - always available
+    # Prepend builtin library functions to user code - always available.
+    # will be elided if unused
     import copy
-    builtin_time_ast = _get_builtin_time_ast()
-    body.stmts = copy.deepcopy(builtin_time_ast.stmts) + body.stmts
-    
-    # Early desugaring: transform check statements before semantic analysis
-    desugarer = DesugarCheckStatements()
-    desugarer.run(body)
+    builtin_library_ast = _get_builtin_library_ast()
+    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
     
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
+
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements()
+    ]
+    
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
@@ -380,6 +382,11 @@ def ast_to_directives(
     module_generator = GenerateModule()
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
+
+    for compile_pass in pre_semantic_desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
 
     for compile_pass in semantics_passes:
         compile_pass.run(body, state)

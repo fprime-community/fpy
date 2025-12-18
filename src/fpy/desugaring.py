@@ -407,7 +407,7 @@ class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
             return time_add_call
 
 
-class DesugarCheckStatements:
+class DesugarCheckStatements(Transformer):
     """
     Desugars check statements into while loops BEFORE semantic analysis.
     
@@ -447,6 +447,7 @@ class DesugarCheckStatements:
     """
     
     def __init__(self):
+        super().__init__()
         self.var_counter = 0
         self.meta = None  # Will be set when desugaring each check statement
     
@@ -534,7 +535,7 @@ class DesugarCheckStatements:
         """Create a break statement node."""
         return AstBreak(self.meta)
     
-    def desugar_check(self, node: AstCheck) -> list[Ast]:
+    def visit_AstCheck(self, node: AstCheck, state: CompileState) -> list[Ast]:
         """
         Desugar a single check statement into a list of statements.
         """
@@ -704,34 +705,3 @@ class DesugarCheckStatements:
         )
         
         return [init_check_state, while_loop, final_if]
-    
-    def run(self, body: AstBlock):
-        """
-        Run the desugaring pass to transform all check statements.
-        
-        Args:
-            body: The user's AST root block (with builtin functions already prepended)
-        """
-        self._desugar_all_checks(body)
-    
-    def _desugar_all_checks(self, node):
-        """Recursively find and desugar all check statements."""
-        if not isinstance(node, Ast):
-            return
-        
-        from dataclasses import fields
-        
-        for field in fields(node):
-            val = getattr(node, field.name)
-            if isinstance(val, list):
-                new_list = []
-                for item in val:
-                    if isinstance(item, AstCheck):
-                        # Replace check statement with desugared statements
-                        new_list.extend(self.desugar_check(item))
-                    else:
-                        self._desugar_all_checks(item)
-                        new_list.append(item)
-                setattr(node, field.name, new_list)
-            else:
-                self._desugar_all_checks(val)
