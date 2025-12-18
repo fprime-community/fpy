@@ -1,9 +1,12 @@
 > **WARNING:** The SPEC is currently work-in-progress
 
 # Fpy Specification
-This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, and the bytecode it generates, and the virtual machine it runs on, unspecified.
 
-It is assumed the reader is familiar with the F-Prime model, including commands, telemetry, parameters, structs, arrays and enums.
+Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with several domain-specific features for spacecraft operation.
+
+This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified.
+
+It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.
 
 Terms are *italicized* when being defined for the first time.
 
@@ -11,16 +14,20 @@ Terms are *italicized* when being defined for the first time.
 A *program* is some text with valid syntax and semantics.
 
 # Syntax
-The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html) grammar syntax, in [grammar.lark](grammar.lark).
+The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html), in [grammar.lark](grammar.lark).
 
 The rest of the specification is dedicated to the semantics of Fpy.
 
-# Scope
+# Scopes
 A *scope* is a mapping of *names* to *symbols*.
 
-A *name* is a sequence of characters matching the regex `[^\W\d]\w*`. In English, this is a sequence of alphanumeric characters or underscores that does not begin with a digit.
+A *name* is a sequence of alphanumeric characters or underscores that does not begin with a digit.
 
 A *symbol* is an object with some semantic meaning. For example, variables, functions and scopes may be symbols. Because scopes may be symbols, a scope usually has a tree structure.
+
+Names have a *local* scope associated with them. If a name is located outside of a function body, its local scope is the *global* scope. If it is located inside of a function body, it's local scope is a *function* scope, particular to that function.
+
+Scopes may have a *parent* scope. The global scope does not have a parent scope. The parent scope of a function scope is the global scope.
 
 ## Dictionary scopes
 There are several *dictionary* scopes:
@@ -28,20 +35,28 @@ There are several *dictionary* scopes:
 * The *callable* scope, whose leaf nodes are all [callables](#callables)
 * The *value* scope, whose leaf nodes all are [values](#values)
 
-As the name suggests, each of these scopes is populated from the F-Prime dictionary, and cannot be changed in any way by the program.
+As the name suggests, each of these scopes is populated from the F-Prime dictionary, and cannot be changed by the program.
 
 ## Name resolution
 
-Names have a *local* scope associated with them. If a name is located outside of a function body, its local scope is the *global* scope. If it is located inside of a function body, it's local scope is a *function* scope, particular to that function.
+To resolve a name to a symbol, the following scopes are searched until the name is found, in order:
+1. The local scope.
+2. The parent scope of the local scope, if one exists.
+3. The appropriate dictionary scope, based on the syntactic position of the name:
+   * If the name is the receiver of a `func_call`, search the callable scope.
+   * If the name is the type annotation of an `assign_stmt`, or of a `parameter`, or of a `def_stmt` return type, search the type scope.
+   * Otherwise, search the value scope.
 
-To resolve a name to a symbol, the following steps are applied until the name is found, in order:
-1. Look up the name in the *local* scope.
-2. Look up the name in the *parent* scope of the local scope. The global scope does not have a parent scope. The parent scope of a function scope is the global scope.
-3. Look up the name in the appropriate *dictionary* scope.
-   * 
+Dividing the dictionray scopes up like this allows us to disambiguate 
+
+If the name is still not found, an error is raised.
+
+# Attributes
 
 
 # Types
+
+
 
 ## Built-in types
 The following types are built into Fpy, and the developer can directly refer to them by name:

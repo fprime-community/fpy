@@ -112,7 +112,6 @@ _test: or_test
       | atom_expr
 
 # the "indivisible" unit of an expression
-
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> index_expr
           | atom_expr "." name -> member_access
@@ -128,9 +127,6 @@ var: name
 # Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
 # Used in type annotations and return types where only names are allowed
 type_name: name ("." name)*
-
-# not used in grammar, but may appear in "node" passed from Parser to Compiler
-encoding_decl: name
 
 RANGE_OPERATOR: ".."
 
