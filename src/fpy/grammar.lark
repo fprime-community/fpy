@@ -35,8 +35,8 @@ def_stmt: "def" var "(" [parameters] ")" ["->" type_expr] ":" block
 for_stmt: "for" var "in" expr ":" stmt_list
 while_stmt: "while" expr ":" stmt_list
 
-# check statement: check <cond> timeout <timeout> persist <persist> every <every>: <body> timeout: <timeout_body>
-check_stmt: "check" expr "timeout" expr "persist" expr "every" expr ":" stmt_list "timeout" ":" stmt_list
+# check statement: check <cond> timeout <timeout> persist <persist> every <every>: <body> [timeout: <timeout_body>]
+check_stmt: "check" expr "timeout" expr "persist" expr "every" expr ":" stmt_list ["timeout" ":" stmt_list]
 
 # branching (cannot contain function definitions since they use stmt_list, not toplevel)
 if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]

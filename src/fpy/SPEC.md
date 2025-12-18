@@ -128,9 +128,9 @@ Available macros:
 ## Time functions
 Fpy provides builtin functions for comparing and manipulating time values:
 
-* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs < rhs`, `0` if equal, `1` if `lhs > rhs`, or `2` if the time bases differ (incomparable).
-* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs < rhs`, `0` if equal, or `1` if `lhs > rhs`.
-* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs >= rhs` (no negative intervals).
+* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
+* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
+* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs` occurs after `rhs` (no negative intervals).
 * `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
 
 These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
@@ -288,12 +288,14 @@ The condition is coerced to `bool` and re-evaluated before every iteration. `bre
 ```
 check <condition_expr> timeout <timeout_expr> persist <persist_expr> every <every_expr>:
      <check_body>
-timeout:
-     <timeout_body>
+[timeout:
+     <timeout_body>]
 ```
 
-While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body
+While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body (if provided).
 
 `condition_expr` must be type `bool`
 `timeout_expr` may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated.
 `persist_expr` and `every_expr` must be type `Fw.TimeIntervalValue`
+
+The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.

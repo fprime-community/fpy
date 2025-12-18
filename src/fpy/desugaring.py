@@ -696,13 +696,13 @@ class DesugarCheckStatements:
         # if $check_state.result:
         #     <body>
         # else:
-        #     <timeout_body>
+        #     <timeout_body>  (optional)
         final_if = AstIf(
             self.meta,
             cs("result"),
             node.body,           # Use original body
             [],                  # No elifs
-            node.timeout_body    # Use original timeout_body
+            node.timeout_body    # Use original timeout_body (may be None)
         )
         
         return [init_check_state, while_loop, final_if]

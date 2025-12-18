@@ -222,7 +222,7 @@ class AstCheck(Ast):
     persist: AstExpr
     every: AstExpr
     body: "AstStmtList"
-    timeout_body: "AstStmtList"
+    timeout_body: Union["AstStmtList", None] = None
 
 
 @dataclass

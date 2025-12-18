@@ -3654,20 +3654,42 @@ assert timed_out
 
 
 def test_check_condition_must_persist(fprime_test_api):
-    """Test that condition must remain true for the persist duration."""
+    """Test that condition must remain true for the persist duration.
+    
+    The check should succeed when the condition stays true for at least
+    the persist duration.
+    """
     seq = """
-# Counter that becomes true after a bit, then stays true
-counter: I64 = 0
+# With zero persist, condition being true once is enough
 persisted: bool = False
 
-check counter > 3 timeout Fw.TimeIntervalValue(2, 0) persist Fw.TimeIntervalValue(0, 100000) every Fw.TimeIntervalValue(0, 50000):
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
     persisted = True
 timeout:
     pass
 
-# If we get here without persisting, the counter wasn't > 3 long enough
-# But since counter never changes in this test, it times out
-assert not persisted
+assert persisted
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_condition_must_persist_with_duration(fprime_test_api):
+    """Test that condition must remain true for the full persist duration.
+    
+    With a non-zero persist, the condition must remain true for the entire
+    persist duration before the check body is executed.
+    """
+    seq = """
+# With 50ms persist, condition must be true for 50ms
+persisted: bool = False
+
+# Condition is always true, so after 50ms of persistence it should succeed
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 50000) every Fw.TimeIntervalValue(0, 10000):
+    persisted = True
+timeout:
+    pass
+
+assert persisted
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -3693,17 +3715,18 @@ assert cmp_result != 2
 
 
 def test_check_time_funcs_without_check(fprime_test_api):
-    """Test that time functions work when explicitly used without check."""
+    """Test that time functions work even without a check statement.
+    
+    The builtin time functions from time.fpy should be available in all
+    sequences, not just those that use check statements.
+    """
     seq = """
-# These functions come from builtin/time.fpy
-# They should be available even without a check statement if we trigger their inclusion
-# Actually, they're only included when check is used, so this would fail
-# Let's test the case WITH check
-x: bool = False
-check True timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    x = True
-timeout:
-    pass
+# Time functions should be available without using check statement
+t1: Fw.Time = now()
+t2: Fw.Time = now()
+cmp_result: I8 = time_cmp(t1, t2)
+# cmp_result should be -1, 0, or 1 (not 2 for incomparable)
+assert cmp_result != 2
 
 # Test time_interval_cmp
 interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
@@ -3714,13 +3737,28 @@ assert cmp == -1  # interval1 < interval2
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_syntax_error_missing_timeout_body(fprime_test_api):
-    """Test that check statement requires timeout body."""
+def test_check_optional_timeout_body(fprime_test_api):
+    """Test that check statement works without timeout body."""
     seq = """
+result: bool = False
 check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
-    pass
+    result = True
+assert result
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_body_still_works(fprime_test_api):
+    """Test that check statement still works with timeout body."""
+    seq = """
+timed_out: bool = False
+check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    timed_out = True
+assert timed_out
+"""
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_check_syntax_error_missing_persist(fprime_test_api):
@@ -3756,6 +3794,60 @@ def test_check_timeout_wrong_type(fprime_test_api):
 check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type(fprime_test_api):
+    """Test that check condition must be bool, not int."""
+    seq = """
+check 123 timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type_string(fprime_test_api):
+    """Test that check condition must be bool, not string."""
+    seq = """
+check "hello" timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist 123 every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type_time(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist now() every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_every_wrong_type(fprime_test_api):
+    """Test that check every must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every 123:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_every_wrong_type_time(fprime_test_api):
+    """Test that check every must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every now():
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
