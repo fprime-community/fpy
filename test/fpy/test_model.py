@@ -49,8 +49,8 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend16To64Directive,
     IntegerZeroExtend32To64Directive,
     IntegerZeroExtend8To64Directive,
-    LoadGlobalDirective,
-    LoadLocalDirective,
+    LoadAbsDirective,
+    LoadRelDirective,
     MemCompareDirective,
     NoOpDirective,
     NotDirective,
@@ -69,10 +69,10 @@ from fpy.bytecode.directives import (
     SignedLessThanOrEqualDirective,
     SignedModuloDirective,
     StackCmdDirective,
-    StoreGlobalConstOffsetDirective,
-    StoreGlobalDirective,
-    StoreLocalConstOffsetDirective,
-    StoreLocalDirective,
+    StoreAbsConstOffsetDirective,
+    StoreAbsDirective,
+    StoreRelConstOffsetDirective,
+    StoreRelDirective,
     UnsignedGreaterThanDirective,
     UnsignedGreaterThanOrEqualDirective,
     UnsignedIntDivideDirective,
@@ -120,80 +120,80 @@ class TestStackAllocation:
 class TestLoadDirectives:
     """Tests for load directive error conditions."""
 
-    def test_load_local_stack_overflow(self):
-        """Test load_local when result would overflow stack."""
+    def test_load_rel_stack_overflow(self):
+        """Test load_rel when result would overflow stack."""
         model = FpySequencerModel(stack_size=16)
         model.stack = bytearray(16)
-        result = model.dispatch(LoadLocalDirective(0, 8))
+        result = model.dispatch(LoadRelDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_OVERFLOW
 
-    def test_load_local_negative_offset(self):
-        """Test load_local with offset that goes negative."""
+    def test_load_rel_negative_offset(self):
+        """Test load_rel with offset that goes negative."""
         model = FpySequencerModel()
         model.stack = bytearray(16)
         model.stack_frame_start = 4
-        result = model.dispatch(LoadLocalDirective(-10, 8))
+        result = model.dispatch(LoadRelDirective(-10, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_load_local_beyond_stack(self):
-        """Test load_local trying to read beyond stack."""
+    def test_load_rel_beyond_stack(self):
+        """Test load_rel trying to read beyond stack."""
         model = FpySequencerModel()
         model.stack = bytearray(16)
         model.stack_frame_start = 0
-        result = model.dispatch(LoadLocalDirective(12, 8))
+        result = model.dispatch(LoadRelDirective(12, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_load_global_stack_overflow(self):
-        """Test load_global when result would overflow stack."""
+    def test_load_abs_stack_overflow(self):
+        """Test load_abs when result would overflow stack."""
         model = FpySequencerModel(stack_size=16)
         model.stack = bytearray(16)
-        result = model.dispatch(LoadGlobalDirective(0, 8))
+        result = model.dispatch(LoadAbsDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_OVERFLOW
 
-    def test_load_global_negative_offset(self):
-        """Test load_global with negative offset."""
+    def test_load_abs_negative_offset(self):
+        """Test load_abs with negative offset."""
         model = FpySequencerModel()
         model.stack = bytearray(16)
-        result = model.dispatch(LoadGlobalDirective(-1, 8))
+        result = model.dispatch(LoadAbsDirective(-1, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_load_global_beyond_stack(self):
-        """Test load_global trying to read beyond stack."""
+    def test_load_abs_beyond_stack(self):
+        """Test load_abs trying to read beyond stack."""
         model = FpySequencerModel()
         model.stack = bytearray(16)
-        result = model.dispatch(LoadGlobalDirective(12, 8))
+        result = model.dispatch(LoadAbsDirective(12, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
 
 class TestStoreDirectives:
     """Tests for store directive error conditions."""
 
-    def test_store_local_stack_underflow(self):
-        """Test store_local with insufficient stack."""
+    def test_store_rel_stack_underflow(self):
+        """Test store_rel with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
-        result = model.dispatch(StoreLocalDirective(8))
+        result = model.dispatch(StoreRelDirective(8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_store_global_stack_underflow(self):
-        """Test store_global with insufficient stack."""
+    def test_store_abs_stack_underflow(self):
+        """Test store_abs with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
-        result = model.dispatch(StoreGlobalDirective(8))
+        result = model.dispatch(StoreAbsDirective(8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_store_local_const_offset_underflow(self):
-        """Test store_local_const_offset with insufficient stack."""
+    def test_store_rel_const_offset_underflow(self):
+        """Test store_rel_const_offset with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
-        result = model.dispatch(StoreLocalConstOffsetDirective(0, 8))
+        result = model.dispatch(StoreRelConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
-    def test_store_global_const_offset_underflow(self):
-        """Test store_global_const_offset with insufficient stack."""
+    def test_store_abs_const_offset_underflow(self):
+        """Test store_abs_const_offset with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
-        result = model.dispatch(StoreGlobalConstOffsetDirective(0, 8))
+        result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
 

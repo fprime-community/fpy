@@ -69,8 +69,8 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     IntAddDirective,
     IntMultiplyDirective,
-    LoadLocalDirective,
-    LoadGlobalDirective,
+    LoadRelDirective,
+    LoadAbsDirective,
     MemCompareDirective,
     NoOpDirective,
     IntegerTruncate64To32Directive,
@@ -83,10 +83,10 @@ from fpy.bytecode.directives import (
     PushValDirective,
     SignedStackSizeType,
     StackSizeType,
-    StoreLocalConstOffsetDirective,
-    StoreGlobalConstOffsetDirective,
-    StoreLocalDirective,
-    StoreGlobalDirective,
+    StoreRelConstOffsetDirective,
+    StoreAbsConstOffsetDirective,
+    StoreRelDirective,
+    StoreAbsDirective,
     PushPrmDirective,
     PushTlmValDirective,
     UnaryStackOp,
@@ -636,9 +636,9 @@ class GenerateFunctionBody(Emitter):
         # At top level, stack_frame_start = 0, so local and global offsets are the same
         use_global = self.in_function and sym.is_global
         if use_global:
-            dirs = [LoadGlobalDirective(sym.frame_offset, sym.type.getMaxSize())]
+            dirs = [LoadAbsDirective(sym.frame_offset, sym.type.getMaxSize())]
         else:
-            dirs = [LoadLocalDirective(sym.frame_offset, sym.type.getMaxSize())]
+            dirs = [LoadRelDirective(sym.frame_offset, sym.type.getMaxSize())]
 
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
@@ -673,10 +673,10 @@ class GenerateFunctionBody(Emitter):
             use_global = self.in_function and sym.is_global
             if use_global:
                 dirs.append(
-                    LoadGlobalDirective(sym.frame_offset, sym.type.getMaxSize())
+                    LoadAbsDirective(sym.frame_offset, sym.type.getMaxSize())
                 )
             else:
-                dirs.append(LoadLocalDirective(sym.frame_offset, sym.type.getMaxSize()))
+                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.getMaxSize()))
         elif is_instance_compat(sym, FieldSymbol):
             # okay, put parent dirs in first
             dirs.extend(self.emit(sym.parent_expr, state))
@@ -925,13 +925,13 @@ class GenerateFunctionBody(Emitter):
             # in this case, we can use StoreConstOffset
             if use_global:
                 dirs.append(
-                    StoreGlobalConstOffsetDirective(
+                    StoreAbsConstOffsetDirective(
                         const_frame_offset, lhs.type.getMaxSize()
                     )
                 )
             else:
                 dirs.append(
-                    StoreLocalConstOffsetDirective(
+                    StoreRelConstOffsetDirective(
                         const_frame_offset, lhs.type.getMaxSize()
                     )
                 )
@@ -964,9 +964,9 @@ class GenerateFunctionBody(Emitter):
 
             # now that lvar array offset is pushed, use it to store in lvar array
             if use_global:
-                dirs.append(StoreGlobalDirective(lhs.type.getMaxSize()))
+                dirs.append(StoreAbsDirective(lhs.type.getMaxSize()))
             else:
-                dirs.append(StoreLocalDirective(lhs.type.getMaxSize()))
+                dirs.append(StoreRelDirective(lhs.type.getMaxSize()))
 
         return dirs
 
