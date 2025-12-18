@@ -362,7 +362,7 @@ def ast_to_directives(
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
-        # Resolve $timeout_to_absolute placeholders, which are used in check statements, based on argument type
+        # Resolve $time_to_absolute placeholders, which are used in check statements, based on argument type
         ResolveRelativeToAbsoluteTimePlaceholders(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),

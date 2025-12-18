@@ -339,24 +339,22 @@ class DesugarDefaultArgs(Transformer):
 
 class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
     """
-    Resolves $timeout_to_absolute(timeout_expr) placeholder calls.
+    Resolves $time_to_absolute(time_expr) placeholder calls.
     
-    After semantic analysis, we know the type of timeout_expr:
-    - If Fw.Time (absolute): replace with just timeout_expr
-    - If Fw.TimeIntervalValue (relative): replace with time_add(now(), timeout_expr)
+    After semantic analysis, we know the type of time_expr:
+    - If Fw.Time (absolute): replace with just time_expr
+    - If Fw.TimeIntervalValue (relative): replace with time_add(now(), time_expr)
     
     This enables check statements to accept both absolute and relative timeouts
     while keeping the early desugaring simple.
     """
     
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        from fpy.types import BuiltinFuncSymbol
+        from fpy.types import TimeToAbsolutePlaceholderSymbol
         from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
         
         func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, BuiltinFuncSymbol):
-            return node
-        if func.name != "$timeout_to_absolute":
+        if not is_instance_compat(func, TimeToAbsolutePlaceholderSymbol):
             return node
         
         # Get the timeout argument
@@ -557,11 +555,11 @@ class DesugarCheckStatements:
         # $CheckState(persist=<persist>, timeout=<timeout_or_time_add>, every=<every>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
-        # For timeout, we use a placeholder function $timeout_to_absolute that will be
+        # For timeout, we use a placeholder function $time_to_absolute that will be
         # resolved in a late pass after semantic analysis determines the type.
         # If timeout_expr is Fw.Time (absolute), it gets used directly.
         # If timeout_expr is Fw.TimeIntervalValue (relative), it becomes time_add(now(), timeout_expr).
-        timeout_expr_to_use = self.call("$timeout_to_absolute", copy.deepcopy(node.timeout))
+        timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
         
         check_state_init = self.call_expr(
             self.callable_ref("$CheckState"),               # Use callable_ref, not type_expr

@@ -23,6 +23,7 @@ from fpy.types import (
     Symbol,
     SymbolTable,
     TimeIntervalValue,
+    TimeToAbsolutePlaceholderSymbol,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -1370,12 +1371,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
         node_args = node.args if node.args else []
 
-        # Special handling for $timeout_to_absolute placeholder function
+        # Special handling for $time_to_absolute placeholder function
         # This accepts either Fw.Time (absolute) or Fw.TimeIntervalValue (relative)
         # This is used in check statement desugaring
-        if is_instance_compat(func, BuiltinFuncSymbol) and func.name == "$timeout_to_absolute":
+        if is_instance_compat(func, TimeToAbsolutePlaceholderSymbol):
             if len(node_args) != 1:
-                state.err("$timeout_to_absolute requires exactly one argument", node)
+                state.err("$time_to_absolute requires exactly one argument", node)
                 return
             arg = node_args[0]
             arg_type = state.synthesized_types.get(arg)
