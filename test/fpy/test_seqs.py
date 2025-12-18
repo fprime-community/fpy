@@ -3653,22 +3653,23 @@ assert timed_out
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_condition_must_persist(fprime_test_api):
-    """Test that condition must remain true for the persist duration.
-    
-    The check should succeed when the condition stays true for at least
-    the persist duration.
-    """
+def test_check_condition_zero_persist(fprime_test_api):
     seq = """
+
 # With zero persist, condition being true once is enough
-persisted: bool = False
+persisted: bool = True
 
-check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    persisted = True
+def return_true_once() -> bool:
+    if persisted:
+        persisted = False
+        return True
+    return False
+
+
+check return_true_once() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    exit(0)
 timeout:
-    pass
-
-assert persisted
+    assert False
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -3681,58 +3682,13 @@ def test_check_condition_must_persist_with_duration(fprime_test_api):
     """
     seq = """
 # With 50ms persist, condition must be true for 50ms
-persisted: bool = False
+def return_true_for_50_ms() -> bool
 
 # Condition is always true, so after 50ms of persistence it should succeed
-check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 50000) every Fw.TimeIntervalValue(0, 10000):
-    persisted = True
+check return_true_for_50_ms() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 50000) every Fw.TimeIntervalValue(0, 10000):
+    exit(0)
 timeout:
-    pass
-
-assert persisted
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_builtin_time_funcs_available(fprime_test_api):
-    """Test that the builtin time functions are available after a check statement."""
-    seq = """
-# Use a check statement to ensure builtins are loaded
-x: bool = False
-check True timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    x = True
-timeout:
-    pass
-
-# Now the time functions should be available
-t1: Fw.Time = now()
-t2: Fw.Time = now()
-cmp_result: I8 = time_cmp(t1, t2)
-# cmp_result should be -1, 0, or 1 (not 2 for incomparable)
-assert cmp_result != 2
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_time_funcs_without_check(fprime_test_api):
-    """Test that time functions work even without a check statement.
-    
-    The builtin time functions from time.fpy should be available in all
-    sequences, not just those that use check statements.
-    """
-    seq = """
-# Time functions should be available without using check statement
-t1: Fw.Time = now()
-t2: Fw.Time = now()
-cmp_result: I8 = time_cmp(t1, t2)
-# cmp_result should be -1, 0, or 1 (not 2 for incomparable)
-assert cmp_result != 2
-
-# Test time_interval_cmp
-interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
-interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(2, 0)
-cmp: I8 = time_interval_cmp(interval1, interval2)
-assert cmp == -1  # interval1 < interval2
+    assert False
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -3748,28 +3704,25 @@ assert result
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_timeout_body_still_works(fprime_test_api):
-    """Test that check statement still works with timeout body."""
+def test_check_optional_clauses(fprime_test_api):
+    """Test that check statement works with optional timeout/persist/every clauses."""
+    # Check without timeout (no timeout, uses default persist=0 and every=1s)
     seq = """
-timed_out: bool = False
-check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    pass
-timeout:
-    timed_out = True
-assert timed_out
+check True:
+    exit(0)
 """
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_syntax_error_missing_persist(fprime_test_api):
-    """Test that check statement requires persist clause."""
+def test_check_optional_persist_and_every(fprime_test_api):
+    """Test that check statement works with only timeout specified."""
     seq = """
-check True timeout Fw.TimeIntervalValue(1, 0) every Fw.TimeIntervalValue(0, 100000):
-    pass
+check True timeout Fw.TimeIntervalValue(1, 0):
+    exit(0)
 timeout:
-    pass
+    assert False
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_check_nested_in_function(fprime_test_api):

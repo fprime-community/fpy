@@ -415,15 +415,21 @@ class DesugarCheckStatements(Transformer):
     The generated AST nodes will go through normal semantic analysis.
     
     A check statement:
-        check <condition> timeout <timeout> persist <persist> every <every>:
+        check <condition> [timeout <timeout>] [persist <persist>] [every <every>]:
             <body>
-        timeout:
-            <timeout_body>
+        [timeout:
+            <timeout_body>]
+    
+    Default values:
+        - timeout: no timeout (runs indefinitely until condition persists)
+        - persist: 0 second interval (condition must be true once)
+        - every: 1 second interval (check condition every second)
     
     Gets desugared into (roughly):
         $check_state: $CheckState = $CheckState(...)
         while True:
             $current_time: Fw.Time = now()
+            # If timeout is specified:
             $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
             assert $timed_out != 2, 1
             if $timed_out == 1:
@@ -548,6 +554,9 @@ class DesugarCheckStatements(Transformer):
         timed_out_name = self.new_var_name()
         succeeded_name = self.new_var_name()
         
+        # Check if timeout is specified (None means no timeout)
+        has_timeout = node.timeout is not None
+        
         # Helper to reference check_state members
         def cs(attr: str):
             return self.member(self.var(check_state_name), attr)
@@ -556,17 +565,40 @@ class DesugarCheckStatements(Transformer):
         # $CheckState(persist=<persist>, timeout=<timeout_or_time_add>, every=<every>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
+        # Handle default values:
+        # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
+        # - every: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - timeout: if not specified, use a far-future time (but we skip timeout check logic)
+        
+        persist_expr = (
+            copy.deepcopy(node.persist) if node.persist is not None
+            else self.call_parts(["Fw", "TimeIntervalValue"], self.number(0), self.number(0))
+        )
+        
+        every_expr = (
+            copy.deepcopy(node.every) if node.every is not None
+            else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
+        )
+        
         # For timeout, we use a placeholder function $time_to_absolute that will be
         # resolved in a late pass after semantic analysis determines the type.
         # If timeout_expr is Fw.Time (absolute), it gets used directly.
         # If timeout_expr is Fw.TimeIntervalValue (relative), it becomes time_add(now(), timeout_expr).
-        timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
+        # If no timeout specified, use a dummy value (the timeout check will be skipped anyway)
+        if has_timeout:
+            timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
+        else:
+            # Dummy timeout value - won't be used since we skip timeout checks
+            timeout_expr_to_use = self.call_parts(
+                ["Fw", "Time"],
+                self.number(0), self.number(0), self.number(0), self.number(0)
+            )
         
         check_state_init = self.call_expr(
             self.callable_ref("$CheckState"),               # Use callable_ref, not type_name
-            copy.deepcopy(node.persist),                    # persist
+            persist_expr,                                   # persist
             timeout_expr_to_use,                            # timeout (converted to absolute)
-            copy.deepcopy(node.every),                      # every
+            every_expr,                                     # every
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true
             self.call_parts(                                # last_time_true = Fw.Time(0,0,0,0)
@@ -591,26 +623,33 @@ class DesugarCheckStatements(Transformer):
             self.type_name("Fw", "Time")
         )
         
-        # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
-        check_timeout = self.assign(
-            self.var(timed_out_name),
-            self.call("time_cmp", self.var(current_time_name), cs("timeout")),
-            self.type_name("I8")
-        )
+        # Build the while loop body statements
+        while_body_stmts = [get_current_time]
         
-        # 4. assert $timed_out != 2, 1
-        from fpy.syntax import AstAssert
-        assert_comparable = AstAssert(
-            self.meta,
-            self.binop(self.var(timed_out_name), "!=", self.number(2)),
-            self.number(1)
-        )
-        
-        # 5. if $timed_out == 1: break
-        timeout_break = self.if_stmt(
-            self.binop(self.var(timed_out_name), "==", self.number(1)),
-            [self.break_stmt()]
-        )
+        # Only add timeout check if timeout is specified
+        if has_timeout:
+            # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
+            check_timeout = self.assign(
+                self.var(timed_out_name),
+                self.call("time_cmp", self.var(current_time_name), cs("timeout")),
+                self.type_name("I8")
+            )
+            
+            # 4. assert $timed_out != 2, 1
+            from fpy.syntax import AstAssert
+            assert_comparable = AstAssert(
+                self.meta,
+                self.binop(self.var(timed_out_name), "!=", self.number(2)),
+                self.number(1)
+            )
+            
+            # 5. if $timed_out == 1: break
+            timeout_break = self.if_stmt(
+                self.binop(self.var(timed_out_name), "==", self.number(1)),
+                [self.break_stmt()]
+            )
+            
+            while_body_stmts.extend([check_timeout, assert_comparable, timeout_break])
         
         # 6. Build the condition check block
         # if <condition>:
@@ -645,6 +684,7 @@ class DesugarCheckStatements(Transformer):
             self.type_name("I8")
         )
         
+        from fpy.syntax import AstAssert
         assert_persist_comparable = AstAssert(
             self.meta,
             self.binop(self.var(succeeded_name), "!=", self.number(2)),
@@ -664,6 +704,7 @@ class DesugarCheckStatements(Transformer):
             ]
         )
         
+        
         # Main condition check if/else
         condition_check = self.if_stmt(
             copy.deepcopy(node.condition),
@@ -678,17 +719,13 @@ class DesugarCheckStatements(Transformer):
             self.member(cs("every"), "useconds")
         )
         
+        # Add condition check and sleep to while body
+        while_body_stmts.extend([condition_check, sleep_call])
+        
         # Build the while loop
         while_loop = self.while_stmt(
             self.boolean(True),
-            [
-                get_current_time,
-                check_timeout,
-                assert_comparable,
-                timeout_break,
-                condition_check,
-                sleep_call,
-            ]
+            while_body_stmts
         )
         
         # 8. Final if/else to run body or timeout_body

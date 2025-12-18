@@ -218,9 +218,9 @@ class AstWhile(Ast):
 @dataclass
 class AstCheck(Ast):
     condition: AstExpr
-    timeout: AstExpr
-    persist: AstExpr
-    every: AstExpr
+    timeout: Union[AstExpr, None]  # Default: no timeout
+    persist: Union[AstExpr, None]  # Default: 0 second interval
+    every: Union[AstExpr, None]    # Default: 1 second interval
     body: "AstStmtList"
     timeout_body: Union["AstStmtList", None] = None
 
@@ -338,6 +338,46 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
+# Check statement clause handlers.
+# The check_stmt grammar has multiple optional clauses (timeout, persist, every).
+# We use separate grammar rules for each clause so we can tag them and identify
+# which optional clauses were provided, regardless of how many are present.
+def handle_check_clause(tag):
+    """Create a handler that tags an expression with the given clause name."""
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta, expr):
+        return (tag, expr)
+    return wrapper
+
+
+def handle_check_stmt(meta, children):
+    """Parse check statement with optional timeout/persist/every clauses."""
+    condition = children[0]
+    timeout = None
+    persist = None
+    every = None
+    body = None
+    timeout_body = None
+    
+    for child in children[1:]:
+        if isinstance(child, tuple) and len(child) == 2:
+            clause_type, expr = child
+            if clause_type == "timeout":
+                timeout = expr
+            elif clause_type == "persist":
+                persist = expr
+            elif clause_type == "every":
+                every = expr
+        elif isinstance(child, AstStmtList):
+            if body is None:
+                body = child
+            else:
+                timeout_body = child
+    
+    assert body is not None, "check statement must have a body"
+    return AstCheck(meta, condition, timeout, persist, every, body, timeout_body)
+
+
 def handle_parameter(meta, args):
     """Parse a single parameter: (name, type, default_value or None)"""
     assert len(args) in (2, 3), f"Expected 2 or 3 args, got {len(args)}: {args}"
@@ -355,7 +395,6 @@ class FpyTransformer(Transformer):
 
     for_stmt = AstFor
     while_stmt = AstWhile
-    check_stmt = AstCheck
     block = no_inline(AstBlock)
     break_stmt = AstBreak
     continue_stmt = AstContinue
@@ -363,6 +402,12 @@ class FpyTransformer(Transformer):
     assert_stmt = AstAssert
 
     if_stmt = AstIf
+
+    check_timeout = handle_check_clause("timeout")
+    check_persist = handle_check_clause("persist")
+    check_every = handle_check_clause("every")
+    check_stmt = no_inline(handle_check_stmt)
+
     elifs = no_inline_or_meta(list)
     elif_ = AstElif
     stmt_list = no_inline(AstStmtList)

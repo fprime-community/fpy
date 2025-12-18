@@ -345,7 +345,7 @@ The condition is coerced to `bool` and re-evaluated before every iteration. `bre
 # Check statement
 
 ```
-check <condition_expr> timeout <timeout_expr> persist <persist_expr> every <every_expr>:
+check <condition_expr> [timeout <timeout_expr>] [persist <persist_expr>] [every <every_expr>]:
      <check_body>
 [timeout:
      <timeout_body>]
@@ -354,7 +354,9 @@ check <condition_expr> timeout <timeout_expr> persist <persist_expr> every <ever
 While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body (if provided).
 
 `condition_expr` must be type `bool`
-`timeout_expr` may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated.
-`persist_expr` and `every_expr` must be type `Fw.TimeIntervalValue`
+`timeout_expr` (optional) may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated. If omitted, the check runs indefinitely until the condition persists for the required duration.
+`persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
+`every_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
 
 The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
+
