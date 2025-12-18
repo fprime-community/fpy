@@ -76,12 +76,12 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     # Directives with args
     AllocateDirective,
-    StoreLocalDirective,
-    StoreLocalConstOffsetDirective,
-    StoreGlobalDirective,
-    StoreGlobalConstOffsetDirective,
-    LoadLocalDirective,
-    LoadGlobalDirective,
+    StoreRelDirective,
+    StoreRelConstOffsetDirective,
+    StoreAbsDirective,
+    StoreAbsConstOffsetDirective,
+    LoadRelDirective,
+    LoadAbsDirective,
     DiscardDirective,
     PushValDirective,
     ConstCmdDirective,
@@ -340,36 +340,36 @@ class TestDirectiveSerializationRoundTrip:
         original = AllocateDirective(size=0xFFFFFFFF)
         self._test_roundtrip(original)
 
-    def test_store_local(self):
-        original = StoreLocalDirective(size=8)
+    def test_store_rel(self):
+        original = StoreRelDirective(size=8)
         self._test_roundtrip(original)
 
-    def test_store_local_const_offset(self):
-        original = StoreLocalConstOffsetDirective(lvar_offset=16, size=4)
+    def test_store_rel_const_offset(self):
+        original = StoreRelConstOffsetDirective(lvar_offset=16, size=4)
         self._test_roundtrip(original)
 
-    def test_store_local_const_offset_negative(self):
-        original = StoreLocalConstOffsetDirective(lvar_offset=-8, size=4)
+    def test_store_rel_const_offset_negative(self):
+        original = StoreRelConstOffsetDirective(lvar_offset=-8, size=4)
         self._test_roundtrip(original)
 
-    def test_store_global(self):
-        original = StoreGlobalDirective(size=8)
+    def test_store_abs(self):
+        original = StoreAbsDirective(size=8)
         self._test_roundtrip(original)
 
-    def test_store_global_const_offset(self):
-        original = StoreGlobalConstOffsetDirective(global_offset=100, size=4)
+    def test_store_abs_const_offset(self):
+        original = StoreAbsConstOffsetDirective(global_offset=100, size=4)
         self._test_roundtrip(original)
 
-    def test_load_local(self):
-        original = LoadLocalDirective(lvar_offset=0, size=8)
+    def test_load_rel(self):
+        original = LoadRelDirective(lvar_offset=0, size=8)
         self._test_roundtrip(original)
 
-    def test_load_local_negative_offset(self):
-        original = LoadLocalDirective(lvar_offset=-16, size=4)
+    def test_load_rel_negative_offset(self):
+        original = LoadRelDirective(lvar_offset=-16, size=4)
         self._test_roundtrip(original)
 
-    def test_load_global(self):
-        original = LoadGlobalDirective(global_offset=50, size=8)
+    def test_load_abs(self):
+        original = LoadAbsDirective(global_offset=50, size=8)
         self._test_roundtrip(original)
 
     def test_discard(self):
@@ -490,21 +490,21 @@ sub
         assert isinstance(dirs[0], AllocateDirective)
         assert dirs[0].size == 100
 
-    def test_parse_load_local(self):
-        text = "load_local -8 4\n"
+    def test_parse_load_rel(self):
+        text = "load_rel -8 4\n"
         body = fpybc_parse(text)
         dirs = assemble(body)
         assert len(dirs) == 1
-        assert isinstance(dirs[0], LoadLocalDirective)
+        assert isinstance(dirs[0], LoadRelDirective)
         assert dirs[0].lvar_offset == -8
         assert dirs[0].size == 4
 
-    def test_parse_store_local_const_offset(self):
-        text = "store_local_const_offset -16 8\n"
+    def test_parse_store_rel_const_offset(self):
+        text = "store_rel_const_offset -16 8\n"
         body = fpybc_parse(text)
         dirs = assemble(body)
         assert len(dirs) == 1
-        assert isinstance(dirs[0], StoreLocalConstOffsetDirective)
+        assert isinstance(dirs[0], StoreRelConstOffsetDirective)
         assert dirs[0].lvar_offset == -16
         assert dirs[0].size == 8
 
@@ -639,10 +639,10 @@ class TestDisassembler:
         text = directives_to_fpybc(dirs)
         assert text.strip() == "allocate 100"
 
-    def test_disassemble_load_local(self):
-        dirs = [LoadLocalDirective(lvar_offset=-8, size=4)]
+    def test_disassemble_load_rel(self):
+        dirs = [LoadRelDirective(lvar_offset=-8, size=4)]
         text = directives_to_fpybc(dirs)
-        assert text.strip() == "load_local -8 4"
+        assert text.strip() == "load_rel -8 4"
 
     def test_disassemble_push_val(self):
         dirs = [PushValDirective(val=b"\x01\x02\x03")]
@@ -682,8 +682,8 @@ class TestAssemblerDisassemblerRoundTrip:
     def test_roundtrip_allocate(self):
         self._test_text_roundtrip("allocate 100\n")
 
-    def test_roundtrip_load_local(self):
-        self._test_text_roundtrip("load_local -8 4\n")
+    def test_roundtrip_load_rel(self):
+        self._test_text_roundtrip("load_rel -8 4\n")
 
     def test_roundtrip_push_val(self):
         self._test_text_roundtrip("push_val 1 2 3\n")
@@ -696,10 +696,10 @@ class TestAssemblerDisassemblerRoundTrip:
 
     def test_roundtrip_complex_sequence(self):
         text = """allocate 16
-load_local -8 4
+load_rel -8 4
 push_val 1 2 3 4
 add
-store_local 4
+store_rel 4
 goto 0
 exit
 """
@@ -756,10 +756,10 @@ class TestFullRoundTrip:
 
     def test_full_roundtrip_with_args(self):
         text = """allocate 32
-load_local -16 8
+load_rel -16 8
 push_val 0 1 2 3 4 5 6 7
 add
-store_local_const_offset -8 8
+store_rel_const_offset -8 8
 discard 8
 exit
 """
@@ -894,13 +894,13 @@ class TestEdgeCases:
         assert deserialized[0].dir_idx == 0xFFFFFFFE
 
     def test_negative_offset(self):
-        dirs = [LoadLocalDirective(lvar_offset=-2147483648, size=4)]  # min I32
+        dirs = [LoadRelDirective(lvar_offset=-2147483648, size=4)]  # min I32
         serialized, _ = serialize_directives(dirs)
         deserialized = deserialize_directives(serialized)
         assert deserialized[0].lvar_offset == -2147483648
 
     def test_max_positive_offset(self):
-        dirs = [LoadLocalDirective(lvar_offset=2147483647, size=4)]  # max I32
+        dirs = [LoadRelDirective(lvar_offset=2147483647, size=4)]  # max I32
         serialized, _ = serialize_directives(dirs)
         deserialized = deserialize_directives(serialized)
         assert deserialized[0].lvar_offset == 2147483647
@@ -939,8 +939,8 @@ class TestMultipleDirectives:
         dirs = [
             AllocateDirective(size=32),
             PushValDirective(val=b"\x01\x02\x03\x04"),
-            StoreLocalConstOffsetDirective(lvar_offset=-8, size=4),
-            LoadLocalDirective(lvar_offset=-8, size=4),
+            StoreRelConstOffsetDirective(lvar_offset=-8, size=4),
+            LoadRelDirective(lvar_offset=-8, size=4),
             IntAddDirective(),
             GotoDirective(dir_idx=3),
             ExitDirective(),
