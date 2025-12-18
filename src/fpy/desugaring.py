@@ -16,7 +16,7 @@ from fpy.syntax import (
     AstNumber,
     AstRange,
     AstStmtList,
-    AstTypeExpr,
+    AstTypeName,
     AstUnaryOp,
     AstVar,
     AstWhile,
@@ -74,7 +74,7 @@ class DesugarForLoops(Transformer):
             # create a new node for the type_ann
             loop_var_type_var = self.new(
                 state,
-                AstTypeExpr(None, [loop_var_type_name]),
+                AstTypeName(None, [loop_var_type_name]),
                 contextual_type=None,
                 synthesized_type=None,
                 contextual_value=None,
@@ -116,7 +116,7 @@ class DesugarForLoops(Transformer):
         # create a new node for the type_ann
         loop_var_type_var = self.new(
             state,
-            AstTypeExpr(None, [loop_var_type_name]),
+            AstTypeName(None, [loop_var_type_name]),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -460,9 +460,9 @@ class DesugarCheckStatements:
         """Create a variable reference node."""
         return AstVar(self.meta, name)
     
-    def type_expr(self, *parts: str) -> AstTypeExpr:
-        """Create a type expression node."""
-        return AstTypeExpr(self.meta, list(parts))
+    def type_name(self, *parts: str) -> AstTypeName:
+        """Create a type name node."""
+        return AstTypeName(self.meta, list(parts))
     
     def number(self, val: int) -> AstNumber:
         """Create a number literal node."""
@@ -479,7 +479,7 @@ class DesugarCheckStatements:
     def callable_ref(self, *parts: str):
         """Create a callable reference from parts (e.g., 'Fw', 'Time' -> Fw.Time).
         
-        For function calls, we need AstVar or AstMemberAccess, not AstTypeExpr.
+        For function calls, we need AstVar or AstMemberAccess, not AstTypeName.
         """
         if len(parts) == 0:
             raise ValueError("callable_ref requires at least one part")
@@ -562,7 +562,7 @@ class DesugarCheckStatements:
         timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
         
         check_state_init = self.call_expr(
-            self.callable_ref("$CheckState"),               # Use callable_ref, not type_expr
+            self.callable_ref("$CheckState"),               # Use callable_ref, not type_name
             copy.deepcopy(node.persist),                    # persist
             timeout_expr_to_use,                            # timeout (converted to absolute)
             copy.deepcopy(node.every),                      # every
@@ -579,7 +579,7 @@ class DesugarCheckStatements:
         init_check_state = self.assign(
             self.var(check_state_name),
             check_state_init,
-            self.type_expr("$CheckState")
+            self.type_name("$CheckState")
         )
         
         # Build the while loop body
@@ -587,14 +587,14 @@ class DesugarCheckStatements:
         get_current_time = self.assign(
             self.var(current_time_name),
             self.call("now"),
-            self.type_expr("Fw", "Time")
+            self.type_name("Fw", "Time")
         )
         
         # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
         check_timeout = self.assign(
             self.var(timed_out_name),
             self.call("time_cmp", self.var(current_time_name), cs("timeout")),
-            self.type_expr("I8")
+            self.type_name("I8")
         )
         
         # 4. assert $timed_out != 2, 1
@@ -641,7 +641,7 @@ class DesugarCheckStatements:
                 self.call("time_sub", self.var(current_time_name), cs("last_time_true")),
                 cs("persist")
             ),
-            self.type_expr("I8")
+            self.type_name("I8")
         )
         
         assert_persist_comparable = AstAssert(

@@ -1,17 +1,61 @@
-# The SPEC is currently work-in-progress
+> **WARNING:** The SPEC is currently work-in-progress
+
+# Fpy Specification
+This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, and the bytecode it generates, and the virtual machine it runs on, unspecified.
+
+It is assumed the reader is familiar with the F-Prime model, including commands, telemetry, parameters, structs, arrays and enums.
+
+Terms are *italicized* when being defined for the first time.
+
+# Program
+A *program* is some text with valid syntax and semantics.
+
+# Syntax
+The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html) grammar syntax, in [grammar.lark](grammar.lark).
+
+The rest of the specification is dedicated to the semantics of Fpy.
+
+# Scope
+A *scope* is a mapping of *names* to *symbols*.
+
+A *name* is a sequence of characters matching the regex `[^\W\d]\w*`. In English, this is a sequence of alphanumeric characters or underscores that does not begin with a digit.
+
+A *symbol* is an object with some semantic meaning. For example, variables, functions and scopes may be symbols. Because scopes may be symbols, a scope usually has a tree structure.
+
+## Dictionary scopes
+There are several *dictionary* scopes:
+* The *type* scope, whose leaf nodes are all [types](#types)
+* The *callable* scope, whose leaf nodes are all [callables](#callables)
+* The *value* scope, whose leaf nodes all are [values](#values)
+
+As the name suggests, each of these scopes is populated from the F-Prime dictionary, and cannot be changed in any way by the program.
+
+## Name resolution
+
+Names have a *local* scope associated with them. If a name is located outside of a function body, its local scope is the *global* scope. If it is located inside of a function body, it's local scope is a *function* scope, particular to that function.
+
+To resolve a name to a symbol, the following steps are applied until the name is found, in order:
+1. Look up the name in the *local* scope.
+2. Look up the name in the *parent* scope of the local scope. The global scope does not have a parent scope. The parent scope of a function scope is the global scope.
+3. Look up the name in the appropriate *dictionary* scope.
+   * 
+
 
 # Types
 
+## Built-in types
 The following types are built into Fpy, and the developer can directly refer to them by name:
 * Numeric types: `U8, U16, U32, U64, I8, I16, I32, I64, F32, F64`
 * Boolean type: `bool`
 * Time type: `Fw.Time`
 
-In addition, the developer can directly refer to any displayable type defined in FPP via its fully-qualified name. This includes user-defined structs, arrays and enums.
 
-There are some types which exist in Fpy but cannot be directly referenced by name by the developer. These are the *Int*, and *LiteralString* types. See [literals](#literals).
+## Integer
+
+There are some types which exist in Fpy but cannot be directly referenced by name by the developer. These are the *Integer*, *Float* and *String* types. See [literals](#literals).
 
 ## Structs
+In addition, the developer can directly refer to any displayable type defined in FPP via its fully-qualified name. This includes user-defined structs, arrays and enums.
 You can instantiate a new struct at runtime by calling its constructor. A struct's constructor is a function with the same name as the type, with arguments corresponding to the type and position of the struct's members. For example, a struct defined as:
 ```
 module Fw {
@@ -62,7 +106,7 @@ The second rule allows you to write any number of zeroes, separated by underscor
 00_000_0
 ```
 
-Integer literals have type *Int*, which is not directly referenceable by the user. The *Int* type supports integers of arbitrary size.
+Integer literals have type *Integer*, which is not directly referenceable by the user. The *Integer* type supports integers of arbitrary size.
 
 ## Float literals
 Float literals are strings matching:
@@ -89,7 +133,7 @@ or it can be a `DECIMAL` optionally suffixed by an exponent, like these:
 100.5e+10
 ```
 
-Float literals have type `F64`.
+Float literals have type *Float*, which is not directly referenceable by the user. The *Float* type supports up to 30 decimal points of precision. It is implemented with the Python `Decimal` type.
 
 ## String literals
 String literals are strings matching:

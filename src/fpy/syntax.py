@@ -102,7 +102,7 @@ class AstVar(Ast):
 
 
 @dataclass
-class AstTypeExpr(Ast):
+class AstTypeName(Ast):
     """A qualified name like A.b.c - used for type annotations"""
     parts: list[str]
 
@@ -184,7 +184,7 @@ AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
-    type_ann: AstTypeExpr | None
+    type_ann: AstTypeName | None
     rhs: AstExpr
 
 
@@ -251,8 +251,8 @@ class AstDef(Ast):
     name: AstVar
     # parameters is a list of (name, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: list[tuple[AstVar, AstTypeExpr, AstExpr | None]]
-    return_type: Union[AstTypeExpr, None]
+    parameters: list[tuple[AstVar, AstTypeName, AstExpr | None]]
+    return_type: Union[AstTypeName, None]
     body: AstBlock
 
 
@@ -351,7 +351,7 @@ class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
     pass_stmt = AstPass
 
-    assign = AstAssign
+    assign_stmt = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -387,7 +387,7 @@ class FpyTransformer(Transformer):
     var = AstVar
     range = AstRange
 
-    type_expr = no_inline(AstTypeExpr)
+    type_name = no_inline(AstTypeName)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)

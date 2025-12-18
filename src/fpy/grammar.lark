@@ -1,8 +1,7 @@
 # Adapted from: https://docs.python.org/3/reference/grammar.html and the Lark Python grammar
 
+# input is the top-level rule, consisting of zero or more newlines or top level statements
 input: (_NEWLINE | _toplevel_stmt)*
-
-_literal: number | string | boolean
 
 # Top-level statements: function definitions OR regular statements
 # Function definitions can ONLY appear here, not nested in any control structure
@@ -10,48 +9,70 @@ _toplevel_stmt: def_stmt | _stmt
 
 # Regular statements (no function definitions allowed)
 _stmt: _small_stmt [_NEWLINE] | _compound_stmt
-_small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
+# small statements are those which cannot themselves contain statements
+_small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
+# compound statements may contain other statements
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
+
+# an indented list of statements which does not define a semantic scope
+stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
+# an indented list of statements which does define a semantic scope
+block: _NEWLINE _INDENT _stmt+ _DEDENT
+
+
+# non-compound, non-expr statements. the simplest kind
 pass_stmt: "pass"
 break_stmt: "break"
 continue_stmt: "continue"
-
-?expr_stmt: expr
-
-
 assert_stmt: "assert" expr ["," expr]
-
 return_stmt: "return" [expr]
+assign_stmt: expr [":" type_name] "=" expr
 
-# assignment
 
-assign: expr [":" type_expr] "=" expr
-
-parameter: var ":" type_expr ["=" expr]
+# the function definition statement
+# functions may be defined with zero or more comma-separated parameters, and an
+# optional return type annotation. They are followed by an indented, scoped code block
+def_stmt: "def" var "(" [parameters] ")" ["->" type_name] ":" block
 parameters: parameter ("," parameter)*
-def_stmt: "def" var "(" [parameters] ")" ["->" type_expr] ":" block
+# each parameter has a type, and an optional default value expression
+parameter: var ":" type_name ["=" expr]
 
-# loops (cannot contain function definitions since they use stmt_list, not toplevel)
+
+# loop statements
+# for loops have a loop variable, a range expression and a list of body statements
 for_stmt: "for" var "in" expr ":" stmt_list
+# while loops have a conditional expression and a list of body statements
 while_stmt: "while" expr ":" stmt_list
 
-# check statement: check <cond> timeout <timeout> persist <persist> every <every>: <body> [timeout: <timeout_body>]
+# check statement
+# check has a conditional, timeout, persist and every expression, a list of body statements,
+# and an optional list of timeout body statements
 check_stmt: "check" expr "timeout" expr "persist" expr "every" expr ":" stmt_list ["timeout" ":" stmt_list]
 
-# branching (cannot contain function definitions since they use stmt_list, not toplevel)
+
+# branching statement
+# if has a conditional expression and a list of body statements.
+# it is followed by zero or more elif clauses, each of which
+# have a conditional expression and a list of body statements.
+# it is also optionally followed by an else clause, which
+# has a list of body statements
 if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]
 elifs: elif_*
 elif_: "elif" expr ":" stmt_list
 
-# Bodies that cannot contain function definitions
-stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
-block: _NEWLINE _INDENT _stmt+ _DEDENT
-
+# an expr statement is just an expression "on its own" on the line
+?expr_stmt: expr
+# an expression is the most complex bit of Fpy syntax.
+# the definition of expression encodes the precedence rules and
+# associativity for operators, function calls, field accesses,
+# and variable accesses
 ?expr: _test
 
+# the least binding Fpy operation is the logical test (and/or/not)
 # logical tests
 _test: or_test
 
+# order of binding strength, from least to most: or, and, not
 ?or_test: or_test OR_OP and_test -> binary_op
         | and_test
 
@@ -61,13 +82,18 @@ _test: or_test
 ?not_test: NOT_OP not_test -> unary_op
           | comparison
 
-# all comparisons have same precedence
+# all comparison operators (<, >, ==, etc) have same precedence
 ?comparison: comparison COMPARISON_OP range -> binary_op
            | range
 
+# the range operator has less precedence than comparison but more than arithmetic
+# terms
 ?range: sum RANGE_OPERATOR sum
       | sum
 
+# standard order of operations: PEMDAS, or in reverse as shown here: SADMEP
+# subtraction and addition are least binding, followed by mul/div/floor div/modulus,
+# followed by unary minus/plus, followed by exponentiation
 ?sum: sum ADD_OP term -> binary_op
     | sum SUB_OP term -> binary_op
     | term
@@ -85,30 +111,30 @@ _test: or_test
 ?power: atom_expr POW_OP factor -> binary_op
       | atom_expr
 
-argument: name "=" expr -> named_argument
-        | expr -> positional_argument
-arguments: argument ("," argument)*
-
-# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
-# Used in type annotations and return types where only names are allowed
-type_expr: name ("." name)*
+# the "indivisible" unit of an expression
 
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> index_expr
           | atom_expr "." name -> member_access
-          | atom
-
-?atom: _literal
-     | "(" expr ")"
-     | var
+          | _literal
+          | "(" expr ")"
+          | var
+arguments: argument ("," argument)*
+argument: name "=" expr -> named_argument
+        | expr -> positional_argument
 
 var: name
+
+# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
+# Used in type annotations and return types where only names are allowed
+type_name: name ("." name)*
 
 # not used in grammar, but may appear in "node" passed from Parser to Compiler
 encoding_decl: name
 
 RANGE_OPERATOR: ".."
 
+_literal: number | string | boolean
 number: DEC_NUMBER | FLOAT_NUMBER
 string: STRING
 boolean: CONST_FALSE | CONST_TRUE

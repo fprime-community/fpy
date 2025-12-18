@@ -52,7 +52,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstTypeExpr,
+    AstTypeName,
     AstOp,
     AstReference,
     Ast,
@@ -305,8 +305,8 @@ class VariableSymbol:
     """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstTypeExpr | None
-    """the expression denoting the var's type"""
+    type_ref: AstTypeName | None
+    """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
     type: FppType | None = None

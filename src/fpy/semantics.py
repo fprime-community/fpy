@@ -90,7 +90,7 @@ from fpy.syntax import (
     AstFor,
     AstMemberAccess,
     AstIndexExpr,
-    AstTypeExpr,
+    AstTypeName,
     AstNamedArgument,
     AstNumber,
     AstPass,
@@ -155,9 +155,9 @@ class AssignLocalScopes(TopDownVisitor):
         # Parameter names and type annotations are in the body scope
         # (they're declared inside the function)
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
                 state.local_scopes[arg_name_var] = scope
-                state.local_scopes[arg_type_expr] = scope
+                state.local_scopes[arg_type_name] = scope
                 # Default values stay in parent scope - they're evaluated at call site,
                 # not inside the function body
                 if default_value is not None:
@@ -234,7 +234,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # or loop_var has been declared before and we only know the type, but have no type expr
 
             # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type expr is an AstTypeExpr with a single part
+            # case 2 is harder, we have to check if the type name is an AstTypeName with a single part
             # that matches the canonical name of the LoopVarType
 
             # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
@@ -243,7 +243,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
                 loop_var.type is None
                 and not (
-                    isinstance(loop_var.type_ref, AstTypeExpr)
+                    isinstance(loop_var.type_ref, AstTypeName)
                     and loop_var.type_ref.parts == [LoopVarType.get_canonical_name()]
                 )
             ):
@@ -292,7 +292,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         # Check that default arguments come after non-default arguments
         seen_default = False
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
+            arg_name_var, arg_type_name, default_value = arg
             if default_value is not None:
                 seen_default = True
             elif seen_default:
@@ -304,7 +304,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                 return
 
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
+            arg_name_var, arg_type_name, default_value = arg
             existing_local = state.local_scopes[node.body].get(arg_name_var.var)
             if existing_local is not None:
                 # redeclaring an existing variable
@@ -312,7 +312,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"'{arg_name_var.var}' has already been declared", arg_name_var
                 )
                 return
-            arg_var = VariableSymbol(arg_name_var.var, arg_type_expr, node)
+            arg_var = VariableSymbol(arg_name_var.var, arg_type_name, node)
             state.local_scopes[node.body][arg_name_var.var] = arg_var
 
 
@@ -376,13 +376,13 @@ class CheckReturnInFunc(TopDownVisitor):
 
 class ResolveTypeNames(TopDownVisitor):
     """
-    Resolves type annotations (AstTypeExpr) to actual types.
+    Resolves type annotations (AstTypeName) to actual types.
     This runs before ResolveVars so that variable types are known
     when we start resolving references.
     """
 
     def resolve_type_name(
-        self, node: AstTypeExpr, state: CompileState
+        self, node: AstTypeName, state: CompileState
     ) -> type | None:
         """
         Fully resolves a type name to the actual type.
@@ -428,8 +428,8 @@ class ResolveTypeNames(TopDownVisitor):
         # Resolve parameter types
         args = []
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
-                arg_type = self.resolve_type_name(arg_type_expr, state)
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                arg_type = self.resolve_type_name(arg_type_name, state)
                 if arg_type is None:
                     return
 
@@ -702,7 +702,7 @@ class ResolveVars(TopDownVisitor):
         # Return type and parameter types are resolved by ResolveTypeNames pass
 
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
                 if not self.try_resolve_root_ref(
                     arg_name_var, state.runtime_values, "value", state
                 ):
@@ -1508,7 +1508,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         if not is_instance_compat(func, FunctionSymbol):
             return
 
-        for (arg_name_var, arg_type_expr, default_value), (_, arg_type, _) in zip(
+        for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
         ):
             if default_value is not None:
