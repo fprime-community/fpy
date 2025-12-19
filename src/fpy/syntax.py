@@ -442,6 +442,7 @@ class FpyTransformer(Transformer):
     NAME = str
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
+    HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
     RANGE_OP = str
     STRING = handle_str

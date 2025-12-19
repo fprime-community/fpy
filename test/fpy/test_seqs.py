@@ -94,6 +94,34 @@ var: F32 = 1.
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_hex_literal(fprime_test_api):
+    seq = """
+var: U32 = 0xFF
+assert var == 255
+var = 0xDEADBEEF
+assert var == 3735928559
+var = 0x0
+assert var == 0
+var = 0X1A2B
+assert var == 6699
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_hex_literal_underscore(fprime_test_api):
+    seq = """
+var: U32 = 0xFF_FF
+assert var == 65535
+var = 0xDEAD_BEEF
+assert var == 3735928559
+var = 0x00_11_22_33
+assert var == 1122867
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_exit_success(fprime_test_api):
     seq = """
 exit(0)

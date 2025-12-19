@@ -34,7 +34,7 @@ def time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue:
     # Result seconds is guaranteed to fit in U32 since result <= lhs which came from U32,
     # but we check explicitly for safety
     result_seconds: U64 = result_micros // 1_000_000
-    assert result_seconds <= 4294967295, 1
+    assert result_seconds <= 0xFFFF_FFFF, 1
 
     return Fw.TimeIntervalValue(U32(result_seconds), U32(result_micros % 1_000_000))
 
@@ -45,13 +45,11 @@ def time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time:
     rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
     
     # check overflow: max U64 value minus lhs should leave enough space for rhs
-    # U64 max is 2^64 - 1, we compute this as (2^63 - 1) * 2 + 1 = 2^64 - 2 + 1 = 2^64 - 1
-    max_u64: U64 = 18446744073709551615
-    assert max_u64 - lhs_micros >= rhs_micros, 1
+    assert 0xFFFF_FFFF_FFFF_FFFF - lhs_micros >= rhs_micros, 1
     result_micros: U64 = lhs_micros + rhs_micros
     
     # check that result seconds fits in U32
     result_seconds: U64 = result_micros // 1_000_000
-    assert result_seconds <= 4294967295, 1
+    assert result_seconds <= 0xFFFF_FFFF, 1
     
     return Fw.Time(lhs.time_base, lhs.time_context, U32(result_seconds), U32(result_micros % 1_000_000))
