@@ -3625,27 +3625,25 @@ assert test(c=x, a=y, b=z) == 5.5
 # ==================== Check Statement Tests ====================
 
 
-def test_check_basic_parse(fprime_test_api):
-    """Test that check statement parses correctly."""
+def test_check_condition_true_immediately(fprime_test_api):
+    """Test that check succeeds immediately when condition is true with zero persist."""
     seq = """
-# Simple check that always succeeds immediately (condition starts true)
 check_passed: bool = False
 check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
-    pass
+    assert False, 1
 assert check_passed
 """
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_timeout(fprime_test_api):
-    """Test that check statement times out correctly when condition is never true."""
+def test_check_timeout_when_always_false(fprime_test_api):
+    """Test that check times out when condition is always false."""
     seq = """
-# Check that always fails (condition is always false)
 timed_out: bool = False
 check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    pass
+    assert False, 1
 timeout:
     timed_out = True
 assert timed_out
@@ -3653,48 +3651,106 @@ assert timed_out
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_condition_zero_persist(fprime_test_api):
+def test_check_condition_evaluated_multiple_times(fprime_test_api):
+    """Test that check evaluates condition multiple times until it becomes true."""
     seq = """
+# Count how many times condition is evaluated
+eval_count: I64 = 0
 
-# With zero persist, condition being true once is enough
-persisted: bool = True
+def check_condition() -> bool:
+    eval_count = eval_count + 1
+    # Return true on 3rd evaluation
+    return eval_count >= 3
 
-def return_true_once() -> bool:
-    if persisted:
-        persisted = False
-        return True
-    return False
-
-
-check return_true_once() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    exit(0)
+check check_condition() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
 timeout:
-    assert False
+    assert False, 1
+
+# Should have been evaluated at least 3 times
+assert eval_count >= 3
 """
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_condition_must_persist_with_duration(fprime_test_api):
+def test_check_condition_must_persist(fprime_test_api):
     """Test that condition must remain true for the full persist duration.
     
-    With a non-zero persist, the condition must remain true for the entire
-    persist duration before the check body is executed.
+    If condition becomes false before persist duration, the timer resets.
     """
     seq = """
-# With 50ms persist, condition must be true for 50ms
-def return_true_for_50_ms() -> bool
+# Condition returns true twice, then false, then true forever
+call_count: I64 = 0
 
-# Condition is always true, so after 50ms of persistence it should succeed
-check return_true_for_50_ms() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 50000) every Fw.TimeIntervalValue(0, 10000):
+def flaky_condition() -> bool:
+    call_count = call_count + 1
+    # True for calls 1-2, false for call 3, true thereafter
+    if call_count <= 2:
+        return True
+    if call_count == 3:
+        return False
+    return True
+
+# With 30ms persist and 10ms every, condition needs to be true for 3+ consecutive checks
+# Calls 1-2 are true but call 3 is false, resetting the persist timer
+# Call 4+ are true, so it should eventually succeed
+check flaky_condition() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 30000) every Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# Should have been called more than 3 times since persist timer was reset
+assert call_count > 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_zero_persist_true_once_enough(fprime_test_api):
+    """Test that with zero persist, condition being true once is enough."""
+    seq = """
+# Return true only once, then false forever
+returned_true: bool = False
+
+def return_true_once() -> bool:
+    if not returned_true:
+        returned_true = True
+        return True
+    return False
+
+check return_true_once() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
     exit(0)
 timeout:
-    assert False
+    assert False, 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_body_runs_on_success(fprime_test_api):
+    """Test that check body runs when condition succeeds."""
+    seq = """
+body_ran: bool = False
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    body_ran = True
+assert body_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_body_runs_on_timeout(fprime_test_api):
+    """Test that timeout body runs when check times out."""
+    seq = """
+timeout_body_ran: bool = False
+check False timeout Fw.TimeIntervalValue(0, 50000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timeout_body_ran = True
+assert timeout_body_ran
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_check_optional_timeout_body(fprime_test_api):
-    """Test that check statement works without timeout body."""
+    """Test that check works without timeout body."""
     seq = """
 result: bool = False
 check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
@@ -3704,23 +3760,29 @@ assert result
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_optional_clauses(fprime_test_api):
-    """Test that check statement works with optional timeout/persist/every clauses."""
-    # Check without timeout (no timeout, uses default persist=0 and every=1s)
+def test_check_no_timeout_clause(fprime_test_api):
+    """Test check without timeout clause (runs indefinitely until success)."""
     seq = """
-check True:
+# Without timeout, check runs until condition succeeds
+call_count: I64 = 0
+
+def eventually_true() -> bool:
+    call_count = call_count + 1
+    return call_count >= 3
+
+check eventually_true():
     exit(0)
 """
     assert_run_success(fprime_test_api, seq)
 
 
-def test_check_optional_persist_and_every(fprime_test_api):
-    """Test that check statement works with only timeout specified."""
+def test_check_only_timeout_specified(fprime_test_api):
+    """Test check with only timeout specified (uses default persist=0 and every=1s)."""
     seq = """
 check True timeout Fw.TimeIntervalValue(1, 0):
     exit(0)
 timeout:
-    assert False
+    assert False, 1
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -3741,12 +3803,41 @@ assert do_check()
     assert_run_success(fprime_test_api, seq)
 
 
+def test_check_modifies_outer_scope(fprime_test_api):
+    """Test that check body can modify variables in outer scope."""
+    seq = """
+outer_var: I32 = 0
+
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    outer_var = 42
+
+assert outer_var == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_absolute_timeout(fprime_test_api):
+    """Test that check works with absolute Fw.Time timeout."""
+    seq = """
+# Create an absolute timeout 100ms from now
+abs_timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
+result: bool = False
+check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    result = True
+timeout:
+    pass
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Type Error Tests ====================
+
+
 def test_check_timeout_wrong_type(fprime_test_api):
-    """Test that check timeout with wrong type gives clear error."""
+    """Test that check timeout with wrong type gives compile error."""
     seq = """
 check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    pass
-timeout:
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
@@ -3805,17 +3896,3 @@ check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0)
 """
     assert_compile_failure(fprime_test_api, seq)
 
-
-def test_check_absolute_timeout(fprime_test_api):
-    """Test that check works with absolute Fw.Time timeout."""
-    seq = """
-# Create an absolute timeout 100ms from now
-timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
-result: bool = False
-check True timeout timeout persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
-    result = True
-timeout:
-    pass
-assert result
-"""
-    assert_run_success(fprime_test_api, seq)
