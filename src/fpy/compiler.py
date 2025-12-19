@@ -41,6 +41,7 @@ from fpy.semantics import (
     CheckUseBeforeDeclare,
     CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
+    ResolveFuncCalls,
     ResolveTypeNames,
     ResolveVars,
     WarnRangesAreNotEmpty,
@@ -123,7 +124,7 @@ def text_to_ast(text: str):
     fpy.error.input_text = text
     fpy.error.input_lines = text.splitlines()
     try:
-        tree = _fpy_parser.parse(text)#, on_error=handle_lark_error)
+        tree = _fpy_parser.parse(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
         return None
@@ -343,7 +344,9 @@ def ast_to_directives(
         # resolve type annotations first, since they use a restricted syntax (AstTypeName)
         # and we need to know variable types before resolving other references
         ResolveTypeNames(),
-        # resolve all variable and function references
+        # resolve all function references in function calls and definitions
+        ResolveFuncCalls(),
+        # resolve all variable references (and argument values)
         ResolveVars(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDeclare(),

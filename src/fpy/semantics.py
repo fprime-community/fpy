@@ -461,10 +461,81 @@ class ResolveTypeNames(TopDownVisitor):
         var.type = var_type
 
 
+class ResolveFuncCalls(TopDownVisitor):
+    """
+    Resolves all function references in function calls and definitions.
+    This pass resolves the callable symbols for AstFuncCall and AstDef nodes.
+    Runs before ResolveVars so that function references are resolved first,
+    allowing ResolveVars to skip already-resolved nodes.
+    """
+
+    def resolve_func_ref(
+        self, node: Ast, state: CompileState
+    ) -> CallableSymbol | None:
+        """
+        Resolve a function reference (AstVar or AstMemberAccess chain) to a callable.
+        Returns the CallableSymbol if successful, None otherwise (error already reported).
+        """
+        if is_instance_compat(node, AstVar):
+            # Check local scope first (for user-defined functions)
+            local_scope = state.local_scopes[node]
+            sym = None
+            while local_scope is not None and sym is None:
+                sym = local_scope.get(node.var)
+                local_scope = state.scope_parents[local_scope]
+
+            # Then check global callables scope
+            if sym is None:
+                sym = state.callables.get(node.var)
+
+            if sym is None:
+                state.err("Unknown function", node)
+                return None
+
+            state.resolved_symbols[node] = sym
+            # If it's a CallableSymbol, we're done; if it's a dict, caller will access member
+            return sym
+
+        if is_instance_compat(node, AstMemberAccess):
+            # Resolve the parent first (must be a namespace/dict)
+            parent_sym = self.resolve_func_ref(node.parent, state)
+            if parent_sym is None:
+                return None
+
+            if not isinstance(parent_sym, dict):
+                state.err("Unknown function", node)
+                return None
+
+            sym = parent_sym.get(node.attr)
+            if sym is None:
+                state.err("Unknown function", node)
+                return None
+
+            state.resolved_symbols[node] = sym
+            return sym
+
+        state.err("Unknown function", node)
+        return None
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        sym = self.resolve_func_ref(node.func, state)
+        if sym is None:
+            return
+        if not is_instance_compat(sym, CallableSymbol):
+            state.err("Unknown function", node.func)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        sym = self.resolve_func_ref(node.name, state)
+        if sym is None:
+            return
+        if not is_instance_compat(sym, CallableSymbol):
+            state.err("Unknown function", node.name)
+
+
 class ResolveVars(TopDownVisitor):
     """
     Resolves all variable references (AstVar) in local and global scopes.
-    Also fully resolves function references for function calls.
+    Resolves argument values in function calls, but not the function references themselves.
     Types are already resolved by ResolveTypeNames before this pass.
     """
 
@@ -524,67 +595,9 @@ class ResolveVars(TopDownVisitor):
         state.resolved_symbols[node] = sym
         return True
 
-    def finish_resolving_func(
-        self,
-        node: Ast,
-        state: CompileState,
-    ) -> CallableSymbol | None:
-        """
-        Finishes resolving a function reference (AstVar/AstMemberAccess chain) to a callable.
-        The root AstVar should already be resolved by try_resolve_root_ref.
-        Returns None if the reference could not be resolved (error already reported).
-        """
-
-        def resolve(n: Ast, expect_callable: bool) -> CallableSymbol | dict | None:
-            """
-            Recursively resolve the reference chain.
-            expect_callable=True for the final node (must be CallableSymbol),
-            expect_callable=False for intermediate nodes (must be dict/namespace).
-            """
-            if not is_instance_compat(n, (AstVar, AstMemberAccess)):
-                state.err("Unknown function", n)
-                return None
-
-            if is_instance_compat(n, AstVar):
-                sym = state.resolved_symbols.get(n)
-                if sym is None:
-                    state.err("Unknown function", n)
-                    return None
-                expected_type = CallableSymbol if expect_callable else dict
-                if not is_instance_compat(sym, expected_type):
-                    state.err("Unknown function", n)
-                    return None
-                return sym
-
-            # It's an AstMemberAccess - resolve the parent first (always expecting a namespace)
-            parent_scope = resolve(n.parent, expect_callable=False)
-            if parent_scope is None:
-                return None
-
-            sym = parent_scope.get(n.attr)
-            if sym is None:
-                state.err("Unknown function", n)
-                return None
-
-            expected_type = CallableSymbol if expect_callable else dict
-            if not is_instance_compat(sym, expected_type):
-                state.err("Unknown function", n)
-                return None
-
-            state.resolved_symbols[n] = sym
-            return sym
-
-        return resolve(node, expect_callable=True)
-
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        # First resolve the root of the function reference
-        if not self.try_resolve_root_ref(node.func, state.callables, "function", state):
-            return
-
-        # Then finish resolving the full chain to get the callable
-        if not self.finish_resolving_func(node.func, state):
-            return
-
+        # Function reference is resolved by ResolveFuncCalls pass
+        # Here we only resolve argument values
         for arg in node.args if node.args is not None else []:
             # Handle both positional args (AstExpr) and named args (AstNamedArgument)
             if is_instance_compat(arg, AstNamedArgument):
@@ -696,9 +709,7 @@ class ResolveVars(TopDownVisitor):
             return
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if not self.try_resolve_root_ref(node.name, state.callables, "function", state):
-            return
-
+        # Function name is resolved by ResolveFuncCalls pass
         # Return type and parameter types are resolved by ResolveTypeNames pass
 
         if node.parameters is not None:

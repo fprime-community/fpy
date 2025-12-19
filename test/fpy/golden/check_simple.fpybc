@@ -1,4 +1,4 @@
-goto 227
+goto 225
 allocate 38
 load_rel -30 11
 push_val 0 0 0 0
@@ -161,7 +161,7 @@ push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32
 return 8 22
-allocate 59
+allocate 51
 load_rel -27 11
 push_val 0 0 0 3
 get_field 11 4
@@ -187,29 +187,27 @@ ziext_32_64
 add
 store_rel_const_offset 27 8
 push_val 255 255 255 255 255 255 255 255
-store_rel_const_offset 35 8
-load_rel 35 8
 load_rel 19 8
 sub
 load_rel 27 8
 uge
 not
-if 199
+if 197
 push_val 1
 exit
 load_rel 19 8
 load_rel 27 8
 add
-store_rel_const_offset 43 8
-load_rel 43 8
+store_rel_const_offset 35 8
+load_rel 35 8
 push_val 0 0 0 0 0 15 66 64
 udiv
-store_rel_const_offset 51 8
-load_rel 51 8
+store_rel_const_offset 43 8
+load_rel 43 8
 push_val 0 0 0 0 255 255 255 255
 ule
 not
-if 214
+if 212
 push_val 1
 exit
 load_rel -27 11
@@ -218,9 +216,9 @@ get_field 11 2
 load_rel -27 11
 push_val 0 0 0 2
 get_field 11 1
-load_rel 51 8
-itrunc_64_32
 load_rel 43 8
+itrunc_64_32
+load_rel 35 8
 push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32
@@ -238,7 +236,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 0 51
 push_val 255
-if 328
+if 326
 push_time
 store_rel_const_offset 51 11
 load_rel 51 11
@@ -253,28 +251,28 @@ siext_8_64
 push_val 0 0 0 0 0 0 0 2
 ine
 not
-if 258
+if 256
 push_val 1
 exit
 load_rel 62 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 1
 ieq
-if 265
-goto 328
-goto 265
+if 263
+goto 326
+goto 263
 push_val 255
-if 314
+if 312
 load_rel 0 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 277
+if 275
 load_rel 51 11
 store_rel_const_offset 29 11
 push_val 255
 store_rel_const_offset 28 1
-goto 277
+goto 275
 load_rel 51 11
 load_rel 0 51
 push_val 0 0 0 29
@@ -292,26 +290,26 @@ siext_8_64
 push_val 0 0 0 0 0 0 0 2
 ine
 not
-if 297
+if 295
 push_val 1
 exit
 load_rel 63 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 1
 ieq
-if 304
+if 302
 push_val 255
-goto 308
+goto 306
 load_rel 63 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 0
 ieq
-if 313
+if 311
 push_val 255
 store_rel_const_offset 27 1
-goto 328
-goto 313
-goto 316
+goto 326
+goto 311
+goto 314
 push_val 0
 store_rel_const_offset 28 1
 load_rel 0 51
@@ -325,9 +323,9 @@ get_field 51 8
 push_val 0 0 0 4
 get_field 8 4
 wait_rel
-goto 239
+goto 237
 load_rel 0 51
 push_val 0 0 0 27
 get_field 51 1
-if 333
-goto 333
+if 331
+goto 331
