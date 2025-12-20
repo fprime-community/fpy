@@ -117,7 +117,7 @@ _test: or_test
 # the "indivisible" unit of an expression
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> index_expr
-          | atom_expr "." name -> member_access
+          | atom_expr "." name -> get_attr
           | _literal
           | "(" expr ")"
           | var

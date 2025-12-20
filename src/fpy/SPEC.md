@@ -10,26 +10,55 @@ It is assumed the reader is familiar with the FPP model, including commands, tel
 
 Terms are *italicized* when being defined for the first time.
 
-# Program
-A *program* is some text with valid syntax and semantics.
-
 # Syntax
 The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html), in [grammar.lark](grammar.lark).
 
 The rest of the specification is dedicated to the semantics of Fpy.
 
-# Scopes
+Symbol table is just a tool.
+Scope is about name resolution, hierarchical, etc
+
+
+# Names
+
+A *symbol* is a language construct that can be referred to in the program. 
+
+The following language constructs may be symbols:
+* [scopes](#scopes)
+* [variables](todo)
+* [functions](todo)
+* [types](todo)
+* telemetry channels
+* parameters
+* enum constants
+
+## Scopes
+
 A *scope* is a mapping of *names* to *symbols*.
 
-A *name* is a sequence of alphanumeric characters or underscores that does not begin with a digit.
+A *declaration* is a language construct that introduces a name-to-symbol mapping to a scope.
 
-A *symbol* is an object with some semantic meaning. For example, variables, functions and scopes may be symbols. Because scopes may be symbols, a scope usually has a tree structure.
+There are two types of declarations: [variable](todo) declarations and [function](todo) declarations.
 
-Names have a *local* scope associated with them. If a name is located outside of a function body, its local scope is the *global* scope. If it is located inside of a function body, it's local scope is a *function* scope, particular to that function.
+Each [function](todo) has a separate *function* scope.
 
-Scopes may have a *parent* scope. The global scope does not have a parent scope. The parent scope of a function scope is the global scope.
+### Local scopes
 
-## Dictionary scopes
+Names have a *local* scope associated with them. 
+
+If a name is located outside of a [function](todo) body, its local scope is the *global* scope. 
+
+If a name is located inside of a function body, it's local scope is the function scope particular to that function.
+
+### Parent scopes
+
+Scopes may have a *parent* scope. 
+
+The global scope does not have a parent scope. 
+
+The parent scope of a function scope is the global scope.
+
+### Dictionary scopes
 There are several *dictionary* scopes:
 * The *type* scope, whose leaf nodes are all [types](#types)
 * The *callable* scope, whose leaf nodes are all [callables](#callables)
@@ -47,11 +76,35 @@ To resolve a name to a symbol, the following scopes are searched until the name 
    * If the name is the type annotation of an `assign_stmt`, or of a `parameter`, or of a `def_stmt` return type, search the type scope.
    * Otherwise, search the value scope.
 
-Dividing the dictionray scopes up like this allows us to disambiguate 
+Dividing the dictionary scopes up like this allows us to disambiguate cases in which, for instance, a callable has the same name as a type.
 
 If the name is still not found, an error is raised.
 
 # Attributes
+
+An *attribute access* is a use of the the `get_attr` syntactic rule.
+
+The *parent* of an attribute access is the expression to the left of the dot.
+
+The *attribute* of an attribute access is the string to the right of the dot.
+
+## Attribute resolution
+
+To resolve an attribute to a symbol, first the parent is resolved, recursively.
+
+The parent of an attribute may be one of the following:
+* A scope
+* A type
+* An [expression](todo)
+
+An attribute access has one of many different behaviors depending on the parent:
+
+| Parent category | Attribute behavior |
+|---|---|
+|Expression|Member access|
+|Scope|
+|Type|Raise an error|
+|Callable|Raise an error|
 
 
 # Types

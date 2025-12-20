@@ -12,7 +12,7 @@ from fpy.syntax import (
     AstFor,
     AstFuncCall,
     AstIf,
-    AstMemberAccess,
+    AstGetAttr,
     AstNumber,
     AstRange,
     AstStmtList,
@@ -479,14 +479,14 @@ class DesugarCheckStatements(Transformer):
         """Create a boolean literal node."""
         return AstBoolean(self.meta, val)
     
-    def member(self, parent, attr: str) -> AstMemberAccess:
+    def member(self, parent, attr: str) -> AstGetAttr:
         """Create a member access node."""
-        return AstMemberAccess(self.meta, parent, attr)
+        return AstGetAttr(self.meta, parent, attr)
     
     def callable_ref(self, *parts: str):
         """Create a callable reference from parts (e.g., 'Fw', 'Time' -> Fw.Time).
         
-        For function calls, we need AstVar or AstMemberAccess, not AstTypeName.
+        For function calls, we need AstVar or AstGetAttr, not AstTypeName.
         """
         if len(parts) == 0:
             raise ValueError("callable_ref requires at least one part")

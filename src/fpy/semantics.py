@@ -88,7 +88,7 @@ from fpy.syntax import (
     AstElif,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
     AstTypeName,
     AstNamedArgument,
@@ -473,7 +473,7 @@ class ResolveFuncCalls(TopDownVisitor):
         self, node: Ast, state: CompileState
     ) -> CallableSymbol | None:
         """
-        Resolve a function reference (AstVar or AstMemberAccess chain) to a callable.
+        Resolve a function reference (AstVar or AstGetAttr chain) to a callable.
         Returns the CallableSymbol if successful, None otherwise (error already reported).
         """
         if is_instance_compat(node, AstVar):
@@ -496,7 +496,7 @@ class ResolveFuncCalls(TopDownVisitor):
             # If it's a CallableSymbol, we're done; if it's a dict, caller will access member
             return sym
 
-        if is_instance_compat(node, AstMemberAccess):
+        if is_instance_compat(node, AstGetAttr):
             # Resolve the parent first (must be a namespace/dict)
             parent_sym = self.resolve_func_ref(node.parent, state)
             if parent_sym is None:
@@ -734,8 +734,8 @@ class ResolveVars(TopDownVisitor):
         ):
             return
 
-    def visit_AstLiteral_AstMemberAccess(
-        self, node: Union[AstLiteral, AstMemberAccess], state: CompileState
+    def visit_AstLiteral_AstGetAttr(
+        self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
         # the reason we don't need to do anything for getattr is because the point of this
@@ -1045,7 +1045,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         return result_type
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         parent_sym = state.resolved_symbols.get(node.parent)
 
         if is_instance_compat(parent_sym, (type, CallableSymbol)):
@@ -1727,7 +1727,7 @@ class CalculateConstExprValues(Visitor):
 
         state.contextual_values[node] = expr_value
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]

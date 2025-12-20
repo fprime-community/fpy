@@ -126,7 +126,7 @@ AstLiteral = Union[AstString, AstNumber, AstBoolean]
 
 
 @dataclass
-class AstMemberAccess(Ast):
+class AstGetAttr(Ast):
     parent: "AstExpr"
     attr: str
 
@@ -177,7 +177,7 @@ class AstRange(Ast):
 
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
-AstReference = Union[AstMemberAccess, AstIndexExpr, AstVar]
+AstReference = Union[AstGetAttr, AstIndexExpr, AstVar]
 AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 
 
@@ -427,7 +427,7 @@ class FpyTransformer(Transformer):
     number = AstNumber
     boolean = AstBoolean
     name = no_meta(str)
-    member_access = AstMemberAccess
+    get_attr = AstGetAttr
     index_expr = AstIndexExpr
     var = AstVar
     range = AstRange

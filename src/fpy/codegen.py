@@ -114,7 +114,7 @@ from fpy.syntax import (
     AstDef,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
     AstLiteral,
     AstNodeWithSideEffects,
@@ -647,7 +647,7 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    def emit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
