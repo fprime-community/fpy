@@ -28,6 +28,7 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
+from fprime_gds.common.models.serialize.serializable_type import SerializableType as StructValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -51,7 +52,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstTypeExpr,
+    AstTypeName,
     AstOp,
     AstReference,
     Ast,
@@ -143,6 +144,7 @@ class RangeValue(FppValue):
     def to_jsonable(self):
         raise NotImplementedError()
 
+TimeIntervalValue = StructValue.construct_type("Fw.TimeIntervalValue", [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")])
 
 # this is the "internal" string type that string literals have by
 # default. it is arbitrary length. it is also only used in places where
@@ -245,7 +247,7 @@ class CommandSymbol(CallableSymbol):
 
 
 @dataclass
-class BuiltinSymbol(CallableSymbol):
+class BuiltinFuncSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
     """a function which instantiates the builtin given the calling node"""
 
@@ -262,6 +264,14 @@ class TypeCtorSymbol(CallableSymbol):
 @dataclass
 class CastSymbol(CallableSymbol):
     to_type: FppType
+
+
+@dataclass
+class TimeToAbsolutePlaceholderSymbol(CallableSymbol):
+    """Placeholder for $time_to_absolute, resolved after semantic analysis based on argument type.
+    This is an internal "function-like" placeholder the compiler uses to tell itself to 
+    desugar this interval or absolute time into an absolute time."""
+    pass
 
 
 @dataclass
@@ -295,8 +305,8 @@ class VariableSymbol:
     """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstTypeExpr | None
-    """the expression denoting the var's type"""
+    type_ref: AstTypeName | None
+    """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
     type: FppType | None = None
@@ -517,6 +527,9 @@ class CompileState:
     """for loop node (desugared into a while) mapped to a label pointing to its increment stmt"""
 
     does_return: dict[Ast, bool] = field(default_factory=dict)
+
+    used_funcs: set[AstDef] = field(default_factory=set)
+    """set of function definitions that are actually called and need code generated"""
 
     func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
     """function to entry point label"""

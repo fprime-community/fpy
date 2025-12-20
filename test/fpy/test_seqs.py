@@ -94,6 +94,34 @@ var: F32 = 1.
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_hex_literal(fprime_test_api):
+    seq = """
+var: U32 = 0xFF
+assert var == 255
+var = 0xDEADBEEF
+assert var == 3735928559
+var = 0x0
+assert var == 0
+var = 0X1A2B
+assert var == 6699
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_hex_literal_underscore(fprime_test_api):
+    seq = """
+var: U32 = 0xFF_FF
+assert var == 65535
+var = 0xDEAD_BEEF
+assert var == 3735928559
+var = 0x00_11_22_33
+assert var == 1122867
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_exit_success(fprime_test_api):
     seq = """
 exit(0)
@@ -3620,3 +3648,279 @@ assert test(c=x, a=y, b=z) == 5.5
 """
 
     assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Tests ====================
+
+
+def test_check_condition_true_immediately(fprime_test_api):
+    """Test that check succeeds immediately when condition is true with zero persist."""
+    seq = """
+check_passed: bool = False
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_when_always_false(fprime_test_api):
+    """Test that check times out when condition is always false."""
+    seq = """
+timed_out: bool = False
+check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timed_out = True
+assert timed_out
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_condition_evaluated_multiple_times(fprime_test_api):
+    """Test that check evaluates condition multiple times until it becomes true."""
+    seq = """
+# Count how many times condition is evaluated
+eval_count: I64 = 0
+
+def check_condition() -> bool:
+    eval_count = eval_count + 1
+    # Return true on 3rd evaluation
+    return eval_count >= 3
+
+check check_condition() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# Should have been evaluated at least 3 times
+assert eval_count >= 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_condition_must_persist(fprime_test_api):
+    """Test that condition must remain true for the full persist duration.
+    
+    If condition becomes false before persist duration, the timer resets.
+    """
+    seq = """
+# Condition returns true twice, then false, then true forever
+call_count: I64 = 0
+
+def flaky_condition() -> bool:
+    call_count = call_count + 1
+    # True for calls 1-2, false for call 3, true thereafter
+    if call_count <= 2:
+        return True
+    if call_count == 3:
+        return False
+    return True
+
+# With 30ms persist and 10ms every, condition needs to be true for 3+ consecutive checks
+# Calls 1-2 are true but call 3 is false, resetting the persist timer
+# Call 4+ are true, so it should eventually succeed
+check flaky_condition() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 30000) every Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# Should have been called more than 3 times since persist timer was reset
+assert call_count > 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_zero_persist_true_once_enough(fprime_test_api):
+    """Test that with zero persist, condition being true once is enough."""
+    seq = """
+# Return true only once, then false forever
+returned_true: bool = False
+
+def return_true_once() -> bool:
+    if not returned_true:
+        returned_true = True
+        return True
+    return False
+
+check return_true_once() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    exit(0)
+timeout:
+    assert False, 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_body_runs_on_success(fprime_test_api):
+    """Test that check body runs when condition succeeds."""
+    seq = """
+body_ran: bool = False
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    body_ran = True
+assert body_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_body_runs_on_timeout(fprime_test_api):
+    """Test that timeout body runs when check times out."""
+    seq = """
+timeout_body_ran: bool = False
+check False timeout Fw.TimeIntervalValue(0, 50000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timeout_body_ran = True
+assert timeout_body_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_optional_timeout_body(fprime_test_api):
+    """Test that check works without timeout body."""
+    seq = """
+result: bool = False
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
+    result = True
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_no_timeout_clause(fprime_test_api):
+    """Test check without timeout clause (runs indefinitely until success)."""
+    seq = """
+# Without timeout, check runs until condition succeeds
+call_count: I64 = 0
+
+def eventually_true() -> bool:
+    call_count = call_count + 1
+    return call_count >= 3
+
+check eventually_true():
+    exit(0)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_only_timeout_specified(fprime_test_api):
+    """Test check with only timeout specified (uses default persist=0 and every=1s)."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0):
+    exit(0)
+timeout:
+    assert False, 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_nested_in_function(fprime_test_api):
+    """Test that check statements work inside functions."""
+    seq = """
+def do_check() -> bool:
+    result: bool = False
+    check True timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+        result = True
+    timeout:
+        pass
+    return result
+
+assert do_check()
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_modifies_outer_scope(fprime_test_api):
+    """Test that check body can modify variables in outer scope."""
+    seq = """
+outer_var: I32 = 0
+
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    outer_var = 42
+
+assert outer_var == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_absolute_timeout(fprime_test_api):
+    """Test that check works with absolute Fw.Time timeout."""
+    seq = """
+# Create an absolute timeout 100ms from now
+abs_timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
+result: bool = False
+check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    result = True
+timeout:
+    pass
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Type Error Tests ====================
+
+
+def test_check_timeout_wrong_type(fprime_test_api):
+    """Test that check timeout with wrong type gives compile error."""
+    seq = """
+check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type(fprime_test_api):
+    """Test that check condition must be bool, not int."""
+    seq = """
+check 123 timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type_string(fprime_test_api):
+    """Test that check condition must be bool, not string."""
+    seq = """
+check "hello" timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist 123 every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type_time(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist now() every Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_every_wrong_type(fprime_test_api):
+    """Test that check every must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every 123:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_every_wrong_type_time(fprime_test_api):
+    """Test that check every must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) every now():
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+

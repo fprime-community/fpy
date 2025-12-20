@@ -11,6 +11,7 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    BuiltinFuncSymbol,
     CompileState,
     FieldSymbol,
     ForLoopAnalysis,
@@ -21,6 +22,8 @@ from fpy.types import (
     FunctionSymbol,
     Symbol,
     SymbolTable,
+    TimeIntervalValue,
+    TimeToAbsolutePlaceholderSymbol,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -79,14 +82,15 @@ from fpy.syntax import (
     AstStmtList,
     AstBoolean,
     AstBreak,
+    AstCheck,
     AstContinue,
     AstDef,
     AstElif,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
-    AstTypeExpr,
+    AstTypeName,
     AstNamedArgument,
     AstNumber,
     AstPass,
@@ -151,9 +155,9 @@ class AssignLocalScopes(TopDownVisitor):
         # Parameter names and type annotations are in the body scope
         # (they're declared inside the function)
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
                 state.local_scopes[arg_name_var] = scope
-                state.local_scopes[arg_type_expr] = scope
+                state.local_scopes[arg_type_name] = scope
                 # Default values stay in parent scope - they're evaluated at call site,
                 # not inside the function body
                 if default_value is not None:
@@ -230,7 +234,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # or loop_var has been declared before and we only know the type, but have no type expr
 
             # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type expr is an AstTypeExpr with a single part
+            # case 2 is harder, we have to check if the type name is an AstTypeName with a single part
             # that matches the canonical name of the LoopVarType
 
             # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
@@ -239,7 +243,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
                 loop_var.type is None
                 and not (
-                    isinstance(loop_var.type_ref, AstTypeExpr)
+                    isinstance(loop_var.type_ref, AstTypeName)
                     and loop_var.type_ref.parts == [LoopVarType.get_canonical_name()]
                 )
             ):
@@ -288,7 +292,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         # Check that default arguments come after non-default arguments
         seen_default = False
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
+            arg_name_var, arg_type_name, default_value = arg
             if default_value is not None:
                 seen_default = True
             elif seen_default:
@@ -300,7 +304,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                 return
 
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
+            arg_name_var, arg_type_name, default_value = arg
             existing_local = state.local_scopes[node.body].get(arg_name_var.var)
             if existing_local is not None:
                 # redeclaring an existing variable
@@ -308,7 +312,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"'{arg_name_var.var}' has already been declared", arg_name_var
                 )
                 return
-            arg_var = VariableSymbol(arg_name_var.var, arg_type_expr, node)
+            arg_var = VariableSymbol(arg_name_var.var, arg_type_name, node)
             state.local_scopes[node.body][arg_name_var.var] = arg_var
 
 
@@ -324,7 +328,8 @@ class SetEnclosingLoops(Visitor):
         self, node: Union[AstBreak, AstContinue], state: CompileState
     ):
         if self.loop is None:
-            del state.enclosing_loops[node]
+            # Remove from dict if present (may not be for generated nodes)
+            state.enclosing_loops.pop(node, None)
         else:
             state.enclosing_loops[node] = self.loop
 
@@ -371,13 +376,13 @@ class CheckReturnInFunc(TopDownVisitor):
 
 class ResolveTypeNames(TopDownVisitor):
     """
-    Resolves type annotations (AstTypeExpr) to actual types.
+    Resolves type annotations (AstTypeName) to actual types.
     This runs before ResolveVars so that variable types are known
     when we start resolving references.
     """
 
     def resolve_type_name(
-        self, node: AstTypeExpr, state: CompileState
+        self, node: AstTypeName, state: CompileState
     ) -> type | None:
         """
         Fully resolves a type name to the actual type.
@@ -423,8 +428,8 @@ class ResolveTypeNames(TopDownVisitor):
         # Resolve parameter types
         args = []
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
-                arg_type = self.resolve_type_name(arg_type_expr, state)
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                arg_type = self.resolve_type_name(arg_type_name, state)
                 if arg_type is None:
                     return
 
@@ -456,10 +461,81 @@ class ResolveTypeNames(TopDownVisitor):
         var.type = var_type
 
 
+class ResolveFuncCalls(TopDownVisitor):
+    """
+    Resolves all function references in function calls and definitions.
+    This pass resolves the callable symbols for AstFuncCall and AstDef nodes.
+    Runs before ResolveVars so that function references are resolved first,
+    allowing ResolveVars to skip already-resolved nodes.
+    """
+
+    def resolve_func_ref(
+        self, node: Ast, state: CompileState
+    ) -> CallableSymbol | None:
+        """
+        Resolve a function reference (AstVar or AstGetAttr chain) to a callable.
+        Returns the CallableSymbol if successful, None otherwise (error already reported).
+        """
+        if is_instance_compat(node, AstVar):
+            # Check local scope first (for user-defined functions)
+            local_scope = state.local_scopes[node]
+            sym = None
+            while local_scope is not None and sym is None:
+                sym = local_scope.get(node.var)
+                local_scope = state.scope_parents[local_scope]
+
+            # Then check global callables scope
+            if sym is None:
+                sym = state.callables.get(node.var)
+
+            if sym is None:
+                state.err("Unknown function", node)
+                return None
+
+            state.resolved_symbols[node] = sym
+            # If it's a CallableSymbol, we're done; if it's a dict, caller will access member
+            return sym
+
+        if is_instance_compat(node, AstGetAttr):
+            # Resolve the parent first (must be a namespace/dict)
+            parent_sym = self.resolve_func_ref(node.parent, state)
+            if parent_sym is None:
+                return None
+
+            if not isinstance(parent_sym, dict):
+                state.err("Unknown function", node)
+                return None
+
+            sym = parent_sym.get(node.attr)
+            if sym is None:
+                state.err("Unknown function", node)
+                return None
+
+            state.resolved_symbols[node] = sym
+            return sym
+
+        state.err("Unknown function", node)
+        return None
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        sym = self.resolve_func_ref(node.func, state)
+        if sym is None:
+            return
+        if not is_instance_compat(sym, CallableSymbol):
+            state.err("Unknown function", node.func)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        sym = self.resolve_func_ref(node.name, state)
+        if sym is None:
+            return
+        if not is_instance_compat(sym, CallableSymbol):
+            state.err("Unknown function", node.name)
+
+
 class ResolveVars(TopDownVisitor):
     """
     Resolves all variable references (AstVar) in local and global scopes.
-    Also fully resolves function references for function calls.
+    Resolves argument values in function calls, but not the function references themselves.
     Types are already resolved by ResolveTypeNames before this pass.
     """
 
@@ -519,67 +595,9 @@ class ResolveVars(TopDownVisitor):
         state.resolved_symbols[node] = sym
         return True
 
-    def finish_resolving_func(
-        self,
-        node: Ast,
-        state: CompileState,
-    ) -> CallableSymbol | None:
-        """
-        Finishes resolving a function reference (AstVar/AstMemberAccess chain) to a callable.
-        The root AstVar should already be resolved by try_resolve_root_ref.
-        Returns None if the reference could not be resolved (error already reported).
-        """
-
-        def resolve(n: Ast, expect_callable: bool) -> CallableSymbol | dict | None:
-            """
-            Recursively resolve the reference chain.
-            expect_callable=True for the final node (must be CallableSymbol),
-            expect_callable=False for intermediate nodes (must be dict/namespace).
-            """
-            if not is_instance_compat(n, (AstVar, AstMemberAccess)):
-                state.err("Unknown function", n)
-                return None
-
-            if is_instance_compat(n, AstVar):
-                sym = state.resolved_symbols.get(n)
-                if sym is None:
-                    state.err("Unknown function", n)
-                    return None
-                expected_type = CallableSymbol if expect_callable else dict
-                if not is_instance_compat(sym, expected_type):
-                    state.err("Unknown function", n)
-                    return None
-                return sym
-
-            # It's an AstMemberAccess - resolve the parent first (always expecting a namespace)
-            parent_scope = resolve(n.parent, expect_callable=False)
-            if parent_scope is None:
-                return None
-
-            sym = parent_scope.get(n.attr)
-            if sym is None:
-                state.err("Unknown function", n)
-                return None
-
-            expected_type = CallableSymbol if expect_callable else dict
-            if not is_instance_compat(sym, expected_type):
-                state.err("Unknown function", n)
-                return None
-
-            state.resolved_symbols[n] = sym
-            return sym
-
-        return resolve(node, expect_callable=True)
-
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        # First resolve the root of the function reference
-        if not self.try_resolve_root_ref(node.func, state.callables, "function", state):
-            return
-
-        # Then finish resolving the full chain to get the callable
-        if not self.finish_resolving_func(node.func, state):
-            return
-
+        # Function reference is resolved by ResolveFuncCalls pass
+        # Here we only resolve argument values
         for arg in node.args if node.args is not None else []:
             # Handle both positional args (AstExpr) and named args (AstNamedArgument)
             if is_instance_compat(arg, AstNamedArgument):
@@ -691,13 +709,11 @@ class ResolveVars(TopDownVisitor):
             return
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if not self.try_resolve_root_ref(node.name, state.callables, "function", state):
-            return
-
+        # Function name is resolved by ResolveFuncCalls pass
         # Return type and parameter types are resolved by ResolveTypeNames pass
 
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
                 if not self.try_resolve_root_ref(
                     arg_name_var, state.runtime_values, "value", state
                 ):
@@ -718,8 +734,8 @@ class ResolveVars(TopDownVisitor):
         ):
             return
 
-    def visit_AstLiteral_AstMemberAccess(
-        self, node: Union[AstLiteral, AstMemberAccess], state: CompileState
+    def visit_AstLiteral_AstGetAttr(
+        self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
         # the reason we don't need to do anything for getattr is because the point of this
@@ -1029,7 +1045,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         return result_type
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         parent_sym = state.resolved_symbols.get(node.parent)
 
         if is_instance_compat(parent_sym, (type, CallableSymbol)):
@@ -1366,6 +1382,33 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             return
         node_args = node.args if node.args else []
 
+        # Special handling for $time_to_absolute placeholder function
+        # This accepts either Fw.Time (absolute) or Fw.TimeIntervalValue (relative)
+        # This is used in check statement desugaring
+        if is_instance_compat(func, TimeToAbsolutePlaceholderSymbol):
+            if len(node_args) != 1:
+                state.err("$time_to_absolute requires exactly one argument", node)
+                return
+            arg = node_args[0]
+            arg_type = state.synthesized_types.get(arg)
+            if arg_type is None:
+                return
+            # Check it's either Fw.Time or Fw.TimeIntervalValue
+            is_absolute = issubclass(arg_type, TimeValue)
+            is_relative = arg_type.__name__ == "Fw.TimeIntervalValue"
+            if not is_absolute and not is_relative:
+                state.err(
+                    f"check timeout must be Fw.Time or Fw.TimeIntervalValue, got {typename(arg_type)}",
+                    arg
+                )
+                return
+            # Store the resolved args and set types
+            state.resolved_func_args[node] = node_args
+            state.contextual_types[arg] = arg_type  # Keep original type for the arg
+            state.synthesized_types[node] = TimeValue
+            state.contextual_types[node] = TimeValue
+            return
+
         # Build resolved args: reorder named args, fill in defaults, check for missing required
         resolved_args = self.build_resolved_call_args(node, func, node_args)
         if is_instance_compat(resolved_args, CompileError):
@@ -1476,7 +1519,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         if not is_instance_compat(func, FunctionSymbol):
             return
 
-        for (arg_name_var, arg_type_expr, default_value), (_, arg_type, _) in zip(
+        for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
         ):
             if default_value is not None:
@@ -1684,7 +1727,7 @@ class CalculateConstExprValues(Visitor):
 
         state.contextual_values[node] = expr_value
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
@@ -2125,8 +2168,17 @@ class CheckAllBranchesReturn(Visitor):
         state.does_return[node] = False
 
     def visit_AstExpr(self, node: AstExpr, state: CompileState):
-        # expressions do not return
-        state.does_return[node] = False
+        # expressions do not return, except exit
+        if not is_instance_compat(node, AstFuncCall):
+            state.does_return[node] = False
+            return
+        func = state.resolved_symbols[node.func]
+        if not is_instance_compat(func, BuiltinFuncSymbol) or not func.name == "exit":
+            state.does_return[node] = False
+            return
+        # builtin exit "returns" (really just ends call stack entirely)
+        state.does_return[node] = True
+
 
     def visit_default(self, node, state):
         assert not is_instance_compat(node, AstStmt)

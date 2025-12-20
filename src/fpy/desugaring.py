@@ -1,14 +1,23 @@
 from __future__ import annotations
+import copy
 from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from fpy.syntax import (
     Ast,
     AstAssign,
     AstBinaryOp,
+    AstBlock,
+    AstBoolean,
+    AstBreak,
+    AstCheck,
     AstFor,
     AstFuncCall,
-    AstTypeExpr,
+    AstIf,
+    AstGetAttr,
     AstNumber,
     AstRange,
+    AstStmtList,
+    AstTypeName,
+    AstUnaryOp,
     AstVar,
     AstWhile,
 )
@@ -19,6 +28,9 @@ from fpy.types import (
     Symbol,
     FpyIntegerValue,
     Transformer,
+    TopDownVisitor,
+    is_instance_compat,
+    lookup_symbol,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
@@ -62,7 +74,7 @@ class DesugarForLoops(Transformer):
             # create a new node for the type_ann
             loop_var_type_var = self.new(
                 state,
-                AstTypeExpr(None, [loop_var_type_name]),
+                AstTypeName(None, [loop_var_type_name]),
                 contextual_type=None,
                 synthesized_type=None,
                 contextual_value=None,
@@ -104,7 +116,7 @@ class DesugarForLoops(Transformer):
         # create a new node for the type_ann
         loop_var_type_var = self.new(
             state,
-            AstTypeExpr(None, [loop_var_type_name]),
+            AstTypeName(None, [loop_var_type_name]),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -323,3 +335,410 @@ class DesugarDefaultArgs(Transformer):
         node.args = resolved_args
 
         return node
+
+
+class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
+    """
+    Resolves $time_to_absolute(time_expr) placeholder calls.
+    
+    After semantic analysis, we know the type of time_expr:
+    - If Fw.Time (absolute): replace with just time_expr
+    - If Fw.TimeIntervalValue (relative): replace with time_add(now(), time_expr)
+    
+    This enables check statements to accept both absolute and relative timeouts
+    while keeping the early desugaring simple.
+    """
+    
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        from fpy.types import TimeToAbsolutePlaceholderSymbol
+        from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+        
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, TimeToAbsolutePlaceholderSymbol):
+            return node
+        
+        # Get the timeout argument
+        timeout_arg = node.args[0]
+        timeout_type = state.synthesized_types.get(timeout_arg)
+        
+        # Check if it's absolute (Fw.Time) or relative (Fw.TimeIntervalValue)
+        is_absolute = issubclass(timeout_type, TimeValue)
+        
+        if is_absolute:
+            # Just return the argument directly - it's already an absolute time
+            return timeout_arg
+        else:
+            # It's relative (TimeIntervalValue), wrap with time_add(now(), timeout)
+            # We need to find the time_add function and now function
+            time_add_func = lookup_symbol(node, "time_add", state)
+            now_func = state.callables.get("now")
+            
+            assert time_add_func is not None, "time_add function not found"
+            assert now_func is not None, "now function not found"
+            
+            # Create now() call
+            now_var = AstVar(None, "now")
+            now_var.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[now_var] = now_func
+            
+            now_call = AstFuncCall(None, now_var, [])
+            now_call.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[now_call] = now_func
+            state.resolved_func_args[now_call] = []
+            state.synthesized_types[now_call] = TimeValue
+            state.contextual_types[now_call] = TimeValue
+            
+            # Create time_add(now(), timeout) call
+            time_add_var = AstVar(None, "time_add")
+            time_add_var.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[time_add_var] = time_add_func
+            
+            time_add_call = AstFuncCall(None, time_add_var, [now_call, timeout_arg])
+            time_add_call.id = state.next_node_id
+            state.next_node_id += 1
+            state.resolved_symbols[time_add_call] = time_add_func
+            state.resolved_func_args[time_add_call] = [now_call, timeout_arg]
+            state.synthesized_types[time_add_call] = TimeValue
+            state.contextual_types[time_add_call] = TimeValue
+            
+            return time_add_call
+
+
+class DesugarCheckStatements(Transformer):
+    """
+    Desugars check statements into while loops BEFORE semantic analysis.
+    
+    This runs before AssignIds, so we don't need to worry about node IDs.
+    The generated AST nodes will go through normal semantic analysis.
+    
+    A check statement:
+        check <condition> [timeout <timeout>] [persist <persist>] [every <every>]:
+            <body>
+        [timeout:
+            <timeout_body>]
+    
+    Default values:
+        - timeout: no timeout (runs indefinitely until condition persists)
+        - persist: 0 second interval (condition must be true once)
+        - every: 1 second interval (check condition every second)
+    
+    Gets desugared into (roughly):
+        $check_state: $CheckState = $CheckState(...)
+        while True:
+            $current_time: Fw.Time = now()
+            # If timeout is specified:
+            $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
+            assert $timed_out != 2, 1
+            if $timed_out == 1:
+                break
+            if <condition>:
+                if not $check_state.last_was_true:
+                    $check_state.last_time_true = $current_time
+                    $check_state.last_was_true = True
+                $succeeded: I8 = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
+                assert $succeeded != 2, 1
+                if $succeeded == 1 or $succeeded == 0:
+                    $check_state.result = True
+                    break
+            else:
+                $check_state.last_was_true = False
+            sleep($check_state.every.seconds, $check_state.every.useconds)
+        if $check_state.result:
+            <body>
+        else:
+            <timeout_body>
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.var_counter = 0
+        self.meta = None  # Will be set when desugaring each check statement
+    
+    def new_var_name(self) -> str:
+        """Generate a unique anonymous variable name."""
+        name = f"$check{self.var_counter}"
+        self.var_counter += 1
+        return name
+    
+    def var(self, name: str) -> AstVar:
+        """Create a variable reference node."""
+        return AstVar(self.meta, name)
+    
+    def type_name(self, *parts: str) -> AstTypeName:
+        """Create a type name node."""
+        return AstTypeName(self.meta, list(parts))
+    
+    def number(self, val: int) -> AstNumber:
+        """Create a number literal node."""
+        return AstNumber(self.meta, val)
+    
+    def boolean(self, val: bool) -> AstBoolean:
+        """Create a boolean literal node."""
+        return AstBoolean(self.meta, val)
+    
+    def member(self, parent, attr: str) -> AstGetAttr:
+        """Create a member access node."""
+        return AstGetAttr(self.meta, parent, attr)
+    
+    def callable_ref(self, *parts: str):
+        """Create a callable reference from parts (e.g., 'Fw', 'Time' -> Fw.Time).
+        
+        For function calls, we need AstVar or AstGetAttr, not AstTypeName.
+        """
+        if len(parts) == 0:
+            raise ValueError("callable_ref requires at least one part")
+        
+        result = self.var(parts[0])
+        for part in parts[1:]:
+            result = self.member(result, part)
+        return result
+    
+    def call(self, func_name: str, *args) -> AstFuncCall:
+        """Create a function call node."""
+        func = self.var(func_name)
+        return AstFuncCall(self.meta, func, list(args) if args else [])
+    
+    def call_parts(self, func_parts: list[str], *args) -> AstFuncCall:
+        """Create a function call node with a multi-part function name."""
+        func = self.callable_ref(*func_parts)
+        return AstFuncCall(self.meta, func, list(args) if args else [])
+    
+    def call_expr(self, func_expr, *args) -> AstFuncCall:
+        """Create a function call node with an expression as the function."""
+        return AstFuncCall(self.meta, func_expr, list(args) if args else [])
+    
+    def binop(self, lhs, op: str, rhs) -> AstBinaryOp:
+        """Create a binary operation node."""
+        return AstBinaryOp(self.meta, lhs, op, rhs)
+    
+    def unary(self, op: str, val) -> AstUnaryOp:
+        """Create a unary operation node."""
+        return AstUnaryOp(self.meta, op, val)
+    
+    def assign(self, lhs, rhs, type_ann=None) -> AstAssign:
+        """Create an assignment node."""
+        return AstAssign(self.meta, lhs, type_ann, rhs)
+    
+    def stmt_list(self, *stmts) -> AstStmtList:
+        """Create a statement list node."""
+        return AstStmtList(self.meta, list(stmts))
+    
+    def if_stmt(self, cond, body_stmts, else_stmts=None) -> AstIf:
+        """Create an if statement node."""
+        body = self.stmt_list(*body_stmts)
+        els = self.stmt_list(*else_stmts) if else_stmts else None
+        return AstIf(self.meta, cond, body, [], els)
+    
+    def while_stmt(self, cond, body_stmts) -> AstWhile:
+        """Create a while statement node."""
+        body = self.stmt_list(*body_stmts)
+        return AstWhile(self.meta, cond, body)
+    
+    def break_stmt(self) -> AstBreak:
+        """Create a break statement node."""
+        return AstBreak(self.meta)
+    
+    def visit_AstCheck(self, node: AstCheck, state: CompileState) -> list[Ast]:
+        """
+        Desugar a single check statement into a list of statements.
+        """
+        # Use the check node's meta for all generated nodes (for error reporting)
+        self.meta = node.meta
+        
+        # Generate unique variable names for this check statement
+        check_state_name = self.new_var_name()
+        current_time_name = self.new_var_name()
+        timed_out_name = self.new_var_name()
+        succeeded_name = self.new_var_name()
+        
+        # Check if timeout is specified (None means no timeout)
+        has_timeout = node.timeout is not None
+        
+        # Helper to reference check_state members
+        def cs(attr: str):
+            return self.member(self.var(check_state_name), attr)
+        
+        # Build the CheckState constructor call
+        # $CheckState(persist=<persist>, timeout=<timeout_or_time_add>, every=<every>, 
+        #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
+        
+        # Handle default values:
+        # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
+        # - every: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - timeout: if not specified, use a far-future time (but we skip timeout check logic)
+        
+        persist_expr = (
+            copy.deepcopy(node.persist) if node.persist is not None
+            else self.call_parts(["Fw", "TimeIntervalValue"], self.number(0), self.number(0))
+        )
+        
+        every_expr = (
+            copy.deepcopy(node.every) if node.every is not None
+            else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
+        )
+        
+        # For timeout, we use a placeholder function $time_to_absolute that will be
+        # resolved in a late pass after semantic analysis determines the type.
+        # If timeout_expr is Fw.Time (absolute), it gets used directly.
+        # If timeout_expr is Fw.TimeIntervalValue (relative), it becomes time_add(now(), timeout_expr).
+        # If no timeout specified, use a dummy value (the timeout check will be skipped anyway)
+        if has_timeout:
+            timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
+        else:
+            # Dummy timeout value - won't be used since we skip timeout checks
+            timeout_expr_to_use = self.call_parts(
+                ["Fw", "Time"],
+                self.number(0), self.number(0), self.number(0), self.number(0)
+            )
+        
+        check_state_init = self.call_expr(
+            self.callable_ref("$CheckState"),               # Use callable_ref, not type_name
+            persist_expr,                                   # persist
+            timeout_expr_to_use,                            # timeout (converted to absolute)
+            every_expr,                                     # every
+            self.boolean(False),                            # result
+            self.boolean(False),                            # last_was_true
+            self.call_parts(                                # last_time_true = Fw.Time(0,0,0,0)
+                ["Fw", "Time"],
+                self.number(0), self.number(0), self.number(0), self.number(0)
+            ),
+            self.call("now"),                               # time_started
+        )
+        
+        # 1. $check_state: $CheckState = $CheckState(...)
+        init_check_state = self.assign(
+            self.var(check_state_name),
+            check_state_init,
+            self.type_name("$CheckState")
+        )
+        
+        # Build the while loop body
+        # 2. $current_time: Fw.Time = now()
+        get_current_time = self.assign(
+            self.var(current_time_name),
+            self.call("now"),
+            self.type_name("Fw", "Time")
+        )
+        
+        # Build the while loop body statements
+        while_body_stmts = [get_current_time]
+        
+        # Only add timeout check if timeout is specified
+        if has_timeout:
+            # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
+            check_timeout = self.assign(
+                self.var(timed_out_name),
+                self.call("time_cmp", self.var(current_time_name), cs("timeout")),
+                self.type_name("I8")
+            )
+            
+            # 4. assert $timed_out != 2, 1
+            from fpy.syntax import AstAssert
+            assert_comparable = AstAssert(
+                self.meta,
+                self.binop(self.var(timed_out_name), "!=", self.number(2)),
+                self.number(1)
+            )
+            
+            # 5. if $timed_out == 1: break
+            timeout_break = self.if_stmt(
+                self.binop(self.var(timed_out_name), "==", self.number(1)),
+                [self.break_stmt()]
+            )
+            
+            while_body_stmts.extend([check_timeout, assert_comparable, timeout_break])
+        
+        # 6. Build the condition check block
+        # if <condition>:
+        #     if not $check_state.last_was_true:
+        #         $check_state.last_time_true = $current_time
+        #         $check_state.last_was_true = True
+        #     $succeeded: I8 = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
+        #     assert $succeeded != 2, 1
+        #     if $succeeded == 1 or $succeeded == 0:
+        #         $check_state.result = True
+        #         break
+        # else:
+        #     $check_state.last_was_true = False
+        
+        # Inner if: not last_was_true
+        update_last_true = self.if_stmt(
+            self.unary("not", cs("last_was_true")),
+            [
+                self.assign(cs("last_time_true"), self.var(current_time_name)),
+                self.assign(cs("last_was_true"), self.boolean(True)),
+            ]
+        )
+        
+        # Check if condition has persisted long enough
+        check_persist = self.assign(
+            self.var(succeeded_name),
+            self.call(
+                "time_interval_cmp",
+                self.call("time_sub", self.var(current_time_name), cs("last_time_true")),
+                cs("persist")
+            ),
+            self.type_name("I8")
+        )
+        
+        from fpy.syntax import AstAssert
+        assert_persist_comparable = AstAssert(
+            self.meta,
+            self.binop(self.var(succeeded_name), "!=", self.number(2)),
+            self.number(1)
+        )
+        
+        # if succeeded >= 0 (i.e., succeeded == 0 or succeeded == 1)
+        success_check = self.if_stmt(
+            self.binop(
+                self.binop(self.var(succeeded_name), "==", self.number(1)),
+                "or",
+                self.binop(self.var(succeeded_name), "==", self.number(0))
+            ),
+            [
+                self.assign(cs("result"), self.boolean(True)),
+                self.break_stmt(),
+            ]
+        )
+        
+        
+        # Main condition check if/else
+        condition_check = self.if_stmt(
+            copy.deepcopy(node.condition),
+            [update_last_true, check_persist, assert_persist_comparable, success_check],
+            [self.assign(cs("last_was_true"), self.boolean(False))]
+        )
+        
+        # 7. sleep($check_state.every.seconds, $check_state.every.useconds)
+        sleep_call = self.call(
+            "sleep",
+            self.member(cs("every"), "seconds"),
+            self.member(cs("every"), "useconds")
+        )
+        
+        # Add condition check and sleep to while body
+        while_body_stmts.extend([condition_check, sleep_call])
+        
+        # Build the while loop
+        while_loop = self.while_stmt(
+            self.boolean(True),
+            while_body_stmts
+        )
+        
+        # 8. Final if/else to run body or timeout_body
+        # if $check_state.result:
+        #     <body>
+        # else:
+        #     <timeout_body>  (optional)
+        final_if = AstIf(
+            self.meta,
+            cs("result"),
+            node.body,           # Use original body
+            [],                  # No elifs
+            node.timeout_body    # Use original timeout_body (may be None)
+        )
+        
+        return [init_check_state, while_loop, final_if]

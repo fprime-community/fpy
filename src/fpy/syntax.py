@@ -102,7 +102,7 @@ class AstVar(Ast):
 
 
 @dataclass
-class AstTypeExpr(Ast):
+class AstTypeName(Ast):
     """A qualified name like A.b.c - used for type annotations"""
     parts: list[str]
 
@@ -126,7 +126,7 @@ AstLiteral = Union[AstString, AstNumber, AstBoolean]
 
 
 @dataclass
-class AstMemberAccess(Ast):
+class AstGetAttr(Ast):
     parent: "AstExpr"
     attr: str
 
@@ -177,14 +177,14 @@ class AstRange(Ast):
 
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
-AstReference = Union[AstMemberAccess, AstIndexExpr, AstVar]
+AstReference = Union[AstGetAttr, AstIndexExpr, AstVar]
 AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 
 
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
-    type_ann: AstTypeExpr | None
+    type_ann: AstTypeName | None
     rhs: AstExpr
 
 
@@ -216,6 +216,16 @@ class AstWhile(Ast):
 
 
 @dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: Union[AstExpr, None]  # Default: no timeout
+    persist: Union[AstExpr, None]  # Default: 0 second interval
+    every: Union[AstExpr, None]    # Default: 1 second interval
+    body: "AstStmtList"
+    timeout_body: Union["AstStmtList", None] = None
+
+
+@dataclass
 class AstAssert(Ast):
     condition: AstExpr
     exit_code: Union[AstExpr, None]
@@ -241,8 +251,8 @@ class AstDef(Ast):
     name: AstVar
     # parameters is a list of (name, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: list[tuple[AstVar, AstTypeExpr, AstExpr | None]]
-    return_type: Union[AstTypeExpr, None]
+    parameters: list[tuple[AstVar, AstTypeName, AstExpr | None]]
+    return_type: Union[AstTypeName, None]
     body: AstBlock
 
 
@@ -256,12 +266,13 @@ AstStmt = Union[
     AstBreak,
     AstContinue,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstDef,
     AstReturn
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstDef, AstReturn
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
@@ -270,6 +281,7 @@ AstNodeWithSideEffects = Union[
     AstElif,
     AstFor,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstBreak,
     AstContinue,
@@ -326,6 +338,46 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
+# Check statement clause handlers.
+# The check_stmt grammar has multiple optional clauses (timeout, persist, every).
+# We use separate grammar rules for each clause so we can tag them and identify
+# which optional clauses were provided, regardless of how many are present.
+def handle_check_clause(tag):
+    """Create a handler that tags an expression with the given clause name."""
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta, expr):
+        return (tag, expr)
+    return wrapper
+
+
+def handle_check_stmt(meta, children):
+    """Parse check statement with optional timeout/persist/every clauses."""
+    condition = children[0]
+    timeout = None
+    persist = None
+    every = None
+    body = None
+    timeout_body = None
+    
+    for child in children[1:]:
+        if isinstance(child, tuple) and len(child) == 2:
+            clause_type, expr = child
+            if clause_type == "timeout":
+                timeout = expr
+            elif clause_type == "persist":
+                persist = expr
+            elif clause_type == "every":
+                every = expr
+        elif isinstance(child, AstStmtList):
+            if body is None:
+                body = child
+            else:
+                timeout_body = child
+    
+    assert body is not None, "check statement must have a body"
+    return AstCheck(meta, condition, timeout, persist, every, body, timeout_body)
+
+
 def handle_parameter(meta, args):
     """Parse a single parameter: (name, type, default_value or None)"""
     assert len(args) in (2, 3), f"Expected 2 or 3 args, got {len(args)}: {args}"
@@ -339,7 +391,7 @@ class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
     pass_stmt = AstPass
 
-    assign = AstAssign
+    assign_stmt = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -350,6 +402,12 @@ class FpyTransformer(Transformer):
     assert_stmt = AstAssert
 
     if_stmt = AstIf
+
+    check_timeout = handle_check_clause("timeout")
+    check_persist = handle_check_clause("persist")
+    check_every = handle_check_clause("every")
+    check_stmt = no_inline(handle_check_stmt)
+
     elifs = no_inline_or_meta(list)
     elif_ = AstElif
     stmt_list = no_inline(AstStmtList)
@@ -369,12 +427,12 @@ class FpyTransformer(Transformer):
     number = AstNumber
     boolean = AstBoolean
     name = no_meta(str)
-    member_access = AstMemberAccess
+    get_attr = AstGetAttr
     index_expr = AstIndexExpr
     var = AstVar
     range = AstRange
 
-    type_expr = no_inline(AstTypeExpr)
+    type_name = no_inline(AstTypeName)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)
@@ -384,6 +442,7 @@ class FpyTransformer(Transformer):
     NAME = str
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
+    HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
     RANGE_OP = str
     STRING = handle_str

@@ -135,6 +135,9 @@ class FpySequencerModel:
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
 
+        # Simulated time for testing (in microseconds)
+        self.simulated_time_us = 0
+
         self.handlers: dict[type[Directive], typing.Callable] = {}
         self.find_handlers()
 
@@ -163,6 +166,7 @@ class FpySequencerModel:
         self.next_dir_idx = 0
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
+        self.simulated_time_us = 0
 
     def dispatch(self, dir: Directive) -> DirectiveErrorCode:
         opcode = dir.opcode
@@ -436,6 +440,8 @@ class FpySequencerModel:
         assert useconds < 1000000, useconds
 
         print("wait rel", seconds, useconds)
+        # Advance simulated time
+        self.simulated_time_us += seconds * 1000000 + useconds
         return None
 
     def handle_wait_abs(self, dir: WaitAbsDirective):
@@ -1009,7 +1015,10 @@ class FpySequencerModel:
         if len(self.stack) + TimeValue.getMaxSize() > self.max_stack_size:
             return DirectiveErrorCode.STACK_OVERFLOW
 
-        self.push(TimeValue(0, 0, 0, 0).serialize())
+        # Convert simulated time to seconds and microseconds
+        seconds = self.simulated_time_us // 1000000
+        useconds = self.simulated_time_us % 1000000
+        self.push(TimeValue(0, 0, seconds, useconds).serialize())
         return None
 
     def handle_call(self, dir: CallDirective):

@@ -28,7 +28,7 @@ from fpy.types import (
     CommandSymbol,
     FpyFloatValue,
     FunctionSymbol,
-    BuiltinSymbol,
+    BuiltinFuncSymbol,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -81,6 +81,7 @@ from fpy.bytecode.directives import (
     Directive,
     NotDirective,
     PushValDirective,
+    SignedStackSizeType,
     StackSizeType,
     StoreRelConstOffsetDirective,
     StoreAbsConstOffsetDirective,
@@ -98,7 +99,6 @@ from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U64Type as U64Value,
-    I32Type as I32Value,
     I64Type as I64Value,
     F32Type as F32Value,
     F64Type as F64Value,
@@ -114,7 +114,7 @@ from fpy.syntax import (
     AstDef,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
     AstLiteral,
     AstNodeWithSideEffects,
@@ -128,6 +128,20 @@ from fpy.syntax import (
     AstVar,
     AstWhile,
 )
+
+
+class CollectUsedFunctions(Visitor):
+    """Collects the set of functions that are called anywhere in the code.
+    
+    Any function that is called (even from within other functions) will be
+    marked as used and have code generated for it.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, FunctionSymbol):
+            return
+        state.used_funcs.add(func.definition)
 
 
 class AssignVariableOffsets(Visitor):
@@ -176,12 +190,18 @@ class AssignVariableOffsets(Visitor):
 
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip it
+            return
         entry_label = IrLabel(node, "entry")
         state.func_entry_labels[node] = entry_label
 
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip generating code for it
+            return
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
         code.extend(GenerateFunctionBody().emit(node.body, state))
@@ -627,7 +647,7 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    def emit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
@@ -819,7 +839,7 @@ class GenerateFunctionBody(Emitter):
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
-        elif is_instance_compat(func, BuiltinSymbol):
+        elif is_instance_compat(func, BuiltinFuncSymbol):
             # put all arg values on stack
             for arg_node in node_args:
                 dirs.extend(self.emit(arg_node, state))
@@ -939,8 +959,8 @@ class GenerateFunctionBody(Emitter):
             # add them
             dirs.append(IntAddDirective())
 
-            # and now convert the u64 back into the I32Value that store expects
-            dirs.extend(self.convert_numeric_type(U64Value, I32Value))
+            # and now convert the u64 back into the SignedStackSizeType that store expects
+            dirs.extend(self.convert_numeric_type(U64Value, SignedStackSizeType))
 
             # now that lvar array offset is pushed, use it to store in lvar array
             if use_global:

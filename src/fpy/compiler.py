@@ -20,6 +20,7 @@ from lark import Lark
 from fprime_gds.common.fpy.bytecode.directives import Directive
 from fpy.codegen import (
     AssignVariableOffsets,
+    CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
     GenerateFunctions,
@@ -27,7 +28,7 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, ResolveRelativeToAbsoluteTimePlaceholders, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
     AssignLocalScopes,
@@ -40,6 +41,7 @@ from fpy.semantics import (
     CheckUseBeforeDeclare,
     CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
+    ResolveFuncCalls,
     ResolveTypeNames,
     ResolveVars,
     WarnRangesAreNotEmpty,
@@ -53,6 +55,7 @@ from fpy.types import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    TimeIntervalValue,
     TypeCtorSymbol,
     Visitor,
     create_symbol_table,
@@ -85,6 +88,35 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+# Load builtin time.fpy functions at module level
+_builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
+_builtin_time_text = _builtin_time_path.read_text()
+_builtin_library_ast = None  # Lazily initialized
+
+
+def _get_builtin_library_ast():
+    """Parse and cache the builtin library AST."""
+    global _builtin_library_ast
+    if _builtin_library_ast is None:
+        # Save current error state
+        old_input_text = fpy.error.input_text
+        old_input_lines = fpy.error.input_lines
+        old_file_name = fpy.error.file_name
+        
+        fpy.error.file_name = str(_builtin_time_path)
+        fpy.error.input_text = _builtin_time_text
+        fpy.error.input_lines = _builtin_time_text.splitlines()
+        
+        tree = _fpy_parser.parse(_builtin_time_text)
+        _builtin_library_ast = FpyTransformer().transform(tree)
+        
+        # Restore error state
+        fpy.error.input_text = old_input_text
+        fpy.error.input_lines = old_input_lines
+        fpy.error.file_name = old_file_name
+    
+    return _builtin_library_ast
+
 
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
@@ -99,14 +131,27 @@ def text_to_ast(text: str):
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
-        print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+        print(
+            fpy.error.CompileError(
+                "Maximum recursion depth exceeded (code is too deeply nested)"
+            ),
+            file=sys.stderr,
+        )
         exit(1)
     except VisitError as e:
         # VisitError wraps exceptions that occur during tree transformation
         if isinstance(e.orig_exc, RecursionError):
-            print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(
+                    "Maximum recursion depth exceeded (code is too deeply nested)"
+                ),
+                file=sys.stderr,
+            )
         else:
-            print(fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),
+                file=sys.stderr,
+            )
         exit(1)
     return transformed
 
@@ -143,8 +188,10 @@ def _build_scopes(dictionary: str) -> tuple:
     Build and cache the scopes for a dictionary.
     Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
     """
-    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(dictionary)
-    
+    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(
+        dictionary
+    )
+
     # Make a copy of type_name_dict since we'll mutate it
     type_name_dict = dict(type_name_dict)
 
@@ -165,6 +212,31 @@ def _build_scopes(dictionary: str) -> tuple:
         type_name_dict[typ.get_canonical_name()] = typ
     type_name_dict["bool"] = BoolValue
     # note no string type at the moment
+
+    # this is a hack because right now the timeintervalvalue isn't in the dict
+    if "Fw.TimeIntervalValue" not in type_name_dict:
+        type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
+        time_interval_type = TimeIntervalValue
+    else:
+        time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+
+    # once we have timeintervalvalue, make the checkstate struct
+    # This is an internal type (prefixed with $) not directly accessible to users,
+    # used for desugaring check statements
+    CheckStateValue = StructValue.construct_type(
+        "$CheckState",
+        [
+            ("persist", time_interval_type, "", ""),
+            ("timeout", TimeValue, "", ""),
+            ("every", time_interval_type, "", ""),
+            ("result", BoolValue, "", ""),
+            ("last_was_true", BoolValue, "", ""),
+            ("last_time_true", TimeValue, "", ""),
+            ("time_started", TimeValue, "", ""),
+        ],
+    )
+    # Add to type dict so it can be used internally
+    type_name_dict["$CheckState"] = CheckStateValue
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
     callable_name_dict: dict[str, CallableSymbol] = {}
@@ -224,7 +296,9 @@ def _build_scopes(dictionary: str) -> tuple:
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(dictionary)
+    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(
+        dictionary
+    )
 
     state = CompileState(
         tlms=tlm_scope,
@@ -243,8 +317,20 @@ def ast_to_directives(
     compile_args: dict | None = None,
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
+    
+    # Prepend builtin library functions to user code - always available.
+    # will be elided if unused
+    import copy
+    builtin_library_ast = _get_builtin_library_ast()
+    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
+    
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
+
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements()
+    ]
+    
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
@@ -255,10 +341,12 @@ def ast_to_directives(
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        # resolve type annotations first, since they use a restricted syntax (AstTypeExpr)
+        # resolve type annotations first, since they use a restricted syntax (AstTypeName)
         # and we need to know variable types before resolving other references
         ResolveTypeNames(),
-        # resolve all variable and function references
+        # resolve all function references in function calls and definitions
+        ResolveFuncCalls(),
+        # resolve all variable references (and argument values)
         ResolveVars(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDeclare(),
@@ -279,6 +367,8 @@ def ast_to_directives(
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
+        # Resolve $time_to_absolute placeholders, which are used in check statements, based on argument type
+        ResolveRelativeToAbsoluteTimePlaceholders(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]
@@ -286,6 +376,8 @@ def ast_to_directives(
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
         AssignVariableOffsets(),
+        # Collect which functions are called anywhere in the code
+        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),
@@ -293,6 +385,11 @@ def ast_to_directives(
     module_generator = GenerateModule()
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
+
+    for compile_pass in pre_semantic_desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
 
     for compile_pass in semantics_passes:
         compile_pass.run(body, state)
@@ -321,5 +418,5 @@ def ast_to_directives(
     for warning in state.warnings:
         print(warning)
 
-    # all the ir is guaranteed to have been converted to directives by now
+    # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir

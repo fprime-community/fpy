@@ -1,17 +1,129 @@
-# The SPEC is currently work-in-progress
+> **WARNING:** The SPEC is currently work-in-progress
+
+# Fpy Specification
+
+Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with several domain-specific features for spacecraft operation.
+
+This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified.
+
+It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.
+
+Terms are *italicized* when being defined for the first time.
+
+# Syntax
+The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html), in [grammar.lark](grammar.lark).
+
+The rest of the specification is dedicated to the semantics of Fpy.
+
+Symbol table is just a tool.
+Scope is about name resolution, hierarchical, etc
+
+
+# Names
+
+A *symbol* is a language construct that can be referred to in the program. 
+
+The following language constructs may be symbols:
+* [scopes](#scopes)
+* [variables](todo)
+* [functions](todo)
+* [types](todo)
+* telemetry channels
+* parameters
+* enum constants
+
+## Scopes
+
+A *scope* is a mapping of *names* to *symbols*.
+
+A *declaration* is a language construct that introduces a name-to-symbol mapping to a scope.
+
+There are two types of declarations: [variable](todo) declarations and [function](todo) declarations.
+
+Each [function](todo) has a separate *function* scope.
+
+### Local scopes
+
+Names have a *local* scope associated with them. 
+
+If a name is located outside of a [function](todo) body, its local scope is the *global* scope. 
+
+If a name is located inside of a function body, it's local scope is the function scope particular to that function.
+
+### Parent scopes
+
+Scopes may have a *parent* scope. 
+
+The global scope does not have a parent scope. 
+
+The parent scope of a function scope is the global scope.
+
+### Dictionary scopes
+There are several *dictionary* scopes:
+* The *type* scope, whose leaf nodes are all [types](#types)
+* The *callable* scope, whose leaf nodes are all [callables](#callables)
+* The *value* scope, whose leaf nodes all are [values](#values)
+
+As the name suggests, each of these scopes is populated from the F-Prime dictionary, and cannot be changed by the program.
+
+## Name resolution
+
+To resolve a name to a symbol, the following scopes are searched until the name is found, in order:
+1. The local scope.
+2. The parent scope of the local scope, if one exists.
+3. The appropriate dictionary scope, based on the syntactic position of the name:
+   * If the name is the receiver of a `func_call`, search the callable scope.
+   * If the name is the type annotation of an `assign_stmt`, or of a `parameter`, or of a `def_stmt` return type, search the type scope.
+   * Otherwise, search the value scope.
+
+Dividing the dictionary scopes up like this allows us to disambiguate cases in which, for instance, a callable has the same name as a type.
+
+If the name is still not found, an error is raised.
+
+# Attributes
+
+An *attribute access* is a use of the the `get_attr` syntactic rule.
+
+The *parent* of an attribute access is the expression to the left of the dot.
+
+The *attribute* of an attribute access is the string to the right of the dot.
+
+## Attribute resolution
+
+To resolve an attribute to a symbol, first the parent is resolved, recursively.
+
+The parent of an attribute may be one of the following:
+* A scope
+* A type
+* An [expression](todo)
+
+An attribute access has one of many different behaviors depending on the parent:
+
+| Parent category | Attribute behavior |
+|---|---|
+|Expression|Member access|
+|Scope|
+|Type|Raise an error|
+|Callable|Raise an error|
+
 
 # Types
 
+
+
+## Built-in types
 The following types are built into Fpy, and the developer can directly refer to them by name:
 * Numeric types: `U8, U16, U32, U64, I8, I16, I32, I64, F32, F64`
 * Boolean type: `bool`
 * Time type: `Fw.Time`
 
-In addition, the developer can directly refer to any displayable type defined in FPP via its fully-qualified name. This includes user-defined structs, arrays and enums.
 
-There are some types which exist in Fpy but cannot be directly referenced by name by the developer. These are the *Int*, and *LiteralString* types. See [literals](#literals).
+## Integer
+
+There are some types which exist in Fpy but cannot be directly referenced by name by the developer. These are the *Integer*, *Float* and *String* types. See [literals](#literals).
 
 ## Structs
+In addition, the developer can directly refer to any displayable type defined in FPP via its fully-qualified name. This includes user-defined structs, arrays and enums.
 You can instantiate a new struct at runtime by calling its constructor. A struct's constructor is a function with the same name as the type, with arguments corresponding to the type and position of the struct's members. For example, a struct defined as:
 ```
 module Fw {
@@ -62,7 +174,7 @@ The second rule allows you to write any number of zeroes, separated by underscor
 00_000_0
 ```
 
-Integer literals have type *Int*, which is not directly referenceable by the user. The *Int* type supports integers of arbitrary size.
+Integer literals have type *Integer*, which is not directly referenceable by the user. The *Integer* type supports integers of arbitrary size.
 
 ## Float literals
 Float literals are strings matching:
@@ -89,7 +201,7 @@ or it can be a `DECIMAL` optionally suffixed by an exponent, like these:
 100.5e+10
 ```
 
-Float literals have type `F64`.
+Float literals have type *Float*, which is not directly referenceable by the user. The *Float* type supports up to 30 decimal points of precision. It is implemented with the Python `Decimal` type.
 
 ## String literals
 String literals are strings matching:
@@ -124,6 +236,16 @@ Available macros:
 * `now() -> Fw.Time`: pushes the current time via `PushTimeDirective`.
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+
+## Time functions
+Fpy provides builtin functions for comparing and manipulating time values:
+
+* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
+* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
+* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs` occurs after `rhs` (no negative intervals).
+* `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
+
+These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
 
 ## Type constructors
 Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
@@ -272,4 +394,22 @@ while <condition>:
 ```
 
 The condition is coerced to `bool` and re-evaluated before every iteration. `break` and `continue` are legal only within the loop body.
+
+# Check statement
+
+```
+check <condition_expr> [timeout <timeout_expr>] [persist <persist_expr>] [every <every_expr>]:
+     <check_body>
+[timeout:
+     <timeout_body>]
+```
+
+While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body (if provided).
+
+`condition_expr` must be type `bool`
+`timeout_expr` (optional) may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated. If omitted, the check runs indefinitely until the condition persists for the required duration.
+`persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
+`every_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
+
+The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
 
