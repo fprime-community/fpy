@@ -1,19 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
-from fpy.bytecode.directives import (
-    Directive,
-    GotoDirective,
-    IfDirective,
-)
-from fpy.error import BackendError
 from fpy.syntax import Ast
-from fpy.types import (
-    MAX_DIRECTIVES_COUNT,
-    MAX_STACK_SIZE,
-    CompileState,
-    is_instance_compat,
-)
 
 
 class Ir:
@@ -23,87 +11,29 @@ class Ir:
 class IrLabel(Ir):
     def __init__(self, node: Ast, label: str):
         super().__init__()
-        self.label = f"{node.id}.{label}"
+        self.name = f"{node.id}.{label}"
 
     def __hash__(self):
-        return hash(self.label)
+        return hash(self.name)
 
     def __eq__(self, value):
-        return isinstance(value, IrLabel) and value.label == self.label
+        return isinstance(value, IrLabel) and value.name == self.name
+
+    def __repr__(self):
+        return f"IrLabel({self.name})"
 
 
 @dataclass(frozen=True, unsafe_hash=True)
 class IrGoto(Ir):
-    label: Union[str, IrLabel]
+    label: IrLabel
 
 
 @dataclass(frozen=True, unsafe_hash=True)
 class IrIf(Ir):
-    goto_if_false_label: Union[str, IrLabel]
+    goto_if_false_label: IrLabel
 
 
-class IrPass:
-    def run(
-        self, ir: list[Directive | Ir], state: CompileState
-    ) -> Union[list[Directive | Ir], BackendError]:
-        pass
-
-
-class ResolveLabels(IrPass):
-    def run(self, ir, state: CompileState):
-        labels: dict[str, int] = {}
-        idx = 0
-        dirs = []
-        for dir in ir:
-            if is_instance_compat(dir, IrLabel):
-                if dir.label in labels:
-                    return BackendError(f"Label {dir.label} already exists")
-                labels[dir.label] = idx
-                continue
-            idx += 1
-
-        # okay, we have all the labels
-        for dir in ir:
-            if is_instance_compat(dir, IrLabel):
-                # drop these from the result
-                continue
-            elif is_instance_compat(dir, IrGoto):
-                label = (
-                    dir.label.label
-                    if is_instance_compat(dir.label, IrLabel)
-                    else dir.label
-                )
-                if label not in labels:
-                    return BackendError(f"Unknown label {label}")
-                dirs.append(GotoDirective(labels[label]))
-            elif is_instance_compat(dir, IrIf):
-                label = (
-                    dir.goto_if_false_label.label
-                    if is_instance_compat(dir.goto_if_false_label, IrLabel)
-                    else dir.goto_if_false_label
-                )
-                if label not in labels:
-                    return BackendError(f"Unknown label {label}")
-                dirs.append(IfDirective(labels[label]))
-            else:
-                dirs.append(dir)
-
-        return dirs
-
-
-class FinalChecks(IrPass):
-    def run(self, ir, state):
-        if state.lvar_array_size_bytes > MAX_STACK_SIZE:
-            return BackendError(
-                f"Stack size too big (expected less than {MAX_STACK_SIZE}, had {state.lvar_array_size_bytes})"
-            )
-        if len(ir) > MAX_DIRECTIVES_COUNT:
-            return BackendError(
-                f"Too many directives in sequence (expected less than {MAX_DIRECTIVES_COUNT}, had {len(ir)})"
-            )
-
-        for dir in ir:
-            # double check we've got rid of all the IR
-            assert is_instance_compat(dir, Directive), dir
-
-        return ir
+@dataclass(frozen=True, unsafe_hash=True)
+class IrPushLabelOffset(Ir):
+    """pushes the label's offset from the start of the file to the stack, as a StackSizeType"""
+    label: IrLabel

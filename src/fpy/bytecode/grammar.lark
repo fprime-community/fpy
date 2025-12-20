@@ -6,9 +6,11 @@ goto_tag: NAME ":"
 
 !op_with_args: "stack_cmd" _uint
   | "memcmp" _uint
-  | "load" _uint _uint
+  | "load_rel" _int _uint
+  | "load_abs" _int _uint
   | "allocate" _uint
-  | "store" _uint
+  | "store_rel" _uint
+  | "store_abs" _uint
   | "discard" _uint
   | "push_val" bytes
   | "const_cmd" _int bytes
@@ -16,9 +18,10 @@ goto_tag: NAME ":"
   | "if" (_uint|NAME)
   | "push_tlm_val" _int
   | "push_prm" _int
-  | "store_const_offset" _uint _uint
+  | "store_rel_const_offset" _int _uint
+  | "store_abs_const_offset" _int _uint
   | "get_field" _uint _uint
-  | "peek"
+  | "return" _uint _uint
 
 !op_with_no_args: "no_op"
   | "siext_8_64"
@@ -73,9 +76,11 @@ goto_tag: NAME ":"
   | "uitofp"
   | "exit"
   | "push_time"
+  | "call" 
+  | "peek"
 
 _uint: [UNARY_IDENTITY] DEC_NUMBER
-_int: [UNARY_IDENTITY | UNARY_NEGATION] DEC_NUMBER
+_int: NEG_DEC_NUMBER
 _float: FLOAT_NUMBER
 _string: STRING
 _boolean: CONST_FALSE | CONST_TRUE
@@ -100,6 +105,9 @@ UNARY_NEGATION: "-"
 
 DEC_NUMBER:   "1".."9"        ("_"?  "0".."9"                       )*
           |   "0"             ("_"?  "0"                            )* /(?![1-9])/
+
+NEG_DEC_NUMBER: "-"?  "1".."9"        ("_"?  "0".."9"                       )*
+              | "-"?  "0"             ("_"?  "0"                            )* /(?![1-9])/
 
 HEX_NUMBER.2: "0" ("x" | "X") ("_"? ("0".."9" | "a".."f" | "A".."F"))+
 

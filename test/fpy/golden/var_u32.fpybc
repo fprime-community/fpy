@@ -1,0 +1,3 @@
+allocate 4
+push_val 0 0 0 42
+store_rel_const_offset 0 4

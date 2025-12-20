@@ -1,0 +1,15 @@
+allocate 4
+push_val 0 0 0 0
+store_rel_const_offset 0 4
+load_rel 0 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 10
+ult
+if 15
+load_rel 0 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 1
+add
+itrunc_64_32
+store_rel_const_offset 0 4
+goto 3
