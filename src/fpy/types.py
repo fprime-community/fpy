@@ -7,9 +7,11 @@ import math
 import struct
 import typing
 from typing import Callable, Iterable, Union, get_args, get_origin
+import itertools
 import zlib
 
 from fpy.error import CompileError
+from fpy.ir import Ir, IrLabel
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
@@ -26,7 +28,7 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
-from fprime.common.models.serialize.numerical_types import (
+from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
     U32Type as U32Value,
@@ -41,25 +43,27 @@ from fprime.common.models.serialize.numerical_types import (
     FloatType as FloatValue,
     NumericalType as NumericalValue,
 )
-from fprime.common.models.serialize.string_type import StringType as StringValue
+from fprime_gds.common.models.serialize.string_type import StringType as StringValue
 from fpy.syntax import (
     AstBreak,
     AstContinue,
+    AstDef,
     AstExpr,
     AstFor,
     AstFuncCall,
+    AstTypeExpr,
     AstOp,
     AstReference,
     Ast,
     AstAssign,
-    AstScopedBody,
+    AstReturn,
+    AstBlock,
     AstWhile,
 )
-from fprime.common.models.serialize.type_base import BaseType as FppValue
+from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 
 MAX_DIRECTIVES_COUNT = 1024
 MAX_DIRECTIVE_SIZE = 2048
-MAX_STACK_SIZE = 1024
 
 COMPILER_MAX_STRING_SIZE = 128
 
@@ -76,9 +80,6 @@ def typename(typ: FppType) -> str:
     if typ == RangeValue:
         return "Range"
     return str(typ)
-
-
-LoopVarValue = I64Value
 
 
 # this is the "internal" integer type that integer literals have by
@@ -121,8 +122,8 @@ class FpyFloatValue(FloatValue):
             raise RuntimeError()
 
 
-# the type produced by range expressions `X .. Y`
 class RangeValue(FppValue):
+    """the type produced by range expressions `X .. Y`"""
     def serialize(self):
         raise NotImplementedError()
 
@@ -147,7 +148,6 @@ class RangeValue(FppValue):
 # default. it is arbitrary length. it is also only used in places where
 # we know the value is constant
 FpyStringValue = StringValue.construct_type("FpyStringValue", None)
-
 
 SPECIFIC_NUMERIC_TYPES = (
     U32Value,
@@ -231,41 +231,47 @@ NothingType = type[NothingValue]
 
 
 @dataclass
-class FpyCallable:
+class CallableSymbol:
     name: str
     return_type: FppType | NothingType
-    args: list[tuple[str, FppType]]
+    # args is a list of (name, type, default_value) tuples
+    # default_value is an AstExpr or None if no default is provided
+    args: list[tuple[str, FppType, "AstExpr | None"]]
 
 
 @dataclass
-class FpyCmd(FpyCallable):
+class CommandSymbol(CallableSymbol):
     cmd: CmdTemplate
 
 
 @dataclass
-class FpyMacro(FpyCallable):
+class BuiltinSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
-    """a function which instantiates the macro given the calling node"""
+    """a function which instantiates the builtin given the calling node"""
+
+@dataclass
+class FunctionSymbol(CallableSymbol):
+    definition: AstDef
 
 
 @dataclass
-class FpyTypeCtor(FpyCallable):
+class TypeCtorSymbol(CallableSymbol):
     type: FppType
 
 
 @dataclass
-class FpyCast(FpyCallable):
+class CastSymbol(CallableSymbol):
     to_type: FppType
 
 
 @dataclass
-class FieldReference:
+class FieldSymbol:
     """a reference to a member/element of an fprime struct/array type"""
 
     parent_expr: AstExpr
     """the complete qualifier"""
-    base_ref: FpyReference
-    """the base ref, up through all the layers of field refs"""
+    base_sym: Union["Symbol", None]
+    """the base symbol, up through all the layers of field symbols, or None if parent at some point is not a symbol at all"""
     type: FppType
     """the fprime type of this reference"""
     is_struct_member: bool = False
@@ -273,7 +279,7 @@ class FieldReference:
     is_array_element: bool = False
     """True if this is an array element reference"""
     base_offset: int = None
-    """the constant offset in the base ref type, or None if unknown at compile time"""
+    """the constant offset in the base symbol type, or None if unknown at compile time"""
     local_offset: int = None
     """the constant offset in the parent type at which to find this field
     or None if unknown at compile time"""
@@ -285,66 +291,68 @@ class FieldReference:
 
 # named variables can be tlm chans, prms, callables, or directly referenced consts (usually enums)
 @dataclass
-class FpyVariable:
-    """a mutable, typed value referenced by an unqualified name"""
+class VariableSymbol:
+    """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstExpr
+    type_ref: AstTypeExpr | None
     """the expression denoting the var's type"""
-    declaration: AstAssign
+    declaration: Ast
     """the node where this var is declared"""
     type: FppType | None = None
     """the resolved type of the variable. None if type unsure at the moment"""
-    lvar_offset: int | None = None
+    frame_offset: int | None = None
     """the offset in the lvar array where this var is stored"""
+    is_global: bool = False
+    """whether this variable is a top-level (global) variable"""
 
 
 @dataclass
 class ForLoopAnalysis:
-    loop_var: FpyVariable
-    upper_bound_var: FpyVariable
+    loop_var: VariableSymbol
+    upper_bound_var: VariableSymbol
     reuse_existing_loop_var: bool
+    
+
+next_symbol_table_id = 0
 
 
-# a scope
-next_scope_id = 0
-
-
-class FpyScope(dict):
+# a symbol table (scope) 
+class SymbolTable(dict):
     def __init__(self):
-        global next_scope_id
-        self.id = next_scope_id
-        next_scope_id += 1
+        global next_symbol_table_id
+        self.id = next_symbol_table_id
+        next_symbol_table_id += 1
 
-    def __getitem__(self, key: str) -> FpyReference:
+    def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
 
-    def get(self, key) -> FpyReference | None:
+    def get(self, key) -> Symbol | None:
         return super().get(key, None)
 
     def __hash__(self):
         return hash(self.id)
 
     def __eq__(self, value):
-        return isinstance(value, FpyScope) and value.id == self.id
+        return isinstance(value, SymbolTable) and value.id == self.id
 
 
-def create_scope(
-    references: dict[str, "FpyReference"],
-) -> FpyScope:
-    """from a flat dict of strs to references, creates a hierarchical, scoped
-    dict. no two leaf nodes may have the same name"""
+def create_symbol_table(
+    symbols: dict[str, "Symbol"],
+) -> SymbolTable:
+    """from a flat dict of strs to symbols, creates a hierarchical symbol table.
+    no two leaf nodes may have the same name"""
 
-    base = FpyScope()
+    base = SymbolTable()
 
-    for fqn, ref in references.items():
+    for fqn, sym in symbols.items():
         names_strs = fqn.split(".")
 
         ns = base
         while len(names_strs) > 1:
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
-                # this scope is not defined atm
+                # this symbol table is not defined atm
                 existing_child = {}
                 ns[names_strs[0]] = existing_child
 
@@ -369,13 +377,13 @@ def create_scope(
             # uh oh, something already had this name with a diff value
             continue
 
-        ns[name] = ref
+        ns[name] = sym
 
     return base
 
 
-def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
-    """returns the two scopes, joined into one. if there is a conflict, chooses lhs over rhs"""
+def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
+    """returns the two symbol tables, joined into one. if there is a conflict, chooses lhs over rhs"""
     lhs_keys = set(lhs.keys())
     rhs_keys = set(rhs.keys())
     common_keys = lhs_keys.intersection(rhs_keys)
@@ -383,15 +391,15 @@ def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    new = FpyScope()
+    new = SymbolTable()
 
     for key in common_keys:
         if not isinstance(lhs[key], dict) or not isinstance(rhs[key], dict):
-            # cannot be merged cleanly. one of the two is not a scope
+            # cannot be merged cleanly. one of the two is not a symbol table
             new[key] = lhs[key]
             continue
 
-        new[key] = union_scope(lhs[key], rhs[key])
+        new[key] = merge_symbol_tables(lhs[key], rhs[key])
 
     for key in only_lhs_keys:
         new[key] = lhs[key]
@@ -401,26 +409,26 @@ def union_scope(lhs: FpyScope, rhs: FpyScope) -> FpyScope:
     return new
 
 
-FpyReference = typing.Union[
+Symbol = typing.Union[
     ChTemplate,
     PrmTemplate,
     FppValue,
-    FpyCallable,
+    CallableSymbol,
     FppType,
-    FpyVariable,
-    FieldReference,
-    dict,  # dict of FpyReference
+    VariableSymbol,
+    FieldSymbol,
+    SymbolTable
 ]
-"""some named concept in fpy"""
+"""a named entity in fpy that can be looked up in a symbol table"""
 
 
-def resolve_var(node: Ast, name: str, state: CompileState) -> FpyVariable:
-    # check this scope and all parent scopes
-    local_scope = state.local_scopes[node]
+def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
+    """look up a symbol by name, searching this scope and all parent scopes"""
+    symbol_table = state.local_scopes[node]
     resolved = None
-    while local_scope is not None and resolved is None:
-        resolved = local_scope.get(name)
-        local_scope = state.scope_parents[local_scope]
+    while symbol_table is not None and resolved is None:
+        resolved = symbol_table.get(name)
+        symbol_table = state.scope_parents[symbol_table]
 
     return resolved
 
@@ -429,72 +437,91 @@ def resolve_var(node: Ast, name: str, state: CompileState) -> FpyVariable:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    types: FpyScope
-    """a scope whose leaf nodes are subclasses of BaseType"""
-    callables: FpyScope
-    """a scope whose leaf nodes are FpyCallable instances"""
-    tlms: FpyScope
-    """a scope whose leaf nodes are ChTemplates"""
-    prms: FpyScope
-    """a scope whose leaf nodes are PrmTemplates"""
-    consts: FpyScope
-    """a scope whose leaf nodes are FpyVariables"""
-    runtime_values: FpyScope = None
-    """a scope whose leaf nodes are tlms/prms/consts, all of which
+    types: SymbolTable
+    """a symbol table whose leaf nodes are subclasses of BaseType"""
+    callables: SymbolTable
+    """a symbol table whose leaf nodes are CallableSymbol instances"""
+    tlms: SymbolTable
+    """a symbol table whose leaf nodes are ChTemplates"""
+    prms: SymbolTable
+    """a symbol table whose leaf nodes are PrmTemplates"""
+    consts: SymbolTable
+    """a symbol table whose leaf nodes are VariableSymbols"""
+    runtime_values: SymbolTable = None
+    """a symbol table whose leaf nodes are tlms/prms/consts, all of which
     have some value at runtime."""
 
     compile_args: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        self.runtime_values = union_scope(
+        self.runtime_values = merge_symbol_tables(
             self.tlms,
-            union_scope(self.prms, self.consts),
+            merge_symbol_tables(self.prms, self.consts),
         )
 
     next_node_id: int = 0
-    root: AstScopedBody = None
-    variables: list[FpyVariable] = field(default_factory=list)
-    """a list of all variables, including ones that are anonymous, unlike the scope dict"""
-    scope_parents: dict[AstScopedBody, AstScopedBody | None] = field(
+    root: AstBlock = None
+    scope_parents: dict[AstBlock, AstBlock | None] = field(
         default_factory=dict, repr=False
     )
-    body_scopes: dict[AstScopedBody, FpyScope] = field(default_factory=dict, repr=False)
-    local_scopes: dict[Ast, FpyScope] = field(default_factory=dict, repr=False)
+    """map of a scoped body node to the parent scoped body node it should use"""
+    local_scopes: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
+    """map of node to the SymbolTable it should resolve names in"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
+    """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
         field(default_factory=dict)
     )
+    """map of break/continue to the loop which contains the break/continue"""
     desugared_for_loops: dict[AstWhile, AstFor] = field(default_factory=dict)
+    """mapping of while loops which are desugared for loops, to the original node from which they came"""
 
-    resolved_references: dict[AstReference, FpyReference] = field(
+    enclosing_funcs: dict[AstReturn, AstDef] = field(default_factory=dict)
+
+    resolved_symbols: dict[AstReference, Symbol] = field(
         default_factory=dict, repr=False
     )
     """reference to its singular resolution"""
 
-    expr_unconverted_types: dict[AstExpr, FppType | NothingType] = field(
+    synthesized_types: dict[AstExpr, FppType | NothingType] = field(
         default_factory=dict
     )
     """expr to its fprime type, before type conversions are applied"""
 
     op_intermediate_types: dict[AstOp, FppType] = field(default_factory=dict)
+    """the intermediate type that all args should be converted to for the given op"""
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
-    expr_converted_types: dict[AstExpr, FppType] = field(default_factory=dict)
+    """a list of nodes which are explicit casts"""
+    contextual_types: dict[AstExpr, FppType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    expr_converted_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    contextual_values: dict[AstExpr, FppValue | NothingValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time"""
 
-    while_loop_end_labels: dict[AstWhile, int] = field(default_factory=dict)
-    while_loop_start_labels: dict[AstWhile, int] = field(default_factory=dict)
-    # store keys as while because for loops are desugared to while
-    for_loop_inc_labels: dict[AstWhile, int] = field(default_factory=dict)
+    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(
+        default_factory=dict
+    )
+    """function call to resolved arguments in positional order.
+    Default values are filled in for arguments not provided at the call site."""
 
-    lvar_array_size_bytes: int = 0
-    """the size in bytes of the lvar array"""
+    while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """while loop node mapped to the label pointing to the end of the loop"""
+    while_loop_start_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """while loop node mapped to the label pointing to the start of the loop, just before the conditional"""
+    # store keys as while because for loops are desugared to while
+    for_loop_inc_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """for loop node (desugared into a while) mapped to a label pointing to its increment stmt"""
+
+    does_return: dict[Ast, bool] = field(default_factory=dict)
+
+    func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
+    """function to entry point label"""
+
+    generated_funcs: dict[AstDef, list[Directive|Ir]] = field(default_factory=dict)
 
     errors: list[CompileError] = field(default_factory=list)
     """a list of all compile exceptions generated by passes"""
@@ -506,6 +533,7 @@ class CompileState:
 
     def new_anonymous_variable_name(self) -> str:
         id = self.next_anon_var_id
+        self.next_anon_var_id += 1
         return f"$value{id}"
 
     def err(self, msg, n):
@@ -514,6 +542,10 @@ class CompileState:
 
     def warn(self, msg, n):
         self.warnings.append(CompileError("Warning: " + msg, n))
+
+
+# Cache for visitor method mappings, keyed by visitor class
+_visitor_cache: dict[type, dict[type, str]] = {}
 
 
 class Visitor:
@@ -526,7 +558,17 @@ class Visitor:
         self.build_visitor_dict()
 
     def build_visitor_dict(self):
-        for name, func in inspect.getmembers(type(self), inspect.isfunction):
+        cls = type(self)
+        # Check if this class's visitor mapping is already cached
+        if cls in _visitor_cache:
+            # Use cached mapping (maps node type -> method name)
+            for node_type, method_name in _visitor_cache[cls].items():
+                self.visitors[node_type] = getattr(self, method_name)
+            return
+
+        # Build the mapping and cache it
+        class_cache: dict[type, str] = {}
+        for name, func in inspect.getmembers(cls, inspect.isfunction):
             if not name.startswith("visit") or name == "visit_default":
                 # not a visitor, or the default visit func
                 continue
@@ -541,10 +583,14 @@ class Visitor:
             if origin in UNION_TYPES:
                 # It's a Union type, so get its arguments.
                 for t in get_args(param_type):
+                    class_cache[t] = name
                     self.visitors[t] = getattr(self, name)
             else:
                 # It's not a Union, so it's a regular type
+                class_cache[param_type] = name
                 self.visitors[param_type] = getattr(self, name)
+
+        _visitor_cache[cls] = class_cache
 
     def _visit(self, node: Ast, state: CompileState):
         visit_func = self.visitors.get(type(node), self.visit_default)
@@ -563,6 +609,9 @@ class Visitor:
             for field in fields(node):
                 field_val = getattr(node, field.name)
                 if isinstance(field_val, list):
+                    # also handle the one case where we have a list of tuples
+                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
+                        field_val = itertools.chain.from_iterable(field_val)
                     children.extend(field_val)
                 else:
                     children.append(field_val)
@@ -593,6 +642,9 @@ class TopDownVisitor(Visitor):
             for field in fields(node):
                 field_val = getattr(node, field.name)
                 if isinstance(field_val, list):
+                    # also handle the one case where we have a list of tuples
+                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
+                        field_val = itertools.chain.from_iterable(field_val)
                     children.extend(field_val)
                 else:
                     children.append(field_val)
@@ -690,10 +742,63 @@ class Transformer(Visitor):
         self._visit(start, state)
 
 
+# Cache for emitter method mappings, keyed by emitter class
+_emitter_cache: dict[type, dict[type, str]] = {}
+
+
+class Emitter:
+    # Default: not in a function (top-level code)
+    # Subclasses override this to indicate function body context
+    in_function = False
+
+    def __init__(self):
+        self.emitters: dict[type[Ast], Callable] = {}
+        """dict of node type to handler function"""
+        self.build_emitter_dict()
+
+    def build_emitter_dict(self):
+        cls = type(self)
+        # Check if this class's emitter mapping is already cached
+        if cls in _emitter_cache:
+            # Use cached mapping (maps node type -> method name)
+            for node_type, method_name in _emitter_cache[cls].items():
+                self.emitters[node_type] = getattr(self, method_name)
+            return
+
+        # Build the mapping and cache it
+        class_cache: dict[type, str] = {}
+        for name, func in inspect.getmembers(cls, inspect.isfunction):
+            if not name.startswith("emit_"):
+                # not an emitter
+                continue
+            signature = inspect.signature(func)
+            params = list(signature.parameters.values())
+            assert len(params) == 3
+            assert params[1].annotation is not None
+            annotations = typing.get_type_hints(func)
+            param_type = annotations[params[1].name]
+
+            origin = get_origin(param_type)
+            if origin in UNION_TYPES:
+                # It's a Union type, so get its arguments.
+                for t in get_args(param_type):
+                    class_cache[t] = name
+                    self.emitters[t] = getattr(self, name)
+            else:
+                # It's not a Union, so it's a regular type
+                class_cache[param_type] = name
+                self.emitters[param_type] = getattr(self, name)
+
+        _emitter_cache[cls] = class_cache
+
+    def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
+        return self.emitters[type(node)](node, state)
+
+
 MAJOR_VERSION = 0
 MINOR_VERSION = 3
 PATCH_VERSION = 0
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 HEADER_FORMAT = "!BBBBBHI"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)

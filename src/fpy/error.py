@@ -51,18 +51,23 @@ class CompileError:
         ]
 
         # reserve this much space for the line numbers
-        line_number_space = 4 if source_end_line < 998 else 8
+        # add two extra spaces for the caret to display multiline errors on lhs
+        line_number_space = 6 if source_end_line < 998 else 10
+
+        node_lines = meta.end_line - meta.line
 
         # prefix all the lines with the prefix and line number
         # right justified line number, then a |, then the line
+        # also if this is a multiline error, highlight the lines that errored with a >
         source_to_display = [
-            str(source_start_line + line_idx + 1).rjust(line_number_space)
+            (
+                ("> " if line_idx in range(meta.line - 1, meta.end_line - 1) else "")
+                + str(source_start_line + line_idx + 1)
+            ).rjust(line_number_space)
             + " | "
             + line
             for line_idx, line in enumerate(source_to_display)
         ]
-
-        node_lines = meta.end_line - meta.line
 
         if node_lines > 1:
             source_to_display_str = "\n".join(source_to_display)
@@ -80,6 +85,7 @@ class CompileError:
 
         return result
 
+
 @dataclass
 class BackendError:
     msg: str
@@ -89,13 +95,13 @@ class BackendError:
             f"{file_name}" if file_name is not None else "<unknown file>"
         )
         return f"{file_name_optional}: {self.msg}"
-        
 
 
 def handle_lark_error(err):
+    import sys
     assert isinstance(err, LarkError), err
     if isinstance(err, UnexpectedToken):
-        print(str(CompileError("Invalid syntax", err.token)))
+        print(str(CompileError("Invalid syntax", err.token)), file=sys.stderr)
     elif isinstance(err, DedentError):
-        print(str(CompileError(err.args[0])))
+        print(str(CompileError(err.args[0])), file=sys.stderr)
     exit(1)
