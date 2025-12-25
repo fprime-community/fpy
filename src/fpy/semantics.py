@@ -1342,11 +1342,16 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         for value_expr, arg in zip(resolved_args, func_args):
             arg_type = arg[1]
 
-            # Skip type check for default values that are FppValue instances (from builtins)
-            # or for default values from forward-called functions that haven't been visited yet.
+            # Skip type check for default values that are FppValue instances
+            # this can only happen if the value is hardcoded into Fpy from a builtin func
             if not is_instance_compat(value_expr, Ast):
-                # It's a raw FppValue default from a builtin - type is already correct
+                assert is_instance_compat(func, BuiltinSymbol), func
                 continue
+
+            # Skip type check for default values from forward-called functions.
+            # These expressions haven't been visited yet, so they're not in
+            # synthesized_types. Their type compatibility is verified when
+            # the function definition is visited.
             if value_expr not in state.synthesized_types:
                 continue
 
@@ -1402,10 +1407,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
-                # Skip coercion for FppValue defaults from builtins or
-                # for default values from forward-called functions.
+                # Skip coercion for FppValue defaults from builtins
                 if not is_instance_compat(value_expr, Ast):
+                    assert is_instance_compat(func, BuiltinSymbol), func
                     continue
+                # Skip coercion for default values from forward-called functions.
+                # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
                 arg_type = arg[1]

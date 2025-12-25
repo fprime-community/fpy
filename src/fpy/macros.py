@@ -102,7 +102,7 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinSymbol(
             U32Value,
             U32Value(0),
         ),
-        ("microseconds", U32Value, U32Value(0)),
+        ("useconds", U32Value, U32Value(0)),
     ],
     lambda n: [WaitRelDirective()],
 )

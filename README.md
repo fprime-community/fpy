@@ -340,9 +340,11 @@ Functions can only be defined at the top level—not inside loops, conditionals,
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
-# sleep for 1 second and 0 microseconds
-sleep(1, 0)
+# sleep for 1 second
+sleep(1)
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+# sleep for half a second
+sleep(useconds=500_000)
 
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")

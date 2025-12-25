@@ -467,7 +467,7 @@ def test_wait_rel_default_args(fprime_test_api):
 sleep()
 sleep(5)
 sleep(seconds=3)
-sleep(microseconds=500)
+sleep(useconds=500)
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -1516,6 +1516,12 @@ uint: U32 = 123123
 int: I32 = I32(uint)
 assert int == 123123
 
+CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
+# sleep for 1 second
+sleep(1)
+CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+# sleep for half a second
+sleep(useconds=500_000)
 
 value: bool = 1 > 2 and (3 + 4) != 5
 many_cmds_dispatched: bool = cmds_dispatched >= 123
@@ -3548,7 +3554,7 @@ assert pair.secondChoice == Ref.Choice.TWO
 def test_named_arg_builtin(fprime_test_api):
     """Named arguments work with builtin functions."""
     seq = """
-sleep(microseconds=1000, seconds=1)
+sleep(useconds=1000, seconds=1)
 """
 
     assert_run_success(fprime_test_api, seq)
