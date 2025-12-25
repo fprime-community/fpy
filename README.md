@@ -352,6 +352,19 @@ sleep_until(Fw.Time(0, 1, 1234567890, 0))
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
+You can also use the `time()` function to parse ISO 8601 timestamps:
+```py
+# Parse an ISO 8601 timestamp (UTC with Z suffix)
+sleep_until(time("2025-12-19T14:30:00Z"))
+
+# With microseconds
+t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
+sleep_until(t)
+
+# Customize time_base and time_context (defaults are 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
+```
+
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
 ## 14. Exit Macro

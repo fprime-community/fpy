@@ -122,6 +122,7 @@ Available macros:
 * `sleep(seconds: U32, microseconds: U32)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
 * `sleep_until(wakeup_time: Fw.Time)`: waits until the supplied absolute time using `WaitAbsDirective`.
 * `now() -> Fw.Time`: pushes the current time via `PushTimeDirective`.
+* `time(timestamp: String, time_base: U16 = 0, time_context: U8 = 0) -> Fw.Time`: parses an ISO 8601 timestamp string (e.g., `"2025-12-19T14:30:00Z"` or `"2025-12-19T14:30:00.123456Z"`) at compile time and returns an `Fw.Time` with the specified `time_base` and `time_context`. The timestamp must be in UTC with a `Z` suffix.
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
 

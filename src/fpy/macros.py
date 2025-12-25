@@ -9,10 +9,11 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import BuiltinSymbol, NothingValue
+from fpy.types import BuiltinSymbol, FpyStringValue, NothingValue
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
+    U16Type as U16Value,
     U32Type as U32Value,
     I64Type as I64Value,
     F64Type as F64Value,
@@ -99,9 +100,9 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinSymbol(
         (
             "seconds",
             U32Value,
-            None,
+            U32Value(0),
         ),
-        ("microseconds", U32Value, None),
+        ("microseconds", U32Value, U32Value(0)),
     ],
     lambda n: [WaitRelDirective()],
 )
@@ -170,4 +171,16 @@ MACROS: dict[str, BuiltinSymbol] = {
     "now": BuiltinSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
+    # time() parses ISO 8601 timestamps at compile time
+    # The generate function should never be called since this is always const-evaluated
+    "time": BuiltinSymbol(
+        "time",
+        TimeValue,
+        [
+            ("timestamp", FpyStringValue, None),
+            ("time_base", U16Value, U16Value(0)),
+            ("time_context", U8Value, U8Value(0)),
+        ],
+        lambda n: [],  # placeholder - const eval handles this
+    ),
 }

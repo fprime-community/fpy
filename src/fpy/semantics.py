@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
 import struct
@@ -11,6 +12,7 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    BuiltinSymbol,
     CompileState,
     FieldSymbol,
     ForLoopAnalysis,
@@ -1340,10 +1342,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         for value_expr, arg in zip(resolved_args, func_args):
             arg_type = arg[1]
 
-            # Skip type check for default values from forward-called functions.
-            # These expressions haven't been visited yet, so they're not in
-            # synthesized_types. Their type compatibility is verified when
-            # the function definition is visited.
+            # Skip type check for default values that are FppValue instances (from builtins)
+            # or for default values from forward-called functions that haven't been visited yet.
+            if not is_instance_compat(value_expr, Ast):
+                # It's a raw FppValue default from a builtin - type is already correct
+                continue
             if value_expr not in state.synthesized_types:
                 continue
 
@@ -1399,8 +1402,10 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
-                # Skip coercion for default values from forward-called functions.
-                # These will be coerced when the function definition is visited.
+                # Skip coercion for FppValue defaults from builtins or
+                # for default values from forward-called functions.
+                if not is_instance_compat(value_expr, Ast):
+                    continue
                 if value_expr not in state.synthesized_types:
                     continue
                 arg_type = arg[1]
@@ -1552,6 +1557,60 @@ class CalculateConstExprValues(Visitor):
             return None
 
         return struct.unpack(fmt, packed)[0]
+
+    @staticmethod
+    def _parse_time_string(
+        time_str: str, time_base: int, time_context: int, node: Ast, state: CompileState
+    ) -> TimeValue | None:
+        """Parse an ISO 8601 timestamp string into a TimeValue.
+
+        Accepts formats like:
+        - "2025-12-19T14:30:00Z"
+        - "2025-12-19T14:30:00.123456Z"
+
+        Returns TimeValue with the provided time_base and time_context, and the parsed
+        seconds/microseconds since Unix epoch.
+        """
+        try:
+            # Try parsing with microseconds first
+            try:
+                dt = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+            except ValueError:
+                # Fall back to no microseconds
+                dt = datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%SZ")
+
+            # Convert to UTC timestamp
+            dt = dt.replace(tzinfo=timezone.utc)
+            timestamp = dt.timestamp()
+
+            # Split into seconds and microseconds
+            seconds = int(timestamp)
+            useconds = int((timestamp - seconds) * 1_000_000)
+
+            # Validate ranges for U32
+            if seconds < 0:
+                state.err(
+                    f"Time string '{time_str}' results in negative seconds ({seconds}), "
+                    "which cannot be represented in Fw.Time",
+                    node,
+                )
+                return None
+            if seconds > 0xFFFFFFFF:
+                state.err(
+                    f"Time string '{time_str}' results in seconds ({seconds}) exceeding U32 max",
+                    node,
+                )
+                return None
+
+            return TimeValue(time_base=time_base, time_context=time_context, seconds=seconds, useconds=useconds)
+
+        except ValueError as e:
+            state.err(
+                f"Invalid time string '{time_str}': expected ISO 8601 format "
+                "(e.g., '2025-12-19T14:30:00Z' or '2025-12-19T14:30:00.123456Z')",
+                node,
+            )
+            return None
 
     @staticmethod
     def const_convert_type(
@@ -1837,10 +1896,15 @@ class CalculateConstExprValues(Visitor):
         resolved_args = state.resolved_func_args[node]
 
         # Gather arg values. Since defaults are already filled in, we just need
-        # to look up each arg's const value.
-        arg_values = [
-            state.contextual_values.get(arg_expr) for arg_expr in resolved_args
-        ]
+        # to look up each arg's const value. For FppValue defaults from builtins,
+        # use the value directly.
+        arg_values = []
+        for arg_expr in resolved_args:
+            if is_instance_compat(arg_expr, Ast):
+                arg_values.append(state.contextual_values.get(arg_expr))
+            else:
+                # It's a raw FppValue default from a builtin
+                arg_values.append(arg_expr)
 
         unknown_value = any(v is None for v in arg_values)
         if unknown_value:
@@ -1876,6 +1940,16 @@ class CalculateConstExprValues(Visitor):
             # should only be one value. it should be of some numeric type
             # our const convert type func will convert it for us
             expr_value = arg_values[0]
+        elif is_instance_compat(func, BuiltinSymbol) and func.name == "time":
+            # time() builtin parses ISO 8601 timestamps at compile time
+            timestamp_str = arg_values[0].val
+            time_base = arg_values[1].val
+            time_context = arg_values[2].val
+            expr_value = self._parse_time_string(
+                timestamp_str, time_base, time_context, node, state
+            )
+            if expr_value is None:
+                return
         else:
             # don't try to calculate the value of this function call
             # it's something like a user defined func, cmd or builtin
