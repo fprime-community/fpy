@@ -1,4 +1,5 @@
 from __future__ import annotations
+from lark.tree import Meta
 from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from fpy.syntax import (
     Ast,
