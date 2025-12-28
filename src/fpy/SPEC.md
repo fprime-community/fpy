@@ -4,118 +4,144 @@
 
 Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with several domain-specific features for spacecraft operation.
 
-This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified.
+This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified. 
 
 It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.
 
+> Informal notes and explanations are quoted like this
+
 Terms are *italicized* when being defined for the first time.
+
+`Monospaced` terms refer to syntactic rules or example Fpy code.
+
+Monospaced code blocks are example Fpy code:
+```py
+def example(fpy: U8):
+    return
+```
 
 # Syntax
 The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html), in [grammar.lark](grammar.lark).
 
 The rest of the specification is dedicated to the semantics of Fpy.
 
-Symbol table is just a tool.
-Scope is about name resolution, hierarchical, etc
-
-
-# Names
+# Symbols
 
 A *symbol* is a language construct that can be referred to in the program. 
 
 The following language constructs may be symbols:
-* [scopes](#scopes)
+* [namespaces](#namespaces)
 * [variables](todo)
 * [functions](todo)
-* [types](todo)
+* [types](#types)
 * telemetry channels
 * parameters
 * enum constants
 
-## Scopes
+# Namespaces
 
-A *scope* is a mapping of *names* to *symbols*.
+A *namespace* is a mapping of `names` to symbols.
+
+> As a namespace can be a symbol, namespaces may be thought of as having a tree structure.
+
+# Scopes
+
+A *scope* is a mapping of `names` to symbols, available throughout a region of the source code.
+
+> Because scopes may contain namespaces, they may be thought of as having a tree structure.
+
+A *global scope* is a scope available throughout the whole source code.
+
+The *global callable scope* is a global scope whose leaf nodes are all [callables](#callables).
+
+The *global value scope* is a global scope whose leaf nodes are all [values](#values).
+
+The *global type scope* is a global scope whose leaf nodes are all [types](#types).
+
+Each [function](todo) has its own *function value scope* available in its body, whose leaf nodes are all [values](#values)
+
+> Functions do not need a function callable scope because no callables can be declared in a function.
+
+## Declarations
 
 A *declaration* is a language construct that introduces a name-to-symbol mapping to a scope.
 
-There are two types of declarations: [variable](todo) declarations and [function](todo) declarations.
+A *variable declaration* introduces a name-to-[variable](#variables) mapping to the enclosing function value scope, if it is inside a function, otherwise to the global value scope.
 
-Each [function](todo) has a separate *function* scope.
+A *function declaration* introduces a name-to-[function](#function) mapping to the global callable scope.
 
-### Local scopes
-
-Names have a *local* scope associated with them. 
-
-If a name is located outside of a [function](todo) body, its local scope is the *global* scope. 
-
-If a name is located inside of a function body, it's local scope is the function scope particular to that function.
-
-### Parent scopes
-
-Scopes may have a *parent* scope. 
-
-The global scope does not have a parent scope. 
-
-The parent scope of a function scope is the global scope.
-
-### Dictionary scopes
-There are several *dictionary* scopes:
-* The *type* scope, whose leaf nodes are all [types](#types)
-* The *callable* scope, whose leaf nodes are all [callables](#callables)
-* The *value* scope, whose leaf nodes all are [values](#values)
-
-As the name suggests, each of these scopes is populated from the F-Prime dictionary, and cannot be changed by the program.
-
-## Name resolution
-
-To resolve a name to a symbol, the following scopes are searched until the name is found, in order:
-1. The local scope.
-2. The parent scope of the local scope, if one exists.
-3. The appropriate dictionary scope, based on the syntactic position of the name:
-   * If the name is the receiver of a `func_call`, search the callable scope.
-   * If the name is the type annotation of an `assign_stmt`, or of a `parameter`, or of a `def_stmt` return type, search the type scope.
-   * Otherwise, search the value scope.
-
-Dividing the dictionary scopes up like this allows us to disambiguate cases in which, for instance, a callable has the same name as a type.
-
-If the name is still not found, an error is raised.
-
-# Attributes
-
-An *attribute access* is a use of the the `get_attr` syntactic rule.
-
-The *parent* of an attribute access is the expression to the left of the dot.
-
-The *attribute* of an attribute access is the string to the right of the dot.
-
-## Attribute resolution
-
-To resolve an attribute to a symbol, first the parent is resolved, recursively.
-
-The parent of an attribute may be one of the following:
-* A scope
-* A type
-* An [expression](todo)
-
-An attribute access has one of many different behaviors depending on the parent:
-
-| Parent category | Attribute behavior |
-|---|---|
-|Expression|Member access|
-|Scope|
-|Type|Raise an error|
-|Callable|Raise an error|
-
+> Because function declarations are syntactically restricted to only occur in the global scope, you can never declare a function in a function scope, so there doesn't need to be a function callable scope.
 
 # Types
 
+A *type* is a set of *values*.
+
+The values of a type are unique to that type.
+
+Types cannot be declared by the program.
+
+If a type can be represented in binary format, it is a *serializable type*.
+
+## Structs
+A *struct* is a type whose values are tuples of values of other types.
 
 
-## Built-in types
-The following types are built into Fpy, and the developer can directly refer to them by name:
+
+Structs and their
+
+*Primitive types* are always present in the global type scope.
+
+Primitive types are serializable types.
+
+The list of primitive types is:
+* All [numeric types](#numeric-types)
+* [Boolean type](#boolean-type)
+* [Time type](#time-type)
+
+## Type aliases
+*Loop var type* is an alias for `I64`.
+
+## Internal types
+
+*Internal types* are never present in the global type scope.
+
+Internal types are not serializable types.
+
+*Int* is an internal type whose values are integers of arbitrary precision.
+
+*Float* is an internal type whose values are decimals per the Python [decimal](https://docs.python.org/3/library/decimal.html#module-decimal) implementation.
+
+The precision of Float is 30 decimal places.
+
+*String* is an internal type whose values are strings of arbitrary length.
+
+*Range* is an internal type whose values are pairs of values of loop var type.
+
+## Dictionary types
+*Dictionary types* are types defined in the F-Prime dictionary.
+
+Dictionary types are serializable types.
+
+
+
+TODO: reference "dictionary population/some section called population from dict"
+
+
+
+
+*Serializable* types are types whose values can be expressed in a binary format.
+
+
+
+There are *serializable* types and *non-serializable* types.
+
+## Numeric types
 * Numeric types: `U8, U16, U32, U64, I8, I16, I32, I64, F32, F64`
-* Boolean type: `bool`
-* Time type: `Fw.Time`
+## Boolean type
+
+## Time type
+
+## Internal int 
 
 
 ## Integer
@@ -154,52 +180,10 @@ The following literals are supported by Fpy:
 * Boolean literals: `True` and `False`
 
 ## Integer literals
-Integer literals are strings matching:
-```
-DEC_NUMBER:   "1".."9" ("_"?  "0".."9" )*
-          |   "0"      ("_"?  "0"      )* /(?![1-9])/
-```
-
-The first rule of this syntax allows for integers without leading zeroes, separated by underscores. So this is okay:
-```
-123_456
-```
-but this is not:
-```
-0123_456
-```
-
-The second rule allows you to write any number of zeroes, separated by underscores:
-```
-00_000_0
-```
 
 Integer literals have type *Integer*, which is not directly referenceable by the user. The *Integer* type supports integers of arbitrary size.
 
 ## Float literals
-Float literals are strings matching:
-```
-FLOAT_NUMBER: _SPECIAL_DEC _EXP | DECIMAL _EXP?
-```
-where `_SPECIAL_DEC`, `_EXP` and `DECIMAL` are defined as:
-
-```
-_SPECIAL_DEC: "0".."9" ("_"?  "0".."9")*
-_EXP: ("e"|"E") ["+" | "-"] _SPECIAL_DEC
-DECIMAL: "." _SPECIAL_DEC | _SPECIAL_DEC "." _SPECIAL_DEC
-```
-
-A `FLOAT_NUMBER` can be any string of digits suffixed with an exponent, like these:
-```
-1e-5
-100_200e10
-```
-
-or it can be a `DECIMAL` optionally suffixed by an exponent, like these:
-```
-2.123
-100.5e+10
-```
 
 Float literals have type *Float*, which is not directly referenceable by the user. The *Float* type supports up to 30 decimal points of precision. It is implemented with the Python `Decimal` type.
 
@@ -210,6 +194,49 @@ STRING: /("(?!"").*?(?<!\\)(\\\\)*?"|'(?!'').*?(?<!\\)(\\\\)*?')/i
 ```
 
 They have type *LiteralString*, which is not directly referenceable by the user. The *LiteralString* type supports strings of arbitrary length.
+
+# Attributes
+
+An *attribute access* is a use of the the `get_attr` syntactic rule.
+
+The *parent* of an attribute access is the expression to the left of the dot.
+
+The *attribute* of an attribute access is the string to the right of the dot.
+
+## Attribute resolution
+
+An attribute may resolve to a 
+
+To resolve an attribute to a symbol, first the parent is resolved, recursively.
+
+The parent of an attribute may be one of the following:
+* A namespace
+* A type
+* An [expression](todo)
+
+An attribute access has one of many different behaviors depending on the parent:
+
+| Parent category | Attribute behavior |
+|---|---|
+|Expression|Member access|
+|Namespace|Name lookup|
+|Type|Raise an error|
+|Callable|Raise an error|
+
+# Fully-qualified name resolution
+
+To resolve a name to a [value](#values):
+1. If the name is inside a function, check the function's value scope.
+2. Check the global value scope.
+
+At the end, if the name is not found, an error is raised.
+
+To resolve a name to a [callable](#callables), the global callable scope is checked, and an error is raised if the name is not found.
+TODO: but this isn't really true right because we can resolve more than just names to callables? maybe this section isn't needed?
+
+
+To resolve a name to a [type](#callables), the global callable scope is checked, and an error is raised if the name is not found.
+
 
 # Functions
 
