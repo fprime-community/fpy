@@ -371,7 +371,7 @@ class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
             # It's relative (TimeIntervalValue), wrap with time_add(now(), timeout)
             # We need to find the time_add function and now function
             time_add_func = lookup_symbol(node, "time_add", state)
-            now_func = state.callables.get("now")
+            now_func = state.global_callable_scope.get("now")
             
             assert time_add_func is not None, "time_add function not found"
             assert now_func is not None, "now function not found"

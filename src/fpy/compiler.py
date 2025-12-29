@@ -309,9 +309,9 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
 
     state = CompileState(
-        types=type_scope,
-        callables=callable_scope,
-        values=values_scope,
+        global_type_scope=type_scope,
+        global_callable_scope=callable_scope,
+        global_value_scope=values_scope,
         compile_args=compile_args or dict(),
     )
     return state

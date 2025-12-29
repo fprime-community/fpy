@@ -447,11 +447,11 @@ def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    types: SymbolTable
+    global_type_scope: SymbolTable
     """The global type scope: a symbol table whose leaf nodes are types"""
-    callables: SymbolTable
+    global_callable_scope: SymbolTable
     """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
-    values: SymbolTable
+    global_value_scope: SymbolTable
     """The global value scope: a symbol table whose leaf nodes are runtime values
     (telemetry channels, parameters, enum constants, variables)."""
 
