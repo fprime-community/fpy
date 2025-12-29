@@ -448,26 +448,14 @@ class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
     types: SymbolTable
-    """a symbol table whose leaf nodes are subclasses of BaseType"""
+    """The global type scope: a symbol table whose leaf nodes are types"""
     callables: SymbolTable
-    """a symbol table whose leaf nodes are CallableSymbol instances"""
-    tlms: SymbolTable
-    """a symbol table whose leaf nodes are ChTemplates"""
-    prms: SymbolTable
-    """a symbol table whose leaf nodes are PrmTemplates"""
-    consts: SymbolTable
-    """a symbol table whose leaf nodes are VariableSymbols"""
-    runtime_values: SymbolTable = None
-    """a symbol table whose leaf nodes are tlms/prms/consts, all of which
-    have some value at runtime."""
+    """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
+    values: SymbolTable
+    """The global value scope: a symbol table whose leaf nodes are runtime values
+    (telemetry channels, parameters, enum constants, variables)."""
 
     compile_args: dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        self.runtime_values = merge_symbol_tables(
-            self.tlms,
-            merge_symbol_tables(self.prms, self.consts),
-        )
 
     next_node_id: int = 0
     root: AstBlock = None

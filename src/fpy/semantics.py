@@ -603,80 +603,80 @@ class ResolveVars(TopDownVisitor):
             if is_instance_compat(arg, AstNamedArgument):
                 # For named arguments, resolve the value expression
                 if not self.try_resolve_root_ref(
-                    arg.value, state.runtime_values, "value", state
+                    arg.value, state.values, "value", state
                 ):
                     return
             else:
                 # arg value refs must have values at runtime
                 if not self.try_resolve_root_ref(
-                    arg, state.runtime_values, "value", state
+                    arg, state.values, "value", state
                 ):
                     return
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
         # if condition expr refs must be "runtime values" (tlm/prm/const/etc)
         if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
+            node.condition, state.values, "value", state
         ):
             return
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
         if not self.try_resolve_root_ref(
-            node.lhs, state.runtime_values, "value", state
+            node.lhs, state.values, "value", state
         ):
             return
         if not self.try_resolve_root_ref(
-            node.rhs, state.runtime_values, "value", state
+            node.rhs, state.values, "value", state
         ):
             return
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.val, state.runtime_values, "value", state
+            node.val, state.values, "value", state
         ):
             return
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.lhs, state.runtime_values, "value", state
+            node.lhs, state.values, "value", state
         ):
             return
 
         # Type annotation is resolved by ResolveTypeNames pass
 
         if not self.try_resolve_root_ref(
-            node.rhs, state.runtime_values, "value", state
+            node.rhs, state.values, "value", state
         ):
             return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.loop_var, state.runtime_values, "value", state
+            node.loop_var, state.values, "value", state
         ):
             return
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
         if not self.try_resolve_root_ref(
-            node.range, state.runtime_values, "value", state
+            node.range, state.values, "value", state
         ):
             return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
+            node.condition, state.values, "value", state
         ):
             return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
+            node.condition, state.values, "value", state
         ):
             return
         if node.exit_code is not None:
             if not self.try_resolve_root_ref(
-                node.exit_code, state.runtime_values, "value", state
+                node.exit_code, state.values, "value", state
             ):
                 return
 
@@ -694,17 +694,17 @@ class ResolveVars(TopDownVisitor):
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.item, state.runtime_values, "value", state
+            node.item, state.values, "value", state
         ):
             return
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.lower_bound, state.runtime_values, "value", state
+            node.lower_bound, state.values, "value", state
         ):
             return
         if not self.try_resolve_root_ref(
-            node.upper_bound, state.runtime_values, "value", state
+            node.upper_bound, state.values, "value", state
         ):
             return
 
@@ -715,7 +715,7 @@ class ResolveVars(TopDownVisitor):
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
                 if not self.try_resolve_root_ref(
-                    arg_name_var, state.runtime_values, "value", state
+                    arg_name_var, state.values, "value", state
                 ):
                     return
 
@@ -724,13 +724,13 @@ class ResolveVars(TopDownVisitor):
                 # Resolve default value if present
                 if default_value is not None:
                     if not self.try_resolve_root_ref(
-                        default_value, state.runtime_values, "value", state
+                        default_value, state.values, "value", state
                     ):
                         return
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         if not self.try_resolve_root_ref(
-            node.value, state.runtime_values, "value", state
+            node.value, state.values, "value", state
         ):
             return
 

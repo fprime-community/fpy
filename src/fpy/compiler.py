@@ -59,6 +59,7 @@ from fpy.types import (
     TypeCtorSymbol,
     Visitor,
     create_symbol_table,
+    merge_symbol_tables,
 )
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
@@ -183,10 +184,10 @@ def _load_dictionary(dictionary: str) -> tuple:
 
 
 @lru_cache(maxsize=4)
-def _build_scopes(dictionary: str) -> tuple:
+def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Build and cache the scopes for a dictionary.
-    Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
+    Build and cache the 3 global scopes for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope).
     """
     cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(
         dictionary
@@ -285,27 +286,32 @@ def _build_scopes(dictionary: str) -> tuple:
     for macro_name, macro in MACROS.items():
         callable_name_dict[macro_name] = macro
 
-    return (
+    # Build the 3 global scopes per SPEC:
+    # 1. global type scope - leaf nodes are types
+    type_scope = create_symbol_table(type_name_dict)
+    # 2. global callable scope - leaf nodes are callables
+    callable_scope = create_symbol_table(callable_name_dict)
+    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
+    #    Merge all value sources into one scope
+    values_scope = merge_symbol_tables(
         create_symbol_table(ch_name_dict),
-        create_symbol_table(prm_name_dict),
-        create_symbol_table(type_name_dict),
-        create_symbol_table(callable_name_dict),
-        create_symbol_table(enum_const_name_dict),
+        merge_symbol_tables(
+            create_symbol_table(prm_name_dict),
+            create_symbol_table(enum_const_name_dict),
+        ),
     )
+
+    return (type_scope, callable_scope, values_scope)
 
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(
-        dictionary
-    )
+    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
 
     state = CompileState(
-        tlms=tlm_scope,
-        prms=prm_scope,
         types=type_scope,
         callables=callable_scope,
-        consts=const_scope,
+        values=values_scope,
         compile_args=compile_args or dict(),
     )
     return state
