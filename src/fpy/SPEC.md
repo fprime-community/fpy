@@ -1,4 +1,4 @@
-> **WARNING:** The SPEC is currently work-in-progress
+> **WARNING:** The Fpy specification is a work-in-progress
 
 # Fpy Specification
 
@@ -12,7 +12,7 @@ It is assumed the reader is familiar with the FPP model, including commands, tel
 
 Terms are *italicized* when being defined for the first time.
 
-`Monospaced` terms refer to syntactic rules or example Fpy code.
+`Monospaced` terms refer to syntactic rules, type names or example Fpy code.
 
 Monospaced code blocks are example Fpy code:
 ```py
@@ -27,7 +27,7 @@ The rest of the specification is dedicated to the semantics of Fpy.
 
 # Symbols
 
-A *symbol* is a language construct that can be referred to in the program. 
+A *symbol* is a language construct that can be referred to by some name in the program. 
 
 The following language constructs may be symbols:
 * [namespaces](#namespaces)
@@ -46,7 +46,7 @@ A *namespace* is a mapping of `names` to symbols.
 
 # Scopes
 
-A *scope* is a mapping of `names` to symbols, available throughout a region of the source code.
+A *scope* is a mapping of `names` to symbols, valid only in some region of the source code.
 
 > Because scopes may contain namespaces, they may be thought of as having a tree structure.
 
@@ -58,19 +58,24 @@ The *global value scope* is a global scope whose leaf nodes are all [values](#va
 
 The *global type scope* is a global scope whose leaf nodes are all [types](#types).
 
-Each [function](todo) has its own *function value scope* available in its body, whose leaf nodes are all [values](#values)
+Each [function](todo) has its own *function value scope* available in its body, whose leaf nodes are all [values](#values).
 
-> Functions do not need a function callable scope because no callables can be declared in a function.
+> Functions do not need a function callable or type scope because no callables or types can be declared in a function.
 
-## Declarations
+# Declarations
 
 A *declaration* is a language construct that introduces a name-to-symbol mapping to a scope.
 
-A *variable declaration* introduces a name-to-[variable](#variables) mapping to the enclosing function value scope, if it is inside a function, otherwise to the global value scope.
+A *variable declaration* introduces a name-to-[variable](#variables) mapping to:
+1. The enclosing function value scope, if inside a function body.
+2. The global value scope, if outside a function body.
 
 A *function declaration* introduces a name-to-[function](#function) mapping to the global callable scope.
 
-> Because function declarations are syntactically restricted to only occur in the global scope, you can never declare a function in a function scope, so there doesn't need to be a function callable scope.
+> Function declarations always introduce their function to the global scope because they are syntactically disallowed from being inside a function body.
+
+If a declaration re-introduces a name that already has a mapping in a scope, an error is raised.
+
 
 # Types
 
@@ -78,34 +83,46 @@ A *type* is a set of *values*.
 
 The values of a type are unique to that type.
 
+> In other words, there are no union types and there is no type inheritance.
+
 Types cannot be declared by the program.
 
-If a type can be represented in binary format, it is a *serializable type*.
+A *serializable type* is a type whose values can be expressed in a binary format.
 
-## Structs
-A *struct* is a type whose values are tuples of values of other types.
+Types can be divided into three categories:
+* Primitive types
+* Internal types
+* Dictionary types
 
+## Primitive types
 
+*Primitive types* are types which are always present in the global type scope.
 
-Structs and their
+> That is, they do not have to be in the F-Prime dictionary to be referenced by name in the program.
 
-*Primitive types* are always present in the global type scope.
-
-Primitive types are serializable types.
+All primitive types are serializable types.
 
 The list of primitive types is:
 * All [numeric types](#numeric-types)
-* [Boolean type](#boolean-type)
-* [Time type](#time-type)
+* The [Boolean type](#boolean-type)
+* The [time type](#time-type)
+
+### Numeric types
+* Numeric types: `U8, U16, U32, U64, I8, I16, I32, I64, F32, F64`
+### Boolean type
+
+### Time type
 
 ## Type aliases
 *Loop var type* is an alias for `I64`.
 
 ## Internal types
 
-*Internal types* are never present in the global type scope.
+*Internal types* are types which are never present in the global type scope.
 
-Internal types are not serializable types.
+> That is, they cannot be referenced by name in the program.
+
+No internal types are serializable types.
 
 *Int* is an internal type whose values are integers of arbitrary precision.
 
@@ -120,49 +137,44 @@ The precision of Float is 30 decimal places.
 ## Dictionary types
 *Dictionary types* are types defined in the F-Prime dictionary.
 
-Dictionary types are serializable types.
+> Because the semantics of these types is defined in the FPP specification, there is some overlap here. This specification just addresses the semantics of these types as relevant to Fpy.
+
+All dictionary types are serializable types.
+
+Dictionary types can be divided into three categories:
+* Structs
+* Arrays
+* Enums
+
+### Structs
+A *struct* is a dictionary type made up of an ordered list of *members*.
+
+A *member* is a pair of a name and a serializable type.
+
+A struct may not have two members with the same name.
+TODO is this rule necessary? This is enforced upstream by FPP
+
+The binary form of a struct value is the concatenated binary forms of its member values, in order.
+
+### Arrays
+
+An *array* is a dictionary type made up of a non-negative integer length, and an ordered list of *elements* of that length.
+
+An *element* is a pair of an index and a serializable type.
+
+The binary form of an array value is the concatenated binary form of its element values, in order.
+
+### Enums
+
+An *enum* is a dictionary type whose values are a finite set of *enum constants*.
+
+An *enum constant* is a pair of a name and a serializable integer value.
+
+The binary form of an enum constant is the binary form of its associated integer value.
 
 
 
 TODO: reference "dictionary population/some section called population from dict"
-
-
-
-
-*Serializable* types are types whose values can be expressed in a binary format.
-
-
-
-There are *serializable* types and *non-serializable* types.
-
-## Numeric types
-* Numeric types: `U8, U16, U32, U64, I8, I16, I32, I64, F32, F64`
-## Boolean type
-
-## Time type
-
-## Internal int 
-
-
-## Integer
-
-There are some types which exist in Fpy but cannot be directly referenced by name by the developer. These are the *Integer*, *Float* and *String* types. See [literals](#literals).
-
-## Structs
-In addition, the developer can directly refer to any displayable type defined in FPP via its fully-qualified name. This includes user-defined structs, arrays and enums.
-You can instantiate a new struct at runtime by calling its constructor. A struct's constructor is a function with the same name as the type, with arguments corresponding to the type and position of the struct's members. For example, a struct defined as:
-```
-module Fw {
-    struct Example {
-        intValue: U8
-        boolValue: bool
-    }
-}
-```
-can be constructed in Fpy like:
-```
-Fw.Example(0, True)
-```
 
 
 ## Fields
