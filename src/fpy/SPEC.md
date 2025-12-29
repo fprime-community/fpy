@@ -147,7 +147,7 @@ Dictionary types can be divided into three categories:
 * Enums
 
 ### Structs
-A *struct* is a dictionary type made up of an ordered list of *members*.
+A *struct* is a dictionary type defined by an ordered list of *members*.
 
 A *member* is a pair of a name and a serializable type.
 
@@ -158,9 +158,11 @@ The binary form of a struct value is the concatenated binary forms of its member
 
 ### Arrays
 
-An *array* is a dictionary type made up of a non-negative integer length, and an ordered list of *elements* of that length.
+An *array* is a dictionary type defined by a non-negative integer length, and an *element type*.
 
-An *element* is a pair of an index and a serializable type.
+The *element type* of an array type is the type of its *elements*.
+
+An *element* is an value associated with an index in an array.
 
 The binary form of an array value is the concatenated binary form of its element values, in order.
 
@@ -174,7 +176,7 @@ The binary form of an enum constant is the binary form of its associated integer
 
 
 
-TODO: reference "dictionary population/some section called population from dict"
+TODO: reference "dictionary population/some section called population from dict". How do dictionary types enter scope?
 
 
 ## Fields
