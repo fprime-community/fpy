@@ -1,10 +1,55 @@
 # compiler debug flag
 from dataclasses import dataclass
+import sys
 import traceback
 from typing import Any
 
 from lark import LarkError, Token, UnexpectedToken
 from lark.indenter import DedentError
+
+
+# ANSI color codes (only used if outputting to a terminal)
+class Colors:
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    CYAN = "\033[36m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
+    @classmethod
+    def enabled(cls) -> bool:
+        return sys.stderr.isatty()
+
+    @classmethod
+    def stdout_enabled(cls) -> bool:
+        return sys.stdout.isatty()
+
+    @classmethod
+    def red(cls, s: str) -> str:
+        return f"{cls.RED}{s}{cls.RESET}" if cls.enabled() else s
+
+    @classmethod
+    def green(cls, s: str) -> str:
+        return f"{cls.GREEN}{s}{cls.RESET}" if cls.stdout_enabled() else s
+
+    @classmethod
+    def yellow(cls, s: str) -> str:
+        return f"{cls.YELLOW}{s}{cls.RESET}" if cls.enabled() else s
+
+    @classmethod
+    def cyan(cls, s: str) -> str:
+        return f"{cls.CYAN}{s}{cls.RESET}" if cls.enabled() else s
+
+    @classmethod
+    def bold(cls, s: str) -> str:
+        return f"{cls.BOLD}{s}{cls.RESET}" if cls.stdout_enabled() else s
+
+    @classmethod
+    def dim(cls, s: str) -> str:
+        return f"{cls.DIM}{s}{cls.RESET}" if cls.enabled() else s
+
 
 # assigned in compiler_main
 file_name = None
@@ -31,12 +76,10 @@ class CompileError:
     def __repr__(self):
 
         stack_trace_optional = f"{self.stack_trace}\n" if debug else ""
-        file_name_optional = (
-            f"{file_name}" if file_name is not None else "<unknown file>"
-        )
+        file_name_str = file_name if file_name is not None else "<unknown file>"
 
         if self.node is None:
-            return f"{stack_trace_optional}{file_name_optional}: {self.msg}"
+            return f"{stack_trace_optional}{Colors.cyan(file_name_str)}: {Colors.bold(Colors.red(self.msg))}"
 
         meta = self.node if isinstance(self.node, Token) else self.node.meta
 
@@ -75,16 +118,17 @@ class CompileError:
             source_to_display_str = "\n".join(source_to_display)
             # it's a multiline node. don't try to highlight the whole thing
             # just print the err and the offending text
-            return f"{stack_trace_optional}{file_name_optional}:{meta.line}-{end_line} {self.msg}\n{source_to_display_str}"
+            location = f"{file_name_str}:{meta.line}-{end_line}"
+            return f"{stack_trace_optional}{Colors.cyan(location)} {Colors.bold(Colors.red(self.msg))}\n{source_to_display_str}"
 
         node_start_line_in_ctx = meta.line - 1 - source_start_line
         # end_column can be None for $END token
         end_column = meta.end_column if meta.end_column is not None else meta.column + 1
-        error_highlight = " " * (meta.column - 1 + line_number_space + 3) + "^" * (
-            end_column - meta.column
-        )
+        caret_str = "^" * (end_column - meta.column)
+        error_highlight = " " * (meta.column - 1 + line_number_space + 3) + Colors.red(caret_str)
         source_to_display.insert(node_start_line_in_ctx + 1, error_highlight)
-        result = f"{stack_trace_optional}{file_name_optional}:{meta.line} {self.msg}\n"
+        location = f"{file_name_str}:{meta.line}"
+        result = f"{stack_trace_optional}{Colors.cyan(location)} {Colors.bold(Colors.red(self.msg))}\n"
         result += "\n".join(source_to_display)
 
         return result
@@ -95,10 +139,8 @@ class BackendError:
     msg: str
 
     def __repr__(self):
-        file_name_optional = (
-            f"{file_name}" if file_name is not None else "<unknown file>"
-        )
-        return f"{file_name_optional}: {self.msg}"
+        file_name_str = file_name if file_name is not None else "<unknown file>"
+        return f"{Colors.cyan(file_name_str)}: {Colors.bold(Colors.red(self.msg))}"
 
 
 def handle_lark_error(err):
