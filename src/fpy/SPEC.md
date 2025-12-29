@@ -58,6 +58,8 @@ The *global value scope* is a global scope whose leaf nodes are all [values](#va
 
 The *global type scope* is a global scope whose leaf nodes are all [types](#types).
 
+TODO I think Rob would disapprove of having multiple scopes cover the same area of the code, in FPP he uses "name groups". But these are really at the end of the day the same thing, implemented the same way
+
 Each [function](todo) has its own *function value scope* available in its body, whose leaf nodes are all [values](#values).
 
 > Functions do not need a function callable or type scope because no callables or types can be declared in a function.
@@ -189,6 +191,26 @@ For each type `T` with fully qualified name `A.B.C` encountered in the F-Prime d
 Each qualifier becomes a namespace, and the final name maps to the type.
 
 Basically: map the type to the last component of the fully qualified name. Then construct namespaces for each of the other components
+
+# Name resolution
+
+*Name resolution* is the process of
+
+## Type name resolution
+To resolve a `type_name`:
+1. Start in the global type scope.
+2. For each name from left to right, look up 
+
+# Qualified name
+A *qualified name* is one of the following:
+1. A name
+2. `Q.N`, where `Q` is a qualified name and `N` is a name.
+
+## Qualified name resolution
+A qualified name is a series of names corresponding to namespaces separated by dots, followed by a name of a symbol in the final namespace.
+For a given qualifier `Q` and name `N` and scope `S`, the fully-qualified name is resolved to a symbol as follows:
+1. Resolve the qualifier
+1. Look up
 
 # Attributes
 
@@ -336,6 +358,13 @@ Compile-time constant floats (including literals and constant-folded expressions
 Each finite-bitwidth numeric type exposes an explicit cast with the same name as the type, e.g. `U32(value)` or `F64(value)`. Casts accept any numeric expression and bypass the implicit-coercion restrictions above: the operand is forced to the target type even when that entails narrowing, and compile-time range checks are suppressed. No casts exist for structs, arrays, enums, strings, or `Fw.Time`.
 
 # Expressions
+
+An *expression* is a syntactic construct which can be *evaluated*.
+
+*Evaluation* is the process of converting an expression to a value.
+
+
+
 ## Integer literals
 
 Integer literals have type *Integer*, which is not directly referenceable by the user. The *Integer* type supports integers of arbitrary size.
