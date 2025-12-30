@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC
 from decimal import Decimal
+from enum import Enum
 import inspect
 from dataclasses import astuple, dataclass, field, fields
 import math
@@ -52,13 +53,12 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstTypeName,
     AstOp,
     AstReference,
     Ast,
-    AstAssign,
     AstReturn,
     AstBlock,
+    AstVar,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -305,7 +305,7 @@ class VariableSymbol:
     """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstTypeName | None
+    type_ref: AstExpr | None
     """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
@@ -326,13 +326,20 @@ class ForLoopAnalysis:
 
 next_symbol_table_id = 0
 
+class ScopeCategory(str, Enum):
+    TYPE = "type"
+    CALLABLE = "callable"
+    VALUE = "value"
 
-# a symbol table (scope) 
 class SymbolTable(dict):
-    def __init__(self):
+    def __init__(self, scope_category: ScopeCategory, scope_is_global: bool):
         global next_symbol_table_id
         self.id = next_symbol_table_id
         next_symbol_table_id += 1
+        self.scope_category = scope_category
+        """the kind of thing that this scope stores, if this symbol table represents a scope"""
+        self.scope_is_global = scope_is_global
+        """whether this scope is a global scope, if this symbol table represents a scope"""
 
     def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
@@ -346,14 +353,21 @@ class SymbolTable(dict):
     def __eq__(self, value):
         return isinstance(value, SymbolTable) and value.id == self.id
 
+    def copy(self):
+        new = SymbolTable(self.scope_category, self.scope_is_global)
+        new.update(self)
+        return new
+
 
 def create_symbol_table(
     symbols: dict[str, "Symbol"],
+    scope_category: ScopeCategory,
+    scope_is_global: bool
 ) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""
 
-    base = SymbolTable()
+    base = SymbolTable(scope_category, scope_is_global)
 
     for fqn, sym in symbols.items():
         names_strs = fqn.split(".")
@@ -363,7 +377,7 @@ def create_symbol_table(
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
                 # this symbol table is not defined atm
-                existing_child = {}
+                existing_child = SymbolTable(scope_category, scope_is_global)
                 ns[names_strs[0]] = existing_child
 
             if not isinstance(existing_child, dict):
@@ -401,7 +415,8 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    new = SymbolTable()
+    assert lhs.scope_category == rhs.scope_category and lhs.scope_is_global == rhs.scope_is_global, (lhs.scope_category, rhs.scope_category)
+    new = SymbolTable(lhs.scope_category, lhs.scope_is_global)
 
     for key in common_keys:
         if not isinstance(lhs[key], dict) or not isinstance(rhs[key], dict):
@@ -431,16 +446,17 @@ Symbol = typing.Union[
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
 
+def resolve_qualified_name(names: list[str], scope: SymbolTable) -> Symbol|None:
+    """given a list of qualifiers and a final name, look it up in a scope"""
+    while len(names) > 0 and scope is not None and is_instance_compat(scope, SymbolTable):
+        scope = scope.get(names[0])
+        names.pop(0)
 
-def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
-    """look up a symbol by name, searching this scope and all parent scopes"""
-    symbol_table = state.local_scopes[node]
-    resolved = None
-    while symbol_table is not None and resolved is None:
-        resolved = symbol_table.get(name)
-        symbol_table = state.scope_parents[symbol_table]
+    if len(names) != 0:
+        # didn't finish resolving all names before we ran out of namespaces
+        return None
 
-    return resolved
+    return scope
 
 
 @dataclass
@@ -459,12 +475,9 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
-    scope_parents: dict[AstBlock, AstBlock | None] = field(
-        default_factory=dict, repr=False
-    )
-    """map of a scoped body node to the parent scoped body node it should use"""
-    local_scopes: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
-    """map of node to the SymbolTable it should resolve names in"""
+    resolving_scope: dict[AstVar, SymbolTable] = field(default_factory=dict)
+    enclosing_value_scope: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
+    """map of node to its enclosing value scope (function scope or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (

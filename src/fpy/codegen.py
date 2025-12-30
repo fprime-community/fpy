@@ -154,7 +154,7 @@ class AssignVariableOffsets(Visitor):
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         # Assign offsets to variables in this scope
         lvar_array_size_bytes = 0
-        for name, sym in state.local_scopes[node].items():
+        for name, sym in state.enclosing_value_scope[node].items():
             if not is_instance_compat(sym, VariableSymbol):
                 # doesn't require space to be allocated
                 continue
@@ -183,7 +183,7 @@ class AssignVariableOffsets(Visitor):
         arg_offset = -STACK_FRAME_HEADER_SIZE
         for arg in reversed(func.args):
             arg_name, arg_type, _ = arg
-            arg_var = state.local_scopes[node.body][arg_name]
+            arg_var = state.enclosing_value_scope[node.body][arg_name]
             arg_offset -= arg_type.getMaxSize()
             arg_var.frame_offset = arg_offset
 
@@ -417,7 +417,7 @@ class GenerateFunctionBody(Emitter):
         dirs = []
         # Calculate lvar array size bytes (offsets already assigned by AssignVariableOffsets)
         lvar_array_size_bytes = 0
-        for name, sym in state.local_scopes[node].items():
+        for name, sym in state.enclosing_value_scope[node].items():
             if not is_instance_compat(sym, VariableSymbol):
                 # doesn't require space to be allocated
                 continue

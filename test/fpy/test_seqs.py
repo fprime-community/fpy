@@ -2020,6 +2020,7 @@ while True:
 
 
 def test_override_global_name(fprime_test_api):
+    # Can't shadow dictionary namespaces with user variables
     seq = """
 CdhCore: U8 = 1
 if CdhCore == 1:
@@ -2027,7 +2028,7 @@ if CdhCore == 1:
 exit(1)
 """
 
-    assert_run_success(fprime_test_api, seq)
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_assert(fprime_test_api):
@@ -2949,6 +2950,7 @@ def test():
 
 
 def test_redeclare_func_from_var(fprime_test_api):
+    # Functions and variables are in separate scopes, so this is allowed
     seq = """
 
 test: U8 = 0
@@ -2956,10 +2958,11 @@ def test():
     pass
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_redeclare_var_from_func(fprime_test_api):
+    # Functions and variables are in separate scopes, so this is allowed
     seq = """
 
 def test():
@@ -2967,7 +2970,7 @@ def test():
 test: U8 = 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_fib(fprime_test_api):

@@ -31,7 +31,8 @@ from fpy.codegen import (
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, ResolveRelativeToAbsoluteTimePlaceholders, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
-    AssignLocalScopes,
+    CheckNamesFullyResolved,
+    CreateFunctionScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
@@ -41,9 +42,9 @@ from fpy.semantics import (
     CheckUseBeforeDeclare,
     CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
-    ResolveFuncCalls,
-    ResolveTypeNames,
-    ResolveVars,
+    SetResolvingScopes,
+    ResolveNames,
+    UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -55,6 +56,8 @@ from fpy.types import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    ScopeCategory,
+    SymbolTable,
     TimeIntervalValue,
     TypeCtorSymbol,
     Visitor,
@@ -288,16 +291,16 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     # Build the 3 global scopes per SPEC:
     # 1. global type scope - leaf nodes are types
-    type_scope = create_symbol_table(type_name_dict)
+    type_scope = create_symbol_table(type_name_dict, ScopeCategory.TYPE, True)
     # 2. global callable scope - leaf nodes are callables
-    callable_scope = create_symbol_table(callable_name_dict)
+    callable_scope = create_symbol_table(callable_name_dict, ScopeCategory.CALLABLE, True)
     # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
     #    Merge all value sources into one scope
     values_scope = merge_symbol_tables(
-        create_symbol_table(ch_name_dict),
+        create_symbol_table(ch_name_dict, ScopeCategory.VALUE, True),
         merge_symbol_tables(
-            create_symbol_table(prm_name_dict),
-            create_symbol_table(enum_const_name_dict),
+            create_symbol_table(prm_name_dict, ScopeCategory.VALUE, True),
+            create_symbol_table(enum_const_name_dict, ScopeCategory.VALUE, True),
         ),
     )
 
@@ -308,10 +311,14 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
 
+    # Make copies of the scopes since we'll mutate them during compilation
+    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
+    # if we don't make copies, then the lru cache will return the modified versions, causing
+    # two runs of the compiler to conflict
     state = CompileState(
-        global_type_scope=type_scope,
-        global_callable_scope=callable_scope,
-        global_value_scope=values_scope,
+        global_type_scope=type_scope,  # types are not mutated
+        global_callable_scope=callable_scope.copy(),
+        global_value_scope=values_scope.copy(),
         compile_args=compile_args or dict(),
     )
     return state
@@ -341,19 +348,16 @@ def ast_to_directives(
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
-        AssignLocalScopes(),
+        CreateFunctionScopes(),
         # based on assignment syntax nodes, we know which variables exist where
         CreateVariablesAndFuncs(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        # resolve type annotations first, since they use a restricted syntax (AstTypeName)
-        # and we need to know variable types before resolving other references
-        ResolveTypeNames(),
-        # resolve all function references in function calls and definitions
-        ResolveFuncCalls(),
-        # resolve all variable references (and argument values)
-        ResolveVars(),
+        SetResolvingScopes(),
+        ResolveNames(),
+        CheckNamesFullyResolved(),
+        UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDeclare(),
         # this pass resolves all attributes and items, as well as determines the type of expressions

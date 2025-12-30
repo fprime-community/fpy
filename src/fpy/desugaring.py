@@ -16,7 +16,6 @@ from fpy.syntax import (
     AstNumber,
     AstRange,
     AstStmtList,
-    AstTypeName,
     AstUnaryOp,
     AstVar,
     AstWhile,
@@ -30,7 +29,6 @@ from fpy.types import (
     Transformer,
     TopDownVisitor,
     is_instance_compat,
-    lookup_symbol,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
@@ -74,7 +72,7 @@ class DesugarForLoops(Transformer):
             # create a new node for the type_ann
             loop_var_type_var = self.new(
                 state,
-                AstTypeName(None, [loop_var_type_name]),
+                AstVar(None, loop_var_type_name),
                 contextual_type=None,
                 synthesized_type=None,
                 contextual_value=None,
@@ -116,7 +114,7 @@ class DesugarForLoops(Transformer):
         # create a new node for the type_ann
         loop_var_type_var = self.new(
             state,
-            AstTypeName(None, [loop_var_type_name]),
+            AstVar(None, loop_var_type_name),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -370,7 +368,7 @@ class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
         else:
             # It's relative (TimeIntervalValue), wrap with time_add(now(), timeout)
             # We need to find the time_add function and now function
-            time_add_func = lookup_symbol(node, "time_add", state)
+            time_add_func = state.global_callable_scope.get("time_add")
             now_func = state.global_callable_scope.get("now")
             
             assert time_add_func is not None, "time_add function not found"
@@ -467,10 +465,6 @@ class DesugarCheckStatements(Transformer):
         """Create a variable reference node."""
         return AstVar(self.meta, name)
     
-    def type_name(self, *parts: str) -> AstTypeName:
-        """Create a type name node."""
-        return AstTypeName(self.meta, list(parts))
-    
     def number(self, val: int) -> AstNumber:
         """Create a number literal node."""
         return AstNumber(self.meta, val)
@@ -483,13 +477,11 @@ class DesugarCheckStatements(Transformer):
         """Create a member access node."""
         return AstGetAttr(self.meta, parent, attr)
     
-    def callable_ref(self, *parts: str):
-        """Create a callable reference from parts (e.g., 'Fw', 'Time' -> Fw.Time).
-        
-        For function calls, we need AstVar or AstGetAttr, not AstTypeName.
+    def qualified_name(self, *parts: str):
+        """Create a qualified name reference from parts (e.g., 'Fw', 'Time' -> Fw.Time).
         """
         if len(parts) == 0:
-            raise ValueError("callable_ref requires at least one part")
+            raise ValueError("qualified_name requires at least one part")
         
         result = self.var(parts[0])
         for part in parts[1:]:
@@ -503,7 +495,7 @@ class DesugarCheckStatements(Transformer):
     
     def call_parts(self, func_parts: list[str], *args) -> AstFuncCall:
         """Create a function call node with a multi-part function name."""
-        func = self.callable_ref(*func_parts)
+        func = self.qualified_name(*func_parts)
         return AstFuncCall(self.meta, func, list(args) if args else [])
     
     def call_expr(self, func_expr, *args) -> AstFuncCall:
@@ -595,7 +587,7 @@ class DesugarCheckStatements(Transformer):
             )
         
         check_state_init = self.call_expr(
-            self.callable_ref("$CheckState"),               # Use callable_ref, not type_name
+            self.qualified_name("$CheckState"),             
             persist_expr,                                   # persist
             timeout_expr_to_use,                            # timeout (converted to absolute)
             every_expr,                                     # every
@@ -612,7 +604,7 @@ class DesugarCheckStatements(Transformer):
         init_check_state = self.assign(
             self.var(check_state_name),
             check_state_init,
-            self.type_name("$CheckState")
+            self.qualified_name("$CheckState")
         )
         
         # Build the while loop body
@@ -620,7 +612,7 @@ class DesugarCheckStatements(Transformer):
         get_current_time = self.assign(
             self.var(current_time_name),
             self.call("now"),
-            self.type_name("Fw", "Time")
+            self.qualified_name("Fw", "Time")
         )
         
         # Build the while loop body statements
@@ -632,7 +624,7 @@ class DesugarCheckStatements(Transformer):
             check_timeout = self.assign(
                 self.var(timed_out_name),
                 self.call("time_cmp", self.var(current_time_name), cs("timeout")),
-                self.type_name("I8")
+                self.qualified_name("I8")
             )
             
             # 4. assert $timed_out != 2, 1
@@ -681,7 +673,7 @@ class DesugarCheckStatements(Transformer):
                 self.call("time_sub", self.var(current_time_name), cs("last_time_true")),
                 cs("persist")
             ),
-            self.type_name("I8")
+            self.qualified_name("I8")
         )
         
         from fpy.syntax import AstAssert

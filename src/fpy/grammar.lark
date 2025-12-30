@@ -26,16 +26,16 @@ break_stmt: "break"
 continue_stmt: "continue"
 assert_stmt: "assert" expr ["," expr]
 return_stmt: "return" [expr]
-assign_stmt: expr [":" type_name] "=" expr
+assign_stmt: expr [":" expr] "=" expr
 
 
 # the function definition statement
 # functions may be defined with zero or more comma-separated parameters, and an
 # optional return type annotation. They are followed by an indented, scoped code block
-def_stmt: "def" var "(" [parameters] ")" ["->" type_name] ":" block
+def_stmt: "def" var "(" [parameters] ")" ["->" expr] ":" block
 parameters: parameter ("," parameter)*
 # each parameter has a type, and an optional default value expression
-parameter: var ":" type_name ["=" expr]
+parameter: var ":" expr ["=" expr]
 
 
 # loop statements
@@ -126,10 +126,6 @@ argument: name "=" expr -> named_argument
         | expr -> positional_argument
 
 var: name
-
-# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
-# Used in type annotations and return types where only names are allowed
-type_name: name ("." name)*
 
 RANGE_OPERATOR: ".."
 
