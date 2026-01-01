@@ -2,10 +2,10 @@ import pytest
 
 from fprime_gds.common.models.serialize.numerical_types import U32Type as U32Value
 
+from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
-    assert_compile_success,
     assert_run_failure,
     lookup_type,
 )
@@ -133,7 +133,7 @@ def test_exit_failure(fprime_test_api):
     seq = """
 exit(123)
 """
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_large_var(fprime_test_api):
@@ -1837,7 +1837,20 @@ if val[idx] == 123:
 exit(1)
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+
+
+def test_get_variable_array_idx_oob_2(fprime_test_api):
+    seq = """
+val: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)
+idx: I8 = -1
+if val[idx] == 123:
+    exit(0)
+exit(1)
+"""
+
+    # TODO this really should also assert the failure code
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_set_variable_array_idx_oob(fprime_test_api):
@@ -1847,7 +1860,7 @@ idx: I8 = 2
 val[idx] = 111
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_set_variable_array_idx(fprime_test_api):
@@ -2045,7 +2058,7 @@ def test_assert_failure(fprime_test_api):
 assert False
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_assert_failure_with_exit_code(fprime_test_api):
@@ -2053,7 +2066,7 @@ def test_assert_failure_with_exit_code(fprime_test_api):
 assert False, 123
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_assert_wrong_bool_type(fprime_test_api):

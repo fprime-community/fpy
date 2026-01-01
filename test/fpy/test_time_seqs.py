@@ -10,6 +10,7 @@ Tests for:
 
 import pytest
 
+from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
@@ -247,7 +248,7 @@ t1: Fw.Time = Fw.Time(0, 0, 50, 0)
 t2: Fw.Time = Fw.Time(0, 0, 100, 0)
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
     def test_time_sub_different_time_base_asserts(self, fprime_test_api):
         """Test that subtracting times with different time bases asserts."""
@@ -256,7 +257,7 @@ t1: Fw.Time = Fw.Time(0, 0, 100, 0)
 t2: Fw.Time = Fw.Time(1, 0, 50, 0)  # Different time_base
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
     def test_time_sub_large_difference(self, fprime_test_api):
         """Test subtraction with large second values."""
@@ -408,7 +409,7 @@ t: Fw.Time = Fw.Time(0, 0, 4294967295, 0)
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
 result: Fw.Time = time_add(t, interval)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
     def test_time_add_with_now(self, fprime_test_api):
         """Test time_add works with now()."""
