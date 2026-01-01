@@ -94,7 +94,7 @@ Given a resolving scope and resolving name group, a
 
 # definitions
 
-A **definition** is a language construct that introduces a name-to-symbol mapping to a scope and name group.
+A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping to a [scope](#scopes) and [name group](#name-groups).
 
 The list of definitions is:
 * [Variable definitions](#variable-definition)
@@ -102,11 +102,11 @@ The list of definitions is:
 
 # Variables
 
-A **variable** is a [symbol](#symbols) associated with a static [type](#types) and a mutable [value](#values).
+A **variable** is a symbol associated with a static [type](#types) and a mutable [value](#values).
 
 ## Variable definition
 
-A **variable definition** introduces a name-to-[variable](#variables) mapping to its resolving scope.
+A **variable definition statement** introduces a name-to-variable mapping to its resolving scope.
 
 ### Syntax
 Rule:
@@ -115,7 +115,7 @@ Rule:
 
 Name:
 
-`lhs ":" type_ann "=" rhs`
+`variable_declare_stmt: lhs ":" type_ann "=" rhs`
 
 `lhs` and `rhs` are resolved in the value name group.
 
@@ -135,7 +135,7 @@ After execution, the variable is considered defined.
 
 ## Variable assignment
 
-A **variable assignment** mutates the value of a variable.
+A **variable assignment statement** mutates the value of a variable.
 
 ### Syntax
 Rule:
@@ -144,7 +144,7 @@ Rule:
 
 Name:
 
-`lhs "=" rhs`
+`variable_assign_stmt: lhs "=" rhs`
 
 `lhs` and `rhs` are resolved in the value name group.
 
@@ -160,7 +160,7 @@ At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to
 
 ## Member assignment
 
-A **member assignment** mutates the value of a [member](todo) in a variable.
+A **member assignment statement** mutates the value of a [member](todo) in a variable.
 
 ### Syntax
 Rule:
@@ -169,7 +169,7 @@ Rule:
 
 Name:
 
-`parent "." member "=" rhs`
+`variable_assign_member_stmt: parent "." member "=" rhs`
 
 `parent`, and `rhs` are resolved in the value name group.
 
@@ -196,7 +196,7 @@ The value of the variable is unchanged except for the member.
 
 ## Element assignment
 
-An **element assignment** mutates the value of an [element](todo) in a variable.
+An **element assignment statement** mutates the value of an [element](todo) in a variable.
 
 ### Syntax
 Rule:
@@ -205,7 +205,7 @@ Rule:
 
 Name:
 
-`parent "[" item "]" "=" rhs`
+`variable_assign_element_stmt: parent "[" item "]" "=" rhs`
 
 `parent`, `item` and `rhs` are resolved in the value name group.
 
@@ -246,19 +246,54 @@ If a variable is evaluated before it has been defined, an error is raised.
 
 A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, parameters, code and a return [type](#types).
 
+The **call site** is the location in the source code at which a function is called.
+
 ## Parameters
 
 A **parameter** is a [variable](#variables) implicitly defined by a function in that function's scope.
 
 When a function is [called](todo), each parameter is set to an initial value.
 
-The initial value may either be from an [argument](todo), or a default value, if one is specified in the function definition.
+The initial value may either be from a passed [argument](todo), or a default value, if one is specified in the function definition.
 
-> In all other respects, parameters are like normal variables.
+> In all other respects, parameters are like normal variables, meaning you can modify them in the function body.
+
+## Return types
+
+The **return type** of a function is the [type](#types) of the value returned by that function. If the return type is [Nothing](#internal-types), the function does not return a value.
+
+## Returns
+
+A **return statement** ends the currently executing function, resumes execution at the call site, and optionally returns a value.
+
+### Syntax
+Rule:
+
+`return_stmt: "return" [expr]`
+
+Name:
+
+`return_stmt: "return" value`
+
+`value` is resolved in the value name group.
+
+### Semantics
+
+If the return statement is outside of a function body, an error is raised.
+
+The **enclosing function** is the function whose body this return is in.
+
+If `value` is not provided and the enclosing function's return type is not Nothing, an error is raised.
+
+If `value` is provided and cannot be [coerced](#type-coercion) to the return type of the enclosing function, an error is raised.
+
+At execution:
+1. If provided, `value` is [evaluated](todo) and [coerced](#type-coercion) to the return type of the enclosing function.
+2. The execution of the function body is stopped, and execution at the function call site resumes.
 
 ## Function definition
 
-A **function definition** introduces a name-to-[function](#function) mapping to the global scope.
+A **function definition statement** introduces a name-to-[function](#function) mapping to the global scope.
 
 ### Syntax
 Rule:
@@ -271,7 +306,7 @@ Rule:
 
 Name:
 
-`"def" name "(" parameters ")" "->" return_type ":" body`
+`function_def_stmt: "def" name "(" parameters ")" "->" return_type ":" body`
 
 The parameter `name`s are resolved in the value name group.
 
@@ -295,7 +330,10 @@ If the default value of a parameter cannot be [coerced](#type-coercion) to the t
 
 If a parameter without a default value follows a parameter with a default value, an error is raised.
 
-The new function with name `name` is added to the global scope.
+If `return_type` is provided, and any [branch](todo) of the function does not return a value, an error is raised.
+TODO need a section on control flow?
+
+The new function with name `name` is added to the global scope. If `return_type` is not provided, the [return type](#return-types) is [Nothing](#internal-types), otherwise the return type is type `return_type`.
 
 > Because functions can only be defined in the global scope, you cannot declare a function in a function.
 
@@ -308,11 +346,192 @@ When a function is called:
 1. Argument values are assigned to parameters
 2. The function body executes
 
-During the execution of the function body, if a [return](todo) statement is reached, the function evaluates to the return value of that statement, or no value if the return did not have one.
+During the execution of the function body, if a [return](todo) is reached:
+* If a return value is present, the return value is evaluated, the function evaluates to the return value
+* If no return value is present, the function does not 
+
+After execution of the function body, if no return was reached, the function does not return a value.
+
+# Ifs
+An **if statement** conditionally executes blocks of code.
+
+## Syntax
+Rule:
+
+`if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]`
+
+`elifs: elif_*`
+
+`elif_: "elif" expr ":" stmt_list`
+
+Name:
+
+`if_stmt: "if" if_condition ":" body elifs "else" ":" else_body`
+
+`elif_: "elif" elif_condition ":" elif_body`
+
+`if_condition` and all `elif_condition`s are resolved in the value name group.
+
+## Semantics
+
+If `if_condition` or any `elif_condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), an error is raised.
+
+At execution, the conditions will be evaluated one at a time until one evaluates to `True`, starting from `if_condition` and going in order through the `elif_conditions`.
+
+The body of the first condition to evaluate to `True` is executed, and then execution continues after the if statement.
+
+If no condition evaluates to `True`, and an `else_body` was provided, that body is executed, and then execution continues after the if statement.
+
+# Loops
+
+A **loop** executes a block of code zero or more times.
+
+Each loop has a **loop condition**, which is a Boolean expression which, when `True`, allows the loop body to execute.
+
+The **enclosing loop** is the loop whose body some source code is in.
+
+The list of loops is:
+* [While loops](#while-loop-statement)
+* [For loops](#for-loops)
+
+## While loop statement
+
+A **while statement** executes a block of code in a loop while a condition holds `True`.
+
+### Syntax
+
+Rule:
+
+`while_stmt: "while" expr ":" stmt_list`
+
+Name:
+
+`while_stmt: "while" condition ":" body`
+
+`condition` is resolved in the value name group.
+
+### Semantics
+
+If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), an error is raised.
+
+The loop condition of a while loop is the provided `condition`.
+
+At execution:
+1. The loop condition is evaluated.
+2. If the loop condition is `True`, execute the body, and return to step 1.
+3. Otherwise, execution continues after the while loop statement.
+
+## For loops
+
+### For loop variables
+
+A **loop variable** is a [variable](#variables) of [loop var type](#type-aliases) associated with a [for loop statement](#for-loop-statement).
+
+If a variable of loop var type with the same name as the loop variable is already defined, 
+
+Before the first execution of the for loop, the loop variable is set to the lower bound of the loop.
+
+### For loop ranges
+
+The **range** of a for loop is a pair of an initial and maximum value that a loop variable has during the execution of the loop.
+
+If the loop variable is not modified by the loop body, then the number of times the loop body is executed is the difference between the 
+
+### For loop statement
+
+A **for loop statement** executes a block of code until a counter reaches an upper bound.
+
+#### Syntax
+Rule:
+
+`for_stmt: "for" name "in" expr ":" stmt_list`
+
+Name:
+
+`for_stmt: "for" loop_var "in" range ":" body`
+
+`loop_var` and `range` are resolved in the value name group.
+
+#### Semantics
+
+If `loop_var` resolves to a previously-defined variable:
+1. If the type of that variable is not [loop var type](#type-aliases), an error is raised.
+2. Otherwise, that variable becomes the loop variable of this for loop.
+
+> This allows reusing the same loop variable name across multiple for loops.
+
+If `loop_var` does not resolve to a previously-defined variable, a new variable with name `loop_var` and loop_var type is added to the [resolving scope](#scopes).
+
+> Nothing prevents you from modifying the loop variable in the loop body. However, this may cause infinite loops, so do this with caution.
+
+If `range` cannot be [coerced](#type-coercion) to [Range type](#internal-types), an error is raised.
+
+The loop condition of a for loop is `loop_var < upper_bound`, where `upper_bound` is the upper bound of the `range` expression.
+
+At execution:
+1. `range` is evaluated.
+2. The loop variable is set to the lower bound of `range`.
+1. The loop condition is evaluated.
+2. If the loop condition is `True`, execute the body, increment the value of the `loop_var` by 1, and return to step 1.
+3. Otherwise, execution continues after the for loop statement.
+
+> The only possible step size is 1.
+
+# Break statement
+
+A **break statement** stops execution of the loop.
+
+## Syntax
+Rule:
+
+`break_stmt: "break"`
+
+## Semantics
+
+If the break statement is outside of a loop body, an error is raised.
+
+At execution, the enclosing loop body stops executing, and execution is continued after the enclosing loop.
+
+# Continue statement
+
+A **continue statement** immediately starts the execution of the next loop iteration.
+
+## Syntax
+Rule:
+
+`continue_stmt: "continue"`
+
+## Semantics
+
+If the continue statement is outside of a loop body, an error is raised.
+
+At execution, the enclosing loop body stops executing. The loop condition is reevaluated, and if it is `True`, the enclosing loop body starts executing from the beginning.
+
+# Assert statement
+
+An **assert statement** evaluates a Boolean expression and halts the program if the expression evaluates to `False`.
+
+## Syntax
+Rule:
+
+`assert_stmt: "assert" expr ["," expr]`
+
+Name:
+
+`assert_stmt: "assert" condition "," exit_code`
+
+`condition` and `exit_code` are resolved in the value name group.
+
+## Semantics
+
+If `condition` cannot be coerced to [`bool`](#boolean-type), an error is raised.
+
+If `exit_code` cannot be coerced to [`U8`](#primitive-numeric-types), an error is raised.
+
 
 # Types
 
-A *type* is a set of *values*.
+A **type** is a set of **values**.
 
 The values of a type are unique to that type.
 
@@ -320,7 +539,7 @@ The values of a type are unique to that type.
 
 New types cannot be defined by the program.
 
-A *serializable type* is a type whose values can be expressed in a binary format.
+A **serializable type** is a type whose values can be expressed in a binary format.
 
 Types can be divided into three categories:
 * Primitive types
@@ -329,10 +548,10 @@ Types can be divided into three categories:
 
 ## Primitive types
 
-*Primitive types* are types which are always present in the global type scope.
+**Primitive types** are types which are always present in the global scope.
 
 > That is, they do not have to be in the F-Prime dictionary to be referenced by name in the program.
-> Because they are present in the global type scope, we will use their associated name in the global type scope to refer to them throughout this specification. For instance, when we say type `U16`, we are talking about the type in the global type scope with name `U16`.
+> Because they are present in the global scope, we will use their associated name in the global scope to refer to them throughout this specification. For instance, when we say type `U16`, we are talking about the type in the global scope with name `U16`.
 
 All primitive types are serializable types.
 
@@ -341,57 +560,59 @@ The list of primitive types is:
 * The [Boolean type](#boolean-type)
 
 ### Primitive numeric types
-`U8`, `U16`, `U32`, and `U64` are the primitive unsigned integer types, with bitwidths 8, 16, 32 and 64, respsectively. They use the standard binary representation of unsigned integers.
+`U8`, `U16`, `U32`, and `U64` are the primitive unsigned integer types with bitwidths 8, 16, 32 and 64, respsectively. They use the standard binary representation of unsigned integers.
 
-`I8`, `I16`, `I32`, and `I64` are the primitive signed integer types, with bitwidths 8, 16, 32 and 64, respsectively. They use the standard two's complement representation of signed integers.
+`I8`, `I16`, `I32`, and `I64` are the primitive signed integer types with bitwidths 8, 16, 32 and 64, respsectively. They use the standard two's complement representation of signed integers.
 
-`F32`, and `F64` are the primitive IEEE floating-point types, with bitwidths 32 and 64, respectively.
+`F32`, and `F64` are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.
+
+> There are other numerical types such as [Int or Float](#internal-types) which are not primitve.
 
 ### Boolean type
-`bool` is the Boolean type, whose only values may be the [Boolean literals](todo) `True` and `False`.
+`bool` is a primitive type whose only values may be the [Boolean literals](todo) `True` and `False`.
 
 TODO make sure that Fw.Time is counted as a dictionary type, but one which is required to be in the dict?
 
 ## Type aliases
-*Loop var type* is an alias for `I64`.
-*Array index type* is an alias for `I64`.
+**Loop var type** is an alias for `I64`.
+**Array index type** is an alias for `I64`.
 
 ## Internal types
 
-*Internal types* are types which are never present in the global type scope.
+**Internal types** are types which are never present in the global scope.
 
 > That is, they cannot be referenced by name in the program.
 
 No internal types are serializable types.
 
-*Int* is an internal type whose values are integers of arbitrary precision.
+**Int** is an internal type whose values are integers of arbitrary precision.
 
-*Float* is an internal type whose values are decimals per the Python [decimal](https://docs.python.org/3/library/decimal.html#module-decimal) implementation.
+**Float** is an internal type whose values are decimals per the Python [decimal](https://docs.python.org/3/library/decimal.html#module-decimal) implementation.
 
 The precision of Float is 30 decimal places.
 
-*String* is an internal type whose values are strings of arbitrary length.
+**String** is an internal type whose values are strings of arbitrary length.
 
-*Range* is an internal type whose values are pairs of values of loop var type.
+**Range** is an internal type whose values are pairs of an lower and upper bound of loop var type.
 
-*Nothing* is an internal type which has no values.
+**Nothing** is an internal type which has no values.
 
 ## Dictionary types
-*Dictionary types* are types defined in the F-Prime dictionary.
+**Dictionary types** are types defined in the F-Prime dictionary.
 
 > Because the semantics of these types is defined in the FPP specification, there is some overlap here. This specification just addresses the semantics of these types as relevant to Fpy.
 
 All dictionary types are serializable types.
 
 Dictionary types can be divided into three categories:
-* Structs
-* Arrays
-* Enums
+* [Structs](#structs)
+* [Arrays](#arrays)
+* [Enums](#enums)
 
 ### Structs
-A *struct* is a dictionary type defined by an ordered list of *members*.
+A **struct** is a dictionary type defined by an ordered list of members.
 
-A *member* is a pair of a name and a serializable type.
+A **member** is a pair of a name and a serializable type.
 
 A struct may not have two members with the same name.
 TODO is this rule necessary? This is enforced upstream by FPP
@@ -400,19 +621,19 @@ The binary form of a struct value is the concatenated binary forms of its member
 
 ### Arrays
 
-An *array* is a dictionary type defined by a non-negative integer length, and an *element type*.
+An **array** is a dictionary type defined by a non-negative integer length, and an element type.
 
-The *element type* of an array type is the type of its *elements*.
+The **element type** of an array type is the type of its elements.
 
-An *element* is an value associated with an index in an array.
+An **element** is an value associated with an index in an array.
 
 The binary form of an array value is the concatenated binary form of its element values, in order.
 
 ### Enums
 
-An *enum* is a dictionary type whose values are a finite set of *enum constants*.
+An **enum** is a dictionary type whose values are a finite set of enum constants.
 
-An *enum constant* is a pair of a name and a serializable integer value.
+An **enum constant** is a pair of a name and a serializable integer value.
 
 The binary form of an enum constant is the binary form of its associated integer value.
 
@@ -421,7 +642,7 @@ The binary form of an enum constant is the binary form of its associated integer
 For each type `T` with fully qualified name `A.B.C` encountered in the F-Prime dictionary:
 1. Map name `C` to `T` in namespace `B`.
 2. Map name `B` to namespace `B` in namespace `A`.
-3. Map name `A` to namespace `A` in the global type scope.
+3. Map name `A` to namespace `A` in the global scope.
 
 Each qualifier becomes a namespace, and the final name maps to the type.
 
@@ -433,7 +654,7 @@ Basically: map the type to the last component of the fully qualified name. Then 
 
 ## Type name resolution
 To resolve a `type_name`:
-1. Start in the global type scope.
+1. Start in the global scope.
 2. For each name from left to right, look up 
 
 # Qualified name
@@ -461,16 +682,16 @@ A *qualified name* is a name of
 
 
 To resolve a name to a [value](#values):
-1. If the name is inside a function, check the function's value scope.
-2. Check the global value scope.
+1. If the name is inside a function, check the function's scope.
+2. Check the global scope.
 
 At the end, if the name is not found, an error is raised.
 
-To resolve a name to a [callable](#callables), the global callable scope is checked, and an error is raised if the name is not found.
+To resolve a name to a [callable](#callables), the global scope is checked, and an error is raised if the name is not found.
 TODO: but this isn't really true right because we can resolve more than just names to callables? maybe this section isn't needed?
 
 
-To resolve a name to a [type](#callables), the global callable scope is checked, and an error is raised if the name is not found.
+To resolve a name to a [type](#callables), the global scope is checked, and an error is raised if the name is not found.
 
 
 
@@ -494,6 +715,8 @@ An attribute access has one of many different behaviors depending on the parent:
 |Type|Raise an error|
 |Callable|Raise an error|
 
+
+# Expressions
 
 ## Fields
 Fields refer to either a member of a struct, or an element of an array. Field access uses Python-like syntax: `expr.member` reads a struct (or `Fw.Time`) member and `expr[index]` reads an array element. These operations are only legal when the referenced type has a statically known layout. Because strings do not have a fixed size in memory, structs or arrays with string fields do not have a statically known layout.
@@ -688,27 +911,6 @@ Normal type coercion rules apply to the result, of course. Once the operator has
 ## Range expressions
 
 The `lower .. upper` operator produces a `RangeValue`. Both bounds are coerced to `I64`. Range expressions are only meaningful as the right-hand side of a `for` loop, and both bounds are evaluated exactly once.
-
-## For loops
-
-```
-for <var> in <lower> .. <upper>:
-    <body>
-```
-
-* `<lower>` and `<upper>` are evaluated before the loop starts and stored in hidden variables.
-* The loop variable is assigned `<lower>`, coerced to `I64`. If the name was not previously declared, the compiler declares it with type `I64`; otherwise the existing variable must already be of that type.
-* The body runs while the loop variable is strictly less than `<upper>`. After each iteration the compiler inserts `var = var + 1`. Modifying `var` manually inside the body affects the next iteration in addition to this implicit increment.
-* `break` and `continue` statements are only legal inside the loop body and behave as in C: `break` exits the loop, `continue` skips to the implicit increment/check sequence.
-
-## While loops
-
-```
-while <condition>:
-    <body>
-```
-
-The condition is coerced to `bool` and re-evaluated before every iteration. `break` and `continue` are legal only within the loop body.
 
 # Check statement
 
