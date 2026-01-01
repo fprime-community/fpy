@@ -539,13 +539,13 @@ The **check statement** executes a block of code if a Boolean expression evaluat
 ## Syntax
 Rule:
 
-`check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["every" expr] ":" stmt_list ["timeout" ":" stmt_list]`
+`check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["freq" expr] ":" stmt_list ["timeout" ":" stmt_list]`
 
 Name:
 
-`check_stmt: "check" condition "timeout" timeout "persist" persist "every" every ":" body "timeout" ":" timeout_body`
+`check_stmt: "check" condition "timeout" timeout "persist" persist "freq" freq ":" body "timeout" ":" timeout_body`
 
-`condition`, `timeout`, `persist`, and `every` are resolved in the value name group.
+`condition`, `timeout`, `persist`, and `freq` are resolved in the value name group.
 
 ## Semantics
 
@@ -553,7 +553,7 @@ If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), a
 
 If `timeout` is provided, and cannot be coerced to [`Fw.Time`](todo), an error is raised.
 
-If `persist` or `every` is provided, and they cannot be coerced to [`Fw.TimeInterval`](todo), an error is raised.
+If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeInterval`](todo), an error is raised.
 
 At execution:
 1. If provided, `timeout` is evaluated and stored. Otherwise, 
@@ -562,7 +562,7 @@ At execution:
 `condition_expr` must be type `bool`
 `timeout_expr` (optional) must be type `Fw.Time`, an absolute time at which the timeout happens. If omitted, the check runs indefinitely until the condition persists for the required duration.
 `persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
-`every_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
+`freq_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
 
 The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
 

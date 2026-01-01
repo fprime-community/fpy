@@ -232,7 +232,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
         [
             ("persist", time_interval_type, "", ""),
             ("timeout", TimeValue, "", ""),
-            ("every", time_interval_type, "", ""),
+            ("freq", time_interval_type, "", ""),
             ("result", BoolValue, "", ""),
             ("last_was_true", BoolValue, "", ""),
             ("last_time_true", TimeValue, "", ""),

@@ -58,13 +58,13 @@ while_stmt: "while" expr ":" stmt_list
 # -> AstWhile(condition, body)
 
 # check statement
-# check has a conditional, optional timeout/persist/every expressions, a list of body statements,
+# check has a conditional, optional timeout/persist/freq expressions, a list of body statements,
 # and an optional list of timeout body statements
 check_timeout: "timeout" expr
 check_persist: "persist" expr
-check_every: "every" expr
-check_stmt: "check" expr [check_timeout] [check_persist] [check_every] ":" stmt_list ["timeout" ":" stmt_list]
-# -> AstCheck(condition, timeout, persist, every, body, timeout_body)
+check_freq: "freq" expr
+check_stmt: "check" expr [check_timeout] [check_persist] [check_freq] ":" stmt_list ["timeout" ":" stmt_list]
+# -> AstCheck(condition, timeout, persist, freq, body, timeout_body)
 
 
 # branching statement

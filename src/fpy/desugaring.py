@@ -343,7 +343,7 @@ class DesugarCheckStatements(Transformer):
     The generated AST nodes will go through normal semantic analysis.
     
     A check statement:
-        check <condition> [timeout <timeout>] [persist <persist>] [every <every>]:
+        check <condition> [timeout <timeout>] [persist <persist>] [freq <freq>]:
             <body>
         [timeout:
             <timeout_body>]
@@ -351,7 +351,7 @@ class DesugarCheckStatements(Transformer):
     Default values:
         - timeout: no timeout (runs indefinitely until condition persists)
         - persist: 0 second interval (condition must be true once)
-        - every: 1 second interval (check condition every second)
+        - freq: 1 second interval (check condition every second)
     
     Gets desugared into (roughly):
         $check_state: $CheckState = $CheckState(...)
@@ -373,7 +373,7 @@ class DesugarCheckStatements(Transformer):
                     break
             else:
                 $check_state.last_was_true = False
-            sleep($check_state.every.seconds, $check_state.every.useconds)
+            sleep($check_state.freq.seconds, $check_state.freq.useconds)
         if $check_state.result:
             <body>
         else:
@@ -470,12 +470,12 @@ class DesugarCheckStatements(Transformer):
             return self.member(self.name(check_state_name), attr)
         
         # Build the CheckState constructor call
-        # $CheckState(persist=<persist>, timeout=<timeout>, every=<every>, 
+        # $CheckState(persist=<persist>, timeout=<timeout>, freq=<freq>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
         # Handle default values:
         # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
-        # - every: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - freq: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
         # - timeout: if not specified, use a dummy value (but we skip timeout check logic)
         
         persist_expr = (
@@ -483,8 +483,8 @@ class DesugarCheckStatements(Transformer):
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(0), self.number(0))
         )
         
-        every_expr = (
-            copy.deepcopy(node.every) if node.every is not None
+        freq_expr = (
+            copy.deepcopy(node.freq) if node.freq is not None
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
         )
         
@@ -503,7 +503,7 @@ class DesugarCheckStatements(Transformer):
             self.qualified_name("$CheckState"),             
             persist_expr,                                   # persist
             timeout_expr_to_use,                            # timeout (absolute time)
-            every_expr,                                     # every
+            freq_expr,                                      # freq
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true
             self.call_parts(                                # last_time_true = Fw.Time(0,0,0,0)
@@ -617,11 +617,11 @@ class DesugarCheckStatements(Transformer):
             [self.assign(cs("last_was_true"), self.boolean(False))]
         )
         
-        # 7. sleep($check_state.every.seconds, $check_state.every.useconds)
+        # 7. sleep($check_state.freq.seconds, $check_state.freq.useconds)
         sleep_call = self.call(
             "sleep",
-            self.member(cs("every"), "seconds"),
-            self.member(cs("every"), "useconds")
+            self.member(cs("freq"), "seconds"),
+            self.member(cs("freq"), "useconds")
         )
         
         # Add condition check and sleep to while body

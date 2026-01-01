@@ -3708,7 +3708,7 @@ def test_check_condition_true_immediately(fprime_test_api):
     """Test that check succeeds immediately when condition is true with zero persist."""
     seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
     assert False, 1
@@ -3721,7 +3721,7 @@ def test_check_timeout_when_always_false(fprime_test_api):
     """Test that check times out when condition is always false."""
     seq = """
 timed_out: bool = False
-check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     assert False, 1
 timeout:
     timed_out = True
@@ -3741,7 +3741,7 @@ def check_condition() -> bool:
     # Return true on 3rd evaluation
     return eval_count >= 3
 
-check check_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check check_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1
@@ -3770,10 +3770,10 @@ def flaky_condition() -> bool:
         return False
     return True
 
-# With 30ms persist and 10ms every, condition needs to be true for 3+ consecutive checks
+# With 30ms persist and 10ms freq, condition needs to be true for 3+ consecutive checks
 # Calls 1-2 are true but call 3 is false, resetting the persist timer
 # Call 4+ are true, so it should eventually succeed
-check flaky_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 30000) every Fw.TimeIntervalValue(0, 10000):
+check flaky_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 30000) freq Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1
@@ -3796,7 +3796,7 @@ def return_true_once() -> bool:
         return True
     return False
 
-check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     exit(0)
 timeout:
     assert False, 1
@@ -3808,7 +3808,7 @@ def test_check_body_runs_on_success(fprime_test_api):
     """Test that check body runs when condition succeeds."""
     seq = """
 body_ran: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     body_ran = True
 assert body_ran
 """
@@ -3819,7 +3819,7 @@ def test_check_timeout_body_runs_on_timeout(fprime_test_api):
     """Test that timeout body runs when check times out."""
     seq = """
 timeout_body_ran: bool = False
-check False timeout time_add(now(), Fw.TimeIntervalValue(0, 50000)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 50000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     assert False, 1
 timeout:
     timeout_body_ran = True
@@ -3832,7 +3832,7 @@ def test_check_optional_timeout_body(fprime_test_api):
     """Test that check works without timeout body."""
     seq = """
 result: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 100000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     result = True
 assert result
 """
@@ -3856,7 +3856,7 @@ check eventually_true():
 
 
 def test_check_only_timeout_specified(fprime_test_api):
-    """Test check with only timeout specified (uses default persist=0 and every=1s)."""
+    """Test check with only timeout specified (uses default persist=0 and freq=1s)."""
     seq = """
 check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
     exit(0)
@@ -3871,7 +3871,7 @@ def test_check_nested_in_function(fprime_test_api):
     seq = """
 def do_check() -> bool:
     result: bool = False
-    check True timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+    check True timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
         result = True
     timeout:
         pass
@@ -3887,7 +3887,7 @@ def test_check_modifies_outer_scope(fprime_test_api):
     seq = """
 outer_var: I32 = 0
 
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     outer_var = 42
 
 assert outer_var == 42
@@ -3901,7 +3901,7 @@ def test_check_absolute_timeout(fprime_test_api):
 # Create an absolute timeout 100ms from now
 abs_timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
 result: bool = False
-check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     result = True
 timeout:
     pass
@@ -3916,7 +3916,7 @@ assert result
 def test_check_timeout_wrong_type(fprime_test_api):
     """Test that check timeout with wrong type gives compile error."""
     seq = """
-check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check True timeout 123 persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
@@ -3925,7 +3925,7 @@ check True timeout 123 persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalV
 def test_check_condition_wrong_type(fprime_test_api):
     """Test that check condition must be bool, not int."""
     seq = """
-check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
@@ -3934,7 +3934,7 @@ check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeInt
 def test_check_condition_wrong_type_string(fprime_test_api):
     """Test that check condition must be bool, not string."""
     seq = """
-check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every Fw.TimeIntervalValue(0, 10000):
+check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
@@ -3943,7 +3943,7 @@ check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.Tim
 def test_check_persist_wrong_type(fprime_test_api):
     """Test that check persist must be TimeIntervalValue, not int."""
     seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 every Fw.TimeIntervalValue(0, 10000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 freq Fw.TimeIntervalValue(0, 10000):
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
@@ -3952,25 +3952,25 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 every
 def test_check_persist_wrong_type_time(fprime_test_api):
     """Test that check persist must be TimeIntervalValue, not Fw.Time."""
     seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist now() every Fw.TimeIntervalValue(0, 10000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist now() freq Fw.TimeIntervalValue(0, 10000):
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
 
 
-def test_check_every_wrong_type(fprime_test_api):
-    """Test that check every must be TimeIntervalValue, not int."""
+def test_check_freq_wrong_type(fprime_test_api):
+    """Test that check freq must be TimeIntervalValue, not int."""
     seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every 123:
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq 123:
     pass
 """
     assert_compile_failure(fprime_test_api, seq)
 
 
-def test_check_every_wrong_type_time(fprime_test_api):
-    """Test that check every must be TimeIntervalValue, not Fw.Time."""
+def test_check_freq_wrong_type_time(fprime_test_api):
+    """Test that check freq must be TimeIntervalValue, not Fw.Time."""
     seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) every now():
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq now():
     pass
 """
     assert_compile_failure(fprime_test_api, seq)

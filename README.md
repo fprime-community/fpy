@@ -233,14 +233,13 @@ timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 ```
 
-Finally, you can specify a frequency at which the condition should be checked:
+Finally, you can specify a `freq` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 every Fw.TimeIntervalValue(1, 0): # check every 1 second
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
-timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+check CdhCore.cmdDisp.commandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 ```
 
+If you don't specify a value for `freq`, the default frequency is 1 Hertz.
 
 ## 11. Getting Struct Members and Array Items
 

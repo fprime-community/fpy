@@ -214,7 +214,7 @@ class AstCheck(Ast):
     condition: AstExpr
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    every: Union[AstExpr, None]    # Default: 1 second interval
+    freq: Union[AstExpr, None]    # Default: 1 second interval
     body: "AstStmtList"
     timeout_body: Union["AstStmtList", None] = None
 
@@ -333,7 +333,7 @@ def handle_str(meta, s: str):
 
 
 # Check statement clause handlers.
-# The check_stmt grammar has multiple optional clauses (timeout, persist, every).
+# The check_stmt grammar has multiple optional clauses (timeout, persist, freq).
 # We use separate grammar rules for each clause so we can tag them and identify
 # which optional clauses were provided, regardless of how many are present.
 def handle_check_clause(tag):
@@ -345,11 +345,11 @@ def handle_check_clause(tag):
 
 
 def handle_check_stmt(meta, children):
-    """Parse check statement with optional timeout/persist/every clauses."""
+    """Parse check statement with optional timeout/persist/freq clauses."""
     condition = children[0]
     timeout = None
     persist = None
-    every = None
+    freq = None
     body = None
     timeout_body = None
     
@@ -360,8 +360,8 @@ def handle_check_stmt(meta, children):
                 timeout = expr
             elif clause_type == "persist":
                 persist = expr
-            elif clause_type == "every":
-                every = expr
+            elif clause_type == "freq":
+                freq = expr
         elif isinstance(child, AstStmtList):
             if body is None:
                 body = child
@@ -369,7 +369,7 @@ def handle_check_stmt(meta, children):
                 timeout_body = child
     
     assert body is not None, "check statement must have a body"
-    return AstCheck(meta, condition, timeout, persist, every, body, timeout_body)
+    return AstCheck(meta, condition, timeout, persist, freq, body, timeout_body)
 
 
 def handle_parameter(meta, args):
@@ -399,7 +399,7 @@ class FpyTransformer(Transformer):
 
     check_timeout = handle_check_clause("timeout")
     check_persist = handle_check_clause("persist")
-    check_every = handle_check_clause("every")
+    check_freq = handle_check_clause("freq")
     check_stmt = no_inline(handle_check_stmt)
 
     elifs = no_inline_or_meta(list)
