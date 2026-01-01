@@ -123,7 +123,7 @@ Name:
 
 ### Semantics
 
-If `lhs` resolves to a previously-declared variable, an error is raised.
+If `lhs` resolves to a previously-defined variable, an error is raised.
 
 If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
@@ -131,7 +131,7 @@ The new variable has name `lhs` and type `type_ann`. It is added to the resolvin
 
 At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to type `type_ann`. This becomes the variable's initial value.
 
-After execution, the variable is considered declared.
+After execution, the variable is considered defined.
 
 ## Variable assignment
 
@@ -152,7 +152,7 @@ Name:
 
 If `lhs` is not a variable, an error is raised.
 
-If the variable has not been declared yet, an error is raised.
+If the variable has not been defined yet, an error is raised.
 
 If `rhs` cannot be coerced to the variable's type, an error is raised.
 
@@ -186,7 +186,7 @@ If `parent`'s type is:
 
 ... an error is raised.
 
-If the variable has not been declared yet, an error is raised.
+If the variable has not been defined yet, an error is raised.
 
 If `rhs` cannot be coerced to the member's type, an error is raised.
 
@@ -215,7 +215,7 @@ If `parent` is not a variable or a [field](#fields) with a [field base](todo) th
 
 > This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
 
-If the variable has not been declared yet, an error is raised.
+If the variable has not been defined yet, an error is raised.
 
 If `item` cannot be [coerced](#type-coercion) to [array index type](#type-aliases), an error is raised.
 
@@ -238,9 +238,9 @@ The value of the variable is unchanged except for the element.
 
 ## Variable evaluation
 
-The value produced by [evaluating](todo) a variable is the value most recently assigned to that variable, or the initial value if it has only been declared.
+The value produced by [evaluating](todo) a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
 
-If a variable is evaluated before it has been declared, an error is raised.
+If a variable is evaluated before it has been defined, an error is raised.
 
 # Functions
 
@@ -248,7 +248,7 @@ A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, par
 
 ## Parameters
 
-A **parameter** is a [variable](#variables) implicitly declared by a function in that function's scope.
+A **parameter** is a [variable](#variables) implicitly defined by a function in that function's scope.
 
 When a function is [called](todo), each parameter is set to an initial value.
 
@@ -281,7 +281,7 @@ The parameter `name`s are resolved in the value name group.
 
 ### Semantics
 
-If `name` resolves to a previously-declared callable, an error is raised.
+If `name` resolves to a previously-defined callable, an error is raised.
 
 A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
 
@@ -297,7 +297,7 @@ If a parameter without a default value follows a parameter with a default value,
 
 The new function with name `name` is added to the global scope.
 
-> Because functions can only be declared in the global scope, you cannot declare a function in a function.
+> Because functions can only be defined in the global scope, you cannot declare a function in a function.
 
 > Functions can be used before they are defined.
 
@@ -308,8 +308,7 @@ When a function is called:
 1. Argument values are assigned to parameters
 2. The function body executes
 
-During the execution of the function body, if a [return](todo) statement is reached:
-3. If a [return](todo) statement is executed, the function evaluates to the value returned by that statement, or to no value if it did not return one.
+During the execution of the function body, if a [return](todo) statement is reached, the function evaluates to the return value of that statement, or no value if the return did not have one.
 
 # Types
 
@@ -319,7 +318,7 @@ The values of a type are unique to that type.
 
 > In other words, there are no union types and there is no type inheritance.
 
-Types cannot be declared by the program.
+New types cannot be defined by the program.
 
 A *serializable type* is a type whose values can be expressed in a binary format.
 

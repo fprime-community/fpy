@@ -151,7 +151,7 @@ class CreateFunctionScopes(TopDownVisitor):
         SetEnclosingValueScope(func_scope).run(node.body, state)
 
         # Parameter names and type annotations are in the function scope
-        # (they're declared inside the function)
+        # (they're defined inside the function)
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
                 state.enclosing_value_scope[arg_name_var] = func_scope
@@ -189,9 +189,9 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"Variable '{node.lhs.name}' has already been declared", node)
+                state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
-            # okay, declare the var
+            # okay, define the var
             is_global = state.enclosing_value_scope[node] is state.global_value_scope
             var = VariableSymbol(node.lhs.name, node.type_ann, node, is_global=is_global)
             # new var. put it in the scope
@@ -203,15 +203,15 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if sym is None:
                 # unable to find this symbol
                 state.err(
-                    f"Variable '{node.lhs.name}' used before declared",
+                    f"Variable '{node.lhs.name}' used before defined",
                     node.lhs,
                 )
                 return
             # okay, we were able to resolve it
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        # for loops have an implicit loop variable that they can declare
-        # if it isn't already declared in the local scope
+        # for loops have an implicit loop variable that they can define
+        # if it isn't already defined in the local scope
         scope = state.enclosing_value_scope[node]
         loop_var = scope.get(node.loop_var.name)
 
@@ -220,8 +220,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # this is okay as long as the variable is of the same type
 
             # what follows is a bit of a hack
-            # there are two cases: either loop_var has been declared before but we only know the type expr (if it was an AstAssign decl)
-            # or loop_var has been declared before and we only know the type, but have no type expr (from some other for loop)
+            # there are two cases: either loop_var has been defined before but we only know the type expr (if it was an AstAssign decl)
+            # or loop_var has been defined before and we only know the type, but have no type expr (from some other for loop)
 
             # case 1 is easy, just check the type == LoopVarType
             # case 2 is harder, we have to check if the type name is an AstName
@@ -238,7 +238,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                 )
             ):
                 state.err(
-                    f"Variable '{node.loop_var.name}' has already been declared as a type other than {typename(LoopVarType)}",
+                    f"Variable '{node.loop_var.name}' has already been defined as a type other than {typename(LoopVarType)}",
                     node,
                 )
                 return
@@ -251,7 +251,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             )
             scope[loop_var.name] = loop_var
 
-        # each loop also declares an implicit ub variable
+        # each loop also defines an implicit ub variable
         # type of ub var is same as loop var type
         is_global = state.enclosing_value_scope[node] is state.global_value_scope
         upper_bound_var = VariableSymbol(
@@ -270,7 +270,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         existing_func = state.global_callable_scope.get(node.name.name)
         if existing_func is not None:
             state.err(
-                f"Function '{node.name.name}' has already been declared", node.name
+                f"Function '{node.name.name}' has already been defined", node.name
             )
             return
 
@@ -299,7 +299,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             elif seen_default:
                 # Non-default argument after default argument
                 state.err(
-                    f"Non-default argument '{arg_name_var.name}' follows default argument",
+                    f"Non-default parameter '{arg_name_var.name}' follows default parameter",
                     arg_name_var,
                 )
                 return
@@ -312,7 +312,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if existing_local is not None:
                 # two args with the same name
                 state.err(
-                    f"Argument '{arg_name_var.name}' has already been declared",
+                    f"Parameter '{arg_name_var.name}' has already been defined",
                     arg_name_var,
                 )
                 return
@@ -707,26 +707,26 @@ class UpdateTypesAndFuncs(Visitor):
         var.type = var_type
 
 
-class CheckUseBeforeDeclare(TopDownVisitor):
+class CheckUseBeforeDefine(TopDownVisitor):
     """
-    Checks that variables are not used before they are declared.
+    Checks that variables are not used before they are defined.
     Handles both regular variable assignments (AstAssign) and for loop variables (AstFor).
 
-    Uses TopDownVisitor because for loops need the loop variable to be declared
+    Uses TopDownVisitor because for loops need the loop variable to be defined
     before visiting the body. For assignments, we manually check the RHS before
-    marking the variable as declared.
+    marking the variable as defined.
     """
 
     def __init__(self):
         super().__init__()
-        self.currently_declared_vars: list[VariableSymbol] = []
+        self.currently_defined_vars: list[VariableSymbol] = []
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         var = state.resolved_symbols[node.loop_var]
-        # Check that the loop var isn't referenced in the range (before it's declared)
+        # Check that the loop var isn't referenced in the range (before it's defined)
         EnsureVariableNotReferenced(var).run(node.range, state)
-        # Now mark it as declared for the body
-        self.currently_declared_vars.append(var)
+        # Now mark it as defined for the body
+        self.currently_defined_vars.append(var)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstName):
@@ -736,15 +736,15 @@ class CheckUseBeforeDeclare(TopDownVisitor):
         var = state.resolved_symbols[node.lhs]
 
         if var is None or var.declaration != node:
-            # either not declared in this scope, or this is not a
+            # either not defined in this scope, or this is not a
             # declaration of this var
             return
 
-        # Before marking as declared, check that the variable isn't used in its own RHS
+        # Before marking as defined, check that the variable isn't used in its own RHS
         EnsureVariableNotReferenced(var).run(node.rhs, state)
 
-        # Now mark this variable as declared
-        self.currently_declared_vars.append(var)
+        # Now mark this variable as defined
+        self.currently_defined_vars.append(var)
 
     def visit_AstName(self, node: AstName, state: CompileState):
         sym = state.resolved_symbols[node]
@@ -753,8 +753,8 @@ class CheckUseBeforeDeclare(TopDownVisitor):
             return
 
         if is_instance_compat(sym.declaration, AstDef):
-            # function parameters - no use-before-declare check needed
-            # this is because if it's in scope, it's declared, as its
+            # function parameters - no use-before-define check needed
+            # this is because if it's in scope, it's defined, as its
             # "declaration" is the start of the scope
             return
         if (
@@ -770,8 +770,8 @@ class CheckUseBeforeDeclare(TopDownVisitor):
             # this is the declaring reference for a for loop variable
             return
 
-        if sym not in self.currently_declared_vars:
-            state.err(f"'{node.name}' used before declared", node)
+        if sym not in self.currently_defined_vars:
+            state.err(f"'{node.name}' used before defined", node)
             return
 
 
@@ -783,7 +783,7 @@ class EnsureVariableNotReferenced(Visitor):
     def visit_AstName(self, node: AstName, state: CompileState):
         sym = state.resolved_symbols[node]
         if sym == self.var:
-            state.err(f"'{node.name}' used before declared", node)
+            state.err(f"'{node.name}' used before defined", node)
             return
 
 

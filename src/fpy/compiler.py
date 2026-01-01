@@ -39,7 +39,7 @@ from fpy.semantics import (
     CheckConstArrayAccesses,
     CheckFunctionReturns,
     CheckReturnInFunc,
-    CheckUseBeforeDeclare,
+    CheckUseBeforeDefine,
     CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
     SetResolvingScopes,
@@ -359,7 +359,7 @@ def ast_to_directives(
         CheckNamesFullyResolved(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
-        CheckUseBeforeDeclare(),
+        CheckUseBeforeDefine(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveAttrsAndItems(),
         # Calculate const values for default arguments first (and check they're const).
