@@ -32,7 +32,7 @@ A **symbol** is a language construct that can be referred to by some name in the
 The following language constructs may be symbols:
 * [namespaces](#namespaces)
 * [variables](#variables)
-* [functions](todo)
+* [functions](#functions)
 * [types](#types)
 * telemetry channels
 * parameters
@@ -44,7 +44,7 @@ A **scope** is a mapping of names to symbols, accessed via some region of the so
 
 The **global scope** is the scope accessible throughout the entire source code.
 
-Each [function](todo) has a **function scope**, accessible in its body.
+Each [function](#functions) has a **function scope**, accessible in its body.
 
 The **resolving scope** is the most specific scope that some part of the source code has access to.
 
@@ -92,26 +92,26 @@ A **qualified name** is one of:
 
 Given a resolving scope and resolving name group, a
 
-# Declarations
+# definitions
 
-A **declaration** is a language construct that introduces a name-to-symbol mapping to a scope and name group.
+A **definition** is a language construct that introduces a name-to-symbol mapping to a scope and name group.
 
-The list of declarations is:
-* [Variable declarations](#variable-declaration)
-* [Function declarations](#function-declaration)
+The list of definitions is:
+* [Variable definitions](#variable-definition)
+* [Function definitions](#function-definition)
 
 # Variables
 
 A **variable** is a [symbol](#symbols) associated with a static [type](#types) and a mutable [value](#values).
 
-## Variable declaration
+## Variable definition
 
-A **variable declaration** introduces a name-to-[variable](#variables) mapping to its resolving scope.
+A **variable definition** introduces a name-to-[variable](#variables) mapping to its resolving scope.
 
 ### Syntax
 Rule:
 
-`declare_stmt: name ":" expr "=" expr`
+`variable_declare_stmt: name ":" expr "=" expr`
 
 Name:
 
@@ -140,7 +140,7 @@ A **variable assignment** mutates the value of a variable.
 ### Syntax
 Rule:
 
-`assign_stmt: name "=" expr`
+`variable_assign_stmt: name "=" expr`
 
 Name:
 
@@ -165,7 +165,7 @@ A **member assignment** mutates the value of a [member](todo) in a variable.
 ### Syntax
 Rule:
 
-`assign_member_stmt: expr "." name "=" expr`
+`variable_assign_member_stmt: expr "." name "=" expr`
 
 Name:
 
@@ -201,7 +201,7 @@ An **element assignment** mutates the value of an [element](todo) in a variable.
 ### Syntax
 Rule:
 
-`assign_element_stmt: expr "[" expr "]" "=" expr`
+`variable_assign_element_stmt: expr "[" expr "]" "=" expr`
 
 Name:
 
@@ -217,7 +217,7 @@ If `parent` is not a variable or a [field](#fields) with a [field base](todo) th
 
 If the variable has not been declared yet, an error is raised.
 
-If `item` cannot be coerced to [array index type](#type-aliases), an error is raised.
+If `item` cannot be [coerced](#type-coercion) to [array index type](#type-aliases), an error is raised.
 
 If `parent`'s type is:
 * not [constant-sized](todo), or
@@ -229,14 +229,12 @@ If `parent`'s type is:
 If `rhs` cannot be coerced to the element's type, an error is raised.
 
 At execution:
-1. `item` is [evaluated](#evaluation) and [coerced](#type-coercion) to [array index type](#type-aliases)
-2. If `item` is 
-2. `rhs` is evaluated and coerced to the element's type.
-3. The element in the `parent` array at the index `item`
+1. `rhs` is evaluated and coerced to the element's type
+2. `item` is [evaluated](#evaluation) and coerced to [array index type](#type-aliases)
+3. If `item` is less than zero or greater than the `parent`'s type length, a runtime error is raised
+4. The element in the `parent` array at the index `item` is set to the result of step 1
 
-The element's new value is the result of [evaluating](#evaluation) `rhs` and [coercing](#type-coercion) it to the field's type.
-
-The value of the variable is unchanged except for the member.
+The value of the variable is unchanged except for the element.
 
 ## Variable evaluation
 
@@ -246,16 +244,26 @@ If a variable is evaluated before it has been declared, an error is raised.
 
 # Functions
 
-A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, arguments, code and a return [type](#types).
+A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, parameters, code and a return [type](#types).
 
-## Function declaration
+## Parameters
 
-A **function declaration** introduces a name-to-[function](#function) mapping to the global scope.
+A **parameter** is a [variable](#variables) implicitly declared by a function in that function's scope.
+
+When a function is [called](todo), each parameter is set to an initial value.
+
+The initial value may either be from an [argument](todo), or a default value, if one is specified in the function definition.
+
+> In all other respects, parameters are like normal variables.
+
+## Function definition
+
+A **function definition** introduces a name-to-[function](#function) mapping to the global scope.
 
 ### Syntax
 Rule:
 
-`def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block`
+`function_def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block`
 
 `parameters: parameter ("," parameter)*`
 
@@ -265,9 +273,43 @@ Name:
 
 `"def" name "(" parameters ")" "->" return_type ":" body`
 
+The parameter `name`s are resolved in the value name group.
+
+`name` is resolved in the callable name group.
+
+`return_type` and each of the parameter types are resolved in the type name group.
+
 ### Semantics
 
-> Function declarations always introduce their function to the global scope because they are syntactically disallowed from being inside a function body.
+If `name` resolves to a previously-declared callable, an error is raised.
+
+A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
+
+Each parameter is a variable in this new scope.
+
+> This implies that no two parameters may have the same name, otherwise they would be conflicting variables.
+
+If the default value of a parameter is not a [constant](todo), an error is raised.
+
+If the default value of a parameter cannot be [coerced](#type-coercion) to the type of the parameter, an error is raised.
+
+If a parameter without a default value follows a parameter with a default value, an error is raised.
+
+The new function with name `name` is added to the global scope.
+
+> Because functions can only be declared in the global scope, you cannot declare a function in a function.
+
+> Functions can be used before they are defined.
+
+## Function evaluation
+Functions can be evaluated by [calling](todo) the function.
+
+When a function is called:
+1. Argument values are assigned to parameters
+2. The function body executes
+
+During the execution of the function body, if a [return](todo) statement is reached:
+3. If a [return](todo) statement is executed, the function evaluates to the value returned by that statement, or to no value if it did not return one.
 
 # Types
 
@@ -332,6 +374,8 @@ The precision of Float is 30 decimal places.
 *String* is an internal type whose values are strings of arbitrary length.
 
 *Range* is an internal type whose values are pairs of values of loop var type.
+
+*Nothing* is an internal type which has no values.
 
 ## Dictionary types
 *Dictionary types* are types defined in the F-Prime dictionary.
@@ -496,7 +540,7 @@ Fpy provides builtin functions for comparing and manipulating time values:
 These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
 
 ## Type constructors
-Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
+Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
 
 ## Numeric casts
 Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
@@ -509,7 +553,7 @@ def name(param_0: Type0, param_1: Type1 = default_value, ...) [-> ReturnType]:
 ```
 
 ### Parameters
-Each parameter declaration consists of a name followed by a colon and a type annotation. A parameter may optionally include a default value, written as `= expr` after the type annotation. Default value expressions must be constant expressions: literals, enum constants, or type constructors whose arguments are themselves constant expressions. Expressions referencing telemetry channels, variables, or function calls are not constant and produce a compile-time error when used as defaults.
+Each parameter definition consists of a name followed by a colon and a type annotation. A parameter may optionally include a default value, written as `= expr` after the type annotation. Default value expressions must be constant expressions: literals, enum constants, or type constructors whose arguments are themselves constant expressions. Expressions referencing telemetry channels, variables, or function calls are not constant and produce a compile-time error when used as defaults.
 
 Arguments may be passed by position or by name. Positional arguments are bound to parameters left-to-right. Named arguments use the syntax `name=expr` and bind the value of `expr` to the parameter with the matching name. All positional arguments must precede all named arguments. A parameter may not be bound more than once; supplying both a positional argument and a named argument for the same parameter is a compile-time error. If fewer arguments are supplied than parameters, the remaining parameters must have default values; those defaults are evaluated and bound. Supplying more positional arguments than parameters, or naming a parameter that does not exist, is a compile-time error.
 

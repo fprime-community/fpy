@@ -3940,3 +3940,15 @@ check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0)
 """
     assert_compile_failure(fprime_test_api, seq)
 
+
+def test_func_modify_param(fprime_test_api):
+    seq = """
+def test(arg: U8):
+    arg = 1
+    assert arg == 1
+
+val: U8 = 123
+test(val)
+assert val == 123
+"""
+    assert_run_success(fprime_test_api, seq)
