@@ -58,7 +58,7 @@ from fpy.syntax import (
     Ast,
     AstReturn,
     AstBlock,
-    AstVar,
+    AstName,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -475,7 +475,7 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
-    resolving_scope: dict[AstVar, SymbolTable] = field(default_factory=dict)
+    resolving_scope: dict[AstName, SymbolTable] = field(default_factory=dict)
     enclosing_value_scope: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
     """map of node to its enclosing value scope (function scope or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)

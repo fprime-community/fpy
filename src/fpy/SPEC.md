@@ -111,7 +111,7 @@ A **variable** is a symbol associated with a static [type](#types) and a mutable
 A **variable declaration** introduces a name-to-[variable](#variables) mapping to its resolving scope.
 
 ### Syntax
-`var ":" qualified_name "=" expr`
+`name ":" qualified_name "=" expr`
 
 `lhs ":" type_ann "=" rhs`
 
@@ -130,7 +130,7 @@ The initial value of the new variable is the result of [evaluating](#evaluation)
 A **variable assignment** mutates the value of a variable.
 
 It is a special case of the `assign_stmt` rule:
-1. `lhs` must be a `var`
+1. `lhs` must be a `name`
 2. `type_ann` must not be provided
 
 The resolving name group of `lhs` is the value name group.

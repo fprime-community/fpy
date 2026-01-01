@@ -41,17 +41,17 @@ assign_stmt: expr [":" expr] "=" expr
 # the function definition statement
 # functions may be defined with zero or more comma-separated parameters, and an
 # optional return type annotation. They are followed by an indented, scoped code block
-def_stmt: "def" var "(" [parameters] ")" ["->" expr] ":" block
+def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block
 # -> AstDef(name, parameters, return_type, body)
 parameters: parameter ("," parameter)*
 # -> list[tuple[arg_name, arg_type, arg_default_value]]
 # each parameter has a type, and an optional default value expression
-parameter: var ":" expr ["=" expr]
+parameter: name ":" expr ["=" expr]
 
 
 # loop statements
 # for loops have a loop variable, a range expression and a list of body statements
-for_stmt: "for" var "in" expr ":" stmt_list
+for_stmt: "for" name "in" expr ":" stmt_list
 # -> AstFor(loop_var, range, body)
 # while loops have a conditional expression and a list of body statements
 while_stmt: "while" expr ":" stmt_list
@@ -139,22 +139,22 @@ _test: or_test
 # the "indivisible" unit of an expression
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> index_expr
-          | atom_expr "." name -> get_attr
+          | atom_expr "." NAME -> get_attr
           | _literal
           | "(" expr ")"
-          | var
+          | name
 # func_call -> AstFuncCall(func, args)
 # index_expr -> AstIndexExpr(parent, item)
 # get_attr -> AstGetAttr(parent, attr)
 
 arguments: argument ("," argument)*
-argument: name "=" expr -> named_argument
+argument: NAME "=" expr -> named_argument
         | expr -> positional_argument
 # named_argument -> AstNamedArgument(name, value)
 # positional_argument just creates whatever node the expr creates
 
-var: name
-# -> AstVar(var)
+name: NAME
+# -> AstName(value)
 
 RANGE_OPERATOR: ".."
 
@@ -178,7 +178,6 @@ _NEWLINE: ( /\r?\n[\t ]*/ | COMMENT )+
 
 # Python terminals
 
-!name: NAME
 NAME: /[^\W\d]\w*/
 COMMENT: /#[^\n]*/
 CONST_TRUE: "True"

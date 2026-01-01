@@ -106,7 +106,7 @@ from fpy.syntax import (
     AstAssign,
     AstFuncCall,
     AstUnaryOp,
-    AstVar,
+    AstName,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -178,7 +178,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # otherwise we good
             return
 
-        assert is_instance_compat(node.lhs, AstVar), node.lhs
+        assert is_instance_compat(node.lhs, AstName), node.lhs
         # variable decl or assign
         scope = state.enclosing_value_scope[node]
 
@@ -186,24 +186,24 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # new variable declaration
             # make sure it isn't defined in this scope
             # TODO shadowing check
-            existing_local = scope.get(node.lhs.var)
+            existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"Variable '{node.lhs.var}' has already been declared", node)
+                state.err(f"Variable '{node.lhs.name}' has already been declared", node)
                 return
             # okay, declare the var
             is_global = state.enclosing_value_scope[node] is state.global_value_scope
-            var = VariableSymbol(node.lhs.var, node.type_ann, node, is_global=is_global)
+            var = VariableSymbol(node.lhs.name, node.type_ann, node, is_global=is_global)
             # new var. put it in the scope
-            scope[node.lhs.var] = var
+            scope[node.lhs.name] = var
         else:
             # otherwise, it's a reference to an existing var
             # may be in this scope or outer scope
-            sym = scope.get(node.lhs.var) or state.global_value_scope.get(node.lhs.var)
+            sym = scope.get(node.lhs.name) or state.global_value_scope.get(node.lhs.name)
             if sym is None:
                 # unable to find this symbol
                 state.err(
-                    f"Variable '{node.lhs.var}' used before declared",
+                    f"Variable '{node.lhs.name}' used before declared",
                     node.lhs,
                 )
                 return
@@ -213,7 +213,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         # for loops have an implicit loop variable that they can declare
         # if it isn't already declared in the local scope
         scope = state.enclosing_value_scope[node]
-        loop_var = scope.get(node.loop_var.var)
+        loop_var = scope.get(node.loop_var.name)
 
         reuse_existing_loop_var = False
         if loop_var is not None:
@@ -224,7 +224,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # or loop_var has been declared before and we only know the type, but have no type expr (from some other for loop)
 
             # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type name is an AstVar
+            # case 2 is harder, we have to check if the type name is an AstName
             # that matches the canonical name of the LoopVarType
 
             # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
@@ -233,12 +233,12 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
                 loop_var.type is None
                 and not (
-                    is_instance_compat(loop_var.type_ref, AstVar)
-                    and loop_var.type_ref.var == LoopVarType.get_canonical_name()
+                    is_instance_compat(loop_var.type_ref, AstName)
+                    and loop_var.type_ref.name == LoopVarType.get_canonical_name()
                 )
             ):
                 state.err(
-                    f"Variable '{node.loop_var.var}' has already been declared as a type other than {typename(LoopVarType)}",
+                    f"Variable '{node.loop_var.name}' has already been declared as a type other than {typename(LoopVarType)}",
                     node,
                 )
                 return
@@ -247,7 +247,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # new var. put it in the scope
             is_global = state.enclosing_value_scope[node] is state.global_value_scope
             loop_var = VariableSymbol(
-                node.loop_var.var, None, node, LoopVarType, is_global=is_global
+                node.loop_var.name, None, node, LoopVarType, is_global=is_global
             )
             scope[loop_var.name] = loop_var
 
@@ -267,16 +267,16 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Functions always go in the global callable scope
-        existing_func = state.global_callable_scope.get(node.name.var)
+        existing_func = state.global_callable_scope.get(node.name.name)
         if existing_func is not None:
             state.err(
-                f"Function '{node.name.var}' has already been declared", node.name
+                f"Function '{node.name.name}' has already been declared", node.name
             )
             return
 
         func = FunctionSymbol(
             # we know the name
-            node.name.var,
+            node.name.name,
             # we don't know the return type yet
             return_type=None,
             # we don't know the arg types yet
@@ -299,7 +299,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             elif seen_default:
                 # Non-default argument after default argument
                 state.err(
-                    f"Non-default argument '{arg_name_var.var}' follows default argument",
+                    f"Non-default argument '{arg_name_var.name}' follows default argument",
                     arg_name_var,
                 )
                 return
@@ -308,16 +308,16 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         func_scope = state.enclosing_value_scope[node.body]
         for arg in node.parameters:
             arg_name_var, arg_type_name, default_value = arg
-            existing_local = func_scope.get(arg_name_var.var)
+            existing_local = func_scope.get(arg_name_var.name)
             if existing_local is not None:
                 # two args with the same name
                 state.err(
-                    f"Argument '{arg_name_var.var}' has already been declared",
+                    f"Argument '{arg_name_var.name}' has already been declared",
                     arg_name_var,
                 )
                 return
-            arg_var = VariableSymbol(arg_name_var.var, arg_type_name, node)
-            func_scope[arg_name_var.var] = arg_var
+            arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node)
+            func_scope[arg_name_var.name] = arg_var
 
 
 class SetEnclosingLoops(Visitor):
@@ -369,7 +369,7 @@ class SetResolvingScope(Visitor):
         super().__init__()
         self.scope = scope
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         state.resolving_scope[node] = self.scope
 
 
@@ -464,18 +464,18 @@ class SetResolvingScopes(TopDownVisitor):
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
-        # this is because they do not imply anything about the context in which an AstVar should get
+        # this is because they do not imply anything about the context in which an AstName should get
         # resolved
         pass
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         if node in state.resolving_scope:
             # it exists in a context where we can resolve it
             return
 
         # exists outside of a context where we can resolve it.
         # probably just throw an error?
-        state.err(f"Name '{node.var}' cannot be resolved without more context", node)
+        state.err(f"Name '{node.name}' cannot be resolved without more context", node)
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -483,9 +483,9 @@ class SetResolvingScopes(TopDownVisitor):
 
 
 class ResolveNames(Visitor):
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         resolving_scope = state.resolving_scope[node]
-        sym = resolving_scope.get(node.var)
+        sym = resolving_scope.get(node.name)
         if sym is not None:
             state.resolved_symbols[node] = sym
             return
@@ -502,7 +502,7 @@ class ResolveNames(Visitor):
         # not global. it must be a function value scope, so we can just try
         # the global value scope
         resolving_scope = state.global_value_scope
-        sym = resolving_scope.get(node.var)
+        sym = resolving_scope.get(node.name)
         if sym is None:
             # didn't resolve in func value scope, didn't resolve in global value scope
             state.err(f"Unknown {resolving_scope.scope_category}", node)
@@ -656,11 +656,11 @@ class CheckNamesFullyResolved(TopDownVisitor):
         if not self.check_fully_resolved(node.value, ScopeCategory.VALUE, state):
             return
 
-    def visit_AstLiteral_AstGetAttr_AstVar(
-        self, node: Union[AstLiteral, AstGetAttr, AstVar], state: CompileState
+    def visit_AstLiteral_AstGetAttr_AstName(
+        self, node: Union[AstLiteral, AstGetAttr, AstName], state: CompileState
     ):
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
-        # this is because they do not imply anything about the context in which an AstVar should get
+        # this is because they do not imply anything about the context in which an AstName should get
         # resolved
         pass
 
@@ -692,7 +692,7 @@ class UpdateTypesAndFuncs(Visitor):
                 arg_var = state.resolved_symbols[arg_name_var]
                 assert is_instance_compat(arg_var, VariableSymbol), arg_var
                 arg_var.type = arg_type
-                args.append((arg_name_var.var, arg_type, default_value))
+                args.append((arg_name_var.name, arg_type, default_value))
 
         func.args = args
 
@@ -729,7 +729,7 @@ class CheckUseBeforeDeclare(TopDownVisitor):
         self.currently_declared_vars.append(var)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not is_instance_compat(node.lhs, AstVar):
+        if not is_instance_compat(node.lhs, AstName):
             # definitely not a declaration, it's a field assignment
             return
 
@@ -746,7 +746,7 @@ class CheckUseBeforeDeclare(TopDownVisitor):
         # Now mark this variable as declared
         self.currently_declared_vars.append(var)
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         sym = state.resolved_symbols[node]
         if not is_instance_compat(sym, VariableSymbol):
             # not a variable, might be a type name or smth
@@ -771,7 +771,7 @@ class CheckUseBeforeDeclare(TopDownVisitor):
             return
 
         if sym not in self.currently_declared_vars:
-            state.err(f"'{node.var}' used before declared", node)
+            state.err(f"'{node.name}' used before declared", node)
             return
 
 
@@ -780,10 +780,10 @@ class EnsureVariableNotReferenced(Visitor):
         super().__init__()
         self.var = var
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         sym = state.resolved_symbols[node]
         if sym == self.var:
-            state.err(f"'{node.var}' used before declared", node)
+            state.err(f"'{node.name}' used before declared", node)
             return
 
 
@@ -1119,7 +1119,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         state.synthesized_types[node] = parent_type.MEMBER_TYPE
         state.contextual_types[node] = parent_type.MEMBER_TYPE
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         # already been resolved
         sym = state.resolved_symbols[node]
         if sym is None:
@@ -1527,7 +1527,7 @@ class CalculateDefaultArgConstValues(Visitor):
             const_value = state.contextual_values.get(default_value)
             if const_value is None:
                 state.err(
-                    f"Default value for argument '{arg_name_var.var}' must be a constant expression",
+                    f"Default value for argument '{arg_name_var.name}' must be a constant expression",
                     default_value,
                 )
                 return
@@ -1779,7 +1779,7 @@ class CalculateConstExprValues(Visitor):
                 return
         state.contextual_values[node] = expr_value
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
@@ -2145,7 +2145,7 @@ class CheckFunctionReturns(Visitor):
             return
         if not state.does_return[node.body]:
             state.err(
-                f"Function '{node.name.var}' does not always return a value", node
+                f"Function '{node.name.name}' does not always return a value", node
             )
             return
 

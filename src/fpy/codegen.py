@@ -125,7 +125,7 @@ from fpy.syntax import (
     AstAssign,
     AstFuncCall,
     AstUnaryOp,
-    AstVar,
+    AstName,
     AstWhile,
 )
 
@@ -623,7 +623,7 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    def emit_AstVar(self, node: AstVar, state: CompileState):
+    def emit_AstName(self, node: AstName, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
