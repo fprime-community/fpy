@@ -16,24 +16,35 @@ _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
 # an indented list of statements which does not define a semantic scope
 stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
+# -> AstStmtList(stmts)
+
 # an indented list of statements which does define a semantic scope
 block: _NEWLINE _INDENT _stmt+ _DEDENT
+# -> AstBlock(stmts)
 
 
 # non-compound, non-expr statements. the simplest kind
 pass_stmt: "pass"
+# -> AstPass
 break_stmt: "break"
+# -> AstBreak
 continue_stmt: "continue"
+# -> AstContinue
 assert_stmt: "assert" expr ["," expr]
+# -> AstAssert(condition, exit_code)
 return_stmt: "return" [expr]
+# -> AstReturn(value)
 assign_stmt: expr [":" expr] "=" expr
+# -> AstAssign(lhs, type_ann, rhs)
 
 
 # the function definition statement
 # functions may be defined with zero or more comma-separated parameters, and an
 # optional return type annotation. They are followed by an indented, scoped code block
 def_stmt: "def" var "(" [parameters] ")" ["->" expr] ":" block
+# -> AstDef(name, parameters, return_type, body)
 parameters: parameter ("," parameter)*
+# -> list[tuple[arg_name, arg_type, arg_default_value]]
 # each parameter has a type, and an optional default value expression
 parameter: var ":" expr ["=" expr]
 
@@ -41,8 +52,10 @@ parameter: var ":" expr ["=" expr]
 # loop statements
 # for loops have a loop variable, a range expression and a list of body statements
 for_stmt: "for" var "in" expr ":" stmt_list
+# -> AstFor(loop_var, range, body)
 # while loops have a conditional expression and a list of body statements
 while_stmt: "while" expr ":" stmt_list
+# -> AstWhile(condition, body)
 
 # check statement
 # check has a conditional, optional timeout/persist/every expressions, a list of body statements,
@@ -51,6 +64,7 @@ check_timeout: "timeout" expr
 check_persist: "persist" expr
 check_every: "every" expr
 check_stmt: "check" expr [check_timeout] [check_persist] [check_every] ":" stmt_list ["timeout" ":" stmt_list]
+# -> AstCheck(condition, timeout, persist, every, body, timeout_body)
 
 
 # branching statement
@@ -60,8 +74,11 @@ check_stmt: "check" expr [check_timeout] [check_persist] [check_every] ":" stmt_
 # it is also optionally followed by an else clause, which
 # has a list of body statements
 if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]
+# -> AstIf(condition, body, elifs, els)
 elifs: elif_*
+# -> list[AstElif]
 elif_: "elif" expr ":" stmt_list
+# -> AstElif(condition, body)
 
 # an expr statement is just an expression "on its own" on the line
 ?expr_stmt: expr
@@ -93,6 +110,7 @@ _test: or_test
 # terms
 ?range: sum RANGE_OPERATOR sum
       | sum
+# -> AstRange(lower_bound, op, upper_bound)
 
 # standard order of operations: PEMDAS, or in reverse as shown here: SADMEP
 # subtraction and addition are least binding, followed by mul/div/floor div/modulus,
@@ -111,8 +129,12 @@ _test: or_test
        | SUB_OP factor -> unary_op # unary minus (negation)
        | power
 
+
 ?power: atom_expr POW_OP factor -> binary_op
       | atom_expr
+
+# binary_op -> AstBinaryOp(lhs, op, rhs)
+# unary_op -> AstUnaryOp(op, val)
 
 # the "indivisible" unit of an expression
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
@@ -121,18 +143,28 @@ _test: or_test
           | _literal
           | "(" expr ")"
           | var
+# func_call -> AstFuncCall(func, args)
+# index_expr -> AstIndexExpr(parent, item)
+# get_attr -> AstGetAttr(parent, attr)
+
 arguments: argument ("," argument)*
 argument: name "=" expr -> named_argument
         | expr -> positional_argument
+# named_argument -> AstNamedArgument(name, value)
+# positional_argument just creates whatever node the expr creates
 
 var: name
+# -> AstVar(var)
 
 RANGE_OPERATOR: ".."
 
 _literal: number | string | boolean
 number: DEC_NUMBER | FLOAT_NUMBER | HEX_NUMBER
+# -> AstNumber(value)
 string: STRING
+# -> AstString(value)
 boolean: CONST_FALSE | CONST_TRUE
+# -> AstBoolean(value)
 
 # Other terminals
 
