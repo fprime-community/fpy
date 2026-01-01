@@ -335,76 +335,6 @@ class DesugarDefaultArgs(Transformer):
         return node
 
 
-class ResolveRelativeToAbsoluteTimePlaceholders(Transformer):
-    """
-    Resolves $time_to_absolute(time_expr) placeholder calls.
-    
-    After semantic analysis, we know the type of time_expr:
-    - If Fw.Time (absolute): replace with just time_expr
-    - If Fw.TimeIntervalValue (relative): replace with time_add(now(), time_expr)
-    
-    This enables check statements to accept both absolute and relative timeouts
-    while keeping the early desugaring simple.
-    """
-    
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        from fpy.types import TimeToAbsolutePlaceholderSymbol
-        from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-        
-        func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, TimeToAbsolutePlaceholderSymbol):
-            return node
-        
-        # Get the timeout argument
-        timeout_arg = node.args[0]
-        timeout_type = state.synthesized_types.get(timeout_arg)
-        
-        # Check if it's absolute (Fw.Time) or relative (Fw.TimeIntervalValue)
-        is_absolute = issubclass(timeout_type, TimeValue)
-        
-        if is_absolute:
-            # Just return the argument directly - it's already an absolute time
-            return timeout_arg
-        else:
-            # It's relative (TimeIntervalValue), wrap with time_add(now(), timeout)
-            # We need to find the time_add function and now function
-            time_add_func = state.global_callable_scope.get("time_add")
-            now_func = state.global_callable_scope.get("now")
-            
-            assert time_add_func is not None, "time_add function not found"
-            assert now_func is not None, "now function not found"
-            
-            # Create now() call
-            now_var = AstName(None, "now")
-            now_var.id = state.next_node_id
-            state.next_node_id += 1
-            state.resolved_symbols[now_var] = now_func
-            
-            now_call = AstFuncCall(None, now_var, [])
-            now_call.id = state.next_node_id
-            state.next_node_id += 1
-            state.resolved_symbols[now_call] = now_func
-            state.resolved_func_args[now_call] = []
-            state.synthesized_types[now_call] = TimeValue
-            state.contextual_types[now_call] = TimeValue
-            
-            # Create time_add(now(), timeout) call
-            time_add_var = AstName(None, "time_add")
-            time_add_var.id = state.next_node_id
-            state.next_node_id += 1
-            state.resolved_symbols[time_add_var] = time_add_func
-            
-            time_add_call = AstFuncCall(None, time_add_var, [now_call, timeout_arg])
-            time_add_call.id = state.next_node_id
-            state.next_node_id += 1
-            state.resolved_symbols[time_add_call] = time_add_func
-            state.resolved_func_args[time_add_call] = [now_call, timeout_arg]
-            state.synthesized_types[time_add_call] = TimeValue
-            state.contextual_types[time_add_call] = TimeValue
-            
-            return time_add_call
-
-
 class DesugarCheckStatements(Transformer):
     """
     Desugars check statements into while loops BEFORE semantic analysis.
@@ -540,13 +470,13 @@ class DesugarCheckStatements(Transformer):
             return self.member(self.name(check_state_name), attr)
         
         # Build the CheckState constructor call
-        # $CheckState(persist=<persist>, timeout=<timeout_or_time_add>, every=<every>, 
+        # $CheckState(persist=<persist>, timeout=<timeout>, every=<every>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
         # Handle default values:
         # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
         # - every: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
-        # - timeout: if not specified, use a far-future time (but we skip timeout check logic)
+        # - timeout: if not specified, use a dummy value (but we skip timeout check logic)
         
         persist_expr = (
             copy.deepcopy(node.persist) if node.persist is not None
@@ -558,13 +488,10 @@ class DesugarCheckStatements(Transformer):
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
         )
         
-        # For timeout, we use a placeholder function $time_to_absolute that will be
-        # resolved in a late pass after semantic analysis determines the type.
-        # If timeout_expr is Fw.Time (absolute), it gets used directly.
-        # If timeout_expr is Fw.TimeIntervalValue (relative), it becomes time_add(now(), timeout_expr).
+        # For timeout, the expression must be Fw.Time (absolute time).
         # If no timeout specified, use a dummy value (the timeout check will be skipped anyway)
         if has_timeout:
-            timeout_expr_to_use = self.call("$time_to_absolute", copy.deepcopy(node.timeout))
+            timeout_expr_to_use = copy.deepcopy(node.timeout)
         else:
             # Dummy timeout value - won't be used since we skip timeout checks
             timeout_expr_to_use = self.call_parts(
@@ -575,7 +502,7 @@ class DesugarCheckStatements(Transformer):
         check_state_init = self.call_expr(
             self.qualified_name("$CheckState"),             
             persist_expr,                                   # persist
-            timeout_expr_to_use,                            # timeout (converted to absolute)
+            timeout_expr_to_use,                            # timeout (absolute time)
             every_expr,                                     # every
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true

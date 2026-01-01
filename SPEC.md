@@ -526,7 +526,45 @@ Name:
 
 If `condition` cannot be coerced to [`bool`](#boolean-type), an error is raised.
 
-If `exit_code` cannot be coerced to [`U8`](#primitive-numeric-types), an error is raised.
+If `exit_code` is provided, and cannot be coerced to [`U8`](#primitive-numeric-types), an error is raised.
+
+At execution, if `condition` evaluates to `False`:
+1. If `exit_code` is provided, evaluate it and display its value to the user.
+2. If `exit_code` is not provided, display a generic error code to the user.
+3. Halt the program.
+
+# Check statement
+The **check statement** executes a block of code if a Boolean expression evaluates to `True` for a duration of time, checking with a configurable frequency and timing out at a configurable time.
+
+## Syntax
+Rule:
+
+`check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["every" expr] ":" stmt_list ["timeout" ":" stmt_list]`
+
+Name:
+
+`check_stmt: "check" condition "timeout" timeout "persist" persist "every" every ":" body "timeout" ":" timeout_body`
+
+`condition`, `timeout`, `persist`, and `every` are resolved in the value name group.
+
+## Semantics
+
+If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), an error is raised.
+
+If `timeout` is provided, and cannot be coerced to [`Fw.Time`](todo), an error is raised.
+
+If `persist` or `every` is provided, and they cannot be coerced to [`Fw.TimeInterval`](todo), an error is raised.
+
+At execution:
+1. If provided, `timeout` is evaluated and stored. Otherwise, 
+
+
+`condition_expr` must be type `bool`
+`timeout_expr` (optional) must be type `Fw.Time`, an absolute time at which the timeout happens. If omitted, the check runs indefinitely until the condition persists for the required duration.
+`persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
+`every_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
+
+The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
 
 
 # Types
@@ -911,22 +949,4 @@ Normal type coercion rules apply to the result, of course. Once the operator has
 ## Range expressions
 
 The `lower .. upper` operator produces a `RangeValue`. Both bounds are coerced to `I64`. Range expressions are only meaningful as the right-hand side of a `for` loop, and both bounds are evaluated exactly once.
-
-# Check statement
-
-```
-check <condition_expr> [timeout <timeout_expr>] [persist <persist_expr>] [every <every_expr>]:
-     <check_body>
-[timeout:
-     <timeout_body>]
-```
-
-While not timed out, evaluate the condition at a given frequency, running the main body if the condition persists true for a given amount of time. Upon timeout, run the timeout body (if provided).
-
-`condition_expr` must be type `bool`
-`timeout_expr` (optional) may be type `Fw.Time`, in which case the timeout happens at an absolute time, or `Fw.TimeIntervalValue`, in which case the timeout happens relative to the moment the expression is evaluated. If omitted, the check runs indefinitely until the condition persists for the required duration.
-`persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
-`every_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
-
-The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
 

@@ -267,14 +267,6 @@ class CastSymbol(CallableSymbol):
 
 
 @dataclass
-class TimeToAbsolutePlaceholderSymbol(CallableSymbol):
-    """Placeholder for $time_to_absolute, resolved after semantic analysis based on argument type.
-    This is an internal "function-like" placeholder the compiler uses to tell itself to 
-    desugar this interval or absolute time into an absolute time."""
-    pass
-
-
-@dataclass
 class FieldSymbol:
     """a reference to a member/element of an fprime struct/array type"""
 

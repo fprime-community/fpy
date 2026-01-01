@@ -43,7 +43,7 @@ For types, Fpy has most of the same basic ones that FPP does:
 
 Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
-Note there is currently no built-in `string` type. See [Strings](#16-strings).
+Note there is currently no built-in `string` type. See [Strings](#17-strings).
 
 ## 3. Type coercion and casting
 If you have a lower-bitwidth numerical type and want to turn it into a higher-bitwidth type, this happens automatically:
@@ -145,9 +145,9 @@ param4: F32 = 15.0
 Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
 ```
 
-You can also pass variable arguments to the [`sleep`](#13-relative-and-absolute-sleep), [`exit`](#14-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
+You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#15-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
 
-There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#16-strings).
+There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#17-strings).
 
 ## 7. Getting Telemetry Channels and Parameters
 
@@ -209,7 +209,40 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
-## 10. Getting Struct Members and Array Items
+## 10. Check statement
+
+A `check` statement is like an [`if`](#9-ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
+```py
+check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+```
+
+If you don't specify a value for `persist`, the condition only has to be true once.
+
+You can specify an absolute time at which the `check` should time out:
+```py
+check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0) timeout time_add(now(), Fw.TimeIntervalValue(60, 0)):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+```
+
+You can also specify a `timeout` clause, which executes if the `check` times out:
+```py
+check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0) timeout time_add(now(), Fw.TimeIntervalValue(60, 0)):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+```
+
+Finally, you can specify a frequency at which the condition should be checked:
+```py
+check CdhCore.cmdDisp.commandsDispatched > 30 every Fw.TimeIntervalValue(1, 0): # check every 1 second
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+```
+
+
+## 11. Getting Struct Members and Array Items
 
 You can access members of structs by name, or array elements by index:
 ```py
@@ -231,7 +264,7 @@ com_queue_depth: Svc.ComQueueDepth = ComCcsds.comQueue.comQueueDepth
 com_queue_depth[0] = 1
 ```
 
-## 11. For and while loops
+## 12. For and while loops
 You can loop while a condition is true:
 ```py
 counter: U64 = 0
@@ -281,7 +314,7 @@ for i in 0..10:
 # odd_numbers_sum == 25
 ```
 
-## 12. Functions
+## 13. Functions
 You can define and call functions:
 ```py
 def foobar():
@@ -336,7 +369,7 @@ recurse(5) # prints "tick" 5 times
 
 Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
 
-## 13. Relative and Absolute Sleep
+## 14. Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
@@ -354,7 +387,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## 14. Exit Macro
+## 15. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
 ```py
 # exit takes a U8 argument
@@ -364,7 +397,7 @@ exit(0)
 exit(123)
 ```
 
-## 15. Assertions
+## 16. Assertions
 You can assert that a Boolean condition is true:
 ```py
 # won't end the sequence
@@ -379,5 +412,5 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
-## 16. Strings
+## 17. Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.

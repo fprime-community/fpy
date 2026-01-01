@@ -1,4 +1,4 @@
-goto 225
+goto 163
 allocate 38
 load_rel -30 11
 push_val 0 0 0 0
@@ -161,74 +161,9 @@ push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32
 return 8 22
-allocate 51
-load_rel -27 11
-push_val 0 0 0 3
-get_field 11 4
-ziext_32_64
-push_val 0 0 0 0 0 15 66 64
-mul
-load_rel -27 11
-push_val 0 0 0 7
-get_field 11 4
-ziext_32_64
-add
-store_rel_const_offset 19 8
-load_rel -16 8
-push_val 0 0 0 0
-get_field 8 4
-ziext_32_64
-push_val 0 0 0 0 0 15 66 64
-mul
-load_rel -16 8
-push_val 0 0 0 4
-get_field 8 4
-ziext_32_64
-add
-store_rel_const_offset 27 8
-push_val 255 255 255 255 255 255 255 255
-load_rel 19 8
-sub
-load_rel 27 8
-uge
-not
-if 197
-push_val 1
-exit
-load_rel 19 8
-load_rel 27 8
-add
-store_rel_const_offset 35 8
-load_rel 35 8
-push_val 0 0 0 0 0 15 66 64
-udiv
-store_rel_const_offset 43 8
-load_rel 43 8
-push_val 0 0 0 0 255 255 255 255
-ule
-not
-if 212
-push_val 1
-exit
-load_rel -27 11
-push_val 0 0 0 0
-get_field 11 2
-load_rel -27 11
-push_val 0 0 0 2
-get_field 11 1
-load_rel 43 8
-itrunc_64_32
-load_rel 35 8
-push_val 0 0 0 0 0 15 66 64
-umod
-itrunc_64_32
-return 11 19
 allocate 64
 push_val 0 0 0 0 0 0 0 0
-push_time
-push_val 0 0 0 1 0 0 0 0
-push_val 0 0 0 163
-call
+push_val 0 0 0 0 0 0 1 0 0 0 0
 push_val 0 0 0 0 0 1 134 160
 push_val 0
 push_val 0
@@ -236,7 +171,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 0 51
 push_val 255
-if 326
+if 261
 push_time
 store_rel_const_offset 51 11
 load_rel 51 11
@@ -251,28 +186,28 @@ siext_8_64
 push_val 0 0 0 0 0 0 0 2
 ine
 not
-if 256
+if 191
 push_val 1
 exit
 load_rel 62 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 1
 ieq
-if 263
-goto 326
-goto 263
+if 198
+goto 261
+goto 198
 push_val 255
-if 312
+if 247
 load_rel 0 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 275
+if 210
 load_rel 51 11
 store_rel_const_offset 29 11
 push_val 255
 store_rel_const_offset 28 1
-goto 275
+goto 210
 load_rel 51 11
 load_rel 0 51
 push_val 0 0 0 29
@@ -290,26 +225,26 @@ siext_8_64
 push_val 0 0 0 0 0 0 0 2
 ine
 not
-if 295
+if 230
 push_val 1
 exit
 load_rel 63 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 1
 ieq
-if 302
+if 237
 push_val 255
-goto 306
+goto 241
 load_rel 63 1
 siext_8_64
 push_val 0 0 0 0 0 0 0 0
 ieq
-if 311
+if 246
 push_val 255
 store_rel_const_offset 27 1
-goto 326
-goto 311
-goto 314
+goto 261
+goto 246
+goto 249
 push_val 0
 store_rel_const_offset 28 1
 load_rel 0 51
@@ -323,9 +258,9 @@ get_field 51 8
 push_val 0 0 0 4
 get_field 8 4
 wait_rel
-goto 237
+goto 172
 load_rel 0 51
 push_val 0 0 0 27
 get_field 51 1
-if 331
-goto 331
+if 266
+goto 266

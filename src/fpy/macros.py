@@ -9,7 +9,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import BuiltinFuncSymbol, NothingValue, TimeToAbsolutePlaceholderSymbol
+from fpy.types import BuiltinFuncSymbol, NothingValue
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
@@ -170,12 +170,4 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "now": BuiltinFuncSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
-    # Placeholder function for relative-to-absolute time conversion.
-    # This gets replaced by ResolveRelativeToAbsoluteTimePlaceholders pass after semantic analysis.
-    # It accepts either Fw.Time or Fw.TimeIntervalValue and returns Fw.Time.
-    "$time_to_absolute": TimeToAbsolutePlaceholderSymbol(
-        "$time_to_absolute",
-        TimeValue,
-        [("time", TimeValue, None)],  # Accepts TimeValue, but semantic pass allows TimeIntervalValue too
-    ),
 }
