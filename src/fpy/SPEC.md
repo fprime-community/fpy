@@ -10,7 +10,7 @@ It is assumed the reader is familiar with the FPP model, including commands, tel
 
 > Informal notes and explanations are quoted like this
 
-Terms are *italicized* when being defined for the first time.
+Terms are **bolded** in the location they are primarily defined.
 
 `Monospaced` terms refer to syntactic rules, type names or example Fpy code.
 
@@ -27,56 +27,148 @@ The rest of the specification is dedicated to the semantics of Fpy.
 
 # Symbols
 
-A *symbol* is a language construct that can be referred to by some name in the program. 
+A **symbol** is a language construct that can be referred to by some name in the program. 
 
 The following language constructs may be symbols:
 * [namespaces](#namespaces)
-* [variables](todo)
+* [variables](#variables)
 * [functions](todo)
 * [types](#types)
 * telemetry channels
 * parameters
 * enum constants
 
-# Namespaces
-
-A *namespace* is a mapping of `names` to symbols.
-
-> As a namespace can be a symbol, namespaces may be thought of as having a tree structure.
-
 # Scopes
 
-A *scope* is a mapping of `names` to symbols, valid only in some region of the source code.
+A **scope** is a mapping of names to symbols, accessed via some region of the source code.
 
-> Because scopes may contain namespaces, they may be thought of as having a tree structure.
+The **global scope** is the scope accessible throughout the entire source code.
 
-A *global scope* is a scope available throughout the whole source code.
+Each [function](todo) has a **function scope**, accessible in its body.
 
-The *global callable scope* is a global scope whose leaf nodes are all [callables](#callables).
+The **resolving scope** is the most specific scope that some part of the source code has access to.
 
-The *global value scope* is a global scope whose leaf nodes are all [values](#values).
+# Name resolution
+If a name is prefixed with a dot, perform attribute resolution
+Otherwise, resolve the name in the resolving scope and resolving name group.
 
-The *global type scope* is a global scope whose leaf nodes are all [types](#types).
+If resolution fails, and the resolving scope is not the global scope,
 
-TODO I think Rob would disapprove of having multiple scopes cover the same area of the code, in FPP he uses "name groups". But these are really at the end of the day the same thing, implemented the same way
 
-Each [function](todo) has its own *function value scope* available in its body, whose leaf nodes are all [values](#values).
+# Name groups
 
-> Functions do not need a function callable or type scope because no callables or types can be declared in a function.
+Scopes are divided into **name groups**.
+
+The list of name groups is:
+* The **[value](#values) name group**
+* The **[type](#types) name group**
+* The **[callable](#callables) name group**
+
+Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+
+Name groups do not intersect.
+
+> This means that the names of callables, types and values never conflict. 
+
+Name groups are accessed via context.
+
+The **resolving name group** is the name group that a name should be resolved in, based on its context.
+
+
+# Namespaces
+
+A **namespace** is a mapping of names to symbols, associated with a name.
+
+To access a namespace, a special case of `get_attr` is used:
+* `parent` must resolve to 
+
+
+
+A **qualified name** is one of:
+* A name
+* A qualified name, followed by a `.`, followed by a name
+
+## Name resolution
+
+Given a resolving scope and resolving name group, a
 
 # Declarations
 
-A *declaration* is a language construct that introduces a name-to-symbol mapping to a scope.
+A **declaration** is a language construct that introduces a name-to-symbol mapping to a scope and name group.
 
-A *variable declaration* introduces a name-to-[variable](#variables) mapping to:
-1. The enclosing function value scope, if inside a function body.
-2. The global value scope, if outside a function body.
+If a declaration re-introduces a name that already has a mapping in the same scope and name group, an error is raised.
 
-A *function declaration* introduces a name-to-[function](#function) mapping to the global callable scope.
+There are two declarations:
+* [Variable declarations](#variable-declarations)
+* [Function declarations](#function-declarations)
+
+# Variables
+
+A **variable** is a symbol associated with a static [type](#types) and a mutable [value](#values).
+
+## Variable declarations
+
+A **variable declaration** introduces a name-to-[variable](#variables) mapping to its resolving scope.
+
+### Syntax
+`var ":" qualified_name "=" expr`
+
+`lhs ":" type_ann "=" rhs`
+
+The resolving name group of `type_ann` is the type name group.
+
+The resolving name group of `rhs` is the value name group.
+
+If the type of `rhs` does not match `type_ann`, an error is raised.
+
+The new variable has name `lhs` and type `type_ann`. It is added to the resolving scope.
+
+The initial value of the new variable is the result of [evaluating](#evaluation) `rhs` and [coercing](#type-coercion) it to type `type_ann`.
+
+## Variable assignment
+
+A **variable assignment** mutates the value of a variable.
+
+It is a special case of the `assign_stmt` rule:
+1. `lhs` must be a `var`
+2. `type_ann` must not be provided
+
+The resolving name group of `lhs` is the value name group.
+
+The resolving name group of `rhs` is the value name group.
+
+The new value of the variable is the result of evaluating `rhs`.
+
+If the variable has not been declared yet, raise an error.
+
+## Field assignment
+
+A **field assignment** mutates the value of a [field](todo) in a variable.
+
+It is a special case of the `assign_stmt` rule:
+1. `lhs` must be a `get_attr`
+2. `type_ann` must not be provided
+
+The resolving name group of `lhs` is the value name group.
+
+The resolving name group of `rhs` is the value name group.
+
+
+
+## Variable evaluation
+
+The value produced by [evaluating](todo) a variable is the value most recently assigned to that variable, or the initial value if it has only been declared.
+
+Evaluation of a variable before it has been declared raises an error.
+
+
+# Functions
+
+## Function declarations
+
+A **function declaration** introduces a name-to-[function](#function) mapping to the global scope.
 
 > Function declarations always introduce their function to the global scope because they are syntactically disallowed from being inside a function body.
-
-If a declaration re-introduces a name that already has a mapping in a scope, an error is raised.
 
 # Types
 
@@ -338,7 +430,7 @@ Assignments to top-level variables within a function body modify the original va
 
 Type conversion is the process of converting an expression from one type to another. It can either be implicit, in which case it is called coercion, or explicit, in which case it is called casting.
 
-## Coercion
+## Type coercion
 Coercion happens when an expression of type *A* is used in a syntactic element which requires an expression of type *B*. For example, functions, operators and variable assignments all require specific input types, so type coercion happens in each of these.
 In general, the rule of thumb is that coercion is allowed if the destination type can represent all possible values of the source type, with some exceptions. The following rules determine when type coercion can be performed:
 
