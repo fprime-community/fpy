@@ -64,6 +64,7 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend16To64Directive,
     IntegerZeroExtend32To64Directive,
     IntegerZeroExtend8To64Directive,
+    OrDirective,
     PeekDirective,
     FloatMultiplyDirective,
     GetFieldDirective,
@@ -77,6 +78,7 @@ from fpy.bytecode.directives import (
     ReturnDirective,
     SignedGreaterThanOrEqualDirective,
     SignedIntToFloatDirective,
+    SignedLessThanDirective,
     StackCmdDirective,
     Directive,
     NotDirective,
@@ -395,7 +397,24 @@ class GenerateFunctionBody(Emitter):
         )  # push the length as I64
         # check if idx >= length
         dirs.append(SignedGreaterThanOrEqualDirective())
-        # if true, fail with error code, otherwise go to after check
+        # okay now dupe index again to check < 0
+        # byte count
+        dirs.append(
+            PushValDirective(StackSizeType(ArrayIndexType.getMaxSize()).serialize())
+        )
+        # offset is 1 because we currently have the result of the last check on stack
+        dirs.append(PushValDirective(StackSizeType(1).serialize()))
+        dirs.append(PeekDirective())  # duplicate the index
+        # convert idx to i64
+        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64Value))
+        dirs.append(
+            PushValDirective(I64Value(0).serialize())
+        )  # push 0 as i64
+        # check if idx < 0
+        dirs.append(SignedLessThanDirective())
+        # or both checks together
+        dirs.append(OrDirective())
+        # if either true, fail with error code, otherwise go to after check
         oob_check_end_label = IrLabel(node, "oob_check_end")
         dirs.append(IrIf(oob_check_end_label))
         # push the error code we should fail with if false

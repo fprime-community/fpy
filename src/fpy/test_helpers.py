@@ -103,7 +103,7 @@ def run_seq(
         tlm_db[ch_template.get_id()] = val
     ret = model.run(directives, tlm_db)
     if ret != DirectiveErrorCode.NO_ERROR:
-        raise RuntimeError("Sequence returned", ret)
+        raise RuntimeError(ret)
     if len(directives) > 0 and isinstance(directives[0], AllocateDirective):
         # check that the start and end sizes are the same
         if len(model.stack) != directives[0].size:
@@ -130,11 +130,13 @@ def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
     raise RuntimeError("compile_seq succeeded")
 
 
-def assert_run_failure(fprime_test_api, seq: str, flags: list[str] = None):
+def assert_run_failure(fprime_test_api, seq: str, error_code: DirectiveErrorCode, flags: list[str] = None):
     directives = compile_seq(fprime_test_api, seq, flags)
     try:
         run_seq(fprime_test_api, directives)
     except (RuntimeError, AssertionError) as e:
+        if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
+            raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)
         print(e)
         return
 

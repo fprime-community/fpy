@@ -96,77 +96,176 @@ Given a resolving scope and resolving name group, a
 
 A **declaration** is a language construct that introduces a name-to-symbol mapping to a scope and name group.
 
-If a declaration re-introduces a name that already has a mapping in the same scope and name group, an error is raised.
-
-There are two declarations:
-* [Variable declarations](#variable-declarations)
-* [Function declarations](#function-declarations)
+The list of declarations is:
+* [Variable declarations](#variable-declaration)
+* [Function declarations](#function-declaration)
 
 # Variables
 
-A **variable** is a symbol associated with a static [type](#types) and a mutable [value](#values).
+A **variable** is a [symbol](#symbols) associated with a static [type](#types) and a mutable [value](#values).
 
-## Variable declarations
+## Variable declaration
 
 A **variable declaration** introduces a name-to-[variable](#variables) mapping to its resolving scope.
 
 ### Syntax
-`name ":" qualified_name "=" expr`
+Rule:
+
+`declare_stmt: name ":" expr "=" expr`
+
+Name:
 
 `lhs ":" type_ann "=" rhs`
 
-The resolving name group of `type_ann` is the type name group.
+`lhs` and `rhs` are resolved in the value name group.
 
-The resolving name group of `rhs` is the value name group.
+`type_ann` is resolved in the type name group.
 
-If the type of `rhs` does not match `type_ann`, an error is raised.
+### Semantics
+
+If `lhs` resolves to a previously-declared variable, an error is raised.
+
+If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
 The new variable has name `lhs` and type `type_ann`. It is added to the resolving scope.
 
-The initial value of the new variable is the result of [evaluating](#evaluation) `rhs` and [coercing](#type-coercion) it to type `type_ann`.
+At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to type `type_ann`. This becomes the variable's initial value.
+
+After execution, the variable is considered declared.
 
 ## Variable assignment
 
 A **variable assignment** mutates the value of a variable.
 
-It is a special case of the `assign_stmt` rule:
-1. `lhs` must be a `name`
-2. `type_ann` must not be provided
+### Syntax
+Rule:
 
-The resolving name group of `lhs` is the value name group.
+`assign_stmt: name "=" expr`
 
-The resolving name group of `rhs` is the value name group.
+Name:
 
-The new value of the variable is the result of evaluating `rhs`.
+`lhs "=" rhs`
 
-If the variable has not been declared yet, raise an error.
+`lhs` and `rhs` are resolved in the value name group.
 
-## Field assignment
+### Semantics
 
-A **field assignment** mutates the value of a [field](todo) in a variable.
+If `lhs` is not a variable, an error is raised.
 
-It is a special case of the `assign_stmt` rule:
-1. `lhs` must be a `get_attr`
-2. `type_ann` must not be provided
+If the variable has not been declared yet, an error is raised.
 
-The resolving name group of `lhs` is the value name group.
+If `rhs` cannot be coerced to the variable's type, an error is raised.
 
-The resolving name group of `rhs` is the value name group.
+At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to the variable's type. This becomes the variable's new value.
 
+## Member assignment
 
+A **member assignment** mutates the value of a [member](todo) in a variable.
+
+### Syntax
+Rule:
+
+`assign_member_stmt: expr "." name "=" expr`
+
+Name:
+
+`parent "." member "=" rhs`
+
+`parent`, and `rhs` are resolved in the value name group.
+
+### Semantics
+
+If `parent` is not a variable or a [field](#fields) with a [field base](todo) that is a variable, an error is raised.
+
+> This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
+
+If `parent`'s type is:
+* not [constant-sized](todo), or
+* not a [struct](#structs) type, or
+* `member` is not a member of `parent`'s type
+
+... an error is raised.
+
+If the variable has not been declared yet, an error is raised.
+
+If `rhs` cannot be coerced to the member's type, an error is raised.
+
+At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to the member's type. This becomes the member's new value.
+
+The value of the variable is unchanged except for the member.
+
+## Element assignment
+
+An **element assignment** mutates the value of an [element](todo) in a variable.
+
+### Syntax
+Rule:
+
+`assign_element_stmt: expr "[" expr "]" "=" expr`
+
+Name:
+
+`parent "[" item "]" "=" rhs`
+
+`parent`, `item` and `rhs` are resolved in the value name group.
+
+### Semantics
+
+If `parent` is not a variable or a [field](#fields) with a [field base](todo) that is a variable, an error is raised.
+
+> This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
+
+If the variable has not been declared yet, an error is raised.
+
+If `item` cannot be coerced to [array index type](#type-aliases), an error is raised.
+
+If `parent`'s type is:
+* not [constant-sized](todo), or
+* not an [array](#arrays) type, or
+* `item` is a [constant](todo) with a value less than 0 or greater than the `parent`'s type length, 
+
+... an error is raised.
+
+If `rhs` cannot be coerced to the element's type, an error is raised.
+
+At execution:
+1. `item` is [evaluated](#evaluation) and [coerced](#type-coercion) to [array index type](#type-aliases)
+2. If `item` is 
+2. `rhs` is evaluated and coerced to the element's type.
+3. The element in the `parent` array at the index `item`
+
+The element's new value is the result of [evaluating](#evaluation) `rhs` and [coercing](#type-coercion) it to the field's type.
+
+The value of the variable is unchanged except for the member.
 
 ## Variable evaluation
 
 The value produced by [evaluating](todo) a variable is the value most recently assigned to that variable, or the initial value if it has only been declared.
 
-Evaluation of a variable before it has been declared raises an error.
-
+If a variable is evaluated before it has been declared, an error is raised.
 
 # Functions
 
-## Function declarations
+A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, arguments, code and a return [type](#types).
+
+## Function declaration
 
 A **function declaration** introduces a name-to-[function](#function) mapping to the global scope.
+
+### Syntax
+Rule:
+
+`def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block`
+
+`parameters: parameter ("," parameter)*`
+
+`parameter: name ":" expr ["=" expr]`
+
+Name:
+
+`"def" name "(" parameters ")" "->" return_type ":" body`
+
+### Semantics
 
 > Function declarations always introduce their function to the global scope because they are syntactically disallowed from being inside a function body.
 
@@ -214,6 +313,7 @@ TODO make sure that Fw.Time is counted as a dictionary type, but one which is re
 
 ## Type aliases
 *Loop var type* is an alias for `I64`.
+*Array index type* is an alias for `I64`.
 
 ## Internal types
 

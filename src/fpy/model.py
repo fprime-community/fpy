@@ -363,6 +363,7 @@ class FpySequencerModel:
         self.stack = self.stack[: -dir.size]
         # put into lvar array at the given offset
         for i in range(0, len(value)):
+            print(lvar_offset, self.stack_frame_start, i, len(self.stack))
             self.stack[lvar_offset + self.stack_frame_start + i] = value[i]
         return None
 
