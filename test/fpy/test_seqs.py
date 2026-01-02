@@ -1616,8 +1616,19 @@ def recurse(limit: U64):
     recurse(limit - 1)
 
 recurse(5) # prints "tick" 5 times
+
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()})
 
 
 def test_unary_plus_unsigned(fprime_test_api):

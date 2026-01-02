@@ -221,14 +221,14 @@ If you don't specify a value for `persist`, the condition only has to be true on
 
 You can specify an absolute time at which the `check` should time out:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0) timeout time_add(now(), Fw.TimeIntervalValue(60, 0)):
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+check CdhCore.cmdDisp.commandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0) timeout time_add(now(), Fw.TimeIntervalValue(60, 0)):
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+check CdhCore.cmdDisp.commandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 ```
@@ -240,6 +240,8 @@ check CdhCore.cmdDisp.commandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): #
 ```
 
 If you don't specify a value for `freq`, the default frequency is 1 Hertz.
+
+The order of `timeout`, `persist` and `freq` always has to be `timeout`, then `persist`, then `freq`.
 
 ## 11. Getting Struct Members and Array Items
 

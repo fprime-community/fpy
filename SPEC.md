@@ -101,7 +101,7 @@ The list of definitions is:
 
 # Variables
 
-A **variable** is a symbol associated with a static [type](#types) and a mutable [value](#values).
+A **variable** is a symbol with a static [type](#types) and a mutable [value](#values).
 
 ## Variable definition
 
@@ -179,7 +179,7 @@ If `parent` is not a variable or a [field](#fields) with a [field base](todo) th
 > This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
 
 If `parent`'s type is:
-* not [constant-sized](todo), or
+* not [constant-sized](#types), or
 * not a [struct](#structs) type, or
 * `member` is not a member of `parent`'s type
 
@@ -219,7 +219,7 @@ If the variable has not been defined yet, an error is raised.
 If `item` cannot be [coerced](#type-coercion) to [array index type](#type-aliases), an error is raised.
 
 If `parent`'s type is:
-* not [constant-sized](todo), or
+* not [constant-sized](#types), or
 * not an [array](#arrays) type, or
 * `item` is a [constant](todo) with a value less than 0 or greater than the `parent`'s type length, 
 
@@ -588,6 +588,10 @@ New types cannot be defined by the program.
 
 A **serializable type** is a type whose values can be expressed in a binary format.
 
+A **constant-sized type** is a serializable type whose binary form always has the same length in bytes.
+
+> Right now, the only serializable but non-constant-sized type are the [dictionary string](#dictionary-strings) types.
+
 Types can be divided into three categories:
 * Primitive types
 * Internal types
@@ -600,7 +604,7 @@ Types can be divided into three categories:
 > That is, they do not have to be in the F-Prime dictionary to be referenced by name in the program.
 > Because they are present in the global scope, we will use their associated name in the global scope to refer to them throughout this specification. For instance, when we say type `U16`, we are talking about the type in the global scope with name `U16`.
 
-All primitive types are serializable types.
+All primitive types are serializable, constant-sized types.
 
 The list of primitive types is:
 * All [primitive numeric types](#primitive-numeric-types)
@@ -655,6 +659,7 @@ Dictionary types can be divided into three categories:
 * [Structs](#structs)
 * [Arrays](#arrays)
 * [Enums](#enums)
+* [Strings](#dictionary-strings)
 
 ### Structs
 A **struct** is a dictionary type defined by an ordered list of members.
@@ -666,23 +671,35 @@ TODO is this rule necessary? This is enforced upstream by FPP
 
 The binary form of a struct value is the concatenated binary forms of its member values, in order.
 
+If any of a struct's members are non-constant-sized types, the struct is a non-constant-sized type.
+
 ### Arrays
 
 An **array** is a dictionary type defined by a non-negative integer length, and an element type.
 
 The **element type** of an array type is the type of its elements.
 
-An **element** is an value associated with an index in an array.
+An **element** is an value at an index in an array.
 
 The binary form of an array value is the concatenated binary form of its element values, in order.
+
+If the element type is a non-constant-sized type, the array is a non-constant-sized type.
 
 ### Enums
 
 An **enum** is a dictionary type whose values are a finite set of enum constants.
 
-An **enum constant** is a pair of a name and a serializable integer value.
+An **enum constant** is a pair of a name and a value of the enum's representation type.
 
-The binary form of an enum constant is the binary form of its associated integer value.
+An **enum representation type** is the [primitive integer type](#primitive-numeric-types) associated with the enum constants' values.
+
+The binary form of an enum constant is the binary form of its integer value.
+
+### Dictionary strings
+
+A **dictionary string** is a dictionary type whose values are strings.
+
+Dictionary strings are non-constant-sized types.
 
 ## Populating dictionary types
 
