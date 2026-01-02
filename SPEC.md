@@ -74,7 +74,6 @@ Name groups are accessed via context.
 
 The **resolving name group** is the name group that a name should be resolved in, based on its context.
 
-
 # Namespaces
 
 A **namespace** is a mapping of names to symbols, associated with a name.
@@ -248,9 +247,9 @@ A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, par
 
 The **call site** is the location in the source code at which a function is called.
 
-## Parameters
+## Function parameters
 
-A **parameter** is a [variable](#variables) implicitly defined by a function in that function's scope.
+A **function parameter** is a [variable](#variables) implicitly defined by a function in that function's scope.
 
 When a function is [called](todo), each parameter is set to an initial value.
 
@@ -553,19 +552,29 @@ If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), a
 
 If `timeout` is provided, and cannot be coerced to [`Fw.Time`](todo), an error is raised.
 
-If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeInterval`](todo), an error is raised.
+If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeIntervalValue`](todo), an error is raised.
 
 At execution:
-1. If provided, `timeout` is evaluated and stored. Otherwise, 
+1. If provided, `timeout`, `persist` and `freq` are evaluated and stored.
+2. If `persist` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
+3. If `freq` is not provided, its stored value is a one-second `Fw.TimeIntervalValue`.
+4. If `timeout` was provided and the current time is [greater](todo) than `timeout`'s stored value, the check times out.
+5. Evaluate `condition`.
+6. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.
+7. Otherwise, sleep for `freq`'s stored duration.
+8. Go to step 4.
 
+If the check times out during execution:
+1. If `timeout_body` is provided, execute it.
+2. Execution continues after the check statement.
 
-`condition_expr` must be type `bool`
-`timeout_expr` (optional) must be type `Fw.Time`, an absolute time at which the timeout happens. If omitted, the check runs indefinitely until the condition persists for the required duration.
-`persist_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 0 second interval, meaning the condition only needs to be true once.
-`freq_expr` (optional) must be type `Fw.TimeIntervalValue`. If omitted, defaults to a 1 second interval.
+> Not providing `persist`, or providing a zero-duration `persist`, means the `condition` only needs to evaluate to `True` once.
 
-The `timeout:` clause and its body are optional. If omitted, no action is taken when the check times out.
+If at any point during execution, two times which are [incomparable](todo) are attempted to be compared, the check statement will halt the program as if by an [assertion](#assert-statement), and display an error code.
 
+# Callables
+
+A **callable** is a symbol with parameters and a return [type](#types) which can be evaluated by being called.
 
 # Types
 
