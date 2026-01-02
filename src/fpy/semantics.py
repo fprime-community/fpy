@@ -13,14 +13,14 @@ from fpy.types import (
     UNSIGNED_INTEGER_TYPES,
     BuiltinFuncSymbol,
     CompileState,
-    FieldSymbol,
+    FieldAccess,
     ForLoopAnalysis,
     FppType,
     CallableSymbol,
     CastSymbol,
     FpyFloatValue,
     FunctionSymbol,
-    ScopeCategory,
+    NameGroup,
     Symbol,
     SymbolTable,
     TimeIntervalValue,
@@ -192,13 +192,17 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                 return
             # okay, define the var
             is_global = state.enclosing_value_scope[node] is state.global_value_scope
-            var = VariableSymbol(node.lhs.name, node.type_ann, node, is_global=is_global)
+            var = VariableSymbol(
+                node.lhs.name, node.type_ann, node, is_global=is_global
+            )
             # new var. put it in the scope
             scope[node.lhs.name] = var
         else:
             # otherwise, it's a reference to an existing var
             # may be in this scope or outer scope
-            sym = scope.get(node.lhs.name) or state.global_value_scope.get(node.lhs.name)
+            sym = scope.get(node.lhs.name) or state.global_value_scope.get(
+                node.lhs.name
+            )
             if sym is None:
                 # unable to find this symbol
                 state.err(
@@ -372,92 +376,90 @@ class SetResolvingScope(Visitor):
         state.resolving_scope[node] = self.scope
 
 
-class SetResolvingScopes(TopDownVisitor):
+class SetResolvingNameGroups(TopDownVisitor):
+
+    def set_resolving_name_group(
+        self, node: Ast, group: NameGroup, state: CompileState
+    ):
+        while is_instance_compat(node, AstGetAttr):
+            node = node.parent
+
+        if not is_instance_compat(node, AstName):
+            # not a qualified name
+            return
+
+        state.resolving_name_group[node] = group
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # all callables are always resolved in callable scope
-        SetResolvingScope(state.global_callable_scope).run(node.name, state)
+        self.set_resolving_name_group(node.name, NameGroup.CALLABLE, state)
         if node.return_type is not None:
             # all types always in type scope
-            SetResolvingScope(state.global_type_scope).run(node.return_type, state)
+            self.set_resolving_name_group(node.return_type, NameGroup.TYPE, state)
 
         # Resolve parameter types
         if node.parameters is not None:
-            func_scope = state.enclosing_value_scope[node.body]
             for arg_name_var, arg_type_name, default_value in node.parameters:
-                SetResolvingScope(state.global_type_scope).run(arg_type_name, state)
+                self.set_resolving_name_group(arg_type_name, NameGroup.TYPE, state)
                 # arg names become vars in func scope, so resolve them in func scope
-                SetResolvingScope(func_scope).run(arg_name_var, state)
+                self.set_resolving_name_group(arg_name_var, NameGroup.VALUE, state)
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
-                    SetResolvingScope(state.global_value_scope).run(
-                        default_value, state
-                    )
+                    self.set_resolving_name_group(default_value, NameGroup.VALUE, state)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
-            SetResolvingScope(state.global_type_scope).run(node.type_ann, state)
+            self.set_resolving_name_group(node.type_ann, NameGroup.TYPE, state)
 
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.lhs, state)
-        SetResolvingScope(val_scope).run(node.rhs, state)
+        self.set_resolving_name_group(node.lhs, NameGroup.VALUE, state)
+        self.set_resolving_name_group(node.rhs, NameGroup.VALUE, state)
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        SetResolvingScope(state.global_callable_scope).run(node.func, state)
+        self.set_resolving_name_group(node.func, NameGroup.CALLABLE, state)
 
         if node.args is None:
             return
 
         for arg in node.args:
-            val_scope = state.enclosing_value_scope[node]
-            SetResolvingScope(val_scope).run(arg, state)
+            self.set_resolving_name_group(arg, NameGroup.VALUE, state)
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.condition, state)
+        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.lhs, state)
-        SetResolvingScope(val_scope).run(node.rhs, state)
+        self.set_resolving_name_group(node.lhs, NameGroup.VALUE, state)
+        self.set_resolving_name_group(node.rhs, NameGroup.VALUE, state)
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.val, state)
+        self.set_resolving_name_group(node.val, NameGroup.VALUE, state)
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.loop_var, state)
+        self.set_resolving_name_group(node.loop_var, NameGroup.VALUE, state)
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
-        SetResolvingScope(val_scope).run(node.range, state)
+        self.set_resolving_name_group(node.range, NameGroup.VALUE, state)
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.condition, state)
+        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.condition, state)
+        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
         if node.exit_code is not None:
-            SetResolvingScope(val_scope).run(node.exit_code, state)
+            self.set_resolving_name_group(node.exit_code, NameGroup.VALUE, state)
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.item, state)
+        self.set_resolving_name_group(node.item, NameGroup.VALUE, state)
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
-        SetResolvingScope(val_scope).run(node.lower_bound, state)
-        SetResolvingScope(val_scope).run(node.upper_bound, state)
+        self.set_resolving_name_group(node.lower_bound, NameGroup.VALUE, state)
+        self.set_resolving_name_group(node.upper_bound, NameGroup.VALUE, state)
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        val_scope = state.enclosing_value_scope[node]
         if node.value is not None:
-            SetResolvingScope(val_scope).run(node.value, state)
+            self.set_resolving_name_group(node.value, NameGroup.VALUE, state)
 
     def visit_AstLiteral_AstGetAttr(
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
@@ -468,7 +470,7 @@ class SetResolvingScopes(TopDownVisitor):
         pass
 
     def visit_AstName(self, node: AstName, state: CompileState):
-        if node in state.resolving_scope:
+        if node in state.resolving_name_group:
             # it exists in a context where we can resolve it
             return
 
@@ -481,7 +483,7 @@ class SetResolvingScopes(TopDownVisitor):
         assert not is_instance_compat(node, AstStmtWithExpr), node
 
 
-class ResolveNames(Visitor):
+class ResolveQualifiedNames(Visitor):
     def visit_AstName(self, node: AstName, state: CompileState):
         resolving_scope = state.resolving_scope[node]
         sym = resolving_scope.get(node.name)
@@ -496,7 +498,7 @@ class ResolveNames(Visitor):
             return
 
         assert (
-            resolving_scope.scope_category == ScopeCategory.VALUE
+            resolving_scope.scope_category == NameGroup.VALUE
         )  # must be a value scope at this point
         # not global. it must be a function value scope, so we can just try
         # the global value scope
@@ -536,7 +538,7 @@ class ResolveNames(Visitor):
 class CheckNamesFullyResolved(TopDownVisitor):
 
     def check_fully_resolved(
-        self, node: Union[Ast, None], category: ScopeCategory, state: CompileState
+        self, node: Union[Ast, None], name_group: NameGroup, state: CompileState
     ) -> bool:
         if node is None:
             # for convenience, let the user pass in None, if there's nothing
@@ -548,7 +550,7 @@ class CheckNamesFullyResolved(TopDownVisitor):
 
         sym = state.resolved_symbols.get(node)
 
-        if category == ScopeCategory.VALUE and sym is None:
+        if name_group == NameGroup.VALUE and sym is None:
             # didn't resolve a ref to some value category. at this
             # point, the only things that could have gotten here
             # are field refs or complex exprs e.g. (1 + 1).a
@@ -557,7 +559,7 @@ class CheckNamesFullyResolved(TopDownVisitor):
 
         if sym is None:
             # failed to resolve
-            state.err(f"Unknown {category}", node)
+            state.err(f"Unknown {name_group}", node)
             return False
 
         if not is_instance_compat(sym, SymbolTable):
@@ -567,92 +569,86 @@ class CheckNamesFullyResolved(TopDownVisitor):
         # not fully resolved. the user wrote something like Svc
         # which is just a namespace
 
-        state.err(f"Unknown {category}", node)
+        state.err(f"Unknown {name_group}", node)
         return False
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if not self.check_fully_resolved(node.name, ScopeCategory.CALLABLE, state):
+        if not self.check_fully_resolved(node.name, NameGroup.CALLABLE, state):
             return
-        if not self.check_fully_resolved(node.return_type, ScopeCategory.TYPE, state):
+        if not self.check_fully_resolved(node.return_type, NameGroup.TYPE, state):
             return
 
         # Resolve parameter types
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
-                if not self.check_fully_resolved(
-                    arg_type_name, ScopeCategory.TYPE, state
-                ):
+                if not self.check_fully_resolved(arg_type_name, NameGroup.TYPE, state):
                     return
-                if not self.check_fully_resolved(
-                    arg_name_var, ScopeCategory.VALUE, state
-                ):
+                if not self.check_fully_resolved(arg_name_var, NameGroup.VALUE, state):
                     return
-                if not self.check_fully_resolved(
-                    default_value, ScopeCategory.VALUE, state
-                ):
+                if not self.check_fully_resolved(default_value, NameGroup.VALUE, state):
                     return
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not self.check_fully_resolved(node.type_ann, ScopeCategory.TYPE, state):
+        if not self.check_fully_resolved(node.type_ann, NameGroup.TYPE, state):
             return
-        if not self.check_fully_resolved(node.lhs, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.lhs, NameGroup.VALUE, state):
             return
-        if not self.check_fully_resolved(node.rhs, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.rhs, NameGroup.VALUE, state):
             return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.check_fully_resolved(node.func, ScopeCategory.CALLABLE, state):
+        if not self.check_fully_resolved(node.func, NameGroup.CALLABLE, state):
             return
 
         if node.args is None:
             return
 
         for arg in node.args:
-            if not self.check_fully_resolved(arg, ScopeCategory.VALUE, state):
+            if not self.check_fully_resolved(arg, NameGroup.VALUE, state):
                 return
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.check_fully_resolved(node.condition, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
             return
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        if not self.check_fully_resolved(node.lhs, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.lhs, NameGroup.VALUE, state):
             return
-        if not self.check_fully_resolved(node.rhs, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.rhs, NameGroup.VALUE, state):
             return
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.check_fully_resolved(node.val, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.val, NameGroup.VALUE, state):
             return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        if not self.check_fully_resolved(node.loop_var, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.loop_var, NameGroup.VALUE, state):
             return
-        if not self.check_fully_resolved(node.range, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.range, NameGroup.VALUE, state):
             return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.check_fully_resolved(node.condition, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
             return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.check_fully_resolved(node.condition, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
             return
-        if not self.check_fully_resolved(node.exit_code, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.exit_code, NameGroup.VALUE, state):
             return
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.check_fully_resolved(node.item, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.item, NameGroup.VALUE, state):
             return
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.check_fully_resolved(node.upper_bound, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.upper_bound, NameGroup.VALUE, state):
             return
-        if not self.check_fully_resolved(node.lower_bound, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.lower_bound, NameGroup.VALUE, state):
             return
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        if not self.check_fully_resolved(node.value, ScopeCategory.VALUE, state):
+        if not self.check_fully_resolved(node.value, NameGroup.VALUE, state):
             return
 
     def visit_AstLiteral_AstGetAttr_AstName(
@@ -989,7 +985,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # in and of itself. if this were a function call to the type's ctor then
             # it would have a value and thus a type
             result_type = NothingValue
-        elif isinstance(sym, FieldSymbol):
+        elif isinstance(sym, FieldAccess):
             result_type = sym.type
         elif isinstance(sym, dict):
             # reference to a scope. scopes don't have values
@@ -1030,14 +1026,14 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # you're talking about a field of
             base_sym = (
                 parent_sym
-                if not is_instance_compat(parent_sym, FieldSymbol)
+                if not is_instance_compat(parent_sym, FieldAccess)
                 else parent_sym.base_sym
             )
             # we also calculate a "base offset" wrt. the start of the base_sym type, so you
             # can easily pick out this field from a value of the base sym type
             base_offset = (
                 0
-                if not is_instance_compat(parent_sym, FieldSymbol)
+                if not is_instance_compat(parent_sym, FieldAccess)
                 else parent_sym.base_offset
             )
 
@@ -1048,7 +1044,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             offset = 0
             for arg_name, arg_type in member_list:
                 if arg_name == node.attr:
-                    sym = FieldSymbol(
+                    sym = FieldAccess(
                         is_struct_member=True,
                         parent_expr=node.parent,
                         type=arg_type,
@@ -1102,11 +1098,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         base_sym = (
             parent_sym
-            if not is_instance_compat(parent_sym, FieldSymbol)
+            if not is_instance_compat(parent_sym, FieldAccess)
             else parent_sym.base_sym
         )
 
-        sym = FieldSymbol(
+        sym = FieldAccess(
             is_array_element=True,
             parent_expr=node.parent,
             type=parent_type.MEMBER_TYPE,
@@ -1393,7 +1389,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # should be present in resolved refs because we only let it through if
         # variable is attr, item or var
         lhs_sym = state.resolved_symbols[node.lhs]
-        if not is_instance_compat(lhs_sym, (VariableSymbol, FieldSymbol)):
+        if not is_instance_compat(lhs_sym, (VariableSymbol, FieldAccess)):
             # assigning to a scope or something
             state.err("Invalid assignment", node.lhs)
             return
@@ -1670,7 +1666,7 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             parent_value = state.contextual_values[node.parent]
             if parent_value is None:
                 # no compile time constant value for our parent here
@@ -1714,7 +1710,7 @@ class CalculateConstExprValues(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         sym = state.resolved_symbols[node]
         # index expression can only be a field symbol
-        assert is_instance_compat(sym, FieldSymbol), sym
+        assert is_instance_compat(sym, FieldAccess), sym
 
         parent_value = state.contextual_values[node.parent]
 
@@ -1775,7 +1771,7 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             assert False, sym
 
         assert expr_value is not None

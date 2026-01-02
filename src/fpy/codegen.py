@@ -22,7 +22,7 @@ from fpy.types import (
     UNSIGNED_INTEGER_TYPES,
     CompileState,
     Emitter,
-    FieldSymbol,
+    FieldAccess,
     FppType,
     CastSymbol,
     CommandSymbol,
@@ -601,7 +601,7 @@ class GenerateFunctionBody(Emitter):
             return const_dirs
         sym = state.resolved_symbols[node]
 
-        assert is_instance_compat(sym, FieldSymbol), sym
+        assert is_instance_compat(sym, FieldAccess), sym
 
         # use the unconverted for this expr for now, because we haven't run conversion
         unconverted_type = state.synthesized_types[node]
@@ -696,7 +696,7 @@ class GenerateFunctionBody(Emitter):
                 )
             else:
                 dirs.append(LoadRelDirective(sym.frame_offset, sym.type.getMaxSize()))
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             # okay, put parent dirs in first
             dirs.extend(self.emit(sym.parent_expr, state))
             assert sym.local_offset is not None
@@ -905,7 +905,7 @@ class GenerateFunctionBody(Emitter):
             assert const_frame_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
-            assert is_instance_compat(lhs, FieldSymbol), lhs
+            assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
             is_global_var = lhs.base_sym.is_global
 
@@ -957,7 +957,7 @@ class GenerateFunctionBody(Emitter):
         else:
             # okay we don't know the offset at compile time
             # only one case where that can be:
-            assert is_instance_compat(lhs, FieldSymbol) and lhs.is_array_element, lhs
+            assert is_instance_compat(lhs, FieldAccess) and lhs.is_array_element, lhs
 
             # we need to calculate absolute offset in lvar array
             # == (parent offset) + (offset in parent)

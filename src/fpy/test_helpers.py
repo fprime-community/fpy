@@ -76,6 +76,9 @@ def run_seq(
     fprime_test_api: IntegrationTestAPI,
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
 ):
     """Run a list of directives using the sequencer model."""
     if tlm is None:
@@ -96,7 +99,12 @@ def run_seq(
     (cmd_id_dict, cmd_name_dict, versions) = cmd_json_dict_loader.construct_dicts(
         dictionary
     )
-    model = FpySequencerModel(cmd_dict=cmd_id_dict)
+    model = FpySequencerModel(
+        cmd_dict=cmd_id_dict,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
+    )
     tlm_db = {}
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
@@ -114,9 +122,17 @@ def assert_compile_success(fprime_test_api, seq: str, flags: list[str] = None):
     compile_seq(fprime_test_api, seq, flags)
 
 
-def assert_run_success(fprime_test_api, seq: str, tlm: dict[str, bytes] = None, flags: list[str] = None):
+def assert_run_success(
+    fprime_test_api,
+    seq: str,
+    tlm: dict[str, bytes] = None,
+    flags: list[str] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
+):
     directives = compile_seq(fprime_test_api, seq, flags)
-    run_seq(fprime_test_api, directives, tlm)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
@@ -130,10 +146,18 @@ def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
     raise RuntimeError("compile_seq succeeded")
 
 
-def assert_run_failure(fprime_test_api, seq: str, error_code: DirectiveErrorCode, flags: list[str] = None):
+def assert_run_failure(
+    fprime_test_api,
+    seq: str,
+    error_code: DirectiveErrorCode,
+    flags: list[str] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
+):
     directives = compile_seq(fprime_test_api, seq, flags)
     try:
-        run_seq(fprime_test_api, directives)
+        run_seq(fprime_test_api, directives, time_base=time_base, time_context=time_context, initial_time_us=initial_time_us)
     except (RuntimeError, AssertionError) as e:
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)

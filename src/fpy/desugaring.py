@@ -3,6 +3,7 @@ import copy
 from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from fpy.syntax import (
     Ast,
+    AstAssert,
     AstAssign,
     AstBinaryOp,
     AstBlock,
@@ -425,7 +426,7 @@ class DesugarCheckStatements(Transformer):
     def call_expr(self, func_expr, *args) -> AstFuncCall:
         return AstFuncCall(self.meta, func_expr, list(args) if args else [])
     
-    def binop(self, lhs, op: str, rhs) -> AstBinaryOp:
+    def binary(self, lhs, op: str, rhs) -> AstBinaryOp:
         return AstBinaryOp(self.meta, lhs, op, rhs)
     
     def unary(self, op: str, val) -> AstUnaryOp:
@@ -541,16 +542,15 @@ class DesugarCheckStatements(Transformer):
             )
             
             # 4. assert $timed_out != 2, 1
-            from fpy.syntax import AstAssert
             assert_comparable = AstAssert(
                 self.meta,
-                self.binop(self.name(timed_out_name), "!=", self.number(2)),
+                self.binary(self.name(timed_out_name), "!=", self.number(2)),
                 self.number(1)
             )
             
             # 5. if $timed_out == 1: break
             timeout_break = self.if_stmt(
-                self.binop(self.name(timed_out_name), "==", self.number(1)),
+                self.binary(self.name(timed_out_name), "==", self.number(1)),
                 [self.break_stmt()]
             )
             
@@ -589,19 +589,18 @@ class DesugarCheckStatements(Transformer):
             self.qualified_name("I8")
         )
         
-        from fpy.syntax import AstAssert
         assert_persist_comparable = AstAssert(
             self.meta,
-            self.binop(self.name(succeeded_name), "!=", self.number(2)),
+            self.binary(self.name(succeeded_name), "!=", self.number(2)),
             self.number(1)
         )
         
-        # if succeeded >= 0 (i.e., succeeded == 0 or succeeded == 1)
+        # if succeeded == 0 or succeeded == 1
         success_check = self.if_stmt(
-            self.binop(
-                self.binop(self.name(succeeded_name), "==", self.number(1)),
+            self.binary(
+                self.binary(self.name(succeeded_name), "==", self.number(1)),
                 "or",
-                self.binop(self.name(succeeded_name), "==", self.number(0))
+                self.binary(self.name(succeeded_name), "==", self.number(0))
             ),
             [
                 self.assign(cs("result"), self.boolean(True)),

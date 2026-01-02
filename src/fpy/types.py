@@ -29,7 +29,9 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
-from fprime_gds.common.models.serialize.serializable_type import SerializableType as StructValue
+from fprime_gds.common.models.serialize.serializable_type import (
+    SerializableType as StructValue,
+)
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -125,6 +127,7 @@ class FpyFloatValue(FloatValue):
 
 class RangeValue(FppValue):
     """the type produced by range expressions `X .. Y`"""
+
     def serialize(self):
         raise NotImplementedError()
 
@@ -144,7 +147,11 @@ class RangeValue(FppValue):
     def to_jsonable(self):
         raise NotImplementedError()
 
-TimeIntervalValue = StructValue.construct_type("Fw.TimeIntervalValue", [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")])
+
+TimeIntervalValue = StructValue.construct_type(
+    "Fw.TimeIntervalValue",
+    [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
+)
 
 # this is the "internal" string type that string literals have by
 # default. it is arbitrary length. it is also only used in places where
@@ -251,6 +258,7 @@ class BuiltinFuncSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
     """a function which instantiates the builtin given the calling node"""
 
+
 @dataclass
 class FunctionSymbol(CallableSymbol):
     definition: AstDef
@@ -267,7 +275,7 @@ class CastSymbol(CallableSymbol):
 
 
 @dataclass
-class FieldSymbol:
+class FieldAccess:
     """a reference to a member/element of an fprime struct/array type"""
 
     parent_expr: AstExpr
@@ -314,17 +322,19 @@ class ForLoopAnalysis:
     loop_var: VariableSymbol
     upper_bound_var: VariableSymbol
     reuse_existing_loop_var: bool
-    
+
 
 next_symbol_table_id = 0
 
-class ScopeCategory(str, Enum):
+
+class NameGroup(str, Enum):
     TYPE = "type"
     CALLABLE = "callable"
     VALUE = "value"
 
+
 class SymbolTable(dict):
-    def __init__(self, scope_category: ScopeCategory, scope_is_global: bool):
+    def __init__(self, scope_category: NameGroup, scope_is_global: bool):
         global next_symbol_table_id
         self.id = next_symbol_table_id
         next_symbol_table_id += 1
@@ -352,9 +362,7 @@ class SymbolTable(dict):
 
 
 def create_symbol_table(
-    symbols: dict[str, "Symbol"],
-    scope_category: ScopeCategory,
-    scope_is_global: bool
+    symbols: dict[str, "Symbol"], scope_category: NameGroup, scope_is_global: bool
 ) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""
@@ -407,7 +415,10 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    assert lhs.scope_category == rhs.scope_category and lhs.scope_is_global == rhs.scope_is_global, (lhs.scope_category, rhs.scope_category)
+    assert (
+        lhs.scope_category == rhs.scope_category
+        and lhs.scope_is_global == rhs.scope_is_global
+    ), (lhs.scope_category, rhs.scope_category)
     new = SymbolTable(lhs.scope_category, lhs.scope_is_global)
 
     for key in common_keys:
@@ -433,22 +444,10 @@ Symbol = typing.Union[
     CallableSymbol,
     FppType,
     VariableSymbol,
-    FieldSymbol,
-    SymbolTable
+    FieldAccess,
+    SymbolTable,
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
-
-def resolve_qualified_name(names: list[str], scope: SymbolTable) -> Symbol|None:
-    """given a list of qualifiers and a final name, look it up in a scope"""
-    while len(names) > 0 and scope is not None and is_instance_compat(scope, SymbolTable):
-        scope = scope.get(names[0])
-        names.pop(0)
-
-    if len(names) != 0:
-        # didn't finish resolving all names before we ran out of namespaces
-        return None
-
-    return scope
 
 
 @dataclass
@@ -467,8 +466,11 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
+    resolving_name_group: dict[AstName, NameGroup] = field(default_factory=dict)
     resolving_scope: dict[AstName, SymbolTable] = field(default_factory=dict)
-    enclosing_value_scope: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
+    enclosing_value_scope: dict[Ast, SymbolTable] = field(
+        default_factory=dict, repr=False
+    )
     """map of node to its enclosing value scope (function scope or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
@@ -505,9 +507,7 @@ class CompileState:
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time"""
 
-    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(
-        default_factory=dict
-    )
+    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(default_factory=dict)
     """function call to resolved arguments in positional order.
     Default values are filled in for arguments not provided at the call site."""
 
@@ -527,7 +527,7 @@ class CompileState:
     func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
     """function to entry point label"""
 
-    generated_funcs: dict[AstDef, list[Directive|Ir]] = field(default_factory=dict)
+    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
 
     errors: list[CompileError] = field(default_factory=list)
     """a list of all compile exceptions generated by passes"""

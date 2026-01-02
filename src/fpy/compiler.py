@@ -42,8 +42,8 @@ from fpy.semantics import (
     CheckUseBeforeDefine,
     CreateVariablesAndFuncs,
     PickTypesAndResolveAttrsAndItems,
-    SetResolvingScopes,
-    ResolveNames,
+    SetResolvingNameGroups,
+    ResolveQualifiedNames,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
@@ -56,7 +56,7 @@ from fpy.types import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
-    ScopeCategory,
+    NameGroup,
     SymbolTable,
     TimeIntervalValue,
     TypeCtorSymbol,
@@ -291,16 +291,16 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     # Build the 3 global scopes per SPEC:
     # 1. global type scope - leaf nodes are types
-    type_scope = create_symbol_table(type_name_dict, ScopeCategory.TYPE, True)
+    type_scope = create_symbol_table(type_name_dict, NameGroup.TYPE, True)
     # 2. global callable scope - leaf nodes are callables
-    callable_scope = create_symbol_table(callable_name_dict, ScopeCategory.CALLABLE, True)
+    callable_scope = create_symbol_table(callable_name_dict, NameGroup.CALLABLE, True)
     # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
     #    Merge all value sources into one scope
     values_scope = merge_symbol_tables(
-        create_symbol_table(ch_name_dict, ScopeCategory.VALUE, True),
+        create_symbol_table(ch_name_dict, NameGroup.VALUE, True),
         merge_symbol_tables(
-            create_symbol_table(prm_name_dict, ScopeCategory.VALUE, True),
-            create_symbol_table(enum_const_name_dict, ScopeCategory.VALUE, True),
+            create_symbol_table(prm_name_dict, NameGroup.VALUE, True),
+            create_symbol_table(enum_const_name_dict, NameGroup.VALUE, True),
         ),
     )
 
@@ -354,8 +354,8 @@ def ast_to_directives(
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        SetResolvingScopes(),
-        ResolveNames(),
+        SetResolvingNameGroups(),
+        ResolveQualifiedNames(),
         CheckNamesFullyResolved(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared

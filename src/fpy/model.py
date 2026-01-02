@@ -123,7 +123,8 @@ class DirectiveErrorCode(Enum):
 class FpySequencerModel:
 
     def __init__(
-        self, stack_size=4096, cmd_dict: dict[int, CmdTemplate] = None
+        self, stack_size=4096, cmd_dict: dict[int, CmdTemplate] = None,
+        time_base: int = 0, time_context: int = 0, initial_time_us: int = 0
     ) -> None:
         self.stack = bytearray()
         self.max_stack_size = stack_size
@@ -135,8 +136,11 @@ class FpySequencerModel:
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
 
-        # Simulated time for testing (in microseconds)
-        self.simulated_time_us = 0
+        # Simulated time for testing
+        self.time_base = time_base
+        self.time_context = time_context
+        self.initial_time_us = initial_time_us
+        self.simulated_time_us = initial_time_us
 
         self.handlers: dict[type[Directive], typing.Callable] = {}
         self.find_handlers()
@@ -166,7 +170,7 @@ class FpySequencerModel:
         self.next_dir_idx = 0
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
-        self.simulated_time_us = 0
+        self.simulated_time_us = self.initial_time_us
 
     def dispatch(self, dir: Directive) -> DirectiveErrorCode:
         opcode = dir.opcode
@@ -1019,7 +1023,7 @@ class FpySequencerModel:
         # Convert simulated time to seconds and microseconds
         seconds = self.simulated_time_us // 1000000
         useconds = self.simulated_time_us % 1000000
-        self.push(TimeValue(0, 0, seconds, useconds).serialize())
+        self.push(TimeValue(self.time_base, self.time_context, seconds, useconds).serialize())
         return None
 
     def handle_call(self, dir: CallDirective):

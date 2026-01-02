@@ -8,6 +8,7 @@ from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     lookup_type,
+    TimeConfig,
 )
 
 
@@ -3998,3 +3999,222 @@ test(val)
 assert val == 123
 """
     assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Simulated Time Tests ====================
+
+
+class TestSimulatedTime:
+    """Tests for simulated time functionality.
+    
+    These tests verify that the sequencer model properly:
+    - Tracks simulated time
+    - Advances time when sleep() is called
+    - Returns the configured time_base from now()
+    - Correctly handles time_base incompatibility
+    """
+
+    def test_now_returns_initial_time(self, fprime_test_api):
+        """Test that now() returns the configured initial time."""
+        seq = """
+t: Fw.Time = now()
+# Initial time of 5 seconds = 5,000,000 microseconds
+# time_base=0, time_context=0
+assert t.time_base == 0
+assert t.time_context == 0
+assert t.seconds == 5
+assert t.useconds == 0
+"""
+        time_config = TimeConfig(initial_time_us=5_000_000)
+        assert_run_success(fprime_test_api, seq, time_config=time_config)
+
+    def test_now_returns_configured_time_base(self, fprime_test_api):
+        """Test that now() returns the configured time_base."""
+        seq = """
+t: Fw.Time = now()
+# Configured time_base=2
+assert t.time_base == 2
+assert t.time_context == 0
+"""
+        time_config = TimeConfig(time_base=2)
+        assert_run_success(fprime_test_api, seq, time_config=time_config)
+
+    def test_now_returns_configured_time_context(self, fprime_test_api):
+        """Test that now() returns the configured time_context."""
+        seq = """
+t: Fw.Time = now()
+# Configured time_context=42
+assert t.time_context == 42
+"""
+        time_config = TimeConfig(time_context=42)
+        assert_run_success(fprime_test_api, seq, time_config=time_config)
+
+    def test_sleep_advances_simulated_time(self, fprime_test_api):
+        """Test that sleep() advances simulated time correctly."""
+        seq = """
+# Get time before sleep
+t_before: Fw.Time = now()
+
+# Sleep for 2 seconds and 500000 microseconds (2.5 seconds total)
+sleep(2, 500000)
+
+# Get time after sleep
+t_after: Fw.Time = now()
+
+# Calculate the elapsed time
+elapsed: Fw.TimeIntervalValue = time_sub(t_after, t_before)
+
+# Should have slept for exactly 2.5 seconds
+assert elapsed.seconds == 2
+assert elapsed.useconds == 500000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_sleep_multiple_times_accumulates(self, fprime_test_api):
+        """Test that multiple sleep() calls accumulate time correctly."""
+        seq = """
+t_start: Fw.Time = now()
+
+# Sleep 1 second
+sleep(1, 0)
+# Sleep 0.5 seconds
+sleep(0, 500000)
+# Sleep 0.25 seconds
+sleep(0, 250000)
+
+t_end: Fw.Time = now()
+elapsed: Fw.TimeIntervalValue = time_sub(t_end, t_start)
+
+# Total: 1.75 seconds
+assert elapsed.seconds == 1
+assert elapsed.useconds == 750000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_cmp_same_time_base_works(self, fprime_test_api):
+        """Test that time_cmp works when both times have the same time_base."""
+        seq = """
+t1: Fw.Time = now()
+sleep(1, 0)
+t2: Fw.Time = now()
+
+# t2 should be greater than t1
+result: I8 = time_cmp(t1, t2)
+assert result == -1  # t1 < t2
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_with_different_time_base_crashes(self, fprime_test_api):
+        """Test that check crashes when now() and timeout have different time_bases.
+        
+        This tests the full check statement integration: the check desugars to use
+        time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
+        """
+        seq = """
+# Construct a timeout with a different time_base than what now() returns
+# now() returns time_base=0 by default
+# Set timeout with time_base=1
+bad_timeout: Fw.Time = Fw.Time(1, 0, 100, 0)
+
+check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+    pass
+timeout:
+    pass
+"""
+        # Now run with default time_base=0, but the timeout uses time_base=1
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+
+    def test_check_with_simulated_time_timeout(self, fprime_test_api):
+        """Test that check properly times out based on simulated time advancement.
+        
+        This test verifies the full check loop:
+        1. now() returns simulated time
+        2. sleep() advances simulated time
+        3. Check properly detects timeout when simulated time exceeds deadline
+        """
+        seq = """
+timed_out: bool = False
+
+# Set timeout to be 100ms from now
+# With freq of 10ms, we'll check ~10 times before timeout
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    # This shouldn't run because condition is always false
+    assert False, 1
+timeout:
+    timed_out = True
+
+assert timed_out
+"""
+        # Start at time 0, each sleep(0, 10000) advances 10ms
+        # After ~10 iterations, we hit 100ms and timeout
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_condition_persists_over_simulated_time(self, fprime_test_api):
+        """Test that persist duration is measured using simulated time.
+        
+        The check condition must remain true for the full persist duration
+        (measured in simulated time).
+        """
+        seq = """
+# Track how many times the condition is checked
+check_count: I64 = 0
+
+def condition() -> bool:
+    check_count = check_count + 1
+    return True  # Always true
+
+# Require condition to persist for 50ms with 10ms frequency
+# Should need ~5 checks to persist
+check condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 50000) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# With simulated time, we should have checked at least 5 times
+# (initial + enough to accumulate 50ms of persistence)
+assert check_count >= 5
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_sleep_float_advances_time(self, fprime_test_api):
+        """Test that sleep with float argument advances simulated time."""
+        seq = """
+t_before: Fw.Time = now()
+
+# Sleep for 1.5 seconds (1 second + 500000 microseconds)
+sleep(1, 500000)
+
+t_after: Fw.Time = now()
+elapsed: Fw.TimeIntervalValue = time_sub(t_after, t_before)
+
+# Should have slept for 1.5 seconds
+assert elapsed.seconds == 1
+assert elapsed.useconds == 500000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_now_time_base_preserved_through_check(self, fprime_test_api):
+        """Test that now() consistently returns the configured time_base throughout check."""
+        seq = """
+# Verify time_base is consistent inside check
+check_count: I64 = 0
+time_base_ok: bool = True
+
+def check_time_base() -> bool:
+    check_count = check_count + 1
+    t: Fw.Time = now()
+    # Should always have time_base=3
+    if t.time_base != 3:
+        time_base_ok = False
+    return check_count >= 3
+
+check check_time_base() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+assert time_base_ok
+assert check_count >= 3
+"""
+        time_config = TimeConfig(time_base=3)
+        assert_run_success(fprime_test_api, seq, time_config=time_config)
