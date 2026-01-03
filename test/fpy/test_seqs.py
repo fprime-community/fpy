@@ -1359,6 +1359,78 @@ exit(var == var2)
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_const_fold_struct_eq(fprime_test_api):
+    """Test that struct equality can be constant folded"""
+    seq = """
+# Both structs are constant expressions, should be folded at compile time
+if Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) == Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_struct_neq(fprime_test_api):
+    """Test that struct inequality can be constant folded"""
+    seq = """
+# Both structs are constant expressions with different values
+if Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) != Svc.DpRecord(123, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_enum_eq(fprime_test_api):
+    """Test that enum constant equality can be constant folded"""
+    seq = """
+# Both are enum constants, should be folded at compile time
+if Fw.DpState.UNTRANSMITTED == Fw.DpState.UNTRANSMITTED:
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_enum_neq(fprime_test_api):
+    """Test that enum constant inequality can be constant folded"""
+    seq = """
+# Both are enum constants with different values
+if Fw.DpState.UNTRANSMITTED != Fw.DpState.TRANSMITTED:
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_array_eq(fprime_test_api):
+    """Test that array equality can be constant folded"""
+    seq = """
+# Both arrays are constant expressions, should be folded at compile time
+if Svc.ComQueueDepth(100, 200) == Svc.ComQueueDepth(100, 200):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_array_neq(fprime_test_api):
+    """Test that array inequality can be constant folded"""
+    seq = """
+# Both arrays are constant expressions with different values
+if Svc.ComQueueDepth(100, 200) != Svc.ComQueueDepth(100, 300):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_mod_float(fprime_test_api):
     seq = """
 var1: F32 = 25.25

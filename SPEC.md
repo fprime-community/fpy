@@ -25,6 +25,8 @@ The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser
 
 The rest of the specification is dedicated to the semantics of Fpy.
 
+# Names and scopes
+
 # Symbols
 
 A **symbol** is a language construct that can be referred to by some name in the program. 
@@ -37,8 +39,9 @@ The following language constructs may be symbols:
 * telemetry channels
 * parameters
 * enum constants
+TODO members?
 
-# Scopes
+## Scopes
 
 A **scope** is a mapping of names to symbols, accessed via some region of the source code.
 
@@ -48,14 +51,11 @@ Each [function](#functions) has a **function scope**, accessible in its body.
 
 The **resolving scope** is the most specific scope that some part of the source code has access to.
 
-# Name resolution
-If a name is prefixed with a dot, perform attribute resolution
-Otherwise, resolve the name in the resolving scope and resolving name group.
+Scopes may have a **parent scope**:
+* The parent scope of a function scope is the global scope.
+* The global scope does not have a parent scope.
 
-If resolution fails, and the resolving scope is not the global scope,
-
-
-# Name groups
+## Name groups
 
 Scopes are divided into **name groups**.
 
@@ -70,28 +70,42 @@ Name groups do not intersect.
 
 > This means that the names of callables, types and values never conflict. 
 
-Name groups are accessed via context.
+Name groups are accessed via syntactic context.
 
-The **resolving name group** is the name group that a name should be resolved in, based on its context.
+> For instance, the type name group is accessible anywhere that expects a type, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
 
-# Namespaces
+The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
+
+## Namespaces
 
 A **namespace** is a mapping of names to symbols, associated with a name.
 
-To access a namespace, a special case of `get_attr` is used:
-* `parent` must resolve to 
-
-
+## Qualified names
 
 A **qualified name** is one of:
 * A name
-* A qualified name, followed by a `.`, followed by a name
+* A qualified name which is not a valid [expression](#expressions), followed by a `.`, followed by a name
 
-## Name resolution
+The **qualifier** is the qualified name to the left of the `.`.
 
-Given a resolving scope and resolving name group, a
+The **root qualifier** is the leftmost name in a qualified name.
 
-# definitions
+To resolve a qualified name:
+1. If the resolving name group is unspecified, an error is raised.
+2. Otherwise, perform the following steps in the resolving name group:
+    1. If there is no qualifier:
+        1. Resolve the name in the resolving scope.
+        2. If the name fails to be resolved, resolve the name in the parent scope of the resolving scope.
+    2. Otherwise:
+        1. Resolve the qualifier.
+        2. If the qualifier is an expression, this is an invalid qualified name. Resolution is handled by the rules of [member access](#member-access).
+        3. If the qualifier is not a namespace, an error is raised.
+
+If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
+
+If all qualifiers have been resolved, and the qualified name does not resolve to a non-namespace symbol, an error is raised.
+
+## Definitions
 
 A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping to a [scope](#scopes) and [name group](#name-groups).
 
@@ -476,7 +490,7 @@ At execution:
 
 > The only possible step size is 1.
 
-# Break statement
+## Break statement
 
 A **break statement** stops execution of the loop.
 
@@ -485,22 +499,22 @@ Rule:
 
 `break_stmt: "break"`
 
-## Semantics
+### Semantics
 
 If the break statement is outside of a loop body, an error is raised.
 
 At execution, the enclosing loop body stops executing, and execution is continued after the enclosing loop.
 
-# Continue statement
+## Continue statement
 
 A **continue statement** immediately starts the execution of the next loop iteration.
 
-## Syntax
+### Syntax
 Rule:
 
 `continue_stmt: "continue"`
 
-## Semantics
+### Semantics
 
 If the continue statement is outside of a loop body, an error is raised.
 
@@ -576,6 +590,48 @@ If at any point during execution, two times which are [incomparable](todo) are a
 
 A **callable** is a symbol with parameters and a return [type](#types) which can be evaluated by being called.
 
+## Commands
+Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
+
+## Macros
+Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
+
+Available macros:
+
+* `exit(exit_code: U8)`: terminates the sequence immediately by emitting an `ExitDirective`.
+* `log(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
+* `sleep(seconds: U32, microseconds: U32)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
+* `sleep_until(wakeup_time: Fw.Time)`: waits until the supplied absolute time using `WaitAbsDirective`.
+* `now() -> Fw.Time`: pushes the current time via `PushTimeDirective`.
+* `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
+* `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+
+## Time functions
+Fpy provides builtin functions for comparing and manipulating time values:
+
+* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
+* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
+* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs` occurs after `rhs` (no negative intervals).
+* `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
+
+These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
+
+## Type constructors
+Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
+
+## Numeric casts
+Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
+
+## Casting
+Each finite-bitwidth numeric type exposes an explicit cast with the same name as the type, e.g. `U32(value)` or `F64(value)`. Casts accept any numeric expression and bypass the implicit-coercion restrictions above: the operand is forced to the target type even when that entails narrowing, and compile-time range checks are suppressed. No casts exist for structs, arrays, enums, strings, or `Fw.Time`.
+
+## User-defined functions
+A function definition introduces a new callable into scope. Function definitions must appear at the top level of the sequence; a function definition nested inside another function, a loop body, or a conditional branch is a compile-time error. The syntax is:
+```
+def name(param_0: Type0, param_1: Type1 = default_value, ...) [-> ReturnType]:
+    body
+```
+
 # Types
 
 A **type** is a set of **values**.
@@ -589,6 +645,8 @@ New types cannot be defined by the program.
 A **serializable type** is a type whose values can be expressed in a binary format.
 
 A **constant-sized type** is a serializable type whose binary form always has the same length in bytes.
+
+A **numeric type** is a [primitive numeric type](#primitive-numeric-types), or the [internal Int or Float](#internal-types) types.
 
 > Right now, the only serializable but non-constant-sized type are the [dictionary string](#dictionary-strings) types.
 
@@ -671,7 +729,7 @@ TODO is this rule necessary? This is enforced upstream by FPP
 
 The binary form of a struct value is the concatenated binary forms of its member values, in order.
 
-If any of a struct's members are non-constant-sized types, the struct is a non-constant-sized type.
+> If any of a struct's members are non-constant-sized types, the struct is a non-constant-sized type.
 
 ### Arrays
 
@@ -683,7 +741,7 @@ An **element** is an value at an index in an array.
 
 The binary form of an array value is the concatenated binary form of its element values, in order.
 
-If the element type is a non-constant-sized type, the array is a non-constant-sized type.
+> If the element type is a non-constant-sized type, the array is a non-constant-sized type.
 
 ### Enums
 
@@ -703,87 +761,73 @@ Dictionary strings are non-constant-sized types.
 
 ## Populating dictionary types
 
-For each type `T` with fully qualified name `A.B.C` encountered in the F-Prime dictionary:
-1. Map name `C` to `T` in namespace `B`.
-2. Map name `B` to namespace `B` in namespace `A`.
-3. Map name `A` to namespace `A` in the global scope.
-
-Each qualifier becomes a namespace, and the final name maps to the type.
-
-Basically: map the type to the last component of the fully qualified name. Then construct namespaces for each of the other components
-
-
-# Name resolution
-
-*Name resolution* is the process of
-
-## Type name resolution
-To resolve a `type_name`:
-1. Start in the global scope.
-2. For each name from left to right, look up 
-
-# Qualified name
-A *qualified name* is one of the following:
-1. A name
-2. `Q.N`, where `Q` is a qualified name and `N` is a name.
-
-## Qualified name resolution
-A qualified name is a series of names corresponding to namespaces separated by dots, followed by a name of a symbol in the final namespace.
-For a given qualifier `Q` and name `N` and scope `S`, the fully-qualified name is resolved to a symbol as follows:
-1. Resolve the qualifier
-1. Look up
-
-# Attributes
-
-An *attribute access* is a use of the the `get_attr` syntactic rule.
-
-The *parent* of an attribute access is the expression to the left of the dot.
-
-The *attribute* of an attribute access is the string to the right of the dot.
-
-# Qualified name
-
-A *qualified name* is a name of 
-
-
-To resolve a name to a [value](#values):
-1. If the name is inside a function, check the function's scope.
-2. Check the global scope.
-
-At the end, if the name is not found, an error is raised.
-
-To resolve a name to a [callable](#callables), the global scope is checked, and an error is raised if the name is not found.
-TODO: but this isn't really true right because we can resolve more than just names to callables? maybe this section isn't needed?
-
-
-To resolve a name to a [type](#callables), the global scope is checked, and an error is raised if the name is not found.
-
-
-
-## Attribute resolution
-
-An attribute may resolve to a 
-
-To resolve an attribute to a symbol, first the parent is resolved, recursively.
-
-The parent of an attribute may be one of the following:
-* A namespace
-* A type
-* An [expression](todo)
-
-An attribute access has one of many different behaviors depending on the parent:
-
-| Parent category | Attribute behavior |
-|---|---|
-|Expression|Member access|
-|Namespace|Name lookup|
-|Type|Raise an error|
-|Callable|Raise an error|
-
+For each type `T` with qualified name `Q.N` encountered in the F-Prime dictionary:
+1. Create a namespace for the qualifier.
+2. `T` maps to `N` in the qualifier's namespace.
 
 # Expressions
 
-## Member access
+An **expression** can be evaluated to produce a value of a type.
+
+A **constant expression** is an expression which can be evaluated without running the program.
+
+## Literals
+
+### Integer literals
+
+#### Decimal literal syntax
+
+Rule:
+
+```
+DEC_LITERAL:   "1".."9" ("_"?  "0".."9")*
+           |   "0"      ("_"?  "0")* /(?![1-9xX])/
+```
+
+#### Hexadecimal literal syntax
+
+Rule:
+
+`HEX_LITERAL: ("0x" | "0X") ("_"? /[0-9a-fA-F]/)+`
+
+#### Semantics
+
+Integer literals have type [Int](#internal-types).
+
+### Float literals
+
+#### Syntax
+```
+_SPECIAL_DEC: "0".."9" ("_"?  "0".."9")*
+
+DECIMAL: "." _SPECIAL_DEC | _SPECIAL_DEC "." _SPECIAL_DEC
+_EXP: ("e"|"E") ["+" | "-"] _SPECIAL_DEC
+FLOAT_LITERAL: _SPECIAL_DEC _EXP | DECIMAL _EXP?
+```
+
+Float literals have type [Float](#internal-types).
+
+A float literal is rounded to the nearest value of type Float.
+
+### String literals
+#### Syntax
+
+Rule:
+
+`STRING_LITERAL: /("(?!"").*?(?<!\\)(\\\\)*?"|'(?!'').*?(?<!\\)(\\\\)*?')/i`
+
+#### Semantics
+
+String literals have type [String](#internal-types).
+
+### Boolean literals
+#### Syntax
+`BOOLEAN_LITERAL: "True" | "False"`
+#### Semantics
+
+Boolean literals have type [`bool`](#boolean-type)
+
+## Member access expression
 ### Syntax
 
 Rule:
@@ -798,85 +842,107 @@ Name:
 
 If `parent` is not an expression, an error is raised.
 
-> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, you cannot access a member of either of these symbols.
+> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
 
 If the type of `parent` is not a [struct](#structs), an error is raised.
 
+If the type of `parent` is not [constant-sized](#types), an error is raised.
 
+If `member` is not a member of the type of `parent`, an error is raised.
 
-## Fields
-Fields refer to either a member of a struct, or an element of an array. Field access uses Python-like syntax: `expr.member` reads a struct (or `Fw.Time`) member and `expr[index]` reads an array element. These operations are only legal when the referenced type has a statically known layout. Because strings do not have a fixed size in memory, structs or arrays with string fields do not have a statically known layout.
+The type of a member access is the type of the `member` in the type of `parent`.
 
-Accessing `Fw.Time` produces synthetic members named `time_base`, `time_context`, `seconds`, and `useconds` with the types defined by F´.
+At evaluation:
+1. The `parent` is evaluated.
+2. The member access expression evaluates to the value of the `member` in the `parent` value.
 
-Array indices are coerced to `I64` before use. If the index is a compile-time constant the compiler emits an error when it falls outside `[0, length)`. Otherwise the generated bytecode performs a runtime bounds check and terminates the sequence with `DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS` if it fails.
+## Binary operator expressions
 
-# Functions
+A **binary operator expression** is an expression with a left and right-hand expression, and a binary operator in between, which acts on both values to produce a new value.
 
-Every callable in Fpy uses the same syntax:
-```
-function_name(arg_0, arg_1, ..., arg_n)
-```
-Arguments are evaluated left-to-right exactly once. After evaluation, the compiler coerces each argument to the parameter type declared by the callable (except when invoking an explicit numeric cast, which bypasses the usual coercion rules). If any coercion fails, compilation fails. The value produced by the call has the callable’s declared return type and may later be coerced again by the surrounding context.
+The list of **binary operators** is:
+* The [addition operator](#subtraction-semantics) `+`
+* The [subtraction operator](#multiplication-semantics) `-`
+* The [multiplication operator](#multiplication-semantics) `*`
+* The [division operator](#division-semantics) `/`
+* The [floor division operator](#floor-division-semantics) `//`
+* The [modulus operator](#modulus-semantics) `%`
+* The [exponentiation operator](#exponentiation-semantics) `**`
+* The [Boolean operators](#boolean-operator-semantics) `and` and `or`
+* The [comparison operators](#comparison-semantics) `>`, `>=`, `<`, and `<=`
+* The [equality operator](#equality-semantics) `==`
+* The [inequality operator](#inequality-semantics) `!=`
 
-Fpy exposes several categories of callables:
+### Syntax
 
-## Commands
-Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
+Rule:
 
-## Macros
-Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
+`binary_op: expr BINARY_OP expr`
 
-Available macros:
+Name:
 
-* `exit(exit_code: U8)`: terminates the sequence immediately by emitting an `ExitDirective`.
-* `log(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
-* `sleep(seconds: U32, microseconds: U32)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
-* `sleep_until(wakeup_time: Fw.Time)`: waits until the supplied absolute time using `WaitAbsDirective`.
-* `now() -> Fw.Time`: pushes the current time via `PushTimeDirective`.
-* `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
-* `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+`binary_op: lhs op rhs`
 
-## Time functions
-Fpy provides builtin functions for comparing and manipulating time values:
+`lhs` and `rhs` are resolved in the value name group.
 
-* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
-* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
-* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs` occurs after `rhs` (no negative intervals).
-* `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
+### Semantics
 
-These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
+For each use of a binary operator, an [intermediate type](#intermediate-types) is picked.
 
-## Type constructors
-Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
+If `lhs` or `rhs` cannot be [coerced](#type-coercion) into the intermediate type, an error is raised.
 
-## Numeric casts
-Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
+If `lhs` and `rhs` are constant expressions, the binary operator expression is a constant expression.
 
-## User-defined functions
-A function definition introduces a new callable into scope. Function definitions must appear at the top level of the sequence; a function definition nested inside another function, a loop body, or a conditional branch is a compile-time error. The syntax is:
-```
-def name(param_0: Type0, param_1: Type1 = default_value, ...) [-> ReturnType]:
-    body
-```
+At evaluation, for all operators besides the [Boolean operators](#boolean-operator-semantics):
+1. `lhs` is evaluated and coerced into the intermediate type.
+2. `rhs` is evaluated and coerced into the intermediate type.
+3. The expression evaluates to a value of the intermediate type, as described in the operator semantics.
 
-### Parameters
-Each parameter definition consists of a name followed by a colon and a type annotation. A parameter may optionally include a default value, written as `= expr` after the type annotation. Default value expressions must be constant expressions: literals, enum constants, or type constructors whose arguments are themselves constant expressions. Expressions referencing telemetry channels, variables, or function calls are not constant and produce a compile-time error when used as defaults.
+#### Addition semantics
+The addition operator is `+`.
 
-Arguments may be passed by position or by name. Positional arguments are bound to parameters left-to-right. Named arguments use the syntax `name=expr` and bind the value of `expr` to the parameter with the matching name. All positional arguments must precede all named arguments. A parameter may not be bound more than once; supplying both a positional argument and a named argument for the same parameter is a compile-time error. If fewer arguments are supplied than parameters, the remaining parameters must have default values; those defaults are evaluated and bound. Supplying more positional arguments than parameters, or naming a parameter that does not exist, is a compile-time error.
+If neither `lhs` nor `rhs` are expressions of a [numeric type](#types), an error is raised.
 
-### Return type
-The return type annotation `-> Type` is optional. When present, every control-flow path through the function body must terminate with a `return expr` statement where `expr` has a type coercible to `Type`. When absent, the function does not produce a value; `return` statements in such functions must not include an expression, and the call expression has no usable result.
+#### Subtraction semantics
+#### Multiplication semantics
 
-### Scope
-A function body introduces a new scope. Within this scope the following names are visible:
-1. Parameters declared in the function signature.
-2. Local variables declared within the function body.
-3. Top-level variables declared before the call site of the function (not the definition site).
-4. All dictionary objects: commands, telemetry channels, parameters, enum constants, and types.
-5. All user-defined functions, including functions defined after the current function (forward references are permitted).
+These operators require numeric operands and produce a result in the chosen intermediate type. Addition, subtraction, and multiplication differ only in which arithmetic operation they perform. Integer overflow wraps according to the destination type when the result is ultimately stored, and floating-point operations follow IEEE-754 behavior.
 
-Assignments to top-level variables within a function body modify the original variable. Assignments to parameters or local variables do not affect any outer scope.
+#### Division semantics
+Both operands are promoted to `F64`, and the result is always an `F64`. This means you must explicitly cast the result to store it in an integer type.
+
+#### Floor division semantics
+With integer operands, `//` performs truncating division using the signed or unsigned divide directive. If either operand is a float, the compiler divides in `F64`, converts the quotient to a signed 64-bit integer (which truncates toward zero), and converts back to `F64`, so floating-point floor division also truncates toward zero.
+
+### Modulus semantics
+Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. For signed integers the remainder has the same sign as the dividend.
+
+#### Exponentiation semantics
+Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.
+
+#### Boolean operator semantics
+Operands must be `bool`. `not` negates a single operand. `and` evaluates the left operand first and only evaluates the right operand when the left operand is `True`. Conversely, `or` skips the right operand when the left operand is `True`. The result of every boolean operator is `bool`.
+
+#### Comparison semantics
+Inequalities require numeric operands. Each operand is coerced to the intermediate type, the comparison runs in that type, and the result is `bool`.
+
+#### Equality semantics
+If both operands are numeric, equality uses the same intermediate-type rules as arithmetic operators. Otherwise both operands must have the exact same concrete type (struct, array, enum, or `Fw.Time`). The compiler compares their serialized bytes. Strings cannot be compared.
+
+## Unary operators
+### Syntax
+
+Rule:
+
+`unary_op: expr OP`
+
+Name:
+
+`unary_op: val op`
+
+### Negation operator semantics
+### Identity operator semantics
+
 
 # Type conversion
 
@@ -898,79 +964,10 @@ If no rule matches, the compiler raises an error.
 
 Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination’s representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
 
-## Casting
-Each finite-bitwidth numeric type exposes an explicit cast with the same name as the type, e.g. `U32(value)` or `F64(value)`. Casts accept any numeric expression and bypass the implicit-coercion restrictions above: the operand is forced to the target type even when that entails narrowing, and compile-time range checks are suppressed. No casts exist for structs, arrays, enums, strings, or `Fw.Time`.
-
-# Expressions
-
-An *expression* is a syntactic construct which can be *evaluated*.
-
-*Evaluation* is the process of converting an expression to a value.
-
-
-
-## Integer literals
-
-Integer literals have type *Integer*, which is not directly referenceable by the user. The *Integer* type supports integers of arbitrary size.
-
-## Float literals
-
-Float literals have type *Float*, which is not directly referenceable by the user. The *Float* type supports up to 30 decimal points of precision. It is implemented with the Python `Decimal` type.
-
-## String literals
-String literals are strings matching:
-```
-STRING: /("(?!"").*?(?<!\\)(\\\\)*?"|'(?!'').*?(?<!\\)(\\\\)*?')/i
-```
-
-They have type *LiteralString*, which is not directly referenceable by the user. The *LiteralString* type supports strings of arbitrary length.
-
-
-# Operators
-
-Fpy supports the following operators:
-* Basic arithmetic: `+, -, *, /`
-* Modulo: `%`
-* Exponentiation: `**`
-* Floor division: `//`
-* Boolean: `and, or, not`
-* Comparison: `<, >, <=, >=, ==, !=`
-
-Each time an operator is used, an intermediate type must be picked and both args must be converted to that type.
-
-## Behavior of operators
-All operators share the following rules:
-
-1. The left operand is evaluated first, then the right operand. Boolean `and`/`or` short-circuit, so the right operand is skipped when the result is already known.
-2. Each operand is coerced to the operator’s intermediate type (see [Intermediate Types](#intermediate-types)). If no valid intermediate type exists, compilation fails.
-
-The subsections below describe behaviors that differ from the general rules.
-
-### Numeric arithmetic (`+`, `-`, `*`)
-These operators require numeric operands and produce a result in the chosen intermediate type. Addition, subtraction, and multiplication differ only in which arithmetic operation they perform. Integer overflow wraps according to the destination type when the result is ultimately stored, and floating-point operations follow IEEE-754 behavior.
-
-### True division (`/`)
-Both operands are promoted to `F64`, and the result is always an `F64`. This means you must explicitly cast the result to store it in an integer type.
-
-### Floor division (`//`)
-With integer operands, `//` performs truncating division using the signed or unsigned divide directive. If either operand is a float, the compiler divides in `F64`, converts the quotient to a signed 64-bit integer (which truncates toward zero), and converts back to `F64`, so floating-point floor division also truncates toward zero.
-
-### Modulo (`%`)
-Modulo works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. For signed integers the remainder has the same sign as the dividend.
-
-### Exponentiation (`**`)
-Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.
-
-### Boolean operators (`and`, `or`, `not`)
-Operands must be `bool`. `not` negates a single operand. `and` evaluates the left operand first and only evaluates the right operand when the left operand is `True`. Conversely, `or` skips the right operand when the left operand is `True`. The result of every boolean operator is `bool`.
-
-### Inequalities (`<`, `<=`, `>`, `>=`)
-Inequalities require numeric operands. Each operand is coerced to the intermediate type, the comparison runs in that type, and the result is `bool`.
-
-### Equality (`==`, `!=`)
-If both operands are numeric, equality uses the same intermediate-type rules as arithmetic operators. Otherwise both operands must have the exact same concrete type (struct, array, enum, or `Fw.Time`). The compiler compares their serialized bytes. Strings cannot be compared.
 
 ## Intermediate types
+
+The **intermediate type** of a binary or unary operator expression is the type to which all argument expressions will be coerced to.
 
 Intermediate types are picked via the following rules:
 

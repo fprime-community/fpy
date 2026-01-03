@@ -436,11 +436,6 @@ class ResolveQualifiedNames(TopDownVisitor):
             qualified_name_node = attr
             current_parent_symbol = current_parent_symbol.get(attr.attr)
 
-            # okay, we've completely resolved the qualified name
-            if current_parent_symbol is None:
-                state.err(f"Unknown {group}", leaf_node)
-                return False
-
         # has it resolved?
         if current_parent_symbol is None:
             state.err(f"Unknown {group}", leaf_node)
@@ -556,8 +551,8 @@ class ResolveQualifiedNames(TopDownVisitor):
     def visit_AstLiteral_AstGetAttr(
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
-        # don't need to do anything for literals or getattr, but just have this here for completion's sake
         # this is because they do not imply anything about the context in which an AstName should get
+        # don't need to do anything for literals or getattr, but just have this here for completion's sake
         # resolved
         pass
 
@@ -850,31 +845,6 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         return True
 
-    def get_members(
-        self, node: Ast, parent_type: FppType, state: CompileState
-    ) -> list[tuple[str, FppType]] | None:
-        if not issubclass(parent_type, (StructValue, TimeValue)):
-            return {}
-
-        if not self.is_type_constant_size(parent_type):
-            state.err(
-                f"{parent_type} has non-constant sized members, cannot access members",
-                node,
-            )
-            return None
-
-        member_list: list[tuple[str, FppType]] = None
-        if issubclass(parent_type, StructValue):
-            member_list = [t[0:2] for t in parent_type.MEMBER_LIST]
-        else:
-            # if it is a time type, there are some "implied" members
-            member_list = []
-            member_list.append(("time_base", U16Value))
-            member_list.append(("time_context", U8Value))
-            member_list.append(("seconds", U32Value))
-            member_list.append(("useconds", U32Value))
-        return member_list
-
     def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
         if isinstance(sym, ChTemplate):
@@ -900,6 +870,8 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             if not is_symbol_an_expr(this_sym):
                 # not an expr, doesn't have a type
                 return
+            # otherwise, this is a qualified name AND an expr.
+            # can happen in cases like enum consts
         else:
             # perform member access
             parent_sym = state.resolved_symbols.get(node.parent)
@@ -911,6 +883,17 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
             # it may or may not have a compile time value, but it definitely has a type
             parent_type = state.synthesized_types[node.parent]
+
+            if not issubclass(parent_type, (StructValue, TimeValue)):
+                state.err(f"{typename(parent_type)} is not a struct, cannot access members", node)
+                return
+
+            if not self.is_type_constant_size(parent_type):
+                state.err(
+                    f"{parent_type} has non-constant sized members, cannot access members",
+                    node,
+                )
+                return
 
             # field symbols store their "base symbol", which is the first non-field-symbol parent of
             # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
@@ -928,9 +911,16 @@ class PickTypesAndResolveMembersAndElements(Visitor):
                 else parent_sym.base_offset
             )
 
-            member_list = self.get_members(node, parent_type, state)
-            if member_list is None:
-                return
+            member_list: list[tuple[str, FppType]] = None
+            if issubclass(parent_type, StructValue):
+                member_list = [t[0:2] for t in parent_type.MEMBER_LIST]
+            else:
+                # if it is a time type, there are some "implied" members
+                member_list = []
+                member_list.append(("time_base", U16Value))
+                member_list.append(("time_context", U8Value))
+                member_list.append(("seconds", U32Value))
+                member_list.append(("useconds", U32Value))
 
             offset = 0
             for arg_name, arg_type in member_list:
@@ -948,12 +938,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
                 offset += arg_type.getMaxSize()
                 base_offset += arg_type.getMaxSize()
 
-        if this_sym is None:
-            state.err(
-                f"{typename(parent_type)} has no member named {node.attr}",
-                node,
-            )
-            return
+            if this_sym is None:
+                state.err(
+                    f"{typename(parent_type)} has no member named {node.attr}",
+                    node,
+                )
+                return
 
         sym_type = self.get_type_of_symbol(this_sym)
 
@@ -1803,21 +1793,9 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value <= rhs_value
             # Equality Checking
             elif node.op == BinaryStackOp.EQUAL:
-                if not is_instance_compat(lhs_value, Number):
-                    # comparing two complex types
-                    assert type(lhs_value) == type(rhs_value), (lhs_value, rhs_value)
-                    # for now we don't fold this
-                    folded_value = None
-                else:
-                    folded_value = lhs_value == rhs_value
+                folded_value = lhs_value == rhs_value
             elif node.op == BinaryStackOp.NOT_EQUAL:
-                if not is_instance_compat(lhs_value, Number):
-                    # comparing two complex types
-                    assert type(lhs_value) == type(rhs_value), (lhs_value, rhs_value)
-                    # for now we don't fold this
-                    folded_value = None
-                else:
-                    folded_value = lhs_value != rhs_value
+                folded_value = lhs_value != rhs_value
             else:
                 # missing an operation
                 assert False, node.op
@@ -1834,10 +1812,7 @@ class CalculateConstExprValues(Visitor):
             state.err("Domain error", node)
             return
 
-        if folded_value is None:
-            # give up, don't try to calculate the value of this expr at compile time
-            state.contextual_values[node] = None
-            return
+        assert folded_value is not None
 
         if type(folded_value) == int:
             folded_value = FpyIntegerValue(folded_value)
