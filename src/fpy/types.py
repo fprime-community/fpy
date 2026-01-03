@@ -435,6 +435,7 @@ def is_symbol_an_expr(symbol: Symbol) -> bool:
             PrmTemplate,
             FppValue,
             VariableSymbol,
+            FieldAccess
         ),
     )
 
@@ -446,6 +447,7 @@ Symbol = typing.Union[
     FppType,
     VariableSymbol,
     SymbolTable,
+    FieldAccess
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
 
@@ -485,8 +487,6 @@ class CompileState:
         default_factory=dict, repr=False
     )
     """reference to its singular resolution"""
-
-    field_accesses: dict[Union[AstGetAttr, AstIndexExpr], FieldAccess] = field(default_factory=dict)
 
     synthesized_types: dict[AstExpr, FppType | NothingType] = field(
         default_factory=dict
