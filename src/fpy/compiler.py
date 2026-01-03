@@ -31,7 +31,6 @@ from fpy.codegen import (
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
-    CheckNamesFullyResolved,
     CreateFunctionScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
@@ -41,8 +40,7 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDefine,
     CreateVariablesAndFuncs,
-    PickTypesAndResolveAttrsAndItems,
-    SetResolvingNameGroups,
+    PickTypesAndResolveMembersAndElements,
     ResolveQualifiedNames,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
@@ -354,14 +352,12 @@ def ast_to_directives(
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        SetResolvingNameGroups(),
         ResolveQualifiedNames(),
-        CheckNamesFullyResolved(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
-        PickTypesAndResolveAttrsAndItems(),
+        PickTypesAndResolveMembersAndElements(),
         # Calculate const values for default arguments first (and check they're const).
         # This must happen before CalculateConstExprValues because call sites may
         # reference functions defined later in the source, and we need the default

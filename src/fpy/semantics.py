@@ -367,99 +367,203 @@ class CheckReturnInFunc(TopDownVisitor):
             return
 
 
-class SetResolvingScope(Visitor):
-    def __init__(self, scope: SymbolTable):
-        super().__init__()
-        self.scope = scope
+class ResolveQualifiedNames(TopDownVisitor):
 
-    def visit_AstName(self, node: AstName, state: CompileState):
-        state.resolving_scope[node] = self.scope
+    def is_symbol_an_expr(self, symbol: Symbol) -> bool:
+        """return True if the symbol is a valid expr (can be evaluated)"""
+        return is_instance_compat(
+            symbol,
+            (
+                ChTemplate,
+                PrmTemplate,
+                FppValue,
+                VariableSymbol,
+            ),
+        )
 
-
-class SetResolvingNameGroups(TopDownVisitor):
-
-    def set_resolving_name_group(
+    def try_resolve_name(
         self, node: Ast, group: NameGroup, state: CompileState
-    ):
-        while is_instance_compat(node, AstGetAttr):
-            node = node.parent
+    ) -> bool:
+        """resolves the root name of a qualified name, return True if able to resolve, False
+        if an error was raised.
+        if the node is not a qualified name, return True"""
+        # first check that this is a fully qualified name
+        # list of attrs, most specific attrs first
+        attrs = []
+        leaf_node = node
+        root_node = node
+        while is_instance_compat(root_node, AstGetAttr):
+            attrs.append(root_node)
+            root_node = root_node.parent
 
-        if not is_instance_compat(node, AstName):
+        if not is_instance_compat(root_node, AstName):
             # not a qualified name
-            return
+            # skip for now
+            return True
 
-        state.resolving_name_group[node] = group
+        root_symbol = None
+        # it is a qualified name
+        # look up the root name in the appropriate scope
+        if group == NameGroup.CALLABLE:
+            root_symbol = state.global_callable_scope.get(root_node.name)
+        elif group == NameGroup.TYPE:
+            root_symbol = state.global_type_scope.get(root_node.name)
+        else:
+            root_symbol = state.enclosing_value_scope[root_node].get(root_node.name)
+            if (
+                root_symbol is None
+                and state.enclosing_value_scope[root_node]
+                is not state.global_value_scope
+            ):
+                # if we just checked and failed in a function value scope, check the global value scope
+                root_symbol = state.global_value_scope.get(root_node.name)
+
+        # the node which corresponds to the entire qualified name
+        # note this does not include nodes which are member accesses
+        qualified_name_node = root_node
+
+        # the parent of the attr that we're about to resolve, as we iterate
+        # through the list of attrs
+        current_parent_symbol = root_symbol
+
+        # okay, now we just have to perform attribute resolution
+        while len(attrs) > 0:
+            if current_parent_symbol is None:
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+            state.resolved_symbols[qualified_name_node] = current_parent_symbol
+
+            if self.is_symbol_an_expr(current_parent_symbol):
+                # this is member access
+                # stop here
+                break
+
+            if not is_instance_compat(current_parent_symbol, SymbolTable):
+                # it's not member access and it's not namespace access
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+            attr = attrs.pop()
+            qualified_name_node = attr
+            current_parent_symbol = current_parent_symbol.get(attr.attr)
+
+            # okay, we've completely resolved the qualified name
+            if current_parent_symbol is None:
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+        # has it resolved?
+        if current_parent_symbol is None:
+            state.err(f"Unknown {group}", leaf_node)
+            return False
+
+        # but has it actually resolved to a non-namespace symbol?
+        if is_instance_compat(current_parent_symbol, SymbolTable):
+            state.err(f"Unknown {group}", leaf_node)
+            return False
+
+        state.resolved_symbols[qualified_name_node] = current_parent_symbol
+        return True
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # all callables are always resolved in callable scope
-        self.set_resolving_name_group(node.name, NameGroup.CALLABLE, state)
+        if not self.try_resolve_name(node.name, NameGroup.CALLABLE, state):
+            return
         if node.return_type is not None:
             # all types always in type scope
-            self.set_resolving_name_group(node.return_type, NameGroup.TYPE, state)
+            if not self.try_resolve_name(node.return_type, NameGroup.TYPE, state):
+                return
 
-        # Resolve parameter types
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
-                self.set_resolving_name_group(arg_type_name, NameGroup.TYPE, state)
+                if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+                    return
                 # arg names become vars in func scope, so resolve them in func scope
-                self.set_resolving_name_group(arg_name_var, NameGroup.VALUE, state)
+                if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
+                    return
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
-                    self.set_resolving_name_group(default_value, NameGroup.VALUE, state)
+                    if not self.try_resolve_name(default_value, NameGroup.VALUE, state):
+                        return
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
-            self.set_resolving_name_group(node.type_ann, NameGroup.TYPE, state)
+            if not self.try_resolve_name(node.type_ann, NameGroup.TYPE, state):
+                return
 
-        self.set_resolving_name_group(node.lhs, NameGroup.VALUE, state)
-        self.set_resolving_name_group(node.rhs, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
+            return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        self.set_resolving_name_group(node.func, NameGroup.CALLABLE, state)
+        if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
+            return
 
         if node.args is None:
             return
 
         for arg in node.args:
-            self.set_resolving_name_group(arg, NameGroup.VALUE, state)
+            if is_instance_compat(arg, AstNamedArgument):
+                if not self.try_resolve_name(arg.value, NameGroup.VALUE, state):
+                    return
+            else:
+                if not self.try_resolve_name(arg, NameGroup.VALUE, state):
+                    return
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        self.set_resolving_name_group(node.lhs, NameGroup.VALUE, state)
-        self.set_resolving_name_group(node.rhs, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
+            return
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        self.set_resolving_name_group(node.val, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.val, NameGroup.VALUE, state):
+            return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        self.set_resolving_name_group(node.loop_var, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.loop_var, NameGroup.VALUE, state):
+            return
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
-        self.set_resolving_name_group(node.range, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.range, NameGroup.VALUE, state):
+            return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        self.set_resolving_name_group(node.condition, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
         if node.exit_code is not None:
-            self.set_resolving_name_group(node.exit_code, NameGroup.VALUE, state)
+            if not self.try_resolve_name(node.exit_code, NameGroup.VALUE, state):
+                return
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        self.set_resolving_name_group(node.item, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.parent, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.item, NameGroup.VALUE, state):
+            return
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
-        self.set_resolving_name_group(node.lower_bound, NameGroup.VALUE, state)
-        self.set_resolving_name_group(node.upper_bound, NameGroup.VALUE, state)
+        if not self.try_resolve_name(node.lower_bound, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.upper_bound, NameGroup.VALUE, state):
+            return
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         if node.value is not None:
-            self.set_resolving_name_group(node.value, NameGroup.VALUE, state)
+            if not self.try_resolve_name(node.value, NameGroup.VALUE, state):
+                return
 
     def visit_AstLiteral_AstGetAttr(
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
@@ -470,194 +574,13 @@ class SetResolvingNameGroups(TopDownVisitor):
         pass
 
     def visit_AstName(self, node: AstName, state: CompileState):
-        if node in state.resolving_name_group:
+        if node in state.resolved_symbols:
             # it exists in a context where we can resolve it
             return
 
         # exists outside of a context where we can resolve it.
         # probably just throw an error?
         state.err(f"Name '{node.name}' cannot be resolved without more context", node)
-
-    def visit_default(self, node, state):
-        # coding error, missed an expr
-        assert not is_instance_compat(node, AstStmtWithExpr), node
-
-
-class ResolveQualifiedNames(Visitor):
-    def visit_AstName(self, node: AstName, state: CompileState):
-        resolving_scope = state.resolving_scope[node]
-        sym = resolving_scope.get(node.name)
-        if sym is not None:
-            state.resolved_symbols[node] = sym
-            return
-
-        # okay, didn't resolve in this scope. is there a parent scope?
-        if resolving_scope.scope_is_global:
-            # no parent scope
-            state.err(f"Unknown {resolving_scope.scope_category}", node)
-            return
-
-        assert (
-            resolving_scope.scope_category == NameGroup.VALUE
-        )  # must be a value scope at this point
-        # not global. it must be a function value scope, so we can just try
-        # the global value scope
-        resolving_scope = state.global_value_scope
-        sym = resolving_scope.get(node.name)
-        if sym is None:
-            # didn't resolve in func value scope, didn't resolve in global value scope
-            state.err(f"Unknown {resolving_scope.scope_category}", node)
-            return
-
-        state.resolved_symbols[node] = sym
-
-    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        parent_sym = state.resolved_symbols.get(node.parent)
-        if parent_sym is None:
-            # parent is not resolved, so it's not a var or a getattr
-            # leave it for a later pass
-            return
-
-        if not is_instance_compat(parent_sym, SymbolTable):
-            # parent is resolved, but not to a namespace.
-            # we're doing something like field access. leave it for a later pass
-            return
-
-        # we're just focusing on resolving chains of attrs, each of which resolve to a
-        # namespace, and a var at the top
-
-        sym = parent_sym.get(node.attr)
-
-        if sym is None:
-            state.err(f"Unknown {parent_sym.scope_category}", node)
-            return
-
-        state.resolved_symbols[node] = sym
-
-
-class CheckNamesFullyResolved(TopDownVisitor):
-
-    def check_fully_resolved(
-        self, node: Union[Ast, None], name_group: NameGroup, state: CompileState
-    ) -> bool:
-        if node is None:
-            # for convenience, let the user pass in None, if there's nothing
-            # then nothing to resolve so yeah we're done
-            return True
-        # to find out what we should have resolved this sym to,
-        # we'll check the root scope of the qualified name and
-        # see what category it is
-
-        sym = state.resolved_symbols.get(node)
-
-        if name_group == NameGroup.VALUE and sym is None:
-            # didn't resolve a ref to some value category. at this
-            # point, the only things that could have gotten here
-            # are field refs or complex exprs e.g. (1 + 1).a
-            # pass it on for later
-            return True
-
-        if sym is None:
-            # failed to resolve
-            state.err(f"Unknown {name_group}", node)
-            return False
-
-        if not is_instance_compat(sym, SymbolTable):
-            # resolved to something other than a namespace (this is what we want)
-            return True
-
-        # not fully resolved. the user wrote something like Svc
-        # which is just a namespace
-
-        state.err(f"Unknown {name_group}", node)
-        return False
-
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        if not self.check_fully_resolved(node.name, NameGroup.CALLABLE, state):
-            return
-        if not self.check_fully_resolved(node.return_type, NameGroup.TYPE, state):
-            return
-
-        # Resolve parameter types
-        if node.parameters is not None:
-            for arg_name_var, arg_type_name, default_value in node.parameters:
-                if not self.check_fully_resolved(arg_type_name, NameGroup.TYPE, state):
-                    return
-                if not self.check_fully_resolved(arg_name_var, NameGroup.VALUE, state):
-                    return
-                if not self.check_fully_resolved(default_value, NameGroup.VALUE, state):
-                    return
-
-    def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not self.check_fully_resolved(node.type_ann, NameGroup.TYPE, state):
-            return
-        if not self.check_fully_resolved(node.lhs, NameGroup.VALUE, state):
-            return
-        if not self.check_fully_resolved(node.rhs, NameGroup.VALUE, state):
-            return
-
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.check_fully_resolved(node.func, NameGroup.CALLABLE, state):
-            return
-
-        if node.args is None:
-            return
-
-        for arg in node.args:
-            if not self.check_fully_resolved(arg, NameGroup.VALUE, state):
-                return
-
-    def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
-            return
-
-    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        if not self.check_fully_resolved(node.lhs, NameGroup.VALUE, state):
-            return
-        if not self.check_fully_resolved(node.rhs, NameGroup.VALUE, state):
-            return
-
-    def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.check_fully_resolved(node.val, NameGroup.VALUE, state):
-            return
-
-    def visit_AstFor(self, node: AstFor, state: CompileState):
-        if not self.check_fully_resolved(node.loop_var, NameGroup.VALUE, state):
-            return
-        if not self.check_fully_resolved(node.range, NameGroup.VALUE, state):
-            return
-
-    def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
-            return
-
-    def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.check_fully_resolved(node.condition, NameGroup.VALUE, state):
-            return
-        if not self.check_fully_resolved(node.exit_code, NameGroup.VALUE, state):
-            return
-
-    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.check_fully_resolved(node.item, NameGroup.VALUE, state):
-            return
-
-    def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.check_fully_resolved(node.upper_bound, NameGroup.VALUE, state):
-            return
-        if not self.check_fully_resolved(node.lower_bound, NameGroup.VALUE, state):
-            return
-
-    def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        if not self.check_fully_resolved(node.value, NameGroup.VALUE, state):
-            return
-
-    def visit_AstLiteral_AstGetAttr_AstName(
-        self, node: Union[AstLiteral, AstGetAttr, AstName], state: CompileState
-    ):
-        # don't need to do anything for literals or getattr, but just have this here for completion's sake
-        # this is because they do not imply anything about the context in which an AstName should get
-        # resolved
-        pass
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -700,6 +623,18 @@ class UpdateTypesAndFuncs(Visitor):
         var = state.resolved_symbols[node.lhs]
 
         var.type = var_type
+
+
+class EnsureVariableNotReferenced(Visitor):
+    def __init__(self, var: VariableSymbol):
+        super().__init__()
+        self.var = var
+
+    def visit_AstName(self, node: AstName, state: CompileState):
+        sym = state.resolved_symbols[node]
+        if sym == self.var:
+            state.err(f"'{node.name}' used before defined", node)
+            return
 
 
 class CheckUseBeforeDefine(TopDownVisitor):
@@ -770,19 +705,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
 
-class EnsureVariableNotReferenced(Visitor):
-    def __init__(self, var: VariableSymbol):
-        super().__init__()
-        self.var = var
-
-    def visit_AstName(self, node: AstName, state: CompileState):
-        sym = state.resolved_symbols[node]
-        if sym == self.var:
-            state.err(f"'{node.name}' used before defined", node)
-            return
-
-
-class PickTypesAndResolveAttrsAndItems(Visitor):
+class PickTypesAndResolveMembersAndElements(Visitor):
 
     def coerce_expr_type(
         self, node: AstExpr, type: FppType, state: CompileState

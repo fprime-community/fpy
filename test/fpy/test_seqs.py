@@ -8,7 +8,6 @@ from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     lookup_type,
-    TimeConfig,
 )
 
 
@@ -4025,8 +4024,7 @@ assert t.time_context == 0
 assert t.seconds == 5
 assert t.useconds == 0
 """
-        time_config = TimeConfig(initial_time_us=5_000_000)
-        assert_run_success(fprime_test_api, seq, time_config=time_config)
+        assert_run_success(fprime_test_api, seq, initial_time_us=5_000_000)
 
     def test_now_returns_configured_time_base(self, fprime_test_api):
         """Test that now() returns the configured time_base."""
@@ -4036,18 +4034,16 @@ t: Fw.Time = now()
 assert t.time_base == 2
 assert t.time_context == 0
 """
-        time_config = TimeConfig(time_base=2)
-        assert_run_success(fprime_test_api, seq, time_config=time_config)
+        assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_now_returns_configured_time_context(self, fprime_test_api):
         """Test that now() returns the configured time_context."""
         seq = """
 t: Fw.Time = now()
-# Configured time_context=42
+# Configured time_context=4
 assert t.time_context == 42
 """
-        time_config = TimeConfig(time_context=42)
-        assert_run_success(fprime_test_api, seq, time_config=time_config)
+        assert_run_success(fprime_test_api, seq, time_context=42)
 
     def test_sleep_advances_simulated_time(self, fprime_test_api):
         """Test that sleep() advances simulated time correctly."""
@@ -4216,5 +4212,4 @@ timeout:
 assert time_base_ok
 assert check_count >= 3
 """
-        time_config = TimeConfig(time_base=3)
-        assert_run_success(fprime_test_api, seq, time_config=time_config)
+        assert_run_success(fprime_test_api, seq, time_base=3)

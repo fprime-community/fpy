@@ -444,7 +444,6 @@ Symbol = typing.Union[
     CallableSymbol,
     FppType,
     VariableSymbol,
-    FieldAccess,
     SymbolTable,
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
@@ -466,8 +465,6 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
-    resolving_name_group: dict[AstName, NameGroup] = field(default_factory=dict)
-    resolving_scope: dict[AstName, SymbolTable] = field(default_factory=dict)
     enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
