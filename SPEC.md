@@ -712,6 +712,7 @@ Each qualifier becomes a namespace, and the final name maps to the type.
 
 Basically: map the type to the last component of the fully qualified name. Then construct namespaces for each of the other components
 
+
 # Name resolution
 
 *Name resolution* is the process of
@@ -781,6 +782,27 @@ An attribute access has one of many different behaviors depending on the parent:
 
 
 # Expressions
+
+## Member access
+### Syntax
+
+Rule:
+
+`member_access_expr: expr "." name`
+
+Name:
+
+`member_access_expr: parent "." member`
+
+### Semantics
+
+If `parent` is not an expression, an error is raised.
+
+> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, you cannot access a member of either of these symbols.
+
+If the type of `parent` is not a [struct](#structs), an error is raised.
+
+
 
 ## Fields
 Fields refer to either a member of a struct, or an element of an array. Field access uses Python-like syntax: `expr.member` reads a struct (or `Fw.Time`) member and `expr[index]` reads an array element. These operations are only legal when the referenced type has a statically known layout. Because strings do not have a fixed size in memory, structs or arrays with string fields do not have a statically known layout.

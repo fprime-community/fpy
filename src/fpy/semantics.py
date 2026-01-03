@@ -33,6 +33,7 @@ from fpy.types import (
     TopDownVisitor,
     Visitor,
     is_instance_compat,
+    is_symbol_an_expr,
     typename,
 )
 
@@ -896,89 +897,68 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         elif isinstance(sym, FppValue):
             # constant value
             result_type = type(sym)
-        elif isinstance(sym, CallableSymbol):
-            # a reference to a callable isn't a type in and of itself
-            # it has a return type but you have to call it (with an AstFuncCall)
-            # consider making a separate "reference" type
-            result_type = NothingValue
         elif isinstance(sym, VariableSymbol):
             result_type = sym.type
-        elif isinstance(sym, type):
-            # a reference to a type doesn't have a value, and so doesn't have a type,
-            # in and of itself. if this were a function call to the type's ctor then
-            # it would have a value and thus a type
-            result_type = NothingValue
         elif isinstance(sym, FieldAccess):
             result_type = sym.type
-        elif isinstance(sym, dict):
-            # reference to a scope. scopes don't have values
-            result_type = NothingValue
         else:
             assert False, sym
 
         return result_type
 
     def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        parent_sym = state.resolved_symbols.get(node.parent)
+        # perform member access
+        if node in state.resolved_symbols:
+            # this is a symbol, not a member
+            # already handled by ResolveQualifiedNames
+            return
 
-        if is_instance_compat(parent_sym, (type, CallableSymbol)):
-            state.err("Unknown attribute", node)
+        parent_sym = state.resolved_symbols.get(node.parent)
+        # theoretically the only thing left should be cases where the parent
+        # is some sort of expr
+
+        # either a symbol that is an expr, or something more complex
+        assert parent_sym is None or is_symbol_an_expr(parent_sym), parent_sym
+
+        # it may or may not have a compile time value, but it definitely has a type
+        parent_type = state.synthesized_types[node.parent]
+
+        # field symbols store their "base symbol", which is the first non-field-symbol parent of
+        # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
+        # you're talking about a field of
+        base_sym = (
+            parent_sym
+            if not is_instance_compat(parent_sym, FieldAccess)
+            else parent_sym.base_sym
+        )
+        # we also calculate a "base offset" wrt. the start of the base_sym type, so you
+        # can easily pick out this field from a value of the base sym type
+        base_offset = (
+            0
+            if not is_instance_compat(parent_sym, FieldAccess)
+            else parent_sym.base_offset
+        )
+
+        member_list = self.get_members(node, parent_type, state)
+        if member_list is None:
             return
 
         sym = None
-        if is_instance_compat(parent_sym, dict):
-            # getattr of a namespace
-            # parent won't actually have a type
-            sym = parent_sym.get(node.attr)
-            if sym is None:
-                state.err("Unknown attribute", node)
-                return
-            # GetAttr should never resolve to a lexical variable; variables are accessed directly
-            assert not is_instance_compat(
-                sym, VariableSymbol
-            ), "Field resolution unexpectedly found a local variable"
-        else:
-            # in all other cases, parent has at least some sort of type
-            # sym may be None (if parent is some complex expr), or it may be
-            # a tlm chan or var or etc...
-            # it may or may not have a compile time value, but it definitely has a type
-            parent_type = state.synthesized_types[node.parent]
-
-            # field symbols store their "base symbol", which is the first non-field-symbol parent of
-            # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
-            # you're talking about a field of
-            base_sym = (
-                parent_sym
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_sym
-            )
-            # we also calculate a "base offset" wrt. the start of the base_sym type, so you
-            # can easily pick out this field from a value of the base sym type
-            base_offset = (
-                0
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_offset
-            )
-
-            member_list = self.get_members(node, parent_type, state)
-            if member_list is None:
-                return
-
-            offset = 0
-            for arg_name, arg_type in member_list:
-                if arg_name == node.attr:
-                    sym = FieldAccess(
-                        is_struct_member=True,
-                        parent_expr=node.parent,
-                        type=arg_type,
-                        base_sym=base_sym,
-                        local_offset=offset,
-                        base_offset=base_offset,
-                        name=arg_name,
-                    )
-                    break
-                offset += arg_type.getMaxSize()
-                base_offset += arg_type.getMaxSize()
+        offset = 0
+        for arg_name, arg_type in member_list:
+            if arg_name == node.attr:
+                sym = FieldAccess(
+                    is_struct_member=True,
+                    parent_expr=node.parent,
+                    type=arg_type,
+                    base_sym=base_sym,
+                    local_offset=offset,
+                    base_offset=base_offset,
+                    name=arg_name,
+                )
+                break
+            offset += arg_type.getMaxSize()
+            base_offset += arg_type.getMaxSize()
 
         if sym is None:
             state.err(
@@ -989,14 +969,14 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         sym_type = self.get_type_of_symbol(sym)
 
-        state.resolved_symbols[node] = sym
+        state.field_accesses[node] = sym
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         parent_sym = state.resolved_symbols.get(node.parent)
 
-        if is_instance_compat(parent_sym, (type, CallableSymbol, dict)):
+        if not is_symbol_an_expr(parent_sym):
             state.err("Unknown item", node)
             return
 
@@ -1042,6 +1022,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         sym = state.resolved_symbols[node]
         if sym is None:
             return
+        if not is_symbol_an_expr(sym):
+            return
+
         sym_type = self.get_type_of_symbol(sym)
 
         state.synthesized_types[node] = sym_type
@@ -1671,19 +1654,13 @@ class CalculateConstExprValues(Visitor):
         state.contextual_values[node] = expr_value
 
     def visit_AstName(self, node: AstName, state: CompileState):
+        sym = state.resolved_symbols[node]
+        if not is_symbol_an_expr(sym):
+            return
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
-        sym = state.resolved_symbols[node]
         expr_value = None
-        if is_instance_compat(sym, (type, dict, CallableSymbol)):
-            # these types have no value
-            state.contextual_values[node] = NothingValue()
-            assert unconverted_type == converted_type, (
-                unconverted_type,
-                converted_type,
-            )
-            return
-        elif is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
+        if is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
             # Has a value but we don't try to calculate it at compile time.
             # NOTE: If you ever add const-folding for VariableSymbol here, you must also
             # update CalculateDefaultArgConstValues. That pass runs CalculateConstExprValues
@@ -1694,8 +1671,6 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
-        elif is_instance_compat(sym, FieldAccess):
-            assert False, sym
 
         assert expr_value is not None
 

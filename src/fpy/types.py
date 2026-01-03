@@ -55,6 +55,8 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
+    AstGetAttr,
+    AstIndexExpr,
     AstOp,
     AstReference,
     Ast,
@@ -334,14 +336,10 @@ class NameGroup(str, Enum):
 
 
 class SymbolTable(dict):
-    def __init__(self, scope_category: NameGroup, scope_is_global: bool):
+    def __init__(self):
         global next_symbol_table_id
         self.id = next_symbol_table_id
         next_symbol_table_id += 1
-        self.scope_category = scope_category
-        """the kind of thing that this scope stores, if this symbol table represents a scope"""
-        self.scope_is_global = scope_is_global
-        """whether this scope is a global scope, if this symbol table represents a scope"""
 
     def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
@@ -355,19 +353,14 @@ class SymbolTable(dict):
     def __eq__(self, value):
         return isinstance(value, SymbolTable) and value.id == self.id
 
-    def copy(self):
-        new = SymbolTable(self.scope_category, self.scope_is_global)
-        new.update(self)
-        return new
-
 
 def create_symbol_table(
-    symbols: dict[str, "Symbol"], scope_category: NameGroup, scope_is_global: bool
+    symbols: dict[str, "Symbol"]
 ) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""
 
-    base = SymbolTable(scope_category, scope_is_global)
+    base = SymbolTable()
 
     for fqn, sym in symbols.items():
         names_strs = fqn.split(".")
@@ -377,7 +370,7 @@ def create_symbol_table(
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
                 # this symbol table is not defined atm
-                existing_child = SymbolTable(scope_category, scope_is_global)
+                existing_child = SymbolTable()
                 ns[names_strs[0]] = existing_child
 
             if not isinstance(existing_child, dict):
@@ -415,11 +408,7 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    assert (
-        lhs.scope_category == rhs.scope_category
-        and lhs.scope_is_global == rhs.scope_is_global
-    ), (lhs.scope_category, rhs.scope_category)
-    new = SymbolTable(lhs.scope_category, lhs.scope_is_global)
+    new = SymbolTable()
 
     for key in common_keys:
         if not isinstance(lhs[key], dict) or not isinstance(rhs[key], dict):
@@ -436,6 +425,18 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
 
     return new
 
+
+def is_symbol_an_expr(symbol: Symbol) -> bool:
+    """return True if the symbol is a valid expr (can be evaluated)"""
+    return is_instance_compat(
+        symbol,
+        (
+            ChTemplate,
+            PrmTemplate,
+            FppValue,
+            VariableSymbol,
+        ),
+    )
 
 Symbol = typing.Union[
     ChTemplate,
@@ -484,6 +485,8 @@ class CompileState:
         default_factory=dict, repr=False
     )
     """reference to its singular resolution"""
+
+    field_accesses: dict[Union[AstGetAttr, AstIndexExpr], FieldAccess] = field(default_factory=dict)
 
     synthesized_types: dict[AstExpr, FppType | NothingType] = field(
         default_factory=dict

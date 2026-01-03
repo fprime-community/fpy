@@ -289,16 +289,16 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     # Build the 3 global scopes per SPEC:
     # 1. global type scope - leaf nodes are types
-    type_scope = create_symbol_table(type_name_dict, NameGroup.TYPE, True)
+    type_scope = create_symbol_table(type_name_dict)
     # 2. global callable scope - leaf nodes are callables
-    callable_scope = create_symbol_table(callable_name_dict, NameGroup.CALLABLE, True)
+    callable_scope = create_symbol_table(callable_name_dict)
     # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
     #    Merge all value sources into one scope
     values_scope = merge_symbol_tables(
-        create_symbol_table(ch_name_dict, NameGroup.VALUE, True),
+        create_symbol_table(ch_name_dict),
         merge_symbol_tables(
-            create_symbol_table(prm_name_dict, NameGroup.VALUE, True),
-            create_symbol_table(enum_const_name_dict, NameGroup.VALUE, True),
+            create_symbol_table(prm_name_dict),
+            create_symbol_table(enum_const_name_dict),
         ),
     )
 
