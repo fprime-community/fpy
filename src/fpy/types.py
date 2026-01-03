@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC
 from decimal import Decimal
+from enum import Enum
 import inspect
 from dataclasses import astuple, dataclass, field, fields
 import math
@@ -28,6 +29,9 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
+from fprime_gds.common.models.serialize.serializable_type import (
+    SerializableType as StructValue,
+)
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -51,13 +55,12 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstTypeExpr,
     AstOp,
     AstReference,
     Ast,
-    AstAssign,
     AstReturn,
     AstBlock,
+    AstName,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -124,6 +127,7 @@ class FpyFloatValue(FloatValue):
 
 class RangeValue(FppValue):
     """the type produced by range expressions `X .. Y`"""
+
     def serialize(self):
         raise NotImplementedError()
 
@@ -143,6 +147,11 @@ class RangeValue(FppValue):
     def to_jsonable(self):
         raise NotImplementedError()
 
+
+TimeIntervalValue = StructValue.construct_type(
+    "Fw.TimeIntervalValue",
+    [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
+)
 
 # this is the "internal" string type that string literals have by
 # default. it is arbitrary length. it is also only used in places where
@@ -245,9 +254,10 @@ class CommandSymbol(CallableSymbol):
 
 
 @dataclass
-class BuiltinSymbol(CallableSymbol):
+class BuiltinFuncSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
     """a function which instantiates the builtin given the calling node"""
+
 
 @dataclass
 class FunctionSymbol(CallableSymbol):
@@ -265,7 +275,7 @@ class CastSymbol(CallableSymbol):
 
 
 @dataclass
-class FieldSymbol:
+class FieldAccess:
     """a reference to a member/element of an fprime struct/array type"""
 
     parent_expr: AstExpr
@@ -295,8 +305,8 @@ class VariableSymbol:
     """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstTypeExpr | None
-    """the expression denoting the var's type"""
+    type_ref: AstExpr | None
+    """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
     type: FppType | None = None
@@ -312,17 +322,26 @@ class ForLoopAnalysis:
     loop_var: VariableSymbol
     upper_bound_var: VariableSymbol
     reuse_existing_loop_var: bool
-    
+
 
 next_symbol_table_id = 0
 
 
-# a symbol table (scope) 
+class NameGroup(str, Enum):
+    TYPE = "type"
+    CALLABLE = "callable"
+    VALUE = "value"
+
+
 class SymbolTable(dict):
-    def __init__(self):
+    def __init__(self, scope_category: NameGroup, scope_is_global: bool):
         global next_symbol_table_id
         self.id = next_symbol_table_id
         next_symbol_table_id += 1
+        self.scope_category = scope_category
+        """the kind of thing that this scope stores, if this symbol table represents a scope"""
+        self.scope_is_global = scope_is_global
+        """whether this scope is a global scope, if this symbol table represents a scope"""
 
     def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
@@ -336,14 +355,19 @@ class SymbolTable(dict):
     def __eq__(self, value):
         return isinstance(value, SymbolTable) and value.id == self.id
 
+    def copy(self):
+        new = SymbolTable(self.scope_category, self.scope_is_global)
+        new.update(self)
+        return new
+
 
 def create_symbol_table(
-    symbols: dict[str, "Symbol"],
+    symbols: dict[str, "Symbol"], scope_category: NameGroup, scope_is_global: bool
 ) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""
 
-    base = SymbolTable()
+    base = SymbolTable(scope_category, scope_is_global)
 
     for fqn, sym in symbols.items():
         names_strs = fqn.split(".")
@@ -353,7 +377,7 @@ def create_symbol_table(
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
                 # this symbol table is not defined atm
-                existing_child = {}
+                existing_child = SymbolTable(scope_category, scope_is_global)
                 ns[names_strs[0]] = existing_child
 
             if not isinstance(existing_child, dict):
@@ -391,7 +415,11 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
     only_lhs_keys = lhs_keys.difference(common_keys)
     only_rhs_keys = rhs_keys.difference(common_keys)
 
-    new = SymbolTable()
+    assert (
+        lhs.scope_category == rhs.scope_category
+        and lhs.scope_is_global == rhs.scope_is_global
+    ), (lhs.scope_category, rhs.scope_category)
+    new = SymbolTable(lhs.scope_category, lhs.scope_is_global)
 
     for key in common_keys:
         if not isinstance(lhs[key], dict) or not isinstance(rhs[key], dict):
@@ -416,57 +444,31 @@ Symbol = typing.Union[
     CallableSymbol,
     FppType,
     VariableSymbol,
-    FieldSymbol,
-    SymbolTable
+    SymbolTable,
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
-
-
-def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
-    """look up a symbol by name, searching this scope and all parent scopes"""
-    symbol_table = state.local_scopes[node]
-    resolved = None
-    while symbol_table is not None and resolved is None:
-        resolved = symbol_table.get(name)
-        symbol_table = state.scope_parents[symbol_table]
-
-    return resolved
 
 
 @dataclass
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    types: SymbolTable
-    """a symbol table whose leaf nodes are subclasses of BaseType"""
-    callables: SymbolTable
-    """a symbol table whose leaf nodes are CallableSymbol instances"""
-    tlms: SymbolTable
-    """a symbol table whose leaf nodes are ChTemplates"""
-    prms: SymbolTable
-    """a symbol table whose leaf nodes are PrmTemplates"""
-    consts: SymbolTable
-    """a symbol table whose leaf nodes are VariableSymbols"""
-    runtime_values: SymbolTable = None
-    """a symbol table whose leaf nodes are tlms/prms/consts, all of which
-    have some value at runtime."""
+    global_type_scope: SymbolTable
+    """The global type scope: a symbol table whose leaf nodes are types"""
+    global_callable_scope: SymbolTable
+    """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
+    global_value_scope: SymbolTable
+    """The global value scope: a symbol table whose leaf nodes are runtime values
+    (telemetry channels, parameters, enum constants, variables)."""
 
     compile_args: dict = field(default_factory=dict)
 
-    def __post_init__(self):
-        self.runtime_values = merge_symbol_tables(
-            self.tlms,
-            merge_symbol_tables(self.prms, self.consts),
-        )
-
     next_node_id: int = 0
     root: AstBlock = None
-    scope_parents: dict[AstBlock, AstBlock | None] = field(
+    enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
-    """map of a scoped body node to the parent scoped body node it should use"""
-    local_scopes: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
-    """map of node to the SymbolTable it should resolve names in"""
+    """map of node to its enclosing value scope (function scope or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -502,9 +504,7 @@ class CompileState:
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time"""
 
-    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(
-        default_factory=dict
-    )
+    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(default_factory=dict)
     """function call to resolved arguments in positional order.
     Default values are filled in for arguments not provided at the call site."""
 
@@ -518,10 +518,13 @@ class CompileState:
 
     does_return: dict[Ast, bool] = field(default_factory=dict)
 
+    used_funcs: set[AstDef] = field(default_factory=set)
+    """set of function definitions that are actually called and need code generated"""
+
     func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
     """function to entry point label"""
 
-    generated_funcs: dict[AstDef, list[Directive|Ir]] = field(default_factory=dict)
+    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
 
     errors: list[CompileError] = field(default_factory=list)
     """a list of all compile exceptions generated by passes"""

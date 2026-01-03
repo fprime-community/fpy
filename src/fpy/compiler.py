@@ -20,6 +20,7 @@ from lark import Lark
 from fprime_gds.common.fpy.bytecode.directives import Directive
 from fpy.codegen import (
     AssignVariableOffsets,
+    CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
     GenerateFunctions,
@@ -27,21 +28,21 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements
 from fpy.semantics import (
     AssignIds,
-    AssignLocalScopes,
+    CreateFunctionScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
     CheckConstArrayAccesses,
     CheckFunctionReturns,
     CheckReturnInFunc,
-    CheckUseBeforeDeclare,
+    CheckUseBeforeDefine,
     CreateVariablesAndFuncs,
-    PickTypesAndResolveAttrsAndItems,
-    ResolveTypeNames,
-    ResolveVars,
+    PickTypesAndResolveMembersAndElements,
+    ResolveQualifiedNames,
+    UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -53,9 +54,13 @@ from fpy.types import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    NameGroup,
+    SymbolTable,
+    TimeIntervalValue,
     TypeCtorSymbol,
     Visitor,
     create_symbol_table,
+    merge_symbol_tables,
 )
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
@@ -85,6 +90,35 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+# Load builtin time.fpy functions at module level
+_builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
+_builtin_time_text = _builtin_time_path.read_text()
+_builtin_library_ast = None  # Lazily initialized
+
+
+def _get_builtin_library_ast():
+    """Parse and cache the builtin library AST."""
+    global _builtin_library_ast
+    if _builtin_library_ast is None:
+        # Save current error state
+        old_input_text = fpy.error.input_text
+        old_input_lines = fpy.error.input_lines
+        old_file_name = fpy.error.file_name
+        
+        fpy.error.file_name = str(_builtin_time_path)
+        fpy.error.input_text = _builtin_time_text
+        fpy.error.input_lines = _builtin_time_text.splitlines()
+        
+        tree = _fpy_parser.parse(_builtin_time_text)
+        _builtin_library_ast = FpyTransformer().transform(tree)
+        
+        # Restore error state
+        fpy.error.input_text = old_input_text
+        fpy.error.input_lines = old_input_lines
+        fpy.error.file_name = old_file_name
+    
+    return _builtin_library_ast
+
 
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
@@ -99,14 +133,27 @@ def text_to_ast(text: str):
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
-        print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+        print(
+            fpy.error.CompileError(
+                "Maximum recursion depth exceeded (code is too deeply nested)"
+            ),
+            file=sys.stderr,
+        )
         exit(1)
     except VisitError as e:
         # VisitError wraps exceptions that occur during tree transformation
         if isinstance(e.orig_exc, RecursionError):
-            print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(
+                    "Maximum recursion depth exceeded (code is too deeply nested)"
+                ),
+                file=sys.stderr,
+            )
         else:
-            print(fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),
+                file=sys.stderr,
+            )
         exit(1)
     return transformed
 
@@ -138,13 +185,15 @@ def _load_dictionary(dictionary: str) -> tuple:
 
 
 @lru_cache(maxsize=4)
-def _build_scopes(dictionary: str) -> tuple:
+def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Build and cache the scopes for a dictionary.
-    Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
+    Build and cache the 3 global scopes for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope).
     """
-    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(dictionary)
-    
+    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(
+        dictionary
+    )
+
     # Make a copy of type_name_dict since we'll mutate it
     type_name_dict = dict(type_name_dict)
 
@@ -165,6 +214,31 @@ def _build_scopes(dictionary: str) -> tuple:
         type_name_dict[typ.get_canonical_name()] = typ
     type_name_dict["bool"] = BoolValue
     # note no string type at the moment
+
+    # this is a hack because right now the timeintervalvalue isn't in the dict
+    if "Fw.TimeIntervalValue" not in type_name_dict:
+        type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
+        time_interval_type = TimeIntervalValue
+    else:
+        time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+
+    # once we have timeintervalvalue, make the checkstate struct
+    # This is an internal type (prefixed with $) not directly accessible to users,
+    # used for desugaring check statements
+    CheckStateValue = StructValue.construct_type(
+        "$CheckState",
+        [
+            ("persist", time_interval_type, "", ""),
+            ("timeout", TimeValue, "", ""),
+            ("freq", time_interval_type, "", ""),
+            ("result", BoolValue, "", ""),
+            ("last_was_true", BoolValue, "", ""),
+            ("last_time_true", TimeValue, "", ""),
+            ("time_started", TimeValue, "", ""),
+        ],
+    )
+    # Add to type dict so it can be used internally
+    type_name_dict["$CheckState"] = CheckStateValue
 
     cmd_response_type = type_name_dict["Fw.CmdResponse"]
     callable_name_dict: dict[str, CallableSymbol] = {}
@@ -213,25 +287,36 @@ def _build_scopes(dictionary: str) -> tuple:
     for macro_name, macro in MACROS.items():
         callable_name_dict[macro_name] = macro
 
-    return (
-        create_symbol_table(ch_name_dict),
-        create_symbol_table(prm_name_dict),
-        create_symbol_table(type_name_dict),
-        create_symbol_table(callable_name_dict),
-        create_symbol_table(enum_const_name_dict),
+    # Build the 3 global scopes per SPEC:
+    # 1. global type scope - leaf nodes are types
+    type_scope = create_symbol_table(type_name_dict, NameGroup.TYPE, True)
+    # 2. global callable scope - leaf nodes are callables
+    callable_scope = create_symbol_table(callable_name_dict, NameGroup.CALLABLE, True)
+    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
+    #    Merge all value sources into one scope
+    values_scope = merge_symbol_tables(
+        create_symbol_table(ch_name_dict, NameGroup.VALUE, True),
+        merge_symbol_tables(
+            create_symbol_table(prm_name_dict, NameGroup.VALUE, True),
+            create_symbol_table(enum_const_name_dict, NameGroup.VALUE, True),
+        ),
     )
+
+    return (type_scope, callable_scope, values_scope)
 
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(dictionary)
+    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
 
+    # Make copies of the scopes since we'll mutate them during compilation
+    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
+    # if we don't make copies, then the lru cache will return the modified versions, causing
+    # two runs of the compiler to conflict
     state = CompileState(
-        tlms=tlm_scope,
-        prms=prm_scope,
-        types=type_scope,
-        callables=callable_scope,
-        consts=const_scope,
+        global_type_scope=type_scope,  # types are not mutated
+        global_callable_scope=callable_scope.copy(),
+        global_value_scope=values_scope.copy(),
         compile_args=compile_args or dict(),
     )
     return state
@@ -243,27 +328,36 @@ def ast_to_directives(
     compile_args: dict | None = None,
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
+    
+    # Prepend builtin library functions to user code - always available.
+    # will be elided if unused
+    import copy
+    builtin_library_ast = _get_builtin_library_ast()
+    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
+    
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
+
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements()
+    ]
+    
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
-        AssignLocalScopes(),
+        CreateFunctionScopes(),
         # based on assignment syntax nodes, we know which variables exist where
         CreateVariablesAndFuncs(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        # resolve type annotations first, since they use a restricted syntax (AstTypeExpr)
-        # and we need to know variable types before resolving other references
-        ResolveTypeNames(),
-        # resolve all variable and function references
-        ResolveVars(),
+        ResolveQualifiedNames(),
+        UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
-        CheckUseBeforeDeclare(),
+        CheckUseBeforeDefine(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
-        PickTypesAndResolveAttrsAndItems(),
+        PickTypesAndResolveMembersAndElements(),
         # Calculate const values for default arguments first (and check they're const).
         # This must happen before CalculateConstExprValues because call sites may
         # reference functions defined later in the source, and we need the default
@@ -286,6 +380,8 @@ def ast_to_directives(
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
         AssignVariableOffsets(),
+        # Collect which functions are called anywhere in the code
+        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),
@@ -293,6 +389,11 @@ def ast_to_directives(
     module_generator = GenerateModule()
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
+
+    for compile_pass in pre_semantic_desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
 
     for compile_pass in semantics_passes:
         compile_pass.run(body, state)
@@ -321,5 +422,5 @@ def ast_to_directives(
     for warning in state.warnings:
         print(warning)
 
-    # all the ir is guaranteed to have been converted to directives by now
+    # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir

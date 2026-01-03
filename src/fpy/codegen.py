@@ -22,13 +22,13 @@ from fpy.types import (
     UNSIGNED_INTEGER_TYPES,
     CompileState,
     Emitter,
-    FieldSymbol,
+    FieldAccess,
     FppType,
     CastSymbol,
     CommandSymbol,
     FpyFloatValue,
     FunctionSymbol,
-    BuiltinSymbol,
+    BuiltinFuncSymbol,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -64,6 +64,7 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend16To64Directive,
     IntegerZeroExtend32To64Directive,
     IntegerZeroExtend8To64Directive,
+    OrDirective,
     PeekDirective,
     FloatMultiplyDirective,
     GetFieldDirective,
@@ -77,10 +78,12 @@ from fpy.bytecode.directives import (
     ReturnDirective,
     SignedGreaterThanOrEqualDirective,
     SignedIntToFloatDirective,
+    SignedLessThanDirective,
     StackCmdDirective,
     Directive,
     NotDirective,
     PushValDirective,
+    SignedStackSizeType,
     StackSizeType,
     StoreRelConstOffsetDirective,
     StoreAbsConstOffsetDirective,
@@ -98,7 +101,6 @@ from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U64Type as U64Value,
-    I32Type as I32Value,
     I64Type as I64Value,
     F32Type as F32Value,
     F64Type as F64Value,
@@ -114,7 +116,7 @@ from fpy.syntax import (
     AstDef,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
     AstLiteral,
     AstNodeWithSideEffects,
@@ -125,9 +127,23 @@ from fpy.syntax import (
     AstAssign,
     AstFuncCall,
     AstUnaryOp,
-    AstVar,
+    AstName,
     AstWhile,
 )
+
+
+class CollectUsedFunctions(Visitor):
+    """Collects the set of functions that are called anywhere in the code.
+    
+    Any function that is called (even from within other functions) will be
+    marked as used and have code generated for it.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, FunctionSymbol):
+            return
+        state.used_funcs.add(func.definition)
 
 
 class AssignVariableOffsets(Visitor):
@@ -140,7 +156,7 @@ class AssignVariableOffsets(Visitor):
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         # Assign offsets to variables in this scope
         lvar_array_size_bytes = 0
-        for name, sym in state.local_scopes[node].items():
+        for name, sym in state.enclosing_value_scope[node].items():
             if not is_instance_compat(sym, VariableSymbol):
                 # doesn't require space to be allocated
                 continue
@@ -169,19 +185,25 @@ class AssignVariableOffsets(Visitor):
         arg_offset = -STACK_FRAME_HEADER_SIZE
         for arg in reversed(func.args):
             arg_name, arg_type, _ = arg
-            arg_var = state.local_scopes[node.body][arg_name]
+            arg_var = state.enclosing_value_scope[node.body][arg_name]
             arg_offset -= arg_type.getMaxSize()
             arg_var.frame_offset = arg_offset
 
 
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip it
+            return
         entry_label = IrLabel(node, "entry")
         state.func_entry_labels[node] = entry_label
 
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            # Function is never called, skip generating code for it
+            return
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
         code.extend(GenerateFunctionBody().emit(node.body, state))
@@ -375,7 +397,24 @@ class GenerateFunctionBody(Emitter):
         )  # push the length as I64
         # check if idx >= length
         dirs.append(SignedGreaterThanOrEqualDirective())
-        # if true, fail with error code, otherwise go to after check
+        # okay now dupe index again to check < 0
+        # byte count
+        dirs.append(
+            PushValDirective(StackSizeType(ArrayIndexType.getMaxSize()).serialize())
+        )
+        # offset is 1 because we currently have the result of the last check on stack
+        dirs.append(PushValDirective(StackSizeType(1).serialize()))
+        dirs.append(PeekDirective())  # duplicate the index
+        # convert idx to i64
+        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64Value))
+        dirs.append(
+            PushValDirective(I64Value(0).serialize())
+        )  # push 0 as i64
+        # check if idx < 0
+        dirs.append(SignedLessThanDirective())
+        # or both checks together
+        dirs.append(OrDirective())
+        # if either true, fail with error code, otherwise go to after check
         oob_check_end_label = IrLabel(node, "oob_check_end")
         dirs.append(IrIf(oob_check_end_label))
         # push the error code we should fail with if false
@@ -397,7 +436,7 @@ class GenerateFunctionBody(Emitter):
         dirs = []
         # Calculate lvar array size bytes (offsets already assigned by AssignVariableOffsets)
         lvar_array_size_bytes = 0
-        for name, sym in state.local_scopes[node].items():
+        for name, sym in state.enclosing_value_scope[node].items():
             if not is_instance_compat(sym, VariableSymbol):
                 # doesn't require space to be allocated
                 continue
@@ -562,7 +601,7 @@ class GenerateFunctionBody(Emitter):
             return const_dirs
         sym = state.resolved_symbols[node]
 
-        assert is_instance_compat(sym, FieldSymbol), sym
+        assert is_instance_compat(sym, FieldAccess), sym
 
         # use the unconverted for this expr for now, because we haven't run conversion
         unconverted_type = state.synthesized_types[node]
@@ -603,7 +642,7 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    def emit_AstVar(self, node: AstVar, state: CompileState):
+    def emit_AstName(self, node: AstName, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
@@ -627,7 +666,7 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    def emit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
@@ -657,7 +696,7 @@ class GenerateFunctionBody(Emitter):
                 )
             else:
                 dirs.append(LoadRelDirective(sym.frame_offset, sym.type.getMaxSize()))
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             # okay, put parent dirs in first
             dirs.extend(self.emit(sym.parent_expr, state))
             assert sym.local_offset is not None
@@ -819,7 +858,7 @@ class GenerateFunctionBody(Emitter):
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
-        elif is_instance_compat(func, BuiltinSymbol):
+        elif is_instance_compat(func, BuiltinFuncSymbol):
             # put all arg values on stack
             for arg_node in node_args:
                 dirs.extend(self.emit(arg_node, state))
@@ -866,7 +905,7 @@ class GenerateFunctionBody(Emitter):
             assert const_frame_offset is not None, lhs
         else:
             # okay now push the lvar arr offset to stack
-            assert is_instance_compat(lhs, FieldSymbol), lhs
+            assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
             is_global_var = lhs.base_sym.is_global
 
@@ -918,7 +957,7 @@ class GenerateFunctionBody(Emitter):
         else:
             # okay we don't know the offset at compile time
             # only one case where that can be:
-            assert is_instance_compat(lhs, FieldSymbol) and lhs.is_array_element, lhs
+            assert is_instance_compat(lhs, FieldAccess) and lhs.is_array_element, lhs
 
             # we need to calculate absolute offset in lvar array
             # == (parent offset) + (offset in parent)
@@ -939,8 +978,8 @@ class GenerateFunctionBody(Emitter):
             # add them
             dirs.append(IntAddDirective())
 
-            # and now convert the u64 back into the I32Value that store expects
-            dirs.extend(self.convert_numeric_type(U64Value, I32Value))
+            # and now convert the u64 back into the SignedStackSizeType that store expects
+            dirs.extend(self.convert_numeric_type(U64Value, SignedStackSizeType))
 
             # now that lvar array offset is pushed, use it to store in lvar array
             if use_global:

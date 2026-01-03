@@ -11,16 +11,19 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    BuiltinFuncSymbol,
     CompileState,
-    FieldSymbol,
+    FieldAccess,
     ForLoopAnalysis,
     FppType,
     CallableSymbol,
     CastSymbol,
     FpyFloatValue,
     FunctionSymbol,
+    NameGroup,
     Symbol,
     SymbolTable,
+    TimeIntervalValue,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -30,7 +33,6 @@ from fpy.types import (
     TopDownVisitor,
     Visitor,
     is_instance_compat,
-    lookup_symbol,
     typename,
 )
 
@@ -84,9 +86,8 @@ from fpy.syntax import (
     AstElif,
     AstExpr,
     AstFor,
-    AstMemberAccess,
+    AstGetAttr,
     AstIndexExpr,
-    AstTypeExpr,
     AstNamedArgument,
     AstNumber,
     AstPass,
@@ -104,7 +105,7 @@ from fpy.syntax import (
     AstAssign,
     AstFuncCall,
     AstUnaryOp,
-    AstVar,
+    AstName,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -118,59 +119,47 @@ class AssignIds(TopDownVisitor):
         state.next_node_id += 1
 
 
-class SetLocalScope(Visitor):
+class SetEnclosingValueScope(Visitor):
+    """Sets the enclosing value scope for all visited nodes."""
+
     def __init__(self, scope: SymbolTable):
         super().__init__()
         self.scope = scope
 
     def visit_default(self, node: Ast, state: CompileState):
-        state.local_scopes[node] = self.scope
+        state.enclosing_value_scope[node] = self.scope
 
 
-class AssignLocalScopes(TopDownVisitor):
+class CreateFunctionScopes(TopDownVisitor):
+    """Creates all function value scopes. Every other scope is global, so is already made at init
+    Assigns enclosing_value_scope for all nodes.
+    """
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         if node is not state.root:
             # only handle the root node this way
             return
-        # make a new scope
-        scope = SymbolTable()
-        state.scope_parents[scope] = None
-        # TODO ask rob there must be a better way to do this, that isn't as slow
-        SetLocalScope(scope).run(node, state)
+        # Global nodes use global_value_scope directly
+        SetEnclosingValueScope(state.global_value_scope).run(node, state)
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        parent_scope = state.local_scopes[node]
-        # make a new scope for the function body
-        scope = SymbolTable()
-        state.scope_parents[scope] = parent_scope
+        # Make a new scope for the function body
+        func_scope = SymbolTable("value", False)
 
         # The function body gets the new scope
-        SetLocalScope(scope).run(node.body, state)
+        SetEnclosingValueScope(func_scope).run(node.body, state)
 
-        # Parameter names and type annotations are in the body scope
-        # (they're declared inside the function)
+        # Parameter names and type annotations are in the function scope
+        # (they're defined inside the function)
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
-                state.local_scopes[arg_name_var] = scope
-                state.local_scopes[arg_type_expr] = scope
-                # Default values stay in parent scope - they're evaluated at call site,
-                # not inside the function body
-                if default_value is not None:
-                    SetLocalScope(parent_scope).run(default_value, state)
-
-        # Return type annotation is in parent scope (it references types visible at def site)
-        if node.return_type is not None:
-            state.local_scopes[node.return_type] = parent_scope
-
-        # The def node itself is in the parent scope
-        state.local_scopes[node] = parent_scope
-        # Function name is in parent scope
-        state.local_scopes[node.name] = parent_scope
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                state.enclosing_value_scope[arg_name_var] = func_scope
+                state.enclosing_value_scope[arg_type_name] = func_scope
+                # Default values are evaluated at definition site, so they use the parent scope
 
 
 class CreateVariablesAndFuncs(TopDownVisitor):
-    """finds all variable declarations and adds them to the variable scope"""
+    """finds all variable declarations and adds them to the appropriate scope"""
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstReference):
@@ -178,7 +167,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             state.err("Invalid assignment", node.lhs)
             return
 
-        if not is_instance_compat(node.lhs, AstVar):
+        if is_instance_compat(node.lhs, (AstGetAttr, AstIndexExpr)):
             # assigning to a member or array element. don't need to make a new variable,
             # space already exists
             if node.type_ann is not None:
@@ -188,49 +177,57 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # otherwise we good
             return
 
+        assert is_instance_compat(node.lhs, AstName), node.lhs
+        # variable decl or assign
+        scope = state.enclosing_value_scope[node]
+
         if node.type_ann is not None:
             # new variable declaration
             # make sure it isn't defined in this scope
             # TODO shadowing check
-            existing_local = state.local_scopes[node].get(node.lhs.var)
+            existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
                 # redeclaring an existing variable
-                state.err(f"'{node.lhs.var}' has already been declared", node)
+                state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
-            # okay, declare the var
-            # Check if we're in the root (global) scope
-            current_scope = state.local_scopes[node]
-            is_global = state.scope_parents.get(current_scope) is None
-            var = VariableSymbol(node.lhs.var, node.type_ann, node, is_global=is_global)
-            # new var. put it in the table under this scope
-            state.local_scopes[node][node.lhs.var] = var
+            # okay, define the var
+            is_global = state.enclosing_value_scope[node] is state.global_value_scope
+            var = VariableSymbol(
+                node.lhs.name, node.type_ann, node, is_global=is_global
+            )
+            # new var. put it in the scope
+            scope[node.lhs.name] = var
         else:
             # otherwise, it's a reference to an existing var
-            sym = lookup_symbol(node, node.lhs.var, state)
+            # may be in this scope or outer scope
+            sym = scope.get(node.lhs.name) or state.global_value_scope.get(
+                node.lhs.name
+            )
             if sym is None:
                 # unable to find this symbol
                 state.err(
-                    f"'{node.lhs.var}' has not been declared",
+                    f"Variable '{node.lhs.name}' used before defined",
                     node.lhs,
                 )
                 return
             # okay, we were able to resolve it
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        # for loops have an implicit loop variable that they can declare
-        # if it isn't already declared in the local scope
-        loop_var = state.local_scopes[node].get(node.loop_var.var)
+        # for loops have an implicit loop variable that they can define
+        # if it isn't already defined in the local scope
+        scope = state.enclosing_value_scope[node]
+        loop_var = scope.get(node.loop_var.name)
 
         reuse_existing_loop_var = False
         if loop_var is not None:
             # this is okay as long as the variable is of the same type
 
             # what follows is a bit of a hack
-            # there are two cases: either loop_var has been declared before but we only know the type expr (if it was an AstAssign decl)
-            # or loop_var has been declared before and we only know the type, but have no type expr
+            # there are two cases: either loop_var has been defined before but we only know the type expr (if it was an AstAssign decl)
+            # or loop_var has been defined before and we only know the type, but have no type expr (from some other for loop)
 
             # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type expr is an AstTypeExpr with a single part
+            # case 2 is harder, we have to check if the type name is an AstName
             # that matches the canonical name of the LoopVarType
 
             # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
@@ -239,39 +236,50 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
                 loop_var.type is None
                 and not (
-                    isinstance(loop_var.type_ref, AstTypeExpr)
-                    and loop_var.type_ref.parts == [LoopVarType.get_canonical_name()]
+                    is_instance_compat(loop_var.type_ref, AstName)
+                    and loop_var.type_ref.name == LoopVarType.get_canonical_name()
                 )
             ):
                 state.err(
-                    f"'{node.loop_var.var}' has already been declared as a type other than {typename(LoopVarType)}",
+                    f"Variable '{node.loop_var.name}' has already been defined as a type other than {typename(LoopVarType)}",
                     node,
                 )
                 return
             reuse_existing_loop_var = True
         else:
-            # new var. put it in the table under this scope
-            loop_var = VariableSymbol(node.loop_var.var, None, node, LoopVarType)
-            state.local_scopes[node][loop_var.name] = loop_var
+            # new var. put it in the scope
+            is_global = state.enclosing_value_scope[node] is state.global_value_scope
+            loop_var = VariableSymbol(
+                node.loop_var.name, None, node, LoopVarType, is_global=is_global
+            )
+            scope[loop_var.name] = loop_var
 
-        # each loop also declares an implicit ub variable
+        # each loop also defines an implicit ub variable
         # type of ub var is same as loop var type
+        is_global = state.enclosing_value_scope[node] is state.global_value_scope
         upper_bound_var = VariableSymbol(
-            state.new_anonymous_variable_name(), None, node, LoopVarType
+            state.new_anonymous_variable_name(),
+            None,
+            node,
+            LoopVarType,
+            is_global=is_global,
         )
-        state.local_scopes[node][upper_bound_var.name] = upper_bound_var
+        scope[upper_bound_var.name] = upper_bound_var
         analysis = ForLoopAnalysis(loop_var, upper_bound_var, reuse_existing_loop_var)
         state.for_loops[node] = analysis
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        existing_func = state.local_scopes[node].get(node.name.var)
+        # Functions always go in the global callable scope
+        existing_func = state.global_callable_scope.get(node.name.name)
         if existing_func is not None:
-            state.err(f"'{node.name.var}' has already been declared", node.name)
+            state.err(
+                f"Function '{node.name.name}' has already been defined", node.name
+            )
             return
 
         func = FunctionSymbol(
             # we know the name
-            node.name.var,
+            node.name.name,
             # we don't know the return type yet
             return_type=None,
             # we don't know the arg types yet
@@ -279,7 +287,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             definition=node,
         )
 
-        state.local_scopes[node][func.name] = func
+        state.global_callable_scope[func.name] = func
 
         if node.parameters is None:
             # no arguments
@@ -288,45 +296,44 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         # Check that default arguments come after non-default arguments
         seen_default = False
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
+            arg_name_var, arg_type_name, default_value = arg
             if default_value is not None:
                 seen_default = True
             elif seen_default:
                 # Non-default argument after default argument
                 state.err(
-                    f"Non-default argument '{arg_name_var.var}' follows default argument",
+                    f"Non-default parameter '{arg_name_var.name}' follows default parameter",
                     arg_name_var,
                 )
                 return
 
+        # Parameters go in the function's value scope
+        func_scope = state.enclosing_value_scope[node.body]
         for arg in node.parameters:
-            arg_name_var, arg_type_expr, default_value = arg
-            existing_local = state.local_scopes[node.body].get(arg_name_var.var)
+            arg_name_var, arg_type_name, default_value = arg
+            existing_local = func_scope.get(arg_name_var.name)
             if existing_local is not None:
-                # redeclaring an existing variable
+                # two args with the same name
                 state.err(
-                    f"'{arg_name_var.var}' has already been declared", arg_name_var
+                    f"Parameter '{arg_name_var.name}' has already been defined",
+                    arg_name_var,
                 )
                 return
-            arg_var = VariableSymbol(arg_name_var.var, arg_type_expr, node)
-            state.local_scopes[node.body][arg_name_var.var] = arg_var
+            arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node)
+            func_scope[arg_name_var.name] = arg_var
 
 
 class SetEnclosingLoops(Visitor):
-    """sets or clears the enclosing_loop dict of any break/continue it finds"""
+    """sets the enclosing_loop of any break/continue it finds"""
 
     def __init__(self, loop: Union[AstFor, AstWhile]):
-        """if loop is None, remove the visited break/continue from enclosing_loop dict"""
         super().__init__()
         self.loop = loop
 
     def visit_AstBreak_AstContinue(
         self, node: Union[AstBreak, AstContinue], state: CompileState
     ):
-        if self.loop is None:
-            del state.enclosing_loops[node]
-        else:
-            state.enclosing_loops[node] = self.loop
+        state.enclosing_loops[node] = self.loop
 
 
 class CheckBreakAndContinueInLoop(TopDownVisitor):
@@ -339,15 +346,6 @@ class CheckBreakAndContinueInLoop(TopDownVisitor):
         if node not in state.enclosing_loops:
             state.err("Cannot break/continue outside of a loop", node)
             return
-
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        # going inside of a func def "resets" our loop context. this prevents the following scenario:
-        # for x in 0..2:
-        #     def test():
-        #         break
-
-        # in this case, the break should fail to compile
-        SetEnclosingLoops(None).run(node.body, state)
 
 
 class SetEnclosingFunction(Visitor):
@@ -369,70 +367,250 @@ class CheckReturnInFunc(TopDownVisitor):
             return
 
 
-class ResolveTypeNames(TopDownVisitor):
-    """
-    Resolves type annotations (AstTypeExpr) to actual types.
-    This runs before ResolveVars so that variable types are known
-    when we start resolving references.
-    """
+class ResolveQualifiedNames(TopDownVisitor):
 
-    def resolve_type_name(
-        self, node: AstTypeExpr, state: CompileState
-    ) -> type | None:
-        """
-        Fully resolves a type name to the actual type.
-        Returns None if the type could not be resolved (error already reported).
-        """
-        # Start from the first part
-        sym = state.types.get(node.parts[0])
-        if sym is None:
-            state.err("Unknown type", node)
-            return None
+    def is_symbol_an_expr(self, symbol: Symbol) -> bool:
+        """return True if the symbol is a valid expr (can be evaluated)"""
+        return is_instance_compat(
+            symbol,
+            (
+                ChTemplate,
+                PrmTemplate,
+                FppValue,
+                VariableSymbol,
+            ),
+        )
 
-        # Walk through the remaining parts
-        for part in node.parts[1:]:
-            if not is_instance_compat(sym, dict):
-                state.err("Unknown type", node)
-                return None
-            sym = sym.get(part)
-            if sym is None:
-                state.err("Unknown type", node)
-                return None
+    def try_resolve_name(
+        self, node: Ast, group: NameGroup, state: CompileState
+    ) -> bool:
+        """resolves the root name of a qualified name, return True if able to resolve, False
+        if an error was raised.
+        if the node is not a qualified name, return True"""
+        # first check that this is a fully qualified name
+        # list of attrs, most specific attrs first
+        attrs = []
+        leaf_node = node
+        root_node = node
+        while is_instance_compat(root_node, AstGetAttr):
+            attrs.append(root_node)
+            root_node = root_node.parent
 
-        if not is_instance_compat(sym, type):
-            state.err("Unknown type", node)
-            return None
+        if not is_instance_compat(root_node, AstName):
+            # not a qualified name
+            # skip for now
+            return True
 
-        state.resolved_symbols[node] = sym
-        return sym
+        root_symbol = None
+        # it is a qualified name
+        # look up the root name in the appropriate scope
+        if group == NameGroup.CALLABLE:
+            root_symbol = state.global_callable_scope.get(root_node.name)
+        elif group == NameGroup.TYPE:
+            root_symbol = state.global_type_scope.get(root_node.name)
+        else:
+            root_symbol = state.enclosing_value_scope[root_node].get(root_node.name)
+            if (
+                root_symbol is None
+                and state.enclosing_value_scope[root_node]
+                is not state.global_value_scope
+            ):
+                # if we just checked and failed in a function value scope, check the global value scope
+                root_symbol = state.global_value_scope.get(root_node.name)
+
+        # the node which corresponds to the entire qualified name
+        # note this does not include nodes which are member accesses
+        qualified_name_node = root_node
+
+        # the parent of the attr that we're about to resolve, as we iterate
+        # through the list of attrs
+        current_parent_symbol = root_symbol
+
+        # okay, now we just have to perform attribute resolution
+        while len(attrs) > 0:
+            if current_parent_symbol is None:
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+            state.resolved_symbols[qualified_name_node] = current_parent_symbol
+
+            if self.is_symbol_an_expr(current_parent_symbol):
+                # this is member access
+                # stop here
+                break
+
+            if not is_instance_compat(current_parent_symbol, SymbolTable):
+                # it's not member access and it's not namespace access
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+            attr = attrs.pop()
+            qualified_name_node = attr
+            current_parent_symbol = current_parent_symbol.get(attr.attr)
+
+            # okay, we've completely resolved the qualified name
+            if current_parent_symbol is None:
+                state.err(f"Unknown {group}", leaf_node)
+                return False
+
+        # has it resolved?
+        if current_parent_symbol is None:
+            state.err(f"Unknown {group}", leaf_node)
+            return False
+
+        # but has it actually resolved to a non-namespace symbol?
+        if is_instance_compat(current_parent_symbol, SymbolTable):
+            state.err(f"Unknown {group}", leaf_node)
+            return False
+
+        state.resolved_symbols[qualified_name_node] = current_parent_symbol
+        return True
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        # all callables are always resolved in callable scope
+        if not self.try_resolve_name(node.name, NameGroup.CALLABLE, state):
+            return
+        if node.return_type is not None:
+            # all types always in type scope
+            if not self.try_resolve_name(node.return_type, NameGroup.TYPE, state):
+                return
+
+        if node.parameters is not None:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+                    return
+                # arg names become vars in func scope, so resolve them in func scope
+                if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
+                    return
+                if default_value is not None:
+                    # TODO make sure that we test that default vals cant access vars inside of func
+                    # default values are calculated outside of func scope
+                    if not self.try_resolve_name(default_value, NameGroup.VALUE, state):
+                        return
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        if node.type_ann is not None:
+            if not self.try_resolve_name(node.type_ann, NameGroup.TYPE, state):
+                return
+
+        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
+            return
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
+            return
+
+        if node.args is None:
+            return
+
+        for arg in node.args:
+            if is_instance_compat(arg, AstNamedArgument):
+                if not self.try_resolve_name(arg.value, NameGroup.VALUE, state):
+                    return
+            else:
+                if not self.try_resolve_name(arg, NameGroup.VALUE, state):
+                    return
+
+    def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
+
+    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
+        # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
+        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
+            return
+
+    def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
+        if not self.try_resolve_name(node.val, NameGroup.VALUE, state):
+            return
+
+    def visit_AstFor(self, node: AstFor, state: CompileState):
+        if not self.try_resolve_name(node.loop_var, NameGroup.VALUE, state):
+            return
+
+        # this really shouldn't be possible to be a var right now
+        # but this is future proof
+        if not self.try_resolve_name(node.range, NameGroup.VALUE, state):
+            return
+
+    def visit_AstWhile(self, node: AstWhile, state: CompileState):
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
+
+    def visit_AstAssert(self, node: AstAssert, state: CompileState):
+        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+            return
+        if node.exit_code is not None:
+            if not self.try_resolve_name(node.exit_code, NameGroup.VALUE, state):
+                return
+
+    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
+        if not self.try_resolve_name(node.parent, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.item, NameGroup.VALUE, state):
+            return
+
+    def visit_AstRange(self, node: AstRange, state: CompileState):
+        if not self.try_resolve_name(node.lower_bound, NameGroup.VALUE, state):
+            return
+        if not self.try_resolve_name(node.upper_bound, NameGroup.VALUE, state):
+            return
+
+    def visit_AstReturn(self, node: AstReturn, state: CompileState):
+        if node.value is not None:
+            if not self.try_resolve_name(node.value, NameGroup.VALUE, state):
+                return
+
+    def visit_AstLiteral_AstGetAttr(
+        self, node: Union[AstLiteral, AstGetAttr], state: CompileState
+    ):
+        # don't need to do anything for literals or getattr, but just have this here for completion's sake
+        # this is because they do not imply anything about the context in which an AstName should get
+        # resolved
+        pass
+
+    def visit_AstName(self, node: AstName, state: CompileState):
+        if node in state.resolved_symbols:
+            # it exists in a context where we can resolve it
+            return
+
+        # exists outside of a context where we can resolve it.
+        # probably just throw an error?
+        state.err(f"Name '{node.name}' cannot be resolved without more context", node)
+
+    def visit_default(self, node, state):
+        # coding error, missed an expr
+        assert not is_instance_compat(node, AstStmtWithExpr), node
+
+
+class UpdateTypesAndFuncs(Visitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Get the function that was created in CreateVariablesAndFuncs
-        func = state.local_scopes[node].get(node.name.var)
+        func = state.resolved_symbols[node.name]
         assert is_instance_compat(func, FunctionSymbol), func
 
         # Resolve return type
-        if node.return_type is not None:
-            return_type = self.resolve_type_name(node.return_type, state)
-            if return_type is None:
-                return
-            func.return_type = return_type
-        else:
+        if node.return_type is None:
             func.return_type = NothingValue
+        else:
+            return_type = state.resolved_symbols[node.return_type]
+            func.return_type = return_type
 
         # Resolve parameter types
         args = []
         if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
-                arg_type = self.resolve_type_name(arg_type_expr, state)
-                if arg_type is None:
-                    return
-
-                # Get the variable that was created for this parameter
-                arg_var = state.local_scopes[node.body].get(arg_name_var.var)
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                arg_type = state.resolved_symbols[arg_type_name]
+                # update the var type
+                arg_var = state.resolved_symbols[arg_name_var]
                 assert is_instance_compat(arg_var, VariableSymbol), arg_var
                 arg_var.type = arg_type
-                args.append((arg_name_var.var, arg_type, default_value))
+                args.append((arg_name_var.name, arg_type, default_value))
 
         func.args = args
 
@@ -440,350 +618,73 @@ class ResolveTypeNames(TopDownVisitor):
         if node.type_ann is None:
             return
 
-        var_type = self.resolve_type_name(node.type_ann, state)
-        if var_type is None:
-            return
+        var_type = state.resolved_symbols[node.type_ann]
 
-        # Get the variable - it should be in the local scope
-        if not is_instance_compat(node.lhs, AstVar):
-            # Type annotations only make sense on simple variable assignments
-            state.err("Type annotation can only be on simple variable assignment", node)
-            return
-
-        var = state.local_scopes[node].get(node.lhs.var)
-        assert is_instance_compat(var, VariableSymbol), f"Variable {node.lhs.var} should have been created by CreateVariablesAndFuncs"
+        var = state.resolved_symbols[node.lhs]
 
         var.type = var_type
 
 
-class ResolveVars(TopDownVisitor):
+class EnsureVariableNotReferenced(Visitor):
+    def __init__(self, var: VariableSymbol):
+        super().__init__()
+        self.var = var
+
+    def visit_AstName(self, node: AstName, state: CompileState):
+        sym = state.resolved_symbols[node]
+        if sym == self.var:
+            state.err(f"'{node.name}' used before defined", node)
+            return
+
+
+class CheckUseBeforeDefine(TopDownVisitor):
     """
-    Resolves all variable references (AstVar) in local and global scopes.
-    Also fully resolves function references for function calls.
-    Types are already resolved by ResolveTypeNames before this pass.
-    """
-
-    def resolve_local_name(
-        self, node: AstVar, state: CompileState
-    ) -> Symbol | None:
-        """resolves a name in local scope only. return None if could not be resolved"""
-        local_scope = state.local_scopes[node]
-        sym = None
-        while local_scope is not None and sym is None:
-            sym = local_scope.get(node.var)
-            local_scope = state.scope_parents[local_scope]
-
-        if sym is not None:
-            state.resolved_symbols[node] = sym
-        return sym
-
-    def try_resolve_root_ref(
-        self,
-        node: Ast,
-        global_scope: SymbolTable,
-        global_scope_name: str,
-        state: CompileState,
-        search_local_scope: bool = True,
-    ) -> bool:
-        """
-        recursively tries to resolve the root of a reference. if any node in the chain is not a reference, return True.
-        Otherwise recurse up the sym until you find the root, and try resolving
-        it in the local scope, and then in the given global scope. Return False if couldn't be resolved in local and global
-        """
-        if not is_instance_compat(node, AstReference):
-            # not a reference, nothing to resolve
-            return True
-
-        if not is_instance_compat(node, AstVar):
-            # it is a reference but it's not a var
-            # recurse until we find the var
-            return self.try_resolve_root_ref(
-                node.parent, global_scope, global_scope_name, state
-            )
-
-        # okay now we have a var
-        # see if it's something defined in the script
-        sym = None
-        if search_local_scope:
-            sym = self.resolve_local_name(node, state)
-
-        if sym is None:
-            # unable to find this symbol in the hierarchy of local scopes
-            # look it up in the global scope
-            sym = global_scope.get(node.var)
-
-        if sym is None:
-            state.err(f"Unknown {global_scope_name}", node)
-            return False
-
-        state.resolved_symbols[node] = sym
-        return True
-
-    def finish_resolving_func(
-        self,
-        node: Ast,
-        state: CompileState,
-    ) -> CallableSymbol | None:
-        """
-        Finishes resolving a function reference (AstVar/AstMemberAccess chain) to a callable.
-        The root AstVar should already be resolved by try_resolve_root_ref.
-        Returns None if the reference could not be resolved (error already reported).
-        """
-
-        def resolve(n: Ast, expect_callable: bool) -> CallableSymbol | dict | None:
-            """
-            Recursively resolve the reference chain.
-            expect_callable=True for the final node (must be CallableSymbol),
-            expect_callable=False for intermediate nodes (must be dict/namespace).
-            """
-            if not is_instance_compat(n, (AstVar, AstMemberAccess)):
-                state.err("Unknown function", n)
-                return None
-
-            if is_instance_compat(n, AstVar):
-                sym = state.resolved_symbols.get(n)
-                if sym is None:
-                    state.err("Unknown function", n)
-                    return None
-                expected_type = CallableSymbol if expect_callable else dict
-                if not is_instance_compat(sym, expected_type):
-                    state.err("Unknown function", n)
-                    return None
-                return sym
-
-            # It's an AstMemberAccess - resolve the parent first (always expecting a namespace)
-            parent_scope = resolve(n.parent, expect_callable=False)
-            if parent_scope is None:
-                return None
-
-            sym = parent_scope.get(n.attr)
-            if sym is None:
-                state.err("Unknown function", n)
-                return None
-
-            expected_type = CallableSymbol if expect_callable else dict
-            if not is_instance_compat(sym, expected_type):
-                state.err("Unknown function", n)
-                return None
-
-            state.resolved_symbols[n] = sym
-            return sym
-
-        return resolve(node, expect_callable=True)
-
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        # First resolve the root of the function reference
-        if not self.try_resolve_root_ref(node.func, state.callables, "function", state):
-            return
-
-        # Then finish resolving the full chain to get the callable
-        if not self.finish_resolving_func(node.func, state):
-            return
-
-        for arg in node.args if node.args is not None else []:
-            # Handle both positional args (AstExpr) and named args (AstNamedArgument)
-            if is_instance_compat(arg, AstNamedArgument):
-                # For named arguments, resolve the value expression
-                if not self.try_resolve_root_ref(
-                    arg.value, state.runtime_values, "value", state
-                ):
-                    return
-            else:
-                # arg value refs must have values at runtime
-                if not self.try_resolve_root_ref(
-                    arg, state.runtime_values, "value", state
-                ):
-                    return
-
-    def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        # if condition expr refs must be "runtime values" (tlm/prm/const/etc)
-        if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        if not self.try_resolve_root_ref(
-            node.lhs, state.runtime_values, "value", state
-        ):
-            return
-        if not self.try_resolve_root_ref(
-            node.rhs, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.val, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.lhs, state.runtime_values, "value", state
-        ):
-            return
-
-        # Type annotation is resolved by ResolveTypeNames pass
-
-        if not self.try_resolve_root_ref(
-            node.rhs, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstFor(self, node: AstFor, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.loop_var, state.runtime_values, "value", state
-        ):
-            return
-
-        # this really shouldn't be possible to be a var right now
-        # but this is future proof
-        if not self.try_resolve_root_ref(
-            node.range, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.condition, state.runtime_values, "value", state
-        ):
-            return
-        if node.exit_code is not None:
-            if not self.try_resolve_root_ref(
-                node.exit_code, state.runtime_values, "value", state
-            ):
-                return
-
-    def visit_AstVar(self, node: AstVar, state: CompileState):
-        # if this var isn't resolved, that means it wasn't used in
-        # any of the other places that it could. it must be alone on its line
-        # this is a strange choice by the dev but rule of thumb says start
-        # by allowing everything, then add warnings later
-        if node in state.resolved_symbols:
-            return
-
-        if self.resolve_local_name(node, state) is None:
-            state.err("Unknown symbol", node)
-            return
-
-    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.item, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.lower_bound, state.runtime_values, "value", state
-        ):
-            return
-        if not self.try_resolve_root_ref(
-            node.upper_bound, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        if not self.try_resolve_root_ref(node.name, state.callables, "function", state):
-            return
-
-        # Return type and parameter types are resolved by ResolveTypeNames pass
-
-        if node.parameters is not None:
-            for arg_name_var, arg_type_expr, default_value in node.parameters:
-                if not self.try_resolve_root_ref(
-                    arg_name_var, state.runtime_values, "value", state
-                ):
-                    return
-
-                # Type is resolved by ResolveTypeNames pass
-
-                # Resolve default value if present
-                if default_value is not None:
-                    if not self.try_resolve_root_ref(
-                        default_value, state.runtime_values, "value", state
-                    ):
-                        return
-
-    def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        if not self.try_resolve_root_ref(
-            node.value, state.runtime_values, "value", state
-        ):
-            return
-
-    def visit_AstLiteral_AstMemberAccess(
-        self, node: Union[AstLiteral, AstMemberAccess], state: CompileState
-    ):
-        # don't need to do anything for literals or getattr, but just have this here for completion's sake
-        # the reason we don't need to do anything for getattr is because the point of this
-        # pass is explicitly not to resolve getattr, just resolve vars (and types), not general
-        # getattr
-        # we don't do this now because we need to resolve all expr types first
-        # before we can figure out whether a getattr is correct, and this pass lets
-        # us now do that (i.e. after this pass, we have enough info about the program
-        # that we can decide types of any expr)
-        pass
-
-    def visit_default(self, node, state):
-        # coding error, missed an expr
-        assert not is_instance_compat(node, AstStmtWithExpr), node
-
-
-class CheckUseBeforeDeclare(TopDownVisitor):
-    """
-    Checks that variables are not used before they are declared.
+    Checks that variables are not used before they are defined.
     Handles both regular variable assignments (AstAssign) and for loop variables (AstFor).
-    
-    Uses TopDownVisitor because for loops need the loop variable to be declared
+
+    Uses TopDownVisitor because for loops need the loop variable to be defined
     before visiting the body. For assignments, we manually check the RHS before
-    marking the variable as declared.
+    marking the variable as defined.
     """
 
     def __init__(self):
         super().__init__()
-        self.currently_declared_vars: list[VariableSymbol] = []
+        self.currently_defined_vars: list[VariableSymbol] = []
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         var = state.resolved_symbols[node.loop_var]
-        # Check that the loop var isn't referenced in the range (before it's declared)
+        # Check that the loop var isn't referenced in the range (before it's defined)
         EnsureVariableNotReferenced(var).run(node.range, state)
-        # Now mark it as declared for the body
-        self.currently_declared_vars.append(var)
+        # Now mark it as defined for the body
+        self.currently_defined_vars.append(var)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not is_instance_compat(node.lhs, AstVar):
+        if not is_instance_compat(node.lhs, AstName):
             # definitely not a declaration, it's a field assignment
             return
 
         var = state.resolved_symbols[node.lhs]
 
         if var is None or var.declaration != node:
-            # either not declared in this scope, or this is not a
+            # either not defined in this scope, or this is not a
             # declaration of this var
             return
 
-        # Before marking as declared, check that the variable isn't used in its own RHS
+        # Before marking as defined, check that the variable isn't used in its own RHS
         EnsureVariableNotReferenced(var).run(node.rhs, state)
 
-        # Now mark this variable as declared
-        self.currently_declared_vars.append(var)
+        # Now mark this variable as defined
+        self.currently_defined_vars.append(var)
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         sym = state.resolved_symbols[node]
         if not is_instance_compat(sym, VariableSymbol):
             # not a variable, might be a type name or smth
             return
 
         if is_instance_compat(sym.declaration, AstDef):
-            # function parameters - no use-before-declare check needed
-            # this is because if it's in scope, it's declared, as its
+            # function parameters - no use-before-define check needed
+            # this is because if it's in scope, it's defined, as its
             # "declaration" is the start of the scope
             return
         if (
@@ -799,24 +700,12 @@ class CheckUseBeforeDeclare(TopDownVisitor):
             # this is the declaring reference for a for loop variable
             return
 
-        if sym not in self.currently_declared_vars:
-            state.err(f"'{node.var}' used before declared", node)
+        if sym not in self.currently_defined_vars:
+            state.err(f"'{node.name}' used before defined", node)
             return
 
 
-class EnsureVariableNotReferenced(Visitor):
-    def __init__(self, var: VariableSymbol):
-        super().__init__()
-        self.var = var
-
-    def visit_AstVar(self, node: AstVar, state: CompileState):
-        sym = state.resolved_symbols[node]
-        if sym == self.var:
-            state.err(f"'{node.var}' used before declared", node)
-            return
-
-
-class PickTypesAndResolveAttrsAndItems(Visitor):
+class PickTypesAndResolveMembersAndElements(Visitor):
 
     def coerce_expr_type(
         self, node: AstExpr, type: FppType, state: CompileState
@@ -998,7 +887,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             member_list.append(("useconds", U32Value))
         return member_list
 
-    def get_sym_type(self, sym: Symbol) -> FppType:
+    def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
         if isinstance(sym, ChTemplate):
             result_type = sym.ch_type_obj
@@ -1019,7 +908,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # in and of itself. if this were a function call to the type's ctor then
             # it would have a value and thus a type
             result_type = NothingValue
-        elif isinstance(sym, FieldSymbol):
+        elif isinstance(sym, FieldAccess):
             result_type = sym.type
         elif isinstance(sym, dict):
             # reference to a scope. scopes don't have values
@@ -1029,7 +918,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         return result_type
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         parent_sym = state.resolved_symbols.get(node.parent)
 
         if is_instance_compat(parent_sym, (type, CallableSymbol)):
@@ -1060,14 +949,14 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             # you're talking about a field of
             base_sym = (
                 parent_sym
-                if not is_instance_compat(parent_sym, FieldSymbol)
+                if not is_instance_compat(parent_sym, FieldAccess)
                 else parent_sym.base_sym
             )
             # we also calculate a "base offset" wrt. the start of the base_sym type, so you
             # can easily pick out this field from a value of the base sym type
             base_offset = (
                 0
-                if not is_instance_compat(parent_sym, FieldSymbol)
+                if not is_instance_compat(parent_sym, FieldAccess)
                 else parent_sym.base_offset
             )
 
@@ -1078,7 +967,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             offset = 0
             for arg_name, arg_type in member_list:
                 if arg_name == node.attr:
-                    sym = FieldSymbol(
+                    sym = FieldAccess(
                         is_struct_member=True,
                         parent_expr=node.parent,
                         type=arg_type,
@@ -1098,7 +987,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             )
             return
 
-        sym_type = self.get_sym_type(sym)
+        sym_type = self.get_type_of_symbol(sym)
 
         state.resolved_symbols[node] = sym
         state.synthesized_types[node] = sym_type
@@ -1132,11 +1021,11 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
 
         base_sym = (
             parent_sym
-            if not is_instance_compat(parent_sym, FieldSymbol)
+            if not is_instance_compat(parent_sym, FieldAccess)
             else parent_sym.base_sym
         )
 
-        sym = FieldSymbol(
+        sym = FieldAccess(
             is_array_element=True,
             parent_expr=node.parent,
             type=parent_type.MEMBER_TYPE,
@@ -1148,12 +1037,12 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         state.synthesized_types[node] = parent_type.MEMBER_TYPE
         state.contextual_types[node] = parent_type.MEMBER_TYPE
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
-        # already been resolved by SetScopes pass
+    def visit_AstName(self, node: AstName, state: CompileState):
+        # already been resolved
         sym = state.resolved_symbols[node]
         if sym is None:
             return
-        sym_type = self.get_sym_type(sym)
+        sym_type = self.get_type_of_symbol(sym)
 
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
@@ -1423,7 +1312,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         # should be present in resolved refs because we only let it through if
         # variable is attr, item or var
         lhs_sym = state.resolved_symbols[node.lhs]
-        if not is_instance_compat(lhs_sym, (VariableSymbol, FieldSymbol)):
+        if not is_instance_compat(lhs_sym, (VariableSymbol, FieldAccess)):
             # assigning to a scope or something
             state.err("Invalid assignment", node.lhs)
             return
@@ -1437,10 +1326,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
             if not is_instance_compat(lhs_sym.base_sym, VariableSymbol):
                 state.err("Can only assign variables", node.lhs)
                 return
-            assert (
-                state.contextual_types[node.lhs]
-                == state.synthesized_types[node.lhs]
-            )
+            assert state.contextual_types[node.lhs] == state.synthesized_types[node.lhs]
             lhs_type = state.contextual_types[node.lhs]
 
         # coerce the rhs into the lhs type
@@ -1476,7 +1362,7 @@ class PickTypesAndResolveAttrsAndItems(Visitor):
         if not is_instance_compat(func, FunctionSymbol):
             return
 
-        for (arg_name_var, arg_type_expr, default_value), (_, arg_type, _) in zip(
+        for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
         ):
             if default_value is not None:
@@ -1532,7 +1418,7 @@ class CalculateDefaultArgConstValues(Visitor):
             const_value = state.contextual_values.get(default_value)
             if const_value is None:
                 state.err(
-                    f"Default value for argument '{arg_name_var.var}' must be a constant expression",
+                    f"Default value for argument '{arg_name_var.name}' must be a constant expression",
                     default_value,
                 )
                 return
@@ -1684,7 +1570,7 @@ class CalculateConstExprValues(Visitor):
 
         state.contextual_values[node] = expr_value
 
-    def visit_AstMemberAccess(self, node: AstMemberAccess, state: CompileState):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
@@ -1703,7 +1589,7 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             parent_value = state.contextual_values[node.parent]
             if parent_value is None:
                 # no compile time constant value for our parent here
@@ -1747,7 +1633,7 @@ class CalculateConstExprValues(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         sym = state.resolved_symbols[node]
         # index expression can only be a field symbol
-        assert is_instance_compat(sym, FieldSymbol), sym
+        assert is_instance_compat(sym, FieldAccess), sym
 
         parent_value = state.contextual_values[node.parent]
 
@@ -1784,7 +1670,7 @@ class CalculateConstExprValues(Visitor):
                 return
         state.contextual_values[node] = expr_value
 
-    def visit_AstVar(self, node: AstVar, state: CompileState):
+    def visit_AstName(self, node: AstName, state: CompileState):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         sym = state.resolved_symbols[node]
@@ -1808,7 +1694,7 @@ class CalculateConstExprValues(Visitor):
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
-        elif is_instance_compat(sym, FieldSymbol):
+        elif is_instance_compat(sym, FieldAccess):
             assert False, sym
 
         assert expr_value is not None
@@ -2090,7 +1976,9 @@ class CheckAllBranchesReturn(Visitor):
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         state.does_return[node] = True
 
-    def visit_AstStmtList(self, node: Union[AstStmtList, AstBlock], state: CompileState):
+    def visit_AstStmtList(
+        self, node: Union[AstStmtList, AstBlock], state: CompileState
+    ):
         state.does_return[node] = any(state.does_return[n] for n in node.stmts)
 
     def visit_AstIf(self, node: AstIf, state: CompileState):
@@ -2122,11 +2010,23 @@ class CheckAllBranchesReturn(Visitor):
         ],
         state: CompileState,
     ):
+        # while and for do not return because we don't know if their body
+        # will actually execute.
+        # we could do some analysis to figure this out but it would only work
+        # for constants
         state.does_return[node] = False
 
     def visit_AstExpr(self, node: AstExpr, state: CompileState):
-        # expressions do not return
-        state.does_return[node] = False
+        # expressions do not return, except exit
+        if not is_instance_compat(node, AstFuncCall):
+            state.does_return[node] = False
+            return
+        func = state.resolved_symbols[node.func]
+        if not is_instance_compat(func, BuiltinFuncSymbol) or not func.name == "exit":
+            state.does_return[node] = False
+            return
+        # builtin exit "returns" (really just ends call stack entirely)
+        state.does_return[node] = True
 
     def visit_default(self, node, state):
         assert not is_instance_compat(node, AstStmt)
@@ -2140,7 +2040,7 @@ class CheckFunctionReturns(Visitor):
             return
         if not state.does_return[node.body]:
             state.err(
-                f"Function '{node.name.var}' does not always return a value", node
+                f"Function '{node.name.name}' does not always return a value", node
             )
             return
 
