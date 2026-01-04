@@ -799,7 +799,6 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             # this is because, for the given op, even with integer inputs, we might get
             # float outputs
             type_category = "float"
-            # TODO problem: this means that if we do I32 / F32, it doesn't work b/c we can't convert I32 to F32
         elif any(issubclass(t, FloatValue) for t in arg_types):
             # otherwise if any args are floats, use float
             type_category = "float"

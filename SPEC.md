@@ -765,6 +765,35 @@ For each type `T` with qualified name `Q.N` encountered in the F-Prime dictionar
 1. Create a namespace for the qualifier.
 2. `T` maps to `N` in the qualifier's namespace.
 
+## Type conversion
+
+Type conversion is the process of converting an expression from one type to another. It can either be implicit, in which case it is called coercion, or explicit, in which case it is called casting.
+
+
+### Intermediate types
+
+The **intermediate type** of a binary or unary operator expression is the type to which all argument expressions will be coerced to.
+
+Intermediate types are picked via the following rules:
+
+1. The intermediate type of Boolean operators is always `bool`.
+2. The intermediate type of `==` and `!=` may be any type, so long as the left and right hand sides are the same type. If both are numeric then continue.
+3. If either argument is non-numeric, raise an error.
+4. If the operator is `/` or `**`, the intermediate type is always `F64`.
+5. If either argument is a float, the intermediate type is `F64`.
+6. If either argument is an unsigned integer, the intermediate type is `U64`.
+7. Otherwise, the intermediate type is `I64`.
+
+If the expressions given to the operator are not of the intermediate type, type coercion rules are applied.
+
+## Result type
+
+The result type is the type of the value produced by the operator.
+1. For numeric operators, the result type is the intermediate type.
+2. For boolean and comparison operators, the result type is `bool`.
+
+Normal type coercion rules apply to the result, of course. Once the operator has produced a value, it may be coerced into some other type depending on context.
+
 # Expressions
 
 An **expression** can be evaluated to produce a value of a type.
@@ -872,6 +901,7 @@ The list of **binary operators** is:
 * The [comparison operators](#comparison-semantics) `>`, `>=`, `<`, and `<=`
 * The [equality operator](#equality-semantics) `==`
 * The [inequality operator](#inequality-semantics) `!=`
+* The [range operator](#range-semantics) `..`
 
 ### Syntax
 
@@ -887,7 +917,7 @@ Name:
 
 ### Semantics
 
-For each use of a binary operator, an [intermediate type](#intermediate-types) is picked.
+For each use of a binary operator, an [intermediate type](#intermediate-types) is picked, as described in the operator's semantics.
 
 If `lhs` or `rhs` cannot be [coerced](#type-coercion) into the intermediate type, an error is raised.
 
@@ -896,12 +926,14 @@ If `lhs` and `rhs` are constant expressions, the binary operator expression is a
 At evaluation, for all operators besides the [Boolean operators](#boolean-operator-semantics):
 1. `lhs` is evaluated and coerced into the intermediate type.
 2. `rhs` is evaluated and coerced into the intermediate type.
-3. The expression evaluates to a value of the intermediate type, as described in the operator semantics.
+3. The expression evaluates to a value of the intermediate type, as described in the operator's semantics.
 
 #### Addition semantics
 The addition operator is `+`.
 
 If neither `lhs` nor `rhs` are expressions of a [numeric type](#types), an error is raised.
+
+The expression evaluates to the result of adding 
 
 #### Subtraction semantics
 #### Multiplication semantics
@@ -929,6 +961,13 @@ Inequalities require numeric operands. Each operand is coerced to the intermedia
 #### Equality semantics
 If both operands are numeric, equality uses the same intermediate-type rules as arithmetic operators. Otherwise both operands must have the exact same concrete type (struct, array, enum, or `Fw.Time`). The compiler compares their serialized bytes. Strings cannot be compared.
 
+#### Range semantics
+The range operator is `..`.
+
+If `lhs` or `rhs` cannot be coerced to [loop var type](#type-aliases), an error is raised.
+
+
+
 ## Unary operators
 ### Syntax
 
@@ -943,12 +982,71 @@ Name:
 ### Negation operator semantics
 ### Identity operator semantics
 
+## Intermediate types
 
-# Type conversion
+The **intermediate type** of an operator expression is the type to which the operator's sub-expressions are [coerced](#type-coercion) to.
 
-Type conversion is the process of converting an expression from one type to another. It can either be implicit, in which case it is called coercion, or explicit, in which case it is called casting.
+### Numeric intermediate types
 
-## Type coercion
+The **numeric type hierarchy** is as follows:
+* If the 
+
+
+
+        # we split this algo up into two stages: picking the type category (float, uint or int), and picking the type bitwidth
+
+        # pick the type category:
+        type_category = None
+        if op == BinaryStackOp.DIVIDE or op == BinaryStackOp.EXPONENT:
+            # always do true division and exponentiation over floats, python style
+            # this is because, for the given op, even with integer inputs, we might get
+            # float outputs
+            type_category = "float"
+        elif any(issubclass(t, FloatValue) for t in arg_types):
+            # otherwise if any args are floats, use float
+            type_category = "float"
+        elif any(t in UNSIGNED_INTEGER_TYPES for t in arg_types):
+            # otherwise if any args are unsigned, use unsigned
+            type_category = "uint"
+        else:
+            # otherwise use signed int
+            type_category = "int"
+
+        # pick the bitwidth
+        # we only use the arb precision types for constants, so if theyre all arb precision, they're consts
+        constants = all(t in ARBITRARY_PRECISION_TYPES for t in arg_types)
+
+        if constants:
+            # we can constant fold this, so use infinite bitwidth
+            if type_category == "float":
+                return FpyFloatValue
+            assert type_category == "int" or type_category == "uint"
+            return FpyIntegerValue
+
+        # can't const fold
+        if type_category == "float":
+            return F64Value
+        if type_category == "uint":
+            return U64Value
+        assert type_category == "int"
+        return I64Value
+
+
+## Type conversion
+
+**Type conversion** is the process by which values of one type are converted into values of another type.
+
+There are two kinds of type conversion:
+* [Casting](#casting)
+* [Coercion](#type-coercion)
+
+Type casting is merely an explicit flag for type coercion to take place
+
+
+### Type coercion
+**Type coercion** is type conversion that happens implicitly to an expression when required by that expression's semantic context.
+
+
 Coercion happens when an expression of type *A* is used in a syntactic element which requires an expression of type *B*. For example, functions, operators and variable assignments all require specific input types, so type coercion happens in each of these.
 In general, the rule of thumb is that coercion is allowed if the destination type can represent all possible values of the source type, with some exceptions. The following rules determine when type coercion can be performed:
 
@@ -963,35 +1061,3 @@ In general, the rule of thumb is that coercion is allowed if the destination typ
 If no rule matches, the compiler raises an error.
 
 Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination’s representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
-
-
-## Intermediate types
-
-The **intermediate type** of a binary or unary operator expression is the type to which all argument expressions will be coerced to.
-
-Intermediate types are picked via the following rules:
-
-1. The intermediate type of Boolean operators is always `bool`.
-2. The intermediate type of `==` and `!=` may be any type, so long as the left and right hand sides are the same type. If both are numeric then continue.
-3. If either argument is non-numeric, raise an error.
-4. If the operator is `/` or `**`, the intermediate type is always `F64`.
-5. If either argument is a float, the intermediate type is `F64`.
-6. If either argument is an unsigned integer, the intermediate type is `U64`.
-7. Otherwise, the intermediate type is `I64`.
-
-If the expressions given to the operator are not of the intermediate type, type coercion rules are applied.
-
-## Result type
-
-The result type is the type of the value produced by the operator.
-1. For numeric operators, the result type is the intermediate type.
-2. For boolean and comparison operators, the result type is `bool`.
-
-Normal type coercion rules apply to the result, of course. Once the operator has produced a value, it may be coerced into some other type depending on context.
-
-# Loops
-
-## Range expressions
-
-The `lower .. upper` operator produces a `RangeValue`. Both bounds are coerced to `I64`. Range expressions are only meaningful as the right-hand side of a `for` loop, and both bounds are evaluated exactly once.
-
