@@ -56,7 +56,7 @@ A **symbol** is a language construct that can be referred to by a name in the pr
 The following language constructs may be symbols:
 * [namespaces](#namespaces)
 * [variables](#variables)
-* [functions](#functions)
+* [callables](#callables)
 * [types](#types)
 * telemetry channels
 * parameters
@@ -518,7 +518,7 @@ At execution:
 
 A **break statement** stops execution of the loop.
 
-## Syntax
+### Syntax
 Rule:
 
 `break_stmt: "break"`
@@ -614,10 +614,16 @@ If at any point during execution, two times which are [incomparable](todo) are a
 
 A **callable** is a symbol with parameters and a return [type](#types) which can be evaluated by being called.
 
+Callables can be divided into three categories:
+* [Commands](#commands)
+* [Functions](#functions)
+* [Builtin functions](#builtin-functions)
+* [Constructors](todo)
+
 ## Commands
 Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
 
-## Macros
+## Builtin functions
 Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
 
 Available macros:
@@ -640,7 +646,7 @@ Fpy provides builtin functions for comparing and manipulating time values:
 
 These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
 
-## Type constructors
+## Constructors
 Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
 
 ## Numeric casts
