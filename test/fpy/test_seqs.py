@@ -66,6 +66,12 @@ def test_two_stmts_on_same_line(fprime_test_api):
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_no_trailing_newline(fprime_test_api):
+    # Code without a trailing newline should still compile
+    seq = "x: U32 = 1"  # No trailing newline
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_int_literal(fprime_test_api):
     seq = """
 var: I64 = 123_456

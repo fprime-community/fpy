@@ -8,28 +8,50 @@ This document specifies the syntax and semantics of the Fpy sequencing language.
 
 It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.
 
-> Informal notes and explanations are quoted like this
+> Informal notes and explanations are quoted like this.
 
 Terms are **bolded** in the location they are primarily defined.
 
-`Monospaced` terms refer to syntactic rules, type names or example Fpy code.
+`Monospaced` text refer to syntactic rules, type names or example Fpy code.
 
-Monospaced code blocks are example Fpy code:
-```py
-def example(fpy: U8):
-    return
-```
-
-# Syntax
-The syntax of Fpy is defined using the [Lark grammar syntax](https://lark-parser.readthedocs.io/en/stable/grammar.html), in [grammar.lark](grammar.lark).
-
-The rest of the specification is dedicated to the semantics of Fpy.
+In a syntactic rule:
+* Text in between forward slashes `/` is regex
+* Text in between square brackets `[]` is optional
+* Text in between parentheses `()` is handled as a group
+* A plus suffix `+` means one or more instances of its preceding rule
+* A star suffix `*` means zero or more instances of its preceding rule
+* A question mark suffix `?` means zero or one instances of its preceding rule
 
 # Names and scopes
 
-# Symbols
+## Names
 
-A **symbol** is a language construct that can be referred to by some name in the program. 
+`name: /\$?[^\W\d]\w*/`
+
+A **name** is a string consisting of letters, underscores or digits. The first character may not be a digit. 
+
+The first character may optionally be `$`, in which case the name is considered **escaped**. An escaped name is the same as an unescaped name, except in that it always lexes as a name, even if it is a [reserved word](#reserved-words).
+
+## Reserved words
+
+A **reserved word** is a word which cannot be used as an [unescaped name](#names).
+
+The list of reserved words is:
+* `assert`
+* `break`
+* `check`
+* `continue`
+* `def`
+* `for`
+* `if`
+* `not`
+* `pass`
+* `return`
+* `while`
+
+## Symbols
+
+A **symbol** is a language construct that can be referred to by a name in the program. 
 
 The following language constructs may be symbols:
 * [namespaces](#namespaces)
@@ -72,7 +94,7 @@ Name groups do not intersect.
 
 Name groups are accessed via syntactic context.
 
-> For instance, the type name group is accessible anywhere that expects a type, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
+> For instance, the type name group is accessible anywhere in the source code where a type name is expected, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
 
 The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
 
@@ -84,26 +106,24 @@ A **namespace** is a mapping of names to symbols, associated with a name.
 
 A **qualified name** is one of:
 * A name
-* A qualified name which is not a valid [expression](#expressions), followed by a `.`, followed by a name
+* A qualified name, followed by a `.`, followed by a name
 
 The **qualifier** is the qualified name to the left of the `.`.
 
-The **root qualifier** is the leftmost name in a qualified name.
-
-To resolve a qualified name:
-1. If the resolving name group is unspecified, an error is raised.
-2. Otherwise, perform the following steps in the resolving name group:
-    1. If there is no qualifier:
-        1. Resolve the name in the resolving scope.
-        2. If the name fails to be resolved, resolve the name in the parent scope of the resolving scope.
-    2. Otherwise:
-        1. Resolve the qualifier.
-        2. If the qualifier is an expression, this is an invalid qualified name. Resolution is handled by the rules of [member access](#member-access).
-        3. If the qualifier is not a namespace, an error is raised.
+To resolve a qualified name in a name group:
+1. If there is no qualifier:
+    1. Resolve the name in the resolving scope.
+    2. If the name fails to be resolved, resolve the name in the parent scope of the resolving scope.
+2. Otherwise:
+    1. Resolve the qualifier.
+    2. If the qualifier is an expression, resolution is handled by the rules of [member access](#member-access-expression).
+    3. If the qualifier is not a namespace, an error is raised.
+    4. Resolve the name in the qualifier namespace.
 
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
 If all qualifiers have been resolved, and the qualified name does not resolve to a non-namespace symbol, an error is raised.
+TODO I'm not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING--cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.
 
 ## Definitions
 
@@ -136,15 +156,17 @@ Name:
 
 ### Semantics
 
-If `lhs` resolves to a previously-defined variable, an error is raised.
+If `lhs` resolves to a previously-defined symbol, an error is raised.
+
+> This prevents redefining a variable.
 
 If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
-The new variable has name `lhs` and type `type_ann`. It is added to the resolving scope.
+The new variable has type `type_ann`. It is added to the resolving scope under name `lhs`.
 
 At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to type `type_ann`. This becomes the variable's initial value.
 
-After execution, the variable is considered defined.
+For statements following this, the variable `lhs` is considered defined.
 
 ## Variable assignment
 
@@ -163,13 +185,15 @@ Name:
 
 ### Semantics
 
-If `lhs` is not a variable, an error is raised.
+If `lhs` does not resolve to a variable, an error is raised.
 
-If the variable has not been defined yet, an error is raised.
+> Hereafter, `lhs` refers to the variable named `lhs`.
 
-If `rhs` cannot be coerced to the variable's type, an error is raised.
+If `lhs` has not been defined yet, an error is raised.
 
-At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to the variable's type. This becomes the variable's new value.
+If `rhs` cannot be coerced to `lhs`'s type, an error is raised.
+
+At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to `lhs`'s type. This becomes the `lhs`'s new value.
 
 ## Member assignment
 
@@ -819,6 +843,10 @@ A **constant expression** is an expression which can be evaluated without runnin
 
 ## Literals
 
+A **literal** is an expression whose value is explicit in the source code.
+
+All literal expressions are constant expressions.
+
 ### Integer literals
 
 #### Decimal literal syntax
@@ -1008,7 +1036,19 @@ The range operator is `..`.
 
 If `lhs` or `rhs` cannot be coerced to [loop var type](#type-aliases), an error is raised.
 
+#### Order of operations
+The order in which operations take precedence, from most strongly binding to least strongly binding, is:
+1. [Exponentiation](#exponentiation-semantics)
+2. [Negation](#negation-operator-semantics) and [identity](#identity-operator-semantics)
+3. [Multiplication](#multiplication-semantics), [division](#division-semantics), [floor division](#floor-division-semantics), and [modulus](#modulus-semantics)
+4. [Addition](#addition-semantics) and [subtraction](#subtraction-semantics)
+5. [Range](#range-semantics)
+6. [Comparison](#comparison-semantics)
+7. [Not](#boolean-operator-semantics)
+8. [And](#boolean-operator-semantics)
+9. [Or](#boolean-operator-semantics)
 
+If two operators have the same precedence in the above list, then the leftmost operator binds more strongly.
 
 ## Unary operators
 ### Syntax
