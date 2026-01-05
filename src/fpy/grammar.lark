@@ -1,26 +1,26 @@
 # Adapted from: https://docs.python.org/3/reference/grammar.html and the Lark Python grammar
 
 # input is the top-level rule, consisting of zero or more newlines or top level statements
-# Each statement must be followed by a newline (or EOF)
-input: (_NEWLINE* _toplevel_stmt)* _NEWLINE*
+input: (_NEWLINE | _toplevel_stmt)*
 
 # Top-level statements: function definitions OR regular statements
 # Function definitions can ONLY appear here, not nested in any control structure
 _toplevel_stmt: def_stmt | _stmt
 
 # Regular statements (no function definitions allowed)
-_stmt: _small_stmt | _compound_stmt
+# Small statements must be followed by a newline; compound statements end with their block's DEDENT
+_stmt: _small_stmt _NEWLINE | _compound_stmt
 # small statements are those which cannot themselves contain statements
 _small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
 # compound statements may contain other statements
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
 # an indented list of statements which does not define a semantic scope
-stmt_list: _NEWLINE _INDENT (_NEWLINE* _stmt)+ _NEWLINE* _DEDENT
+stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
 # -> AstStmtList(stmts)
 
 # an indented list of statements which does define a semantic scope
-block: _NEWLINE _INDENT (_NEWLINE* _stmt)+ _NEWLINE* _DEDENT
+block: _NEWLINE _INDENT _stmt+ _DEDENT
 # -> AstBlock(stmts)
 
 

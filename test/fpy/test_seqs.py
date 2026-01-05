@@ -57,6 +57,15 @@ $if: U32 = 3
     assert_run_success(fprime_test_api, seq)
 
 
+def test_two_stmts_on_same_line(fprime_test_api):
+    # Two statements on the same line should fail to compile
+    seq = """
+0value: U8 = 0
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
 def test_int_literal(fprime_test_api):
     seq = """
 var: I64 = 123_456

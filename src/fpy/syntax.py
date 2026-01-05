@@ -69,6 +69,10 @@ class PythonIndenter(PostLex):
                 self.paren_level -= 1
                 assert self.paren_level >= 0
 
+        # At EOF, inject a NEWLINE before DEDENTs so the grammar can require
+        # NEWLINE after small statements without special-casing EOF
+        if len(self.indent_level) > 1:
+            yield Token(self.NL_type, "\n")
         while len(self.indent_level) > 1:
             self.indent_level.pop()
             yield Token(self.DEDENT_type, "")
