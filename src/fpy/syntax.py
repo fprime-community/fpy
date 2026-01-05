@@ -430,7 +430,7 @@ class FpyTransformer(Transformer):
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
 
-    NAME = str
+    NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
     HEX_NUMBER = lambda self, token: int(token, 16)

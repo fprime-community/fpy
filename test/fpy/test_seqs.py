@@ -46,12 +46,15 @@ var: U32 = 1
     assert_run_success(fprime_test_api, seq)
 
 
-def test_var_bad_name(fprime_test_api):
+def test_var_escaped_reserved_word(fprime_test_api):
+    # $ prefix can be used to escape reserved words like 'def', 'while', etc.
     seq = """
-$var: U32 = 1
+$def: U32 = 1
+$while: U32 = 2
+$if: U32 = 3
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_int_literal(fprime_test_api):
@@ -2809,9 +2812,10 @@ def test(arg: U8):
     assert_run_success(fprime_test_api, seq)
 
 
-def test_invalid_var_name(fprime_test_api):
+def test_var_name_special_chars(fprime_test_api):
+    # Variable names with invalid special characters should fail
     seq = """
-$value0: U8 = 0
+@invalid: U8 = 0
 """
 
     assert_compile_failure(fprime_test_api, seq)
