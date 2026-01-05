@@ -124,7 +124,7 @@ A **variable definition statement** introduces a name-to-variable mapping to its
 ### Syntax
 Rule:
 
-`variable_declare_stmt: name ":" expr "=" expr`
+`variable_declare_stmt: name ":" qualified_name "=" expr`
 
 Name:
 
@@ -173,7 +173,7 @@ At execution, `rhs` is [evaluated](#evaluation) and [coerced](#type-coercion) to
 
 ## Member assignment
 
-A **member assignment statement** mutates the value of a [member](todo) in a variable.
+A **member assignment statement** mutates the value of a [member](#structs) in a variable.
 
 ### Syntax
 Rule:
@@ -251,13 +251,13 @@ The value of the variable is unchanged except for the element.
 
 ## Variable evaluation
 
-The value produced by [evaluating](todo) a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
+The value produced by [evaluating](#expressions) a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
 
 If a variable is evaluated before it has been defined, an error is raised.
 
 # Functions
 
-A **function** is a [callable](todo) [symbol](#symbols) with an inner scope, parameters, code and a return [type](#types).
+A **function** is a [callable](#callables) [symbol](#symbols) with an inner scope, parameters, code and a return [type](#types).
 
 The **call site** is the location in the source code at which a function is called.
 
@@ -311,7 +311,7 @@ A **function definition statement** introduces a name-to-[function](#function) m
 ### Syntax
 Rule:
 
-`function_def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block`
+`function_def_stmt: "def" name "(" [parameters] ")" ["->" qualified_name] ":" block`
 
 `parameters: parameter ("," parameter)*`
 
@@ -720,7 +720,7 @@ Dictionary types can be divided into three categories:
 * [Strings](#dictionary-strings)
 
 ### Structs
-A **struct** is a dictionary type defined by an ordered list of members.
+A **struct** is a category of dictionary type defined by an ordered list of members.
 
 A **member** is a pair of a name and a serializable type.
 
@@ -733,19 +733,19 @@ The binary form of a struct value is the concatenated binary forms of its member
 
 ### Arrays
 
-An **array** is a dictionary type defined by a non-negative integer length, and an element type.
+An **array** is a category of dictionary type defined by a non-negative integer length, and an element type.
 
 The **element type** of an array type is the type of its elements.
 
-An **element** is an value at an index in an array.
+An **element** is a value of element type at an index in an array.
 
-The binary form of an array value is the concatenated binary form of its element values, in order.
+The binary form of an array value is the concatenated binary form of its elements, in order.
 
 > If the element type is a non-constant-sized type, the array is a non-constant-sized type.
 
 ### Enums
 
-An **enum** is a dictionary type whose values are a finite set of enum constants.
+An **enum** is a category of dictionary type whose values are a finite set of enum constants.
 
 An **enum constant** is a pair of a name and a value of the enum's representation type.
 
@@ -755,9 +755,26 @@ The binary form of an enum constant is the binary form of its integer value.
 
 ### Dictionary strings
 
-A **dictionary string** is a dictionary type whose values are strings.
+A **dictionary string** is a category of dictionary type whose values are strings.
 
 Dictionary strings are non-constant-sized types.
+
+## Fields
+
+A **field-based type** is a type defined by its fields.
+
+A **field** of a type is a name-and-type pair 
+
+An **array** is a category of type with 
+
+A **struct** is a category of type 
+
+is an [array element](#arrays) or a [struct member](#structs).
+
+The **field base** of a field is the first non-field parent of a field.
+
+> For instance, the field base of `a.b.c`, if `a` were a variable and `b` and `c` were fields, would be `a`.
+
 
 ## Populating dictionary types
 
@@ -885,6 +902,31 @@ At evaluation:
 1. The `parent` is evaluated.
 2. The member access expression evaluates to the value of the `member` in the `parent` value.
 
+## Function call expression
+### Syntax
+
+Rule:
+
+```
+func_call: expr "(" [arguments] ")"`
+arguments: argument ("," argument)*
+argument: NAME "=" expr -> named_argument
+        | expr -> positional_argument
+```
+
+Name:
+
+`func_call: func "(" arguments ")"`
+
+`func` is resolved in the callable name group.
+
+All argument expressions are resolved in the value name group.
+
+### Semantics
+
+If `func`
+
+
 ## Binary operator expressions
 
 A **binary operator expression** is an expression with a left and right-hand expression, and a binary operator in between, which acts on both values to produce a new value.
@@ -986,10 +1028,12 @@ Name:
 
 The **intermediate type** of an operator expression is the type to which the operator's sub-expressions are [coerced](#type-coercion) to.
 
+If any sub-expression
+
 ### Numeric intermediate types
 
-The **numeric type hierarchy** is as follows:
-* If the 
+The numeric type hierarchy is as follows:
+* 
 
 
 
