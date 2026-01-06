@@ -2,7 +2,7 @@
 
 # Fpy Specification
 
-Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with several domain-specific features for spacecraft operation.
+Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with domain-specific features for spacecraft operation.
 
 This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified. 
 
@@ -62,10 +62,12 @@ The following language constructs may be symbols:
 * parameters
 * enum constants
 TODO members?
+you're selecting a member of a value--not referring to a static member. when you say a.b you're asking fgor a comp to be performed
 
 ## Scopes
 
 A **scope** is a mapping of names to symbols, accessed via some region of the source code.
+a scope is a REGION
 
 The **global scope** is the scope accessible throughout the entire source code.
 
@@ -87,12 +89,18 @@ The list of name groups is:
 * The **[callable](#callables) name group**
 
 Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+Maybe could remove this line
 
+TODO explain why we need this
 Name groups do not intersect.
 
-> This means that the names of callables, types and values never conflict. 
+> This means that the names of callables, types and values never conflict.  WITH EACH OTHER
 
 Name groups are accessed via syntactic context.
+TODO this is really just an ecplanation
+
+A.b is an expr, A is an expr, b is not an expression. A.b is a dot expression. b is not an expression, it's part of a 
+Does it refer to something that has a scope, or does it refer to something that has members.
 
 > For instance, the type name group is accessible anywhere in the source code where a type name is expected, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
 
@@ -127,7 +135,7 @@ TODO I'm not sure this is clear what this means. The idea here is that the full 
 
 ## Definitions
 
-A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping to a [scope](#scopes) and [name group](#name-groups).
+A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as apart ofa  a [scope](#scopes) and [name group](#name-groups).
 
 The list of definitions is:
 * [Variable definitions](#variable-definition)
@@ -135,11 +143,14 @@ The list of definitions is:
 
 # Variables
 
-A **variable** is a symbol with a static [type](#types) and a mutable [value](#values).
+A **variable** is a symbol with a static [type](#types) and a dynamic, mutable [value](#values).
+todo maybe call it dynamic?
+
+TODO: give a list of statements
 
 ## Variable definition
 
-A **variable definition statement** introduces a name-to-variable mapping to its resolving scope.
+A **variable definition statement** introduces a name-to-variable mapping in its resolving scope.
 
 ### Syntax
 Rule:
@@ -212,7 +223,7 @@ Name:
 
 ### Semantics
 
-If `parent` is not a variable or a [field](#fields) with a [field base](todo) that is a variable, an error is raised.
+If `parent` is not a variable or a [field](#fields) with a [field base](#fields) that is a variable, an error is raised.
 
 > This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
 
@@ -318,7 +329,7 @@ Name:
 
 If the return statement is outside of a function body, an error is raised.
 
-The **enclosing function** is the function whose body this return is in.
+The **enclosing function** of a return statement is the function whose body that return is in.
 
 If `value` is not provided and the enclosing function's return type is not Nothing, an error is raised.
 
@@ -326,24 +337,31 @@ If `value` is provided and cannot be [coerced](#type-coercion) to the return typ
 
 At execution:
 1. If provided, `value` is [evaluated](todo) and [coerced](#type-coercion) to the return type of the enclosing function.
-2. The execution of the function body is stopped, and execution at the function call site resumes.
+2. The execution of the function body is stopped, and execution after the function call site resumes.
 
 ## Function definition
 
-A **function definition statement** introduces a name-to-[function](#function) mapping to the global scope.
+A **function definition statement** introduces a name-to-[function](#function) mapping in the global scope.
 
 ### Syntax
+
 Rule:
 
-`function_def_stmt: "def" name "(" [parameters] ")" ["->" qualified_name] ":" block`
-
-`parameters: parameter ("," parameter)*`
-
-`parameter: name ":" expr ["=" expr]`
+```
+function_def_stmt: "def" name "(" [parameters] ")" ["->" qualified_name] ":" block
+parameters: parameter ("," parameter)*
+parameter: name ":" qualified_name ["=" expr]
+```
 
 Name:
 
-`function_def_stmt: "def" name "(" parameters ")" "->" return_type ":" body`
+```
+function_def_stmt: "def" name "(" parameters ")" "->" return_type ":" body
+parameters: parameter_0 "," parameter_1 ... "," parameter_n
+parameter: parameter_name ":" parameter_type "=" parameter_default_value
+```
+
+A function definition statement is only valid outside an indentation block.
 
 The parameter `name`s are resolved in the value name group.
 
@@ -375,19 +393,6 @@ The new function with name `name` is added to the global scope. If `return_type`
 > Because functions can only be defined in the global scope, you cannot declare a function in a function.
 
 > Functions can be used before they are defined.
-
-## Function evaluation
-Functions can be evaluated by [calling](todo) the function.
-
-When a function is called:
-1. Argument values are assigned to parameters
-2. The function body executes
-
-During the execution of the function body, if a [return](todo) is reached:
-* If a return value is present, the return value is evaluated, the function evaluates to the return value
-* If no return value is present, the function does not 
-
-After execution of the function body, if no return was reached, the function does not return a value.
 
 # Ifs
 An **if statement** conditionally executes blocks of code.
@@ -458,27 +463,11 @@ At execution:
 2. If the loop condition is `True`, execute the body, and return to step 1.
 3. Otherwise, execution continues after the while loop statement.
 
-## For loops
-
-### For loop variables
-
-A **loop variable** is a [variable](#variables) of [loop var type](#type-aliases) associated with a [for loop statement](#for-loop-statement).
-
-If a variable of loop var type with the same name as the loop variable is already defined, 
-
-Before the first execution of the for loop, the loop variable is set to the lower bound of the loop.
-
-### For loop ranges
-
-The **range** of a for loop is a pair of an initial and maximum value that a loop variable has during the execution of the loop.
-
-If the loop variable is not modified by the loop body, then the number of times the loop body is executed is the difference between the 
-
-### For loop statement
+## For loop statement
 
 A **for loop statement** executes a block of code until a counter reaches an upper bound.
 
-#### Syntax
+### Syntax
 Rule:
 
 `for_stmt: "for" name "in" expr ":" stmt_list`
@@ -489,7 +478,9 @@ Name:
 
 `loop_var` and `range` are resolved in the value name group.
 
-#### Semantics
+### Semantics
+
+The **loop variable** of a for loop is the variable named by `loop_var`.
 
 If `loop_var` resolves to a previously-defined variable:
 1. If the type of that variable is not [loop var type](#type-aliases), an error is raised.
@@ -497,7 +488,7 @@ If `loop_var` resolves to a previously-defined variable:
 
 > This allows reusing the same loop variable name across multiple for loops.
 
-If `loop_var` does not resolve to a previously-defined variable, a new variable with name `loop_var` and loop_var type is added to the [resolving scope](#scopes).
+If `loop_var` does not resolve to a previously-defined variable, a new variable with name `loop_var` and [loop var type](#type-aliases) is added to the [resolving scope](#scopes), and it becomes the loop variable of this for loop.
 
 > Nothing prevents you from modifying the loop variable in the loop body. However, this may cause infinite loops, so do this with caution.
 
@@ -508,15 +499,15 @@ The loop condition of a for loop is `loop_var < upper_bound`, where `upper_bound
 At execution:
 1. `range` is evaluated.
 2. The loop variable is set to the lower bound of `range`.
-1. The loop condition is evaluated.
-2. If the loop condition is `True`, execute the body, increment the value of the `loop_var` by 1, and return to step 1.
-3. Otherwise, execution continues after the for loop statement.
+3. The loop condition is evaluated.
+4. If the loop condition is `True`, execute the body, increment the value of the `loop_var` by 1, and return to step 1.
+5. Otherwise, execution continues after the for loop statement.
 
 > The only possible step size is 1.
 
 ## Break statement
 
-A **break statement** stops execution of the loop.
+A **break statement** stops execution of a loop.
 
 ### Syntax
 Rule:
@@ -531,7 +522,7 @@ At execution, the enclosing loop body stops executing, and execution is continue
 
 ## Continue statement
 
-A **continue statement** immediately starts the execution of the next loop iteration.
+A **continue statement** immediately skips the rest of the loop body, continuing on to the next iteration or ending the loop.
 
 ### Syntax
 Rule:
@@ -542,7 +533,11 @@ Rule:
 
 If the continue statement is outside of a loop body, an error is raised.
 
-At execution, the enclosing loop body stops executing. The loop condition is reevaluated, and if it is `True`, the enclosing loop body starts executing from the beginning.
+At execution:
+1. The enclosing loop body stops executing.
+2. If the loop is a [for loop](#for-loop-statement), the loop variable is incremented.
+3. The loop condition is re-evaluated.
+4. The loop continues as specified based on the result of the loop condition, either running the body or ending the loop.
 
 # Assert statement
 
@@ -599,7 +594,7 @@ At execution:
 4. If `timeout` was provided and the current time is [greater](todo) than `timeout`'s stored value, the check times out.
 5. Evaluate `condition`.
 6. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.
-7. Otherwise, sleep for `freq`'s stored duration.
+7. Otherwise, [sleep](todo) for `freq`'s stored duration.
 8. Go to step 4.
 
 If the check times out during execution:
@@ -607,6 +602,7 @@ If the check times out during execution:
 2. Execution continues after the check statement.
 
 > Not providing `persist`, or providing a zero-duration `persist`, means the `condition` only needs to evaluate to `True` once.
+> The timeout defaults to never, and the frequency defaults to once per second.
 
 If at any point during execution, two times which are [incomparable](todo) are attempted to be compared, the check statement will halt the program as if by an [assertion](#assert-statement), and display an error code.
 
@@ -614,27 +610,116 @@ If at any point during execution, two times which are [incomparable](todo) are a
 
 A **callable** is a symbol with parameters and a return [type](#types) which can be evaluated by being called.
 
-Callables can be divided into three categories:
+> Evaluation of a callable always refers to evaluation of a [function call expression](#function-call-expression), where the function is that callable.
+> Because callable evaluation is always via a function call expression, when talking about the evaluation of a callable, it is assumed that the evaluation semantics of the function call expression have already occurred. Specifically, the arguments have already been evaluated from left to right.
+
+Callables can be divided into four categories:
 * [Commands](#commands)
 * [Functions](#functions)
 * [Builtin functions](#builtin-functions)
 * [Constructors](todo)
 
 ## Commands
-Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
+A **command** is a callable with an associated F-Prime command.
+
+All F-Prime commands in the dictionary have a corresponding Fpy command.
+
+All Fpy commands are [globally-scoped](#scopes).
+
+The fully-qualified name of an Fpy command is the same as the corresponding F-Prime command.
+
+The parameter names and types of an Fpy command are the same as the corresponding F-Prime command.
+
+> The F-Prime specification requires that all command parameter types be [serializable](#types).
+
+The return type of all commands is [`Fw.CmdResponse`](todo).
+
+> Throughout the specification, a "command" means an Fpy command.
+
+### Command evaluation
+
+Command evaluation is performed as follows:
+1. The argument values are serialized and arranged into the F-Prime command binary format.
+2. The binary command is dispatched to the F-Prime system.
+3. Execution blocks until the [command response](todo) comes back from the F-Prime system.
+4. The expression evaluates to a value of `Fw.CmdResponse` corresponding to that command response.
+
+### Command responses
+
+A **command response** is a value of type `Fw.CmdResponse`.
+
+`Fw.CmdResponse` must be defined in the dictionary, otherwise, an error is raised.
+TODO gracefully handle when it's missing.
 
 ## Builtin functions
-Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
+A **builtin function** is a callable whose behavior is explicit in the specification.
 
-Available macros:
+### `exit`
+#### Signature:
 
-* `exit(exit_code: U8)`: terminates the sequence immediately by emitting an `ExitDirective`.
-* `log(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
-* `sleep(seconds: U32, microseconds: U32)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
-* `sleep_until(wakeup_time: Fw.Time)`: waits until the supplied absolute time using `WaitAbsDirective`.
-* `now() -> Fw.Time`: pushes the current time via `PushTimeDirective`.
-* `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
-* `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+`exit(exit_code: U8)`
+
+#### Semantics
+At evaluation:
+1. If `exit_code` evaluates to a non-zero value, display that value to the user.
+2. The program is halted.
+
+### `log`
+#### Signature
+
+`log(operand: F64) -> F64`
+
+#### Semantics
+
+At evaluation:
+1. If `operand` is outside the domain of the natural logarithm function, halt the program and display an error code.
+2. The expression evaluates to the natural logarithm of `operand`.
+
+### `sleep`
+#### Signature
+
+`sleep(seconds: U32, microseconds: U32)`
+
+#### Semantics
+
+At evaluation, the program [sleeps](#sleeping) for a duration of `seconds` seconds and `microseconds` microseconds.
+
+### `sleep_until`
+#### Signature
+
+`sleep_until(wakeup_time: Fw.Time)`
+
+#### Semantics
+
+At evaluation, the program [sleeps](#sleeping) until the given `wakeup_time`.
+
+### `now`
+#### Signature
+`now() -> Fw.Time`
+#### Semantics
+
+At evaluation, the function call evaluates to a `Fw.Time` value representing the current time.
+TODO this really should be linked to the FpySequencer spec to say exactly where it gets this, etc. we also need engineering details
+
+### `iabs`
+#### Signature
+`iabs(value: I64) -> I64`
+
+#### Semantics
+At evaluation, the function call evaluates to the absolute value of `value`.
+
+TODO specify what happens if the abs value is outside of i64
+
+### `fabs`
+#### Signature
+`fabs(value: F64) -> F64`
+
+#### Semantics
+At evaluation, the function call evaluates to the absolute value of `value`.
+TODO specify what happens if the abs value is outside of i64
+
+## Builtin libraries
+
 
 ## Time functions
 Fpy provides builtin functions for comparing and manipulating time values:
@@ -652,15 +737,7 @@ Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fu
 ## Numeric casts
 Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
 
-## Casting
 Each finite-bitwidth numeric type exposes an explicit cast with the same name as the type, e.g. `U32(value)` or `F64(value)`. Casts accept any numeric expression and bypass the implicit-coercion restrictions above: the operand is forced to the target type even when that entails narrowing, and compile-time range checks are suppressed. No casts exist for structs, arrays, enums, strings, or `Fw.Time`.
-
-## User-defined functions
-A function definition introduces a new callable into scope. Function definitions must appear at the top level of the sequence; a function definition nested inside another function, a loop body, or a conditional branch is a compile-time error. The syntax is:
-```
-def name(param_0: Type0, param_1: Type1 = default_value, ...) [-> ReturnType]:
-    body
-```
 
 # Types
 
@@ -804,7 +881,6 @@ is an [array element](#arrays) or a [struct member](#structs).
 The **field base** of a field is the first non-field parent of a field.
 
 > For instance, the field base of `a.b.c`, if `a` were a variable and `b` and `c` were fields, would be `a`.
-
 
 ## Populating dictionary types
 
@@ -958,8 +1034,9 @@ All argument expressions are resolved in the value name group.
 
 ### Semantics
 
-If `func`
-
+At evaluation:
+1. Each argument is evaluated from left to right.
+2. The behavior defined in the semantics for the [callable](#callables) referenced by `func` is 
 
 ## Binary operator expressions
 
@@ -1151,3 +1228,25 @@ In general, the rule of thumb is that coercion is allowed if the destination typ
 If no rule matches, the compiler raises an error.
 
 Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination’s representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
+
+
+# Execution
+
+## Control flow
+A **branch** is a block of code which conditionally executes.
+
+> That is, whether or not that code exeutes depends on some expression.
+
+The list of statements which have branches is:
+* The [if statement](#ifs)
+* The [while loop statement](#while-loop-statement)
+* The [for loop statement](#for-loop-statement)
+* The [check statement](#check-statement)
+TODO how does this defn handle assert/exit?
+
+## Sleeping
+The program may **sleep** until an absolute time called the **wakeup time**.
+
+While the current time is before the wakeup time, no statements may execute
+
+The program may also sleep for a time duration. This is the same as sleeping with a wakeup time of now, plus the specified duration.
