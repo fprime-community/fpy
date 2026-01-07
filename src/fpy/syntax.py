@@ -69,6 +69,9 @@ class PythonIndenter(PostLex):
                 self.paren_level -= 1
                 assert self.paren_level >= 0
 
+        # At EOF, always inject a NEWLINE so the grammar can require
+        # NEWLINE after small statements without requiring trailing newlines in input
+        yield Token(self.NL_type, "\n")
         while len(self.indent_level) > 1:
             self.indent_level.pop()
             yield Token(self.DEDENT_type, "")
@@ -97,14 +100,8 @@ class Ast:
 
 
 @dataclass
-class AstVar(Ast):
-    var: str
-
-
-@dataclass
-class AstTypeExpr(Ast):
-    """A qualified name like A.b.c - used for type annotations"""
-    parts: list[str]
+class AstName(Ast):
+    name: str
 
 
 @dataclass()
@@ -126,7 +123,7 @@ AstLiteral = Union[AstString, AstNumber, AstBoolean]
 
 
 @dataclass
-class AstMemberAccess(Ast):
+class AstGetAttr(Ast):
     parent: "AstExpr"
     attr: str
 
@@ -177,14 +174,14 @@ class AstRange(Ast):
 
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
-AstReference = Union[AstMemberAccess, AstIndexExpr, AstVar]
+AstReference = Union[AstGetAttr, AstIndexExpr, AstName]
 AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 
 
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
-    type_ann: AstTypeExpr | None
+    type_ann: AstExpr | None
     rhs: AstExpr
 
 
@@ -204,7 +201,7 @@ class AstIf(Ast):
 
 @dataclass
 class AstFor(Ast):
-    loop_var: AstVar
+    loop_var: AstName
     range: AstExpr
     body: AstStmtList
 
@@ -213,6 +210,16 @@ class AstFor(Ast):
 class AstWhile(Ast):
     condition: AstExpr
     body: AstStmtList
+
+
+@dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: Union[AstExpr, None]  # Default: no timeout
+    persist: Union[AstExpr, None]  # Default: 0 second interval
+    freq: Union[AstExpr, None]    # Default: 1 second interval
+    body: "AstStmtList"
+    timeout_body: Union["AstStmtList", None] = None
 
 
 @dataclass
@@ -238,11 +245,11 @@ class AstReturn(Ast):
 
 @dataclass
 class AstDef(Ast):
-    name: AstVar
+    name: AstName
     # parameters is a list of (name, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: list[tuple[AstVar, AstTypeExpr, AstExpr | None]]
-    return_type: Union[AstTypeExpr, None]
+    parameters: Union[list[tuple[AstName, AstExpr, AstExpr | None]], None]
+    return_type: Union[AstExpr, None]
     body: AstBlock
 
 
@@ -256,12 +263,13 @@ AstStmt = Union[
     AstBreak,
     AstContinue,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstDef,
     AstReturn
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstDef, AstReturn
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
@@ -270,6 +278,7 @@ AstNodeWithSideEffects = Union[
     AstElif,
     AstFor,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstBreak,
     AstContinue,
@@ -326,6 +335,46 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
+# Check statement clause handlers.
+# The check_stmt grammar has multiple optional clauses (timeout, persist, freq).
+# We use separate grammar rules for each clause so we can tag them and identify
+# which optional clauses were provided, regardless of how many are present.
+def handle_check_clause(tag):
+    """Create a handler that tags an expression with the given clause name."""
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta, expr):
+        return (tag, expr)
+    return wrapper
+
+
+def handle_check_stmt(meta, children):
+    """Parse check statement with optional timeout/persist/freq clauses."""
+    condition = children[0]
+    timeout = None
+    persist = None
+    freq = None
+    body = None
+    timeout_body = None
+    
+    for child in children[1:]:
+        if isinstance(child, tuple) and len(child) == 2:
+            clause_type, expr = child
+            if clause_type == "timeout":
+                timeout = expr
+            elif clause_type == "persist":
+                persist = expr
+            elif clause_type == "freq":
+                freq = expr
+        elif isinstance(child, AstStmtList):
+            if body is None:
+                body = child
+            else:
+                timeout_body = child
+    
+    assert body is not None, "check statement must have a body"
+    return AstCheck(meta, condition, timeout, persist, freq, body, timeout_body)
+
+
 def handle_parameter(meta, args):
     """Parse a single parameter: (name, type, default_value or None)"""
     assert len(args) in (2, 3), f"Expected 2 or 3 args, got {len(args)}: {args}"
@@ -339,7 +388,7 @@ class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
     pass_stmt = AstPass
 
-    assign = AstAssign
+    assign_stmt = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -350,6 +399,12 @@ class FpyTransformer(Transformer):
     assert_stmt = AstAssert
 
     if_stmt = AstIf
+
+    check_timeout = handle_check_clause("timeout")
+    check_persist = handle_check_clause("persist")
+    check_freq = handle_check_clause("freq")
+    check_stmt = no_inline(handle_check_stmt)
+
     elifs = no_inline_or_meta(list)
     elif_ = AstElif
     stmt_list = no_inline(AstStmtList)
@@ -368,22 +423,20 @@ class FpyTransformer(Transformer):
     string = AstString
     number = AstNumber
     boolean = AstBoolean
-    name = no_meta(str)
-    member_access = AstMemberAccess
+    name = AstName
+    get_attr = AstGetAttr
     index_expr = AstIndexExpr
-    var = AstVar
     range = AstRange
-
-    type_expr = no_inline(AstTypeExpr)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
 
-    NAME = str
+    NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
+    HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
     RANGE_OP = str
     STRING = handle_str

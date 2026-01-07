@@ -2,10 +2,10 @@ import pytest
 
 from fprime_gds.common.models.serialize.numerical_types import U32Type as U32Value
 
+from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
-    assert_compile_success,
     assert_run_failure,
     lookup_type,
 )
@@ -46,12 +46,30 @@ var: U32 = 1
     assert_run_success(fprime_test_api, seq)
 
 
-def test_var_bad_name(fprime_test_api):
+def test_var_escaped_reserved_word(fprime_test_api):
+    # $ prefix can be used to escape reserved words like 'def', 'while', etc.
     seq = """
-$var: U32 = 1
+$def: U32 = 1
+$while: U32 = 2
+$if: U32 = 3
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_two_stmts_on_same_line(fprime_test_api):
+    # Two statements on the same line should fail to compile
+    seq = """
+0value: U8 = 0
 """
 
     assert_compile_failure(fprime_test_api, seq)
+
+
+def test_no_trailing_newline(fprime_test_api):
+    # Code without a trailing newline should still compile
+    seq = "x: U32 = 1"  # No trailing newline
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_int_literal(fprime_test_api):
@@ -94,6 +112,34 @@ var: F32 = 1.
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_hex_literal(fprime_test_api):
+    seq = """
+var: U32 = 0xFF
+assert var == 255
+var = 0xDEADBEEF
+assert var == 3735928559
+var = 0x0
+assert var == 0
+var = 0X1A2B
+assert var == 6699
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_hex_literal_underscore(fprime_test_api):
+    seq = """
+var: U32 = 0xFF_FF
+assert var == 65535
+var = 0xDEAD_BEEF
+assert var == 3735928559
+var = 0x00_11_22_33
+assert var == 1122867
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_exit_success(fprime_test_api):
     seq = """
 exit(0)
@@ -105,7 +151,7 @@ def test_exit_failure(fprime_test_api):
     seq = """
 exit(123)
 """
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_large_var(fprime_test_api):
@@ -1331,6 +1377,78 @@ exit(var == var2)
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_const_fold_struct_eq(fprime_test_api):
+    """Test that struct equality can be constant folded"""
+    seq = """
+# Both structs are constant expressions, should be folded at compile time
+if Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) == Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_struct_neq(fprime_test_api):
+    """Test that struct inequality can be constant folded"""
+    seq = """
+# Both structs are constant expressions with different values
+if Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED) != Svc.DpRecord(123, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_enum_eq(fprime_test_api):
+    """Test that enum constant equality can be constant folded"""
+    seq = """
+# Both are enum constants, should be folded at compile time
+if Fw.DpState.UNTRANSMITTED == Fw.DpState.UNTRANSMITTED:
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_enum_neq(fprime_test_api):
+    """Test that enum constant inequality can be constant folded"""
+    seq = """
+# Both are enum constants with different values
+if Fw.DpState.UNTRANSMITTED != Fw.DpState.TRANSMITTED:
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_array_eq(fprime_test_api):
+    """Test that array equality can be constant folded"""
+    seq = """
+# Both arrays are constant expressions, should be folded at compile time
+if Svc.ComQueueDepth(100, 200) == Svc.ComQueueDepth(100, 200):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_const_fold_array_neq(fprime_test_api):
+    """Test that array inequality can be constant folded"""
+    seq = """
+# Both arrays are constant expressions with different values
+if Svc.ComQueueDepth(100, 200) != Svc.ComQueueDepth(100, 300):
+    exit(0)
+exit(1)
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_mod_float(fprime_test_api):
     seq = """
 var1: F32 = 25.25
@@ -1588,8 +1706,19 @@ def recurse(limit: U64):
     recurse(limit - 1)
 
 recurse(5) # prints "tick" 5 times
+
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()})
 
 
 def test_unary_plus_unsigned(fprime_test_api):
@@ -1809,7 +1938,20 @@ if val[idx] == 123:
 exit(1)
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+
+
+def test_get_variable_array_idx_oob_2(fprime_test_api):
+    seq = """
+val: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)
+idx: I8 = -1
+if val[idx] == 123:
+    exit(0)
+exit(1)
+"""
+
+    # TODO this really should also assert the failure code
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_set_variable_array_idx_oob(fprime_test_api):
@@ -1819,7 +1961,7 @@ idx: I8 = 2
 val[idx] = 111
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_set_variable_array_idx(fprime_test_api):
@@ -1955,6 +2097,41 @@ assert i == 7
 """
     assert_run_success(fprime_test_api, seq)
 
+def test_loop_var_redeclare_right_type_after(fprime_test_api):
+    seq = """
+for i in 0 .. 7:
+    assert i >= 0 and i < 7
+
+i: I64 = 123
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+    seq = """
+def test():
+    for i in 0 .. 7:
+        assert i >= 0 and i < 7
+    assert i == 7
+
+i: I64 = 123
+
+assert i == 123
+
+test()
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+    seq = """
+def test():
+    for i in 0 .. 7:
+        pass
+
+    i: I64 = 123
+"""
+    assert_compile_failure(fprime_test_api, seq)
 
 def test_two_fors_same_loop_var(fprime_test_api):
     seq = """
@@ -1992,6 +2169,7 @@ while True:
 
 
 def test_override_global_name(fprime_test_api):
+    # Can't shadow dictionary namespaces with user variables
     seq = """
 CdhCore: U8 = 1
 if CdhCore == 1:
@@ -1999,7 +2177,7 @@ if CdhCore == 1:
 exit(1)
 """
 
-    assert_run_success(fprime_test_api, seq)
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_assert(fprime_test_api):
@@ -2016,7 +2194,7 @@ def test_assert_failure(fprime_test_api):
 assert False
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_assert_failure_with_exit_code(fprime_test_api):
@@ -2024,7 +2202,7 @@ def test_assert_failure_with_exit_code(fprime_test_api):
 assert False, 123
 """
 
-    assert_run_failure(fprime_test_api, seq)
+    assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
 
 def test_assert_wrong_bool_type(fprime_test_api):
@@ -2649,9 +2827,10 @@ def test(arg: U8):
     assert_run_success(fprime_test_api, seq)
 
 
-def test_invalid_var_name(fprime_test_api):
+def test_var_name_special_chars(fprime_test_api):
+    # Variable names with invalid special characters should fail
     seq = """
-$value0: U8 = 0
+@invalid: U8 = 0
 """
 
     assert_compile_failure(fprime_test_api, seq)
@@ -2921,6 +3100,7 @@ def test():
 
 
 def test_redeclare_func_from_var(fprime_test_api):
+    # Functions and variables are in separate scopes, so this is allowed
     seq = """
 
 test: U8 = 0
@@ -2928,10 +3108,11 @@ def test():
     pass
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_redeclare_var_from_func(fprime_test_api):
+    # Functions and variables are in separate scopes, so this is allowed
     seq = """
 
 def test():
@@ -2939,7 +3120,7 @@ def test():
 test: U8 = 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_fib(fprime_test_api):
@@ -3620,3 +3801,506 @@ assert test(c=x, a=y, b=z) == 5.5
 """
 
     assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Tests ====================
+
+
+def test_check_condition_true_immediately(fprime_test_api):
+    """Test that check succeeds immediately when condition is true with zero persist."""
+    seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_when_always_false(fprime_test_api):
+    """Test that check times out when condition is always false."""
+    seq = """
+timed_out: bool = False
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timed_out = True
+assert timed_out
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_condition_evaluated_multiple_times(fprime_test_api):
+    """Test that check evaluates condition multiple times until it becomes true."""
+    seq = """
+# Count how many times condition is evaluated
+eval_count: I64 = 0
+
+def check_condition() -> bool:
+    eval_count = eval_count + 1
+    # Return true on 3rd evaluation
+    return eval_count >= 3
+
+check check_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# Should have been evaluated at least 3 times
+assert eval_count >= 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_condition_must_persist(fprime_test_api):
+    """Test that condition must remain true for the full persist duration.
+    
+    If condition becomes false before persist duration, the timer resets.
+    """
+    seq = """
+# Condition returns true twice, then false, then true forever
+call_count: I64 = 0
+
+def flaky_condition() -> bool:
+    call_count = call_count + 1
+    # True for calls 1-2, false for call 3, true thereafter
+    if call_count <= 2:
+        return True
+    if call_count == 3:
+        return False
+    return True
+
+# With 30ms persist and 10ms freq, condition needs to be true for 3+ consecutive checks
+# Calls 1-2 are true but call 3 is false, resetting the persist timer
+# Call 4+ are true, so it should eventually succeed
+check flaky_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 30000) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# Should have been called more than 3 times since persist timer was reset
+assert call_count > 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_zero_persist_true_once_enough(fprime_test_api):
+    """Test that with zero persist, condition being true once is enough."""
+    seq = """
+# Return true only once, then false forever
+returned_true: bool = False
+
+def return_true_once() -> bool:
+    if not returned_true:
+        returned_true = True
+        return True
+    return False
+
+check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    exit(0)
+timeout:
+    assert False, 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_body_runs_on_success(fprime_test_api):
+    """Test that check body runs when condition succeeds."""
+    seq = """
+body_ran: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    body_ran = True
+assert body_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_timeout_body_runs_on_timeout(fprime_test_api):
+    """Test that timeout body runs when check times out."""
+    seq = """
+timeout_body_ran: bool = False
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 50000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timeout_body_ran = True
+assert timeout_body_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_optional_timeout_body(fprime_test_api):
+    """Test that check works without timeout body."""
+    seq = """
+result: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+    result = True
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_no_timeout_clause(fprime_test_api):
+    """Test check without timeout clause (runs indefinitely until success)."""
+    seq = """
+# Without timeout, check runs until condition succeeds
+call_count: I64 = 0
+
+def eventually_true() -> bool:
+    call_count = call_count + 1
+    return call_count >= 3
+
+check eventually_true():
+    exit(0)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_only_timeout_specified(fprime_test_api):
+    """Test check with only timeout specified (uses default persist=0 and freq=1s)."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    exit(0)
+timeout:
+    assert False, 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_nested_in_function(fprime_test_api):
+    """Test that check statements work inside functions."""
+    seq = """
+def do_check() -> bool:
+    result: bool = False
+    check True timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+        result = True
+    timeout:
+        pass
+    return result
+
+assert do_check()
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_modifies_outer_scope(fprime_test_api):
+    """Test that check body can modify variables in outer scope."""
+    seq = """
+outer_var: I32 = 0
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    outer_var = 42
+
+assert outer_var == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_absolute_timeout(fprime_test_api):
+    """Test that check works with absolute Fw.Time timeout."""
+    seq = """
+# Create an absolute timeout 100ms from now
+abs_timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
+result: bool = False
+check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    result = True
+timeout:
+    pass
+assert result
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Type Error Tests ====================
+
+
+def test_check_timeout_wrong_type(fprime_test_api):
+    """Test that check timeout with wrong type gives compile error."""
+    seq = """
+check True timeout 123 persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type(fprime_test_api):
+    """Test that check condition must be bool, not int."""
+    seq = """
+check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_condition_wrong_type_string(fprime_test_api):
+    """Test that check condition must be bool, not string."""
+    seq = """
+check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_persist_wrong_type_time(fprime_test_api):
+    """Test that check persist must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist now() freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_freq_wrong_type(fprime_test_api):
+    """Test that check freq must be TimeIntervalValue, not int."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq 123:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_freq_wrong_type_time(fprime_test_api):
+    """Test that check freq must be TimeIntervalValue, not Fw.Time."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq now():
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_func_modify_param(fprime_test_api):
+    seq = """
+def test(arg: U8):
+    arg = 1
+    assert arg == 1
+
+val: U8 = 123
+test(val)
+assert val == 123
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Simulated Time Tests ====================
+
+
+class TestSimulatedTime:
+    """Tests for simulated time functionality.
+    
+    These tests verify that the sequencer model properly:
+    - Tracks simulated time
+    - Advances time when sleep() is called
+    - Returns the configured time_base from now()
+    - Correctly handles time_base incompatibility
+    """
+
+    def test_now_returns_initial_time(self, fprime_test_api):
+        """Test that now() returns the configured initial time."""
+        seq = """
+t: Fw.Time = now()
+# Initial time of 5 seconds = 5,000,000 microseconds
+# time_base=0, time_context=0
+assert t.time_base == 0
+assert t.time_context == 0
+assert t.seconds == 5
+assert t.useconds == 0
+"""
+        assert_run_success(fprime_test_api, seq, initial_time_us=5_000_000)
+
+    def test_now_returns_configured_time_base(self, fprime_test_api):
+        """Test that now() returns the configured time_base."""
+        seq = """
+t: Fw.Time = now()
+# Configured time_base=2
+assert t.time_base == 2
+assert t.time_context == 0
+"""
+        assert_run_success(fprime_test_api, seq, time_base=2)
+
+    def test_now_returns_configured_time_context(self, fprime_test_api):
+        """Test that now() returns the configured time_context."""
+        seq = """
+t: Fw.Time = now()
+# Configured time_context=4
+assert t.time_context == 42
+"""
+        assert_run_success(fprime_test_api, seq, time_context=42)
+
+    def test_sleep_advances_simulated_time(self, fprime_test_api):
+        """Test that sleep() advances simulated time correctly."""
+        seq = """
+# Get time before sleep
+t_before: Fw.Time = now()
+
+# Sleep for 2 seconds and 500000 microseconds (2.5 seconds total)
+sleep(2, 500000)
+
+# Get time after sleep
+t_after: Fw.Time = now()
+
+# Calculate the elapsed time
+elapsed: Fw.TimeIntervalValue = time_sub(t_after, t_before)
+
+# Should have slept for exactly 2.5 seconds
+assert elapsed.seconds == 2
+assert elapsed.useconds == 500000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_sleep_multiple_times_accumulates(self, fprime_test_api):
+        """Test that multiple sleep() calls accumulate time correctly."""
+        seq = """
+t_start: Fw.Time = now()
+
+# Sleep 1 second
+sleep(1, 0)
+# Sleep 0.5 seconds
+sleep(0, 500000)
+# Sleep 0.25 seconds
+sleep(0, 250000)
+
+t_end: Fw.Time = now()
+elapsed: Fw.TimeIntervalValue = time_sub(t_end, t_start)
+
+# Total: 1.75 seconds
+assert elapsed.seconds == 1
+assert elapsed.useconds == 750000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_cmp_same_time_base_works(self, fprime_test_api):
+        """Test that time_cmp works when both times have the same time_base."""
+        seq = """
+t1: Fw.Time = now()
+sleep(1, 0)
+t2: Fw.Time = now()
+
+# t2 should be greater than t1
+result: I8 = time_cmp(t1, t2)
+assert result == -1  # t1 < t2
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_with_different_time_base_crashes(self, fprime_test_api):
+        """Test that check crashes when now() and timeout have different time_bases.
+        
+        This tests the full check statement integration: the check desugars to use
+        time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
+        """
+        seq = """
+# Construct a timeout with a different time_base than what now() returns
+# now() returns time_base=0 by default
+# Set timeout with time_base=1
+bad_timeout: Fw.Time = Fw.Time(1, 0, 100, 0)
+
+check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+    pass
+timeout:
+    pass
+"""
+        # Now run with default time_base=0, but the timeout uses time_base=1
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+
+    def test_check_with_simulated_time_timeout(self, fprime_test_api):
+        """Test that check properly times out based on simulated time advancement.
+        
+        This test verifies the full check loop:
+        1. now() returns simulated time
+        2. sleep() advances simulated time
+        3. Check properly detects timeout when simulated time exceeds deadline
+        """
+        seq = """
+timed_out: bool = False
+
+# Set timeout to be 100ms from now
+# With freq of 10ms, we'll check ~10 times before timeout
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    # This shouldn't run because condition is always false
+    assert False, 1
+timeout:
+    timed_out = True
+
+assert timed_out
+"""
+        # Start at time 0, each sleep(0, 10000) advances 10ms
+        # After ~10 iterations, we hit 100ms and timeout
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_condition_persists_over_simulated_time(self, fprime_test_api):
+        """Test that persist duration is measured using simulated time.
+        
+        The check condition must remain true for the full persist duration
+        (measured in simulated time).
+        """
+        seq = """
+# Track how many times the condition is checked
+check_count: I64 = 0
+
+def condition() -> bool:
+    check_count = check_count + 1
+    return True  # Always true
+
+# Require condition to persist for 50ms with 10ms frequency
+# Should need ~5 checks to persist
+check condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 50000) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+# With simulated time, we should have checked at least 5 times
+# (initial + enough to accumulate 50ms of persistence)
+assert check_count >= 5
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_sleep_float_advances_time(self, fprime_test_api):
+        """Test that sleep with float argument advances simulated time."""
+        seq = """
+t_before: Fw.Time = now()
+
+# Sleep for 1.5 seconds (1 second + 500000 microseconds)
+sleep(1, 500000)
+
+t_after: Fw.Time = now()
+elapsed: Fw.TimeIntervalValue = time_sub(t_after, t_before)
+
+# Should have slept for 1.5 seconds
+assert elapsed.seconds == 1
+assert elapsed.useconds == 500000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_now_time_base_preserved_through_check(self, fprime_test_api):
+        """Test that now() consistently returns the configured time_base throughout check."""
+        seq = """
+# Verify time_base is consistent inside check
+check_count: I64 = 0
+time_base_ok: bool = True
+
+def check_time_base() -> bool:
+    check_count = check_count + 1
+    t: Fw.Time = now()
+    # Should always have time_base=3
+    if t.time_base != 3:
+        time_base_ok = False
+    return check_count >= 3
+
+check check_time_base() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+timeout:
+    assert False, 1
+
+assert time_base_ok
+assert check_count >= 3
+"""
+        assert_run_success(fprime_test_api, seq, time_base=3)
