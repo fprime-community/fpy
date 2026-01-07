@@ -62,12 +62,12 @@ The following language constructs may be symbols:
 * parameters
 * enum constants
 TODO members?
-you're selecting a member of a value--not referring to a static member. when you say a.b you're asking fgor a comp to be performed
+TODO you're selecting a member of a value--not referring to a static member. when you say a.b you're asking fgor a comp to be performed
 
 ## Scopes
 
 A **scope** is a mapping of names to symbols, accessed via some region of the source code.
-a scope is a REGION
+TODO a scope IS a REGION
 
 The **global scope** is the scope accessible throughout the entire source code.
 
@@ -89,7 +89,7 @@ The list of name groups is:
 * The **[callable](#callables) name group**
 
 Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
-Maybe could remove this line
+TODO Maybe could remove this line
 
 TODO explain why we need this
 Name groups do not intersect.
@@ -99,8 +99,8 @@ Name groups do not intersect.
 Name groups are accessed via syntactic context.
 TODO this is really just an ecplanation
 
-A.b is an expr, A is an expr, b is not an expression. A.b is a dot expression. b is not an expression, it's part of a 
-Does it refer to something that has a scope, or does it refer to something that has members.
+TODO A.b is an expr, A is an expr, b is not an expression. A.b is a dot expression. b is not an expression, it's part of a 
+TODO Does it refer to something that has a scope, or does it refer to something that has members.
 
 > For instance, the type name group is accessible anywhere in the source code where a type name is expected, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
 
@@ -130,7 +130,12 @@ To resolve a qualified name in a name group:
 
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
-If all qualifiers have been resolved, and the qualified name does not resolve to a non-namespace symbol, an error is raised.
+A **fully-qualified name** is a qualified name which is not itself a qualifier.
+
+If a fully-qualified name resolves to a namespace, an error is raised.
+
+> Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"
+
 TODO I'm not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING--cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.
 
 ## Definitions
@@ -153,6 +158,7 @@ TODO: give a list of statements
 A **variable definition statement** introduces a name-to-variable mapping in its resolving scope.
 
 ### Syntax
+
 Rule:
 
 `variable_declare_stmt: name ":" qualified_name "=" expr`
@@ -722,7 +728,7 @@ TODO specify what happens if the abs value is outside of i64
 
 
 ## Time functions
-Fpy provides builtin functions for comparing and manipulating time values:
+TODO Fpy provides builtin functions for comparing and manipulating time values:
 
 * `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
 * `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
@@ -732,12 +738,10 @@ Fpy provides builtin functions for comparing and manipulating time values:
 These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
 
 ## Constructors
-Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
+TODO Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
 
 ## Numeric casts
-Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
-
-Each finite-bitwidth numeric type exposes an explicit cast with the same name as the type, e.g. `U32(value)` or `F64(value)`. Casts accept any numeric expression and bypass the implicit-coercion restrictions above: the operand is forced to the target type even when that entails narrowing, and compile-time range checks are suppressed. No casts exist for structs, arrays, enums, strings, or `Fw.Time`.
+TODO Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See [Casting](#casting) for details.
 
 # Types
 
@@ -884,14 +888,11 @@ The **field base** of a field is the first non-field parent of a field.
 
 ## Populating dictionary types
 
-For each type `T` with qualified name `Q.N` encountered in the F-Prime dictionary:
-1. Create a namespace for the qualifier.
-2. `T` maps to `N` in the qualifier's namespace.
+For each type `T` with fully-qualified name `F.Q.N` encountered in the F-Prime dictionary, that type will be present in the global scope with the same fully-qualified name.
 
 ## Type conversion
 
-Type conversion is the process of converting an expression from one type to another. It can either be implicit, in which case it is called coercion, or explicit, in which case it is called casting.
-
+TODO Type conversion is the process of converting an expression from one type to another. It can either be implicit, in which case it is called coercion, or explicit, in which case it is called casting.
 
 ### Intermediate types
 
