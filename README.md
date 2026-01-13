@@ -43,7 +43,7 @@ For types, Fpy has most of the same basic ones that FPP does:
 
 Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
-Note there is currently no built-in `string` type. See [Strings](#17-strings).
+Note there is currently no built-in `string` type. See [Strings](#18-strings).
 
 ## 3. Type coercion and casting
 If you have a lower-bitwidth numerical type and want to turn it into a higher-bitwidth type, this happens automatically:
@@ -145,9 +145,9 @@ param4: F32 = 15.0
 Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
 ```
 
-You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#15-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
+You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#16-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
 
-There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#17-strings).
+There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#18-strings).
 
 ## 7. Getting Telemetry Channels and Parameters
 
@@ -397,7 +397,57 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## 15. Exit Macro
+## 15. Time Functions
+Fpy provides built-in functions for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
+
+You can get the current time with `now()`:
+```py
+current_time: Fw.Time = now()
+```
+
+The underlying implementation of `now()` just calls the `getTime` port on the `FpySequencer` component.
+
+You can compare two `Fw.Time` values with `time_cmp`:
+```py
+t1: Fw.Time = now()
+sleep(1, 0)
+t2: Fw.Time = now()
+
+result: I8 = time_cmp(t1, t2)
+assert result == -1 # t1 should be before t2
+# result == -1 if t1 < t2
+# result == 0 if t1 == t2
+# result == 1 if t1 > t2
+# result == 2 if the time bases are different (incomparable)
+```
+
+You can compare two `Fw.TimeIntervalValue` values with `time_interval_cmp`:
+```py
+interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
+interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+
+assert time_interval_cmp(interval1, interval2) == -1 # interval1 < interval2
+```
+
+You can add a `Fw.TimeIntervalValue` to a `Fw.Time` with `time_add`:
+```py
+current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
+offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+future: Fw.Time = time_add(current, offset)
+assert future.seconds == 160
+```
+
+You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue` with `time_sub`:
+```py
+start: Fw.Time = Fw.Time(1, 0, 100, 0)
+end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+elapsed: Fw.TimeIntervalValue = time_sub(end, start)
+assert elapsed.seconds == 5
+```
+
+> Note: `time_sub` asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+
+## 16. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
 ```py
 # exit takes a U8 argument
@@ -407,7 +457,7 @@ exit(0)
 exit(123)
 ```
 
-## 16. Assertions
+## 17. Assertions
 You can assert that a Boolean condition is true:
 ```py
 # won't end the sequence
@@ -422,5 +472,5 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
-## 17. Strings
+## 18. Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.
