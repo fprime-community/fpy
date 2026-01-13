@@ -4078,6 +4078,162 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIn
     assert_compile_failure(fprime_test_api, seq)
 
 
+# ==================== Check Statement Multi-line Syntax Tests ====================
+
+
+def test_check_multiline_timeout_only(fprime_test_api):
+    """Test multi-line check with only timeout clause."""
+    seq = """
+check_passed: bool = False
+check True
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_multiline_all_clauses(fprime_test_api):
+    """Test multi-line check with all three clauses."""
+    seq = """
+check_passed: bool = False
+check True
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+    persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_multiline_different_order(fprime_test_api):
+    """Test multi-line check with clauses in different order (freq, persist, timeout)."""
+    seq = """
+check_passed: bool = False
+check True
+    freq Fw.TimeIntervalValue(0, 100000)
+    persist Fw.TimeIntervalValue(0, 0)
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_multiline_persist_timeout_order(fprime_test_api):
+    """Test multi-line check with persist before timeout."""
+    seq = """
+check_passed: bool = False
+check True
+    persist Fw.TimeIntervalValue(0, 0)
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_singleline_any_order_persist_first(fprime_test_api):
+    """Test single-line check with persist before timeout."""
+    seq = """
+check_passed: bool = False
+check True persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_singleline_any_order_freq_first(fprime_test_api):
+    """Test single-line check with freq before other clauses."""
+    seq = """
+check_passed: bool = False
+check True freq Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_singleline_only_persist(fprime_test_api):
+    """Test single-line check with only persist clause."""
+    seq = """
+check_passed: bool = False
+check True persist Fw.TimeIntervalValue(0, 0):
+    check_passed = True
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_singleline_only_freq(fprime_test_api):
+    """Test single-line check with only freq clause."""
+    seq = """
+check_passed: bool = False
+check True freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_multiline_timeout_occurs(fprime_test_api):
+    """Test multi-line check that times out."""
+    seq = """
+timed_out: bool = False
+check False
+    timeout time_add(now(), Fw.TimeIntervalValue(0, 100000))
+    freq Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timed_out = True
+assert timed_out
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_mixed_inline_and_multiline(fprime_test_api):
+    """Test check with some clauses inline and some on indented lines."""
+    seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+    persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_mixed_two_inline_one_multiline(fprime_test_api):
+    """Test check with two clauses inline and one on indented line."""
+    seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_func_modify_param(fprime_test_api):
     seq = """
 def test(arg: U8):
