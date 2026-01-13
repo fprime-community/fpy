@@ -61,10 +61,22 @@ while_stmt: "while" expr ":" stmt_list
 # check statement
 # check has a conditional, optional timeout/persist/freq expressions, a list of body statements,
 # and an optional list of timeout body statements
+# The clauses can appear on the same line as the condition, or on separate indented lines.
 check_timeout: "timeout" expr
 check_persist: "persist" expr
 check_freq: "freq" expr
-check_stmt: "check" expr [check_timeout] [check_persist] [check_freq] ":" stmt_list ["timeout" ":" stmt_list]
+# For multi-line format: the last clause can have the colon attached
+check_timeout_final: "timeout" expr ":"
+check_persist_final: "persist" expr ":"
+check_freq_final: "freq" expr ":"
+check_clause: check_timeout | check_persist | check_freq
+check_clause_final: check_timeout_final | check_persist_final | check_freq_final
+# Multi-line clauses: zero or more non-final clauses (each followed by newline),
+# followed by one final clause with colon, then statements at same indentation
+check_clauses: _NEWLINE _INDENT (check_clause _NEWLINE)* check_clause_final _NEWLINE _stmt+ _DEDENT
+# Single-line: clauses can appear in any order (but no duplicates - checked semantically)
+check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]
+          | "check" expr check_clauses ["timeout" ":" stmt_list]
 # -> AstCheck(condition, timeout, persist, freq, body, timeout_body)
 
 

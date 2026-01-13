@@ -347,6 +347,27 @@ def handle_check_clause(tag):
     return wrapper
 
 
+def handle_check_clauses(meta, children):
+    """Parse multi-line check clauses and body statements.
+    
+    Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
+    (clause_type, expr) tuples and body_stmts is an AstStmtList.
+    """
+    clauses = []
+    stmts = []
+    
+    for child in children:
+        if isinstance(child, tuple) and len(child) == 2:
+            # This is a clause: (clause_type, expr)
+            clauses.append(child)
+        else:
+            # This is a statement AST node
+            stmts.append(child)
+    
+    # Return as a special tuple that handle_check_stmt can recognize
+    return ("check_clauses_result", clauses, AstStmtList(meta, stmts))
+
+
 def handle_check_stmt(meta, children):
     """Parse check statement with optional timeout/persist/freq clauses."""
     condition = children[0]
@@ -357,7 +378,18 @@ def handle_check_stmt(meta, children):
     timeout_body = None
     
     for child in children[1:]:
-        if isinstance(child, tuple) and len(child) == 2:
+        # Handle check_clauses which returns ("check_clauses_result", clauses, body)
+        if isinstance(child, tuple) and len(child) == 3 and child[0] == "check_clauses_result":
+            _, clauses, stmts = child
+            for clause_type, expr in clauses:
+                if clause_type == "timeout":
+                    timeout = expr
+                elif clause_type == "persist":
+                    persist = expr
+                elif clause_type == "freq":
+                    freq = expr
+            body = stmts
+        elif isinstance(child, tuple) and len(child) == 2:
             clause_type, expr = child
             if clause_type == "timeout":
                 timeout = expr
@@ -403,6 +435,19 @@ class FpyTransformer(Transformer):
     check_timeout = handle_check_clause("timeout")
     check_persist = handle_check_clause("persist")
     check_freq = handle_check_clause("freq")
+    check_timeout_final = handle_check_clause("timeout")
+    check_persist_final = handle_check_clause("persist")
+    check_freq_final = handle_check_clause("freq")
+
+    @v_args(meta=True, inline=True)
+    def check_clause(self, meta, x):
+        return x  # pass through
+
+    @v_args(meta=True, inline=True)
+    def check_clause_final(self, meta, x):
+        return x  # pass through
+
+    check_clauses = no_inline(handle_check_clauses)
     check_stmt = no_inline(handle_check_stmt)
 
     elifs = no_inline_or_meta(list)
