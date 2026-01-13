@@ -688,11 +688,11 @@ At evaluation:
 ### `sleep`
 #### Signature
 
-`sleep(seconds: U32, microseconds: U32)`
+`sleep(seconds: U32 = 0, useconds: U32 = 0)`
 
 #### Semantics
 
-At evaluation, the program [sleeps](#sleeping) for a duration of `seconds` seconds and `microseconds` microseconds.
+At evaluation, the program [sleeps](#sleeping) for a duration of `seconds` seconds and `useconds` microseconds.
 
 ### `sleep_until`
 #### Signature
@@ -790,7 +790,7 @@ The list of primitive types is:
 
 `F32`, and `F64` are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.
 
-> There are other numerical types such as [Int or Float](#internal-types) which are not primitve.
+> There are other numerical types such as [Int or Float](#internal-types) which are not primitive.
 
 ### Boolean type
 `bool` is a primitive type whose only values may be the [Boolean literals](todo) `True` and `False`.
