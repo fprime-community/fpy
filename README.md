@@ -241,7 +241,16 @@ check CdhCore.cmdDisp.commandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): #
 
 If you don't specify a value for `freq`, the default frequency is 1 Hertz.
 
-The order of `timeout`, `persist` and `freq` always has to be `timeout`, then `persist`, then `freq`.
+The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
+```py
+check CdhCore.cmdDisp.commandsDispatched > 30
+    timeout time_add(now(), Fw.TimeIntervalValue(60, 0))
+    persist Fw.TimeIntervalValue(2, 0)
+    freq Fw.TimeIntervalValue(1, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+```
 
 ## 11. Getting Struct Members and Array Items
 

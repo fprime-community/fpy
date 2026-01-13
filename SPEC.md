@@ -577,7 +577,11 @@ The **check statement** executes a block of code if a Boolean expression evaluat
 ## Syntax
 Rule:
 
-`check_stmt: "check" expr ["timeout" expr] ["persist" expr] ["freq" expr] ":" stmt_list ["timeout" ":" stmt_list]`
+`check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]`
+
+`check_clause: "timeout" expr | "persist" expr | "freq" expr`
+
+The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause).
 
 Name:
 
