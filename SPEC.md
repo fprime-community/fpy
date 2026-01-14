@@ -99,6 +99,9 @@ Name groups do not intersect.
 Name groups are accessed via syntactic context.
 TODO this is really just an ecplanation
 
+TODO type names should NOT be expressions
+
+
 TODO A.b is an expr, A is an expr, b is not an expression. A.b is a dot expression. b is not an expression, it's part of a 
 TODO Does it refer to something that has a scope, or does it refer to something that has members.
 
@@ -131,8 +134,11 @@ To resolve a qualified name in a name group:
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
 A **fully-qualified name** is a qualified name which is not itself a qualifier.
-
+TODO names are semantic, ident is syntactic
+TODO you can't actually tell at syntax level what is a fqn
 If a fully-qualified name resolves to a namespace, an error is raised.
+TODO you can think of the dict as "importing definitions"
+
 
 > Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"
 
