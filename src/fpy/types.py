@@ -62,7 +62,7 @@ from fpy.syntax import (
     Ast,
     AstReturn,
     AstBlock,
-    AstName,
+    AstIdent,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue

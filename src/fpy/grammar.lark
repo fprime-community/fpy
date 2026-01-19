@@ -167,7 +167,7 @@ argument: NAME "=" expr -> named_argument
 # positional_argument just creates whatever node the expr creates
 
 name: NAME
-# -> AstName(value)
+# -> AstIdent(value)
 
 RANGE_OPERATOR: ".."
 

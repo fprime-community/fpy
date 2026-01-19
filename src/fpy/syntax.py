@@ -100,7 +100,7 @@ class Ast:
 
 
 @dataclass
-class AstName(Ast):
+class AstIdent(Ast):
     name: str
 
 
@@ -174,7 +174,7 @@ class AstRange(Ast):
 
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
-AstReference = Union[AstGetAttr, AstIndexExpr, AstName]
+AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
 AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
 
 
@@ -201,7 +201,7 @@ class AstIf(Ast):
 
 @dataclass
 class AstFor(Ast):
-    loop_var: AstName
+    loop_var: AstIdent
     range: AstExpr
     body: AstStmtList
 
@@ -245,10 +245,10 @@ class AstReturn(Ast):
 
 @dataclass
 class AstDef(Ast):
-    name: AstName
-    # parameters is a list of (name, type, default_value) tuples
+    name: AstIdent
+    # parameters is a list of (ident, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: Union[list[tuple[AstName, AstExpr, AstExpr | None]], None]
+    parameters: Union[list[tuple[AstIdent, AstExpr, AstExpr | None]], None]
     return_type: Union[AstExpr, None]
     body: AstBlock
 
@@ -468,7 +468,7 @@ class FpyTransformer(Transformer):
     string = AstString
     number = AstNumber
     boolean = AstBoolean
-    name = AstName
+    name = AstIdent
     get_attr = AstGetAttr
     index_expr = AstIndexExpr
     range = AstRange

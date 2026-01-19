@@ -18,7 +18,7 @@ from fpy.syntax import (
     AstRange,
     AstStmtList,
     AstUnaryOp,
-    AstName,
+    AstIdent,
     AstWhile,
 )
 from fpy.types import (
@@ -73,7 +73,7 @@ class DesugarForLoops(Transformer):
             # create a new node for the type_ann
             loop_var_type_var = self.new(
                 state,
-                AstName(None, loop_var_type_name),
+                AstIdent(None, loop_var_type_name),
                 contextual_type=None,
                 synthesized_type=None,
                 contextual_value=None,
@@ -101,9 +101,9 @@ class DesugarForLoops(Transformer):
         # ub var for use in assignment
         # type is gonna be loop var type
         # gonna be used in the astassign lhs, no need assign a type in the dict
-        upper_bound_var: AstName = self.new(
+        upper_bound_var: AstIdent = self.new(
             state,
-            AstName(None, loop_info.upper_bound_var.name),
+            AstIdent(None, loop_info.upper_bound_var.name),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -115,7 +115,7 @@ class DesugarForLoops(Transformer):
         # create a new node for the type_ann
         loop_var_type_var = self.new(
             state,
-            AstName(None, loop_var_type_name),
+            AstIdent(None, loop_var_type_name),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -146,7 +146,7 @@ class DesugarForLoops(Transformer):
         # we've already determined the dir
         lhs = self.new(
             state,
-            AstName(None, loop_info.loop_var.name),
+            AstIdent(None, loop_info.loop_var.name),
             contextual_type=LoopVarType,
             synthesized_type=LoopVarType,
             contextual_value=None,
@@ -181,7 +181,7 @@ class DesugarForLoops(Transformer):
         # create a new loop var symbol for use in lhs of loop var inc
         lhs = self.new(
             state,
-            AstName(None, loop_info.loop_var.name),
+            AstIdent(None, loop_info.loop_var.name),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -208,7 +208,7 @@ class DesugarForLoops(Transformer):
         # create a new loop var symbol for use in lhs
         lhs = self.new(
             state,
-            AstName(None, loop_info.loop_var.name),
+            AstIdent(None, loop_info.loop_var.name),
             contextual_type=LoopVarType,
             synthesized_type=LoopVarType,
             contextual_value=None,
@@ -217,7 +217,7 @@ class DesugarForLoops(Transformer):
         )
         rhs = self.new(
             state,
-            AstName(None, loop_info.upper_bound_var.name),
+            AstIdent(None, loop_info.upper_bound_var.name),
             contextual_type=LoopVarType,
             synthesized_type=LoopVarType,
             contextual_value=None,
@@ -392,8 +392,8 @@ class DesugarCheckStatements(Transformer):
         self.var_counter += 1
         return name
     
-    def name(self, name: str) -> AstName:
-        return AstName(self.meta, name)
+    def ident(self, name: str) -> AstIdent:
+        return AstIdent(self.meta, name)
     
     def number(self, val: int) -> AstNumber:
         return AstNumber(self.meta, val)
@@ -410,13 +410,13 @@ class DesugarCheckStatements(Transformer):
         if len(parts) == 0:
             raise ValueError("qualified_name requires at least one part")
         
-        result = self.name(parts[0])
+        result = self.ident(parts[0])
         for part in parts[1:]:
             result = self.member(result, part)
         return result
     
     def call(self, func_name: str, *args) -> AstFuncCall:
-        func = self.name(func_name)
+        func = self.ident(func_name)
         return AstFuncCall(self.meta, func, list(args) if args else [])
     
     def call_parts(self, func_parts: list[str], *args) -> AstFuncCall:
@@ -468,7 +468,7 @@ class DesugarCheckStatements(Transformer):
         
         # Helper to reference check_state members
         def cs(attr: str):
-            return self.member(self.name(check_state_name), attr)
+            return self.member(self.ident(check_state_name), attr)
         
         # Build the CheckState constructor call
         # $CheckState(persist=<persist>, timeout=<timeout>, freq=<freq>, 
@@ -516,7 +516,7 @@ class DesugarCheckStatements(Transformer):
         
         # 1. $check_state: $CheckState = $CheckState(...)
         init_check_state = self.assign(
-            self.name(check_state_name),
+            self.ident(check_state_name),
             check_state_init,
             self.qualified_name("$CheckState")
         )
@@ -524,7 +524,7 @@ class DesugarCheckStatements(Transformer):
         # Build the while loop body
         # 2. $current_time: Fw.Time = now()
         get_current_time = self.assign(
-            self.name(current_time_name),
+            self.ident(current_time_name),
             self.call("now"),
             self.qualified_name("Fw", "Time")
         )
@@ -536,21 +536,21 @@ class DesugarCheckStatements(Transformer):
         if has_timeout:
             # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
             check_timeout = self.assign(
-                self.name(timed_out_name),
-                self.call("time_cmp", self.name(current_time_name), cs("timeout")),
+                self.ident(timed_out_name),
+                self.call("time_cmp", self.ident(current_time_name), cs("timeout")),
                 self.qualified_name("I8")
             )
             
             # 4. assert $timed_out != 2, 1
             assert_comparable = AstAssert(
                 self.meta,
-                self.binary(self.name(timed_out_name), "!=", self.number(2)),
+                self.binary(self.ident(timed_out_name), "!=", self.number(2)),
                 self.number(1)
             )
             
             # 5. if $timed_out == 1: break
             timeout_break = self.if_stmt(
-                self.binary(self.name(timed_out_name), "==", self.number(1)),
+                self.binary(self.ident(timed_out_name), "==", self.number(1)),
                 [self.break_stmt()]
             )
             
@@ -573,17 +573,17 @@ class DesugarCheckStatements(Transformer):
         update_last_true = self.if_stmt(
             self.unary("not", cs("last_was_true")),
             [
-                self.assign(cs("last_time_true"), self.name(current_time_name)),
+                self.assign(cs("last_time_true"), self.ident(current_time_name)),
                 self.assign(cs("last_was_true"), self.boolean(True)),
             ]
         )
         
         # Check if condition has persisted long enough
         check_persist = self.assign(
-            self.name(succeeded_name),
+            self.ident(succeeded_name),
             self.call(
                 "time_interval_cmp",
-                self.call("time_sub", self.name(current_time_name), cs("last_time_true")),
+                self.call("time_sub", self.ident(current_time_name), cs("last_time_true")),
                 cs("persist")
             ),
             self.qualified_name("I8")
@@ -591,16 +591,16 @@ class DesugarCheckStatements(Transformer):
         
         assert_persist_comparable = AstAssert(
             self.meta,
-            self.binary(self.name(succeeded_name), "!=", self.number(2)),
+            self.binary(self.ident(succeeded_name), "!=", self.number(2)),
             self.number(1)
         )
         
         # if succeeded == 0 or succeeded == 1
         success_check = self.if_stmt(
             self.binary(
-                self.binary(self.name(succeeded_name), "==", self.number(1)),
+                self.binary(self.ident(succeeded_name), "==", self.number(1)),
                 "or",
-                self.binary(self.name(succeeded_name), "==", self.number(0))
+                self.binary(self.ident(succeeded_name), "==", self.number(0))
             ),
             [
                 self.assign(cs("result"), self.boolean(True)),

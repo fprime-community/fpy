@@ -105,7 +105,7 @@ from fpy.syntax import (
     AstAssign,
     AstFuncCall,
     AstUnaryOp,
-    AstName,
+    AstIdent,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -177,7 +177,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # otherwise we good
             return
 
-        assert is_instance_compat(node.lhs, AstName), node.lhs
+        assert is_instance_compat(node.lhs, AstIdent), node.lhs
         # variable decl or assign
         scope = state.enclosing_value_scope[node]
 
@@ -227,7 +227,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # or loop_var has been defined before and we only know the type, but have no type expr (from some other for loop)
 
             # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type name is an AstName
+            # case 2 is harder, we have to check if the type ident is an AstIdent
             # that matches the canonical name of the LoopVarType
 
             # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
@@ -236,7 +236,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
                 loop_var.type is None
                 and not (
-                    is_instance_compat(loop_var.type_ref, AstName)
+                    is_instance_compat(loop_var.type_ref, AstIdent)
                     and loop_var.type_ref.name == LoopVarType.get_canonical_name()
                 )
             ):
@@ -384,7 +384,7 @@ class ResolveQualifiedNames(TopDownVisitor):
             attrs.append(root_node)
             root_node = root_node.parent
 
-        if not is_instance_compat(root_node, AstName):
+        if not is_instance_compat(root_node, AstIdent):
             # not a qualified name
             # skip for now
             return True
@@ -551,12 +551,12 @@ class ResolveQualifiedNames(TopDownVisitor):
     def visit_AstLiteral_AstGetAttr(
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
-        # this is because they do not imply anything about the context in which an AstName should get
+        # this is because they do not imply anything about the context in which an AstIdent should get
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
         # resolved
         pass
 
-    def visit_AstName(self, node: AstName, state: CompileState):
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node in state.resolved_symbols:
             # it exists in a context where we can resolve it
             return
@@ -613,7 +613,7 @@ class EnsureVariableNotReferenced(Visitor):
         super().__init__()
         self.var = var
 
-    def visit_AstName(self, node: AstName, state: CompileState):
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
         sym = state.resolved_symbols[node]
         if sym == self.var:
             state.err(f"'{node.name}' used before defined", node)
@@ -642,7 +642,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
         self.currently_defined_vars.append(var)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if not is_instance_compat(node.lhs, AstName):
+        if not is_instance_compat(node.lhs, AstIdent):
             # definitely not a declaration, it's a field assignment
             return
 
@@ -659,7 +659,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
         # Now mark this variable as defined
         self.currently_defined_vars.append(var)
 
-    def visit_AstName(self, node: AstName, state: CompileState):
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
         sym = state.resolved_symbols[node]
         if not is_instance_compat(sym, VariableSymbol):
             # not a variable, might be a type name or smth
@@ -994,7 +994,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         state.synthesized_types[node] = parent_type.MEMBER_TYPE
         state.contextual_types[node] = parent_type.MEMBER_TYPE
 
-    def visit_AstName(self, node: AstName, state: CompileState):
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
         # already been resolved
         sym = state.resolved_symbols[node]
         if sym is None:
@@ -1624,7 +1624,7 @@ class CalculateConstExprValues(Visitor):
                 return
         state.contextual_values[node] = expr_value
 
-    def visit_AstName(self, node: AstName, state: CompileState):
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
         sym = state.resolved_symbols[node]
         if not is_symbol_an_expr(sym):
             return
