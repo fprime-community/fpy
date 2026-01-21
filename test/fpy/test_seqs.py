@@ -508,6 +508,16 @@ sleep(1, 1000)
     assert_run_success(fprime_test_api, seq)
 
 
+def test_wait_rel_default_args(fprime_test_api):
+    seq = """
+sleep()
+sleep(5)
+sleep(seconds=3)
+sleep(useconds=500)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_wait_abs(fprime_test_api):
     seq = """
 sleep_until(Fw.Time(2, 0, 123, 123))
@@ -1624,6 +1634,12 @@ uint: U32 = 123123
 int: I32 = I32(uint)
 assert int == 123123
 
+CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
+# sleep for 1 second
+sleep(1)
+CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+# sleep for half a second
+sleep(useconds=500_000)
 
 value: bool = 1 > 2 and (3 + 4) != 5
 many_cmds_dispatched: bool = cmds_dispatched >= 123
@@ -3736,7 +3752,7 @@ assert pair.secondChoice == Ref.Choice.TWO
 def test_named_arg_builtin(fprime_test_api):
     """Named arguments work with builtin functions."""
     seq = """
-sleep(microseconds=1000, seconds=1)
+sleep(useconds=1000, seconds=1)
 """
 
     assert_run_success(fprime_test_api, seq)
@@ -4477,3 +4493,116 @@ assert time_base_ok
 assert check_count >= 3
 """
         assert_run_success(fprime_test_api, seq, time_base=3)
+# ==================== Time Function Tests ====================
+
+
+def test_time_function_basic(fprime_test_api):
+    """time() parses ISO 8601 strings to Fw.Time."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00Z")
+# Unix timestamp for 2000-01-01T00:00:00Z is 946684800
+assert t.seconds == 946684800
+assert t.useconds == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_with_microseconds(fprime_test_api):
+    """time() parses ISO 8601 strings with microseconds."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00.123456Z")
+assert t.seconds == 946684800
+assert t.useconds == 123456
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_sleep_until(fprime_test_api):
+    """time() can be passed directly to sleep_until()."""
+    seq = """
+sleep_until(time("2000-01-01T00:00:00Z"))
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_invalid_format(fprime_test_api):
+    """Invalid time string format should fail at compile time."""
+    seq = """
+t: Fw.Time = time("not a valid time")
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_time_function_invalid_format_2(fprime_test_api):
+    """Time string without Z suffix should fail."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00")
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_time_function_default_time_base(fprime_test_api):
+    """time() defaults to time_base=0 and time_context=0."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00Z")
+assert t.time_base == 0
+assert t.time_context == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_custom_time_base(fprime_test_api):
+    """time() accepts custom time_base parameter."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=2)
+assert t.time_base == 2
+assert t.time_context == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_custom_time_context(fprime_test_api):
+    """time() accepts custom time_context parameter."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00Z", time_context=5)
+assert t.time_base == 0
+assert t.time_context == 5
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_all_params(fprime_test_api):
+    """time() accepts all parameters."""
+    seq = """
+t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=3, time_context=7)
+assert t.time_base == 3
+assert t.time_context == 7
+assert t.seconds == 946684800
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_named_args(fprime_test_api):
+    """time() works with named arguments."""
+    seq = """
+t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", time_base=1)
+assert t.time_base == 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_function_negative_seconds(fprime_test_api):
+    """Time before Unix epoch (1970) should fail with negative seconds error."""
+    seq = """
+t: Fw.Time = time("1969-01-01T00:00:00Z")
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_time_function_u32_overflow(fprime_test_api):
+    """Time after year 2106 overflows U32 seconds."""
+    # U32 max is 4,294,967,295 seconds after 1970 = year ~2106
+    seq = """
+t: Fw.Time = time("2200-01-01T00:00:00Z")
+"""
+    assert_compile_failure(fprime_test_api, seq)

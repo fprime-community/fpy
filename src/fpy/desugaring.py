@@ -1,19 +1,19 @@
 from __future__ import annotations
 import copy
 from fpy.bytecode.directives import BinaryStackOp, COMPARISON_OPS, Directive, LoopVarType
+from lark.tree import Meta
 from fpy.syntax import (
     Ast,
     AstAssert,
     AstAssign,
     AstBinaryOp,
-    AstBlock,
-    AstBoolean,
     AstBreak,
     AstCheck,
-    AstFor,
-    AstFuncCall,
     AstIf,
     AstGetAttr,
+    AstBoolean,
+    AstFor,
+    AstFuncCall,
     AstNumber,
     AstRange,
     AstStmtList,
@@ -28,11 +28,10 @@ from fpy.types import (
     Symbol,
     FpyIntegerValue,
     Transformer,
-    TopDownVisitor,
-    is_instance_compat,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
+from fprime_gds.common.models.serialize.numerical_types import IntegerType as IntegerValue
 
 
 class DesugarForLoops(Transformer):
@@ -306,6 +305,7 @@ class DesugarDefaultArgs(Transformer):
     Desugars function calls with named or missing arguments by:
     1. Reordering named arguments to positional order
     2. Filling in default values for missing arguments
+    3. Converting FppValue defaults (from builtins) to AstNumber/AstBoolean nodes
 
     For example, if we have:
         def foo(a: U8, b: U8 = 5, c: U8 = 10):
@@ -321,6 +321,21 @@ class DesugarDefaultArgs(Transformer):
     value expressions.
     """
 
+    def _fpp_value_to_ast(self, value: FppValue, meta: Meta, state: CompileState) -> Ast:
+        """Convert an FppValue (from builtin default) to an AST literal node."""
+        if isinstance(value, BoolValue):
+            node = AstBoolean(meta=meta, value=value.val)
+        elif isinstance(value, IntegerValue):
+            node = AstNumber(meta=meta, value=value.val)
+        else:
+            assert False, f"Unsupported FppValue type for default arg: {type(value)}"
+
+        # Register the new node in state so codegen can find its type/value
+        state.synthesized_types[node] = type(value)
+        state.contextual_types[node] = type(value)
+        state.contextual_values[node] = value
+        return node
+
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         # Get the resolved arguments from semantic analysis.
         # This list is already in positional order with defaults filled in.
@@ -330,8 +345,16 @@ class DesugarDefaultArgs(Transformer):
             f"This should have been set by PickTypesAndResolveAttrsAndItems."
         )
 
-        # Update the node's args with the resolved arguments
-        node.args = resolved_args
+        # Convert any FppValue defaults to AST nodes
+        desugared_args = []
+        for arg in resolved_args:
+            if isinstance(arg, FppValue):
+                desugared_args.append(self._fpp_value_to_ast(arg, node.meta, state))
+            else:
+                desugared_args.append(arg)
+
+        # Update the node's args with the desugared arguments
+        node.args = desugared_args
 
         return node
 

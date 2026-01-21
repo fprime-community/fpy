@@ -1,6 +1,6 @@
 import math
 import pytest
-from fprime_gds.common.fpy.codegen import (
+from fpy.codegen import (
     SPECIFIC_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
@@ -14,8 +14,8 @@ from fprime_gds.common.models.serialize.numerical_types import (
     F64Type as F64Value,
 )
 
-from fprime_gds.common.fpy.model import MIN_INT64, overflow_check
-from fprime_gds.common.fpy.test_helpers import (
+from fpy.model import MIN_INT64, overflow_check
+from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_success,
 )

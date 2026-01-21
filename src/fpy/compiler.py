@@ -17,7 +17,7 @@ from fprime_gds.common.models.serialize.numerical_types import (
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from lark import Lark
-from fprime_gds.common.fpy.bytecode.directives import Directive
+from fpy.bytecode.directives import Directive
 from fpy.codegen import (
     AssignVariableOffsets,
     CollectUsedFunctions,

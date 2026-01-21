@@ -383,9 +383,11 @@ Functions can only be defined at the top level—not inside loops, conditionals,
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
-# sleep for 1 second and 0 microseconds
-sleep(1, 0)
+# sleep for 1 second
+sleep(1)
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+# sleep for half a second
+sleep(useconds=500_000)
 
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
@@ -393,6 +395,19 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # time base of 0, time context of 1
 sleep_until(Fw.Time(0, 1, 1234567890, 0))
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
+```
+
+You can also use the `time()` function to parse ISO 8601 timestamps:
+```py
+# Parse an ISO 8601 timestamp (UTC with Z suffix)
+sleep_until(time("2025-12-19T14:30:00Z"))
+
+# With microseconds
+t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
+sleep_until(t)
+
+# Customize time_base and time_context (defaults are 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
