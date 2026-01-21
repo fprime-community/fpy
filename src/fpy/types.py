@@ -62,13 +62,17 @@ from fpy.syntax import (
     Ast,
     AstReturn,
     AstBlock,
-    AstIdent,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 
-MAX_DIRECTIVES_COUNT = 1024
-MAX_DIRECTIVE_SIZE = 2048
+# Default values for sequence limits - may be overridden by dictionary constants
+DEFAULT_MAX_DIRECTIVES_COUNT = 1024
+DEFAULT_MAX_DIRECTIVE_SIZE = 2048
+
+# Keep old names as aliases for backward compatibility
+MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT
+MAX_DIRECTIVE_SIZE = DEFAULT_MAX_DIRECTIVE_SIZE
 
 COMPILER_MAX_STRING_SIZE = 128
 
@@ -465,6 +469,10 @@ class CompileState:
     (telemetry channels, parameters, enum constants, variables)."""
 
     compile_args: dict = field(default_factory=dict)
+    
+    # Sequence limits loaded from dictionary (or defaults if not specified)
+    max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT
+    max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
 
     next_node_id: int = 0
     root: AstBlock = None

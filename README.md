@@ -213,7 +213,7 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
 
 A `check` statement is like an [`if`](#9-ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
 ```
 
@@ -221,13 +221,13 @@ If you don't specify a value for `persist`, the condition only has to be true on
 
 You can specify an absolute time at which the `check` should time out:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -235,7 +235,7 @@ timeout:
 
 Finally, you can specify a `freq` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 ```
 
@@ -243,8 +243,8 @@ If you don't specify a value for `freq`, the default frequency is 1 Hertz.
 
 The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
-check CdhCore.cmdDisp.commandsDispatched > 30
-    timeout time_add(now(), Fw.TimeIntervalValue(60, 0))
+check CdhCore.cmdDisp.CommandsDispatched > 30
+    timeout now() + Fw.TimeIntervalValue(60, 0)
     persist Fw.TimeIntervalValue(2, 0)
     freq Fw.TimeIntervalValue(1, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")

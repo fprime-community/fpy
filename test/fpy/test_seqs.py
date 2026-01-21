@@ -1723,33 +1723,42 @@ def recurse(limit: U64):
 
 recurse(5) # prints "tick" 5 times
 
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(2, 0):
+
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout time_add(now(), Fw.TimeIntervalValue(60, 0)) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
+check CdhCore.cmdDisp.CommandsDispatched > 30
+    timeout now() + Fw.TimeIntervalValue(60, 0)
+    persist Fw.TimeIntervalValue(2, 0)
+    freq Fw.TimeIntervalValue(1, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 
 # Time functions examples
 current_time: Fw.Time = now()
+t1: Fw.Time = now()
+sleep(1, 0)
+t2: Fw.Time = now()
 
+assert t1 <= t2
 interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
 interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
-assert time_interval_cmp(interval1, interval2) == -1 # interval1 < interval2
 
+assert interval1 < interval2
 current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
 offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
-future: Fw.Time = time_add(current, offset)
-assert future.seconds == 160
-
+assert (current + offset).seconds == 160
 start: Fw.Time = Fw.Time(1, 0, 100, 0)
 end: Fw.Time = Fw.Time(1, 0, 105, 500000)
-elapsed: Fw.TimeIntervalValue = time_sub(end, start)
-assert elapsed.seconds == 5
+assert (end - start).seconds == 5
 """
     assert_run_success(fprime_test_api, seq, {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()})
 

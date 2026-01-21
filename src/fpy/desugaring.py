@@ -23,6 +23,7 @@ from fpy.syntax import (
 )
 from fpy.types import (
     CompileState,
+    FieldAccess,
     ForLoopAnalysis,
     FppType,
     Symbol,
@@ -705,6 +706,12 @@ class DesugarTimeOperators(Transformer):
         state.resolved_symbols[node] = resolved_symbol
         return node
 
+    def _update_field_access_refs(self, old_node: Ast, new_node: Ast, state: CompileState):
+        """Update any FieldAccess symbols that reference old_node to point to new_node."""
+        for sym in state.resolved_symbols.values():
+            if isinstance(sym, FieldAccess) and sym.parent_expr is old_node:
+                sym.parent_expr = new_node
+
     def _make_func_call(
         self, node: AstBinaryOp, func_name: str, result_type: FppType, state: CompileState
     ) -> AstFuncCall:
@@ -729,6 +736,7 @@ class DesugarTimeOperators(Transformer):
             contextual_value=None,
             resolved_symbol=None,
         )
+        self._update_field_access_refs(node, call_node, state)
         return call_node
 
     def _make_cmp_expr(
@@ -791,6 +799,7 @@ class DesugarTimeOperators(Transformer):
             contextual_value=None,
             op_intermediate_type=I64Value,
         )
+        self._update_field_access_refs(node, result_node, state)
         return result_node
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):

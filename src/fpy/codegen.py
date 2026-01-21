@@ -16,7 +16,6 @@ from fpy.error import BackendError
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.model import DirectiveErrorCode
 from fpy.types import (
-    MAX_DIRECTIVES_COUNT,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
@@ -1094,9 +1093,9 @@ class ResolveLabels(IrPass):
 
 class FinalChecks(IrPass):
     def run(self, ir, state):
-        if len(ir) > MAX_DIRECTIVES_COUNT:
+        if len(ir) > state.max_directives_count:
             return BackendError(
-                f"Too many directives in sequence (expected less than {MAX_DIRECTIVES_COUNT}, had {len(ir)})"
+                f"Too many directives in sequence (expected less than {state.max_directives_count}, had {len(ir)})"
             )
 
         for dir in ir:

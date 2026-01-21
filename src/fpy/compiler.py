@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -48,6 +49,8 @@ from fpy.semantics import (
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
 from fpy.macros import MACROS
 from fpy.types import (
+    DEFAULT_MAX_DIRECTIVE_SIZE,
+    DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
     CompileState,
     FppType,
@@ -156,6 +159,26 @@ def text_to_ast(text: str):
             )
         exit(1)
     return transformed
+
+
+@lru_cache(maxsize=4)
+def _load_sequence_config(dictionary: str) -> dict:
+    """
+    Load sequence configuration from the dictionary constants section.
+    Returns a dict with max_directives_count and max_directive_size.
+    """
+    with open(dictionary, "r") as f:
+        dict_json = json.load(f)
+    
+    constants = dict_json.get("constants", [])
+    
+    # Build a lookup dict for constants by qualified name
+    constants_by_name = {c["qualifiedName"]: c["value"] for c in constants if "qualifiedName" in c and "value" in c}
+    
+    return {
+        "max_directives_count": constants_by_name.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
+        "max_directive_size": constants_by_name.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
+    }
 
 
 @lru_cache(maxsize=4)
@@ -308,6 +331,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
+    sequence_config = _load_sequence_config(dictionary)
 
     # Make copies of the scopes since we'll mutate them during compilation
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
@@ -318,6 +342,8 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
         compile_args=compile_args or dict(),
+        max_directives_count=sequence_config["max_directives_count"],
+        max_directive_size=sequence_config["max_directive_size"],
     )
     return state
 
