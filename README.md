@@ -422,45 +422,40 @@ current_time: Fw.Time = now()
 
 The underlying implementation of `now()` just calls the `getTime` port on the `FpySequencer` component.
 
-You can compare two `Fw.Time` values with `time_cmp`:
+You can compare two `Fw.Time` values with comparison operators:
 ```py
 t1: Fw.Time = now()
 sleep(1, 0)
 t2: Fw.Time = now()
 
-result: I8 = time_cmp(t1, t2)
-assert result == -1 # t1 should be before t2
-# result == -1 if t1 < t2
-# result == 0 if t1 == t2
-# result == 1 if t1 > t2
-# result == 2 if the time bases are different (incomparable)
+assert t1 <= t2
 ```
 
-You can compare two `Fw.TimeIntervalValue` values with `time_interval_cmp`:
+You can also compare two `Fw.TimeIntervalValue` values:
 ```py
 interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
 interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
 
-assert time_interval_cmp(interval1, interval2) == -1 # interval1 < interval2
+assert interval1 < interval2
 ```
 
-You can add a `Fw.TimeIntervalValue` to a `Fw.Time` with `time_add`:
+You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
 ```py
 current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
 offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
-future: Fw.Time = time_add(current, offset)
-assert future.seconds == 160
+assert (current + offset).seconds == 160
 ```
 
-You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue` with `time_sub`:
+You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
 ```py
 start: Fw.Time = Fw.Time(1, 0, 100, 0)
 end: Fw.Time = Fw.Time(1, 0, 105, 500000)
-elapsed: Fw.TimeIntervalValue = time_sub(end, start)
-assert elapsed.seconds == 5
+assert (end - start).seconds == 5
 ```
 
-> Note: `time_sub` asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+> Note: Subtraction of two `Fw.Time` values asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+> If at any point the output value would overflow, the sequence will exit with an error.
+> Under the hood, these operators are just calling the built in `time_cmp`, `time_sub`, `time_add`, etc. functions.
 
 ## 16. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
