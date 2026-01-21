@@ -47,6 +47,7 @@ except ImportError:
 
 from fpy.bytecode.directives import (
     BOOLEAN_OPERATORS,
+    COMPARISON_OPS,
     NUMERIC_OPERATORS,
     ArrayIndexType,
     LoopVarType,
@@ -56,6 +57,7 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+from fpy.types import TimeIntervalValue
 from fprime_gds.common.models.serialize.type_base import ValueType
 from fprime_gds.common.models.serialize.serializable_type import (
     SerializableType as StructValue,
@@ -769,6 +771,41 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             from_unsigned == to_unsigned and to_type.get_bits() >= from_type.get_bits()
         )
 
+    def pick_time_intermediate_type(
+        self, lhs_type: FppType, rhs_type: FppType, op: BinaryStackOp
+    ) -> FppType | None:
+        """Return intermediate type for time/interval operations, or None if not a time operation."""
+        lhs_is_time = lhs_type is not None and issubclass(lhs_type, TimeValue)
+        rhs_is_time = rhs_type is not None and issubclass(rhs_type, TimeValue)
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+        
+        # Time - Time -> TimeIntervalValue (via time_sub)
+        if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
+            return TimeValue  # intermediate type is Time, result will be interval
+        
+        # Time + TimeInterval -> Time (via time_add)
+        if lhs_is_time and rhs_is_interval and op == BinaryStackOp.ADD:
+            return TimeValue  # intermediate type doesn't need conversion
+        
+        # Time comparisons
+        if lhs_is_time and rhs_is_time and op in COMPARISON_OPS:
+            return TimeValue
+        
+        # TimeInterval + TimeInterval -> TimeInterval (via time_interval_add)
+        if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.ADD:
+            return TimeIntervalValue
+        
+        # TimeInterval - TimeInterval -> TimeInterval (via time_interval_sub)
+        if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.SUBTRACT:
+            return TimeIntervalValue
+        
+        # TimeInterval comparisons
+        if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
+            return TimeIntervalValue
+        
+        return None
+
     def pick_intermediate_type(
         self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp
     ) -> FppType:
@@ -776,6 +813,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         if op in BOOLEAN_OPERATORS:
             return BoolValue
+
+        # Handle time type operations (these will be desugared to function calls later)
+        if len(arg_types) == 2:
+            time_intermediate = self.pick_time_intermediate_type(arg_types[0], arg_types[1], op)
+            if time_intermediate is not None:
+                return time_intermediate
 
         non_numeric = any(not issubclass(t, NumericalValue) for t in arg_types)
 
@@ -1018,6 +1061,27 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
+    def _get_time_op_result_type(
+        self, lhs_type: type[FppValue], rhs_type: type[FppValue], op: BinaryStackOp
+    ) -> type[FppValue] | None:
+        """Return the result type for time/interval operations, or None if not a time operation."""
+        lhs_is_time = issubclass(lhs_type, TimeValue)
+        rhs_is_time = issubclass(rhs_type, TimeValue)
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+
+        if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
+            return TimeIntervalValue
+        if lhs_is_time and rhs_is_time and op in COMPARISON_OPS:
+            return BoolValue
+        if lhs_is_time and rhs_is_interval and op == BinaryStackOp.ADD:
+            return TimeValue
+        if lhs_is_interval and rhs_is_interval and op in (BinaryStackOp.ADD, BinaryStackOp.SUBTRACT):
+            return TimeIntervalValue
+        if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
+            return BoolValue
+        return None
+
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
@@ -1030,16 +1094,16 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             )
             return
 
-        if not self.coerce_expr_type(node.lhs, intermediate_type, state):
-            return
-        if not self.coerce_expr_type(node.rhs, intermediate_type, state):
-            return
-
-        result_type = None
-        if node.op in NUMERIC_OPERATORS:
-            result_type = intermediate_type
+        # Check for time/interval operations - these skip coercion and will be desugared to function calls
+        time_result = self._get_time_op_result_type(lhs_type, rhs_type, node.op)
+        if time_result is not None:
+            result_type = time_result
         else:
-            result_type = BoolValue
+            if not self.coerce_expr_type(node.lhs, intermediate_type, state):
+                return
+            if not self.coerce_expr_type(node.rhs, intermediate_type, state):
+                return
+            result_type = intermediate_type if node.op in NUMERIC_OPERATORS else BoolValue
 
         state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type

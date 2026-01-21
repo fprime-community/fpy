@@ -580,3 +580,224 @@ i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 0)
 result: Fw.Time = time_add(i1, i2)
 """
         assert_compile_failure(fprime_test_api, seq)
+
+
+# ==================== Operator Overloading Tests ====================
+
+
+class TestTimeOperatorOverloading:
+    """Tests for operator overloading on Fw.Time and Fw.TimeIntervalValue types.
+    
+    These tests verify that binary operators are properly desugared to function calls:
+    - Time - Time -> time_sub
+    - Time + TimeInterval -> time_add
+    - Time comparison operators -> time_cmp
+    - TimeInterval arithmetic -> interval_add/interval_sub
+    - TimeInterval comparison operators -> time_interval_cmp
+    """
+
+    def test_time_subtraction_operator(self, fprime_test_api):
+        """Test Time - Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 200, 500000)
+t2: Fw.Time = Fw.Time(0, 0, 100, 200000)
+result: Fw.TimeIntervalValue = t1 - t2
+# Should be 100.3 seconds
+assert result.seconds == 100
+assert result.useconds == 300000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_addition_operator(self, fprime_test_api):
+        """Test Time + TimeInterval using operator syntax."""
+        seq = """
+t: Fw.Time = Fw.Time(0, 0, 100, 0)
+interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 500000)
+result: Fw.Time = t + interval
+assert result.seconds == 150
+assert result.useconds == 500000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_less_than_operator(self, fprime_test_api):
+        """Test Time < Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 100, 0)
+t2: Fw.Time = Fw.Time(0, 0, 200, 0)
+assert t1 < t2
+assert not (t2 < t1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_greater_than_operator(self, fprime_test_api):
+        """Test Time > Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 200, 0)
+t2: Fw.Time = Fw.Time(0, 0, 100, 0)
+assert t1 > t2
+assert not (t2 > t1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_less_than_or_equal_operator(self, fprime_test_api):
+        """Test Time <= Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 100, 0)
+t2: Fw.Time = Fw.Time(0, 0, 200, 0)
+t3: Fw.Time = Fw.Time(0, 0, 100, 0)
+assert t1 <= t2
+assert t1 <= t3
+assert not (t2 <= t1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_greater_than_or_equal_operator(self, fprime_test_api):
+        """Test Time >= Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 200, 0)
+t2: Fw.Time = Fw.Time(0, 0, 100, 0)
+t3: Fw.Time = Fw.Time(0, 0, 200, 0)
+assert t1 >= t2
+assert t1 >= t3
+assert not (t2 >= t1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_equal_operator(self, fprime_test_api):
+        """Test Time == Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 100, 500000)
+t2: Fw.Time = Fw.Time(0, 0, 100, 500000)
+t3: Fw.Time = Fw.Time(0, 0, 100, 0)
+assert t1 == t2
+assert not (t1 == t3)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_not_equal_operator(self, fprime_test_api):
+        """Test Time != Time using operator syntax."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 100, 0)
+t2: Fw.Time = Fw.Time(0, 0, 200, 0)
+t3: Fw.Time = Fw.Time(0, 0, 100, 0)
+assert t1 != t2
+assert not (t1 != t3)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_addition_operator(self, fprime_test_api):
+        """Test TimeInterval + TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 600000)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 500000)
+result: Fw.TimeIntervalValue = i1 + i2
+# 100.6 + 50.5 = 151.1 seconds
+assert result.seconds == 151
+assert result.useconds == 100000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_subtraction_operator(self, fprime_test_api):
+        """Test TimeInterval - TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 200000)
+result: Fw.TimeIntervalValue = i1 - i2
+# 100.5 - 50.2 = 50.3 seconds
+assert result.seconds == 50
+assert result.useconds == 300000
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_less_than_operator(self, fprime_test_api):
+        """Test TimeInterval < TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 0)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
+assert i1 < i2
+assert not (i2 < i1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_greater_than_operator(self, fprime_test_api):
+        """Test TimeInterval > TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 0)
+assert i1 > i2
+assert not (i2 > i1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_equal_operator(self, fprime_test_api):
+        """Test TimeInterval == TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
+i3: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
+assert i1 == i2
+assert not (i1 == i3)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_not_equal_operator(self, fprime_test_api):
+        """Test TimeInterval != TimeInterval using operator syntax."""
+        seq = """
+i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
+i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 0)
+i3: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
+assert i1 != i2
+assert not (i1 != i3)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_chained_time_operations(self, fprime_test_api):
+        """Test chaining multiple time operations."""
+        seq = """
+start: Fw.Time = Fw.Time(0, 0, 100, 0)
+delta1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+delta2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(20, 0)
+# Can't chain + directly, but can do in sequence
+t1: Fw.Time = start + delta1
+t2: Fw.Time = t1 + delta2
+assert t2.seconds == 130
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_operators_with_now(self, fprime_test_api):
+        """Test operators work with now()."""
+        seq = """
+current: Fw.Time = now()
+interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0)
+future: Fw.Time = current + interval
+# The future time should be greater than current
+assert future > current
+assert current < future
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_comparison_in_if_statement(self, fprime_test_api):
+        """Test time comparison operators work in control flow."""
+        seq = """
+t1: Fw.Time = Fw.Time(0, 0, 100, 0)
+t2: Fw.Time = Fw.Time(0, 0, 200, 0)
+result: U8 = 0
+if t1 < t2:
+    result = 1
+assert result == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_comparison_in_while_loop(self, fprime_test_api):
+        """Test interval comparison operators work in control flow."""
+        seq = """
+target: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
+current: Fw.TimeIntervalValue = Fw.TimeIntervalValue(0, 0)
+increment: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
+count: U64 = 0
+while current < target:
+    current = current + increment
+    count = count + 1
+assert count == 5
+"""
+        assert_run_success(fprime_test_api, seq)

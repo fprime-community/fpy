@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
+from fpy.bytecode.directives import BinaryStackOp, COMPARISON_OPS, Directive, LoopVarType
 from fpy.syntax import (
     Ast,
     AstAssert,
@@ -646,3 +646,168 @@ class DesugarCheckStatements(Transformer):
         )
         
         return [init_check_state, while_loop, final_if]
+
+
+
+class DesugarTimeOperators(Transformer):
+    """
+    Desugar binary operators on Fw.Time and Fw.TimeIntervalValue types into function calls.
+    
+    This pass transforms:
+    - Time - Time -> time_sub(lhs, rhs)
+    - Time + TimeInterval -> time_add(lhs, rhs)
+    - Time < Time (and >, <=, >=, ==, !=) -> time_cmp(lhs, rhs) <op> 0 (or special handling for ==, !=)
+    - TimeInterval < TimeInterval (and >, <=, >=, ==, !=) -> time_interval_cmp(lhs, rhs) <op> 0
+    - TimeInterval + TimeInterval -> interval_add(lhs, rhs)
+    - TimeInterval - TimeInterval -> interval_sub(lhs, rhs)
+    """
+
+    def new(
+        self,
+        state: CompileState,
+        node: Ast,
+        contextual_type: FppType | None,
+        synthesized_type: FppType | None,
+        contextual_value: FppValue | None,
+        op_intermediate_type: FppType | None = None,
+        resolved_symbol: Symbol | None = None,
+    ) -> Ast:
+        """Create a new node with proper state setup."""
+        node.id = state.next_node_id
+        state.next_node_id += 1
+        state.contextual_types[node] = contextual_type
+        state.synthesized_types[node] = synthesized_type
+        state.contextual_values[node] = contextual_value
+        state.op_intermediate_types[node] = op_intermediate_type
+        state.resolved_symbols[node] = resolved_symbol
+        return node
+
+    def _make_func_call(
+        self, node: AstBinaryOp, func_name: str, result_type: FppType, state: CompileState
+    ) -> AstFuncCall:
+        """Create a function call AST node with proper state."""
+        func_symbol = state.global_callable_scope.get(func_name)
+        assert func_symbol is not None, f"Function {func_name} not found in callable scope"
+
+        func_node = self.new(
+            state,
+            AstIdent(node.meta, func_name),
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
+            resolved_symbol=func_symbol,
+        )
+
+        call_node = self.new(
+            state,
+            AstFuncCall(node.meta, func_node, [node.lhs, node.rhs]),
+            contextual_type=result_type,
+            synthesized_type=result_type,
+            contextual_value=None,
+            resolved_symbol=None,
+        )
+        return call_node
+
+    def _make_cmp_expr(
+        self, node: AstBinaryOp, cmp_func: str, state: CompileState
+    ) -> AstBinaryOp:
+        """
+        Create a comparison expression using a cmp function.
+        
+        For < : cmp(lhs, rhs) == -1
+        For > : cmp(lhs, rhs) == 1
+        For <= : cmp(lhs, rhs) != 1
+        For >= : cmp(lhs, rhs) != -1
+        For == : cmp(lhs, rhs) == 0
+        For != : cmp(lhs, rhs) != 0
+        """
+        from fprime_gds.common.models.serialize.numerical_types import I8Type as I8Value, I64Type as I64Value
+
+        # Create the cmp function call - returns I8, but we'll use I64 as the intermediate type
+        cmp_call = self._make_func_call(node, cmp_func, I8Value, state)
+        # Set the contextual type to I64 so codegen will insert sign-extension
+        state.contextual_types[cmp_call] = I64Value
+        
+        op = node.op
+        if op == BinaryStackOp.LESS_THAN:
+            cmp_val = -1
+            new_op = BinaryStackOp.EQUAL
+        elif op == BinaryStackOp.GREATER_THAN:
+            cmp_val = 1
+            new_op = BinaryStackOp.EQUAL
+        elif op == BinaryStackOp.LESS_THAN_OR_EQUAL:
+            cmp_val = 1
+            new_op = BinaryStackOp.NOT_EQUAL
+        elif op == BinaryStackOp.GREATER_THAN_OR_EQUAL:
+            cmp_val = -1
+            new_op = BinaryStackOp.NOT_EQUAL
+        elif op == BinaryStackOp.EQUAL:
+            cmp_val = 0
+            new_op = BinaryStackOp.EQUAL
+        elif op == BinaryStackOp.NOT_EQUAL:
+            cmp_val = 0
+            new_op = BinaryStackOp.NOT_EQUAL
+        else:
+            assert False, f"Unexpected comparison operator: {op}"
+
+        # Create the number literal
+        num_node = self.new(
+            state,
+            AstNumber(node.meta, cmp_val),
+            contextual_type=I64Value,
+            synthesized_type=FpyIntegerValue,
+            contextual_value=I64Value(cmp_val),
+        )
+
+        # Create the comparison expression
+        result_node = self.new(
+            state,
+            AstBinaryOp(node.meta, cmp_call, new_op, num_node),
+            contextual_type=BoolValue,
+            synthesized_type=BoolValue,
+            contextual_value=None,
+            op_intermediate_type=I64Value,
+        )
+        return result_node
+
+    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
+        from fpy.types import TimeIntervalValue
+        from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+
+        lhs_type = state.synthesized_types.get(node.lhs)
+        rhs_type = state.synthesized_types.get(node.rhs)
+        assert lhs_type is not None, "lhs_type should be set after semantic analysis"
+        assert rhs_type is not None, "rhs_type should be set after semantic analysis"
+        
+        # Check if types are Time or TimeInterval
+        lhs_is_time = issubclass(lhs_type, TimeValue)
+        rhs_is_time = issubclass(rhs_type, TimeValue)
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+        
+        # Time - Time -> time_sub
+        if lhs_is_time and rhs_is_time and node.op == BinaryStackOp.SUBTRACT:
+            return self._make_func_call(node, "time_sub", TimeIntervalValue, state)
+        
+        # Time + TimeInterval -> time_add
+        if lhs_is_time and rhs_is_interval and node.op == BinaryStackOp.ADD:
+            return self._make_func_call(node, "time_add", TimeValue, state)
+        
+        # Time comparisons -> time_cmp
+        if lhs_is_time and rhs_is_time and node.op in COMPARISON_OPS:
+            return self._make_cmp_expr(node, "time_cmp", state)
+        
+        # TimeInterval + TimeInterval -> time_interval_add
+        if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.ADD:
+            return self._make_func_call(node, "time_interval_add", TimeIntervalValue, state)
+        
+        # TimeInterval - TimeInterval -> time_interval_sub
+        if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.SUBTRACT:
+            return self._make_func_call(node, "time_interval_sub", TimeIntervalValue, state)
+        
+        # TimeInterval comparisons -> time_interval_cmp
+        if lhs_is_interval and rhs_is_interval and node.op in COMPARISON_OPS:
+            return self._make_cmp_expr(node, "time_interval_cmp", state)
+        
+        # Not a time operation, don't transform
+        return None

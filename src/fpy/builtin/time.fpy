@@ -53,3 +53,36 @@ def time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time:
     assert result_seconds <= 0xFFFF_FFFF, 1
     
     return Fw.Time(lhs.time_base, lhs.time_context, U32(result_seconds), U32(result_micros % 1_000_000))
+
+
+# time interval addition
+def time_interval_add(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> Fw.TimeIntervalValue:
+    lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
+    rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
+    
+    # check overflow
+    assert 0xFFFF_FFFF_FFFF_FFFF - lhs_micros >= rhs_micros, 1
+    result_micros: U64 = lhs_micros + rhs_micros
+    
+    # check that result seconds fits in U32
+    result_seconds: U64 = result_micros // 1_000_000
+    assert result_seconds <= 0xFFFF_FFFF, 1
+    
+    return Fw.TimeIntervalValue(U32(result_seconds), U32(result_micros % 1_000_000))
+
+
+# time interval subtraction
+def time_interval_sub(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> Fw.TimeIntervalValue:
+    lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
+    rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
+    
+    # check underflow
+    assert lhs_micros >= rhs_micros, 1
+    result_micros: U64 = lhs_micros - rhs_micros
+    
+    # Result seconds is guaranteed to fit in U32 since result <= lhs which came from U32,
+    # but we check explicitly for safety
+    result_seconds: U64 = result_micros // 1_000_000
+    assert result_seconds <= 0xFFFF_FFFF, 1
+    
+    return Fw.TimeIntervalValue(U32(result_seconds), U32(result_micros % 1_000_000))

@@ -28,7 +28,7 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
 from fpy.semantics import (
     AssignIds,
     CreateFunctionScopes,
@@ -373,6 +373,8 @@ def ast_to_directives(
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
+        # Desugar time operators before for loops (time ops may be in loop conditions)
+        DesugarTimeOperators(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]

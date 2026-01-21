@@ -803,6 +803,14 @@ NUMERIC_OPERATORS = {
     BinaryStackOp.FLOOR_DIVIDE,
 }
 BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 UNARY_STACK_OPS: dict[str, dict[type[FppValue], type[StackOpDirective]]] = {
     UnaryStackOp.NOT: {BoolValue: NotDirective},
