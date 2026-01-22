@@ -10,8 +10,8 @@ get_field 11 2
 ziext_16_64
 ine
 if 15
-push_val 2
-return 1 22
+push_val 0 0 0 2
+return 4 22
 goto 15
 load_rel -30 11
 push_val 0 0 0 3
@@ -41,18 +41,18 @@ load_rel 22 8
 load_rel 30 8
 ult
 if 46
-push_val 255
-return 1 22
+push_val 255 255 255 255
+return 4 22
 goto 53
 load_rel 22 8
 load_rel 30 8
 ieq
 if 53
-push_val 0
-return 1 22
+push_val 0 0 0 0
+return 4 22
 goto 53
-push_val 1
-return 1 22
+push_val 0 0 0 1
+return 4 22
 allocate 32
 load_rel -24 8
 push_val 0 0 0 0
@@ -82,18 +82,18 @@ load_rel 16 8
 load_rel 24 8
 ult
 if 87
-push_val 255
-return 1 16
+push_val 255 255 255 255
+return 4 16
 goto 94
 load_rel 16 8
 load_rel 24 8
 ieq
 if 94
-push_val 0
-return 1 16
+push_val 0 0 0 0
+return 4 16
 goto 94
-push_val 1
-return 1 16
+push_val 0 0 0 1
+return 4 16
 allocate 54
 load_rel -30 11
 push_val 0 0 0 0
@@ -161,7 +161,7 @@ push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32
 return 8 22
-allocate 64
+allocate 70
 push_val 0 0 0 0 0 0 0 0
 push_val 0 0 0 0 0 0 1 0 0 0 0
 push_val 0 0 0 0 0 1 134 160
@@ -171,7 +171,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 0 51
 push_val 255
-if 261
+if 250
 push_time
 store_rel_const_offset 51 11
 load_rel 51 11
@@ -180,34 +180,33 @@ push_val 0 0 0 8
 get_field 51 11
 push_val 0 0 0 1
 call
-store_rel_const_offset 62 1
-load_rel 62 1
-siext_8_64
-push_val 0 0 0 0 0 0 0 2
-ine
+store_rel_const_offset 62 4
+load_rel 62 4
+push_val 0 0 0 2
+memcmp 4
+not
 not
 if 191
 push_val 1
 exit
-load_rel 62 1
-siext_8_64
-push_val 0 0 0 0 0 0 0 1
-ieq
-if 198
-goto 261
-goto 198
+load_rel 62 4
+push_val 0 0 0 1
+memcmp 4
+if 197
+goto 250
+goto 197
 push_val 255
-if 247
+if 236
 load_rel 0 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 210
+if 209
 load_rel 51 11
 store_rel_const_offset 29 11
 push_val 255
 store_rel_const_offset 28 1
-goto 210
+goto 209
 load_rel 51 11
 load_rel 0 51
 push_val 0 0 0 29
@@ -219,32 +218,22 @@ push_val 0 0 0 0
 get_field 51 8
 push_val 0 0 0 55
 call
-store_rel_const_offset 63 1
-load_rel 63 1
-siext_8_64
-push_val 0 0 0 0 0 0 0 2
-ine
-not
-if 230
-push_val 1
-exit
-load_rel 63 1
-siext_8_64
-push_val 0 0 0 0 0 0 0 1
-ieq
-if 237
+store_rel_const_offset 66 4
+load_rel 66 4
+push_val 0 0 0 1
+memcmp 4
+if 227
 push_val 255
-goto 241
-load_rel 63 1
-siext_8_64
-push_val 0 0 0 0 0 0 0 0
-ieq
-if 246
+goto 230
+load_rel 66 4
+push_val 0 0 0 0
+memcmp 4
+if 235
 push_val 255
 store_rel_const_offset 27 1
-goto 261
-goto 246
-goto 249
+goto 250
+goto 235
+goto 238
 push_val 0
 store_rel_const_offset 28 1
 load_rel 0 51
@@ -262,5 +251,5 @@ goto 172
 load_rel 0 51
 push_val 0 0 0 27
 get_field 51 1
-if 266
-goto 266
+if 255
+goto 255

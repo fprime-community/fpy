@@ -31,62 +31,62 @@ class TestTimeCmp:
     """Tests for time_cmp function."""
 
     def test_time_cmp_equal(self, fprime_test_api):
-        """Test time_cmp returns 0 for equal times."""
+        """Test time_cmp returns EQ for equal times."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 500000)
 t2: Fw.Time = Fw.Time(0, 0, 100, 500000)
-result: I8 = time_cmp(t1, t2)
-assert result == 0
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.EQ
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_less_than_seconds(self, fprime_test_api):
-        """Test time_cmp returns -1 when lhs < rhs (different seconds)."""
+        """Test time_cmp returns LT when lhs < rhs (different seconds)."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 0)
 t2: Fw.Time = Fw.Time(0, 0, 200, 0)
-result: I8 = time_cmp(t1, t2)
-assert result == -1
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.LT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_greater_than_seconds(self, fprime_test_api):
-        """Test time_cmp returns 1 when lhs > rhs (different seconds)."""
+        """Test time_cmp returns GT when lhs > rhs (different seconds)."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 200, 0)
 t2: Fw.Time = Fw.Time(0, 0, 100, 0)
-result: I8 = time_cmp(t1, t2)
-assert result == 1
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_less_than_useconds(self, fprime_test_api):
-        """Test time_cmp returns -1 when lhs < rhs (same seconds, different useconds)."""
+        """Test time_cmp returns LT when lhs < rhs (same seconds, different useconds)."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 100000)
 t2: Fw.Time = Fw.Time(0, 0, 100, 200000)
-result: I8 = time_cmp(t1, t2)
-assert result == -1
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.LT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_greater_than_useconds(self, fprime_test_api):
-        """Test time_cmp returns 1 when lhs > rhs (same seconds, different useconds)."""
+        """Test time_cmp returns GT when lhs > rhs (same seconds, different useconds)."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 500000)
 t2: Fw.Time = Fw.Time(0, 0, 100, 100000)
-result: I8 = time_cmp(t1, t2)
-assert result == 1
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_incomparable_different_time_base(self, fprime_test_api):
-        """Test time_cmp returns 2 for different time bases."""
+        """Test time_cmp returns INCOMPARABLE for different time bases."""
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 0)  # time_base = 0
 t2: Fw.Time = Fw.Time(1, 0, 100, 0)  # time_base = 1
-result: I8 = time_cmp(t1, t2)
-assert result == 2
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.INCOMPARABLE
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -95,9 +95,9 @@ assert result == 2
         seq = """
 t1: Fw.Time = now()
 t2: Fw.Time = now()
-result: I8 = time_cmp(t1, t2)
-# Should be comparable (not 2)
-assert result != 2
+result: Fw.TimeComparison = time_cmp(t1, t2)
+# Should be comparable (not INCOMPARABLE)
+assert result != Fw.TimeComparison.INCOMPARABLE
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -106,8 +106,8 @@ assert result != 2
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 0, 0)
 t2: Fw.Time = Fw.Time(0, 0, 0, 0)
-result: I8 = time_cmp(t1, t2)
-assert result == 0
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.EQ
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -116,8 +116,8 @@ assert result == 0
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 4294967295, 999999)  # max U32 seconds
 t2: Fw.Time = Fw.Time(0, 0, 4294967294, 999999)
-result: I8 = time_cmp(t1, t2)
-assert result == 1
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -129,52 +129,52 @@ class TestTimeIntervalCmp:
     """Tests for time_interval_cmp function."""
 
     def test_time_interval_cmp_equal(self, fprime_test_api):
-        """Test time_interval_cmp returns 0 for equal intervals."""
+        """Test time_interval_cmp returns EQ for equal intervals."""
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == 0
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.EQ
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_interval_cmp_less_than_seconds(self, fprime_test_api):
-        """Test time_interval_cmp returns -1 when lhs < rhs (different seconds)."""
+        """Test time_interval_cmp returns LT when lhs < rhs (different seconds)."""
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(200, 0)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == -1
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.LT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_interval_cmp_greater_than_seconds(self, fprime_test_api):
-        """Test time_interval_cmp returns 1 when lhs > rhs (different seconds)."""
+        """Test time_interval_cmp returns GT when lhs > rhs (different seconds)."""
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(200, 0)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == 1
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_interval_cmp_less_than_useconds(self, fprime_test_api):
-        """Test time_interval_cmp returns -1 when lhs < rhs (same seconds, different useconds)."""
+        """Test time_interval_cmp returns LT when lhs < rhs (same seconds, different useconds)."""
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 100000)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 200000)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == -1
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.LT
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_interval_cmp_greater_than_useconds(self, fprime_test_api):
-        """Test time_interval_cmp returns 1 when lhs > rhs (same seconds, different useconds)."""
+        """Test time_interval_cmp returns GT when lhs > rhs (same seconds, different useconds)."""
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 500000)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 100000)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == 1
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -183,8 +183,8 @@ assert result == 1
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(0, 0)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(0, 0)
-result: I8 = time_interval_cmp(i1, i2)
-assert result == 0
+result: Fw.TimeComparison = time_interval_cmp(i1, i2)
+assert result == Fw.TimeComparison.EQ
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -418,8 +418,8 @@ t: Fw.Time = now()
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
 result: Fw.Time = time_add(t, interval)
 # Result should be greater than original time
-cmp: I8 = time_cmp(result, t)
-assert cmp == 1
+cmp: Fw.TimeComparison = time_cmp(result, t)
+assert cmp == Fw.TimeComparison.GT
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -447,8 +447,8 @@ assert result.useconds == 500000
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 0)
 t2: Fw.Time = time_add(t1, Fw.TimeIntervalValue(0, 1))
-cmp: I8 = time_cmp(t1, t2)
-assert cmp == -1  # t1 < t2
+cmp: Fw.TimeComparison = time_cmp(t1, t2)
+assert cmp == Fw.TimeComparison.LT  # t1 < t2
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -462,8 +462,8 @@ t3: Fw.Time = Fw.Time(0, 0, 250, 0)
 interval1: Fw.TimeIntervalValue = time_sub(t2, t1)  # 100 seconds
 interval2: Fw.TimeIntervalValue = time_sub(t3, t2)  # 50 seconds
 
-cmp: I8 = time_interval_cmp(interval1, interval2)
-assert cmp == 1  # interval1 > interval2
+cmp: Fw.TimeComparison = time_interval_cmp(interval1, interval2)
+assert cmp == Fw.TimeComparison.GT  # interval1 > interval2
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -516,7 +516,7 @@ class TestTimeTypeErrors:
         """Test time_cmp fails with wrong type for first argument."""
         seq = """
 t: Fw.Time = Fw.Time(0, 0, 100, 0)
-result: I8 = time_cmp(123, t)
+result: Fw.TimeComparison = time_cmp(123, t)
 """
         assert_compile_failure(fprime_test_api, seq)
 
@@ -524,7 +524,7 @@ result: I8 = time_cmp(123, t)
         """Test time_cmp fails with wrong type for second argument."""
         seq = """
 t: Fw.Time = Fw.Time(0, 0, 100, 0)
-result: I8 = time_cmp(t, 123)
+result: Fw.TimeComparison = time_cmp(t, 123)
 """
         assert_compile_failure(fprime_test_api, seq)
 
@@ -533,7 +533,7 @@ result: I8 = time_cmp(t, 123)
         seq = """
 i1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
 i2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(100, 0)
-result: I8 = time_cmp(i1, i2)
+result: Fw.TimeComparison = time_cmp(i1, i2)
 """
         assert_compile_failure(fprime_test_api, seq)
 
@@ -542,7 +542,7 @@ result: I8 = time_cmp(i1, i2)
         seq = """
 t1: Fw.Time = Fw.Time(0, 0, 100, 0)
 t2: Fw.Time = Fw.Time(0, 0, 100, 0)
-result: I8 = time_interval_cmp(t1, t2)
+result: Fw.TimeComparison = time_interval_cmp(t1, t2)
 """
         assert_compile_failure(fprime_test_api, seq)
 

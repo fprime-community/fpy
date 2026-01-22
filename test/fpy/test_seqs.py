@@ -4384,8 +4384,8 @@ sleep(1, 0)
 t2: Fw.Time = now()
 
 # t2 should be greater than t1
-result: I8 = time_cmp(t1, t2)
-assert result == -1  # t1 < t2
+result: Fw.TimeComparison = time_cmp(t1, t2)
+assert result == Fw.TimeComparison.LT  # t1 < t2
 """
         assert_run_success(fprime_test_api, seq)
 

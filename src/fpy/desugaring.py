@@ -383,17 +383,16 @@ class DesugarCheckStatements(Transformer):
         while True:
             $current_time: Fw.Time = now()
             # If timeout is specified:
-            $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
-            assert $timed_out != 2, 1
-            if $timed_out == 1:
+            $timed_out: Fw.TimeComparison = time_cmp($current_time, $check_state.timeout)
+            assert $timed_out != Fw.TimeComparison.INCOMPARABLE, 1
+            if $timed_out == Fw.TimeComparison.GT:
                 break
             if <condition>:
                 if not $check_state.last_was_true:
                     $check_state.last_time_true = $current_time
                     $check_state.last_was_true = True
-                $succeeded: I8 = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
-                assert $succeeded != 2, 1
-                if $succeeded == 1 or $succeeded == 0:
+                $succeeded: Fw.TimeComparison = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
+                if $succeeded == Fw.TimeComparison.GT or $succeeded == Fw.TimeComparison.EQ:
                     $check_state.result = True
                     break
             else:
@@ -558,23 +557,23 @@ class DesugarCheckStatements(Transformer):
         
         # Only add timeout check if timeout is specified
         if has_timeout:
-            # 3. $timed_out: I8 = time_cmp($current_time, $check_state.timeout)
+            # 3. $timed_out: Fw.TimeComparison = time_cmp($current_time, $check_state.timeout)
             check_timeout = self.assign(
                 self.ident(timed_out_name),
                 self.call("time_cmp", self.ident(current_time_name), cs("timeout")),
-                self.qualified_name("I8")
+                self.qualified_name("Fw", "TimeComparison")
             )
             
-            # 4. assert $timed_out != 2, 1
+            # 4. assert $timed_out != Fw.TimeComparison.INCOMPARABLE, 1
             assert_comparable = AstAssert(
                 self.meta,
-                self.binary(self.ident(timed_out_name), "!=", self.number(2)),
+                self.binary(self.ident(timed_out_name), "!=", self.qualified_name("Fw", "TimeComparison", "INCOMPARABLE")),
                 self.number(1)
             )
             
-            # 5. if $timed_out == 1: break
+            # 5. if $timed_out == Fw.TimeComparison.GT: break
             timeout_break = self.if_stmt(
-                self.binary(self.ident(timed_out_name), "==", self.number(1)),
+                self.binary(self.ident(timed_out_name), "==", self.qualified_name("Fw", "TimeComparison", "GT")),
                 [self.break_stmt()]
             )
             
@@ -585,9 +584,8 @@ class DesugarCheckStatements(Transformer):
         #     if not $check_state.last_was_true:
         #         $check_state.last_time_true = $current_time
         #         $check_state.last_was_true = True
-        #     $succeeded: I8 = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
-        #     assert $succeeded != 2, 1
-        #     if $succeeded == 1 or $succeeded == 0:
+        #     $succeeded: Fw.TimeComparison = time_interval_cmp(time_sub($current_time, $check_state.last_time_true), $check_state.persist)
+        #     if $succeeded == Fw.TimeComparison.GT or $succeeded == Fw.TimeComparison.EQ:
         #         $check_state.result = True
         #         break
         # else:
@@ -610,21 +608,15 @@ class DesugarCheckStatements(Transformer):
                 self.call("time_sub", self.ident(current_time_name), cs("last_time_true")),
                 cs("persist")
             ),
-            self.qualified_name("I8")
+            self.qualified_name("Fw", "TimeComparison")
         )
         
-        assert_persist_comparable = AstAssert(
-            self.meta,
-            self.binary(self.ident(succeeded_name), "!=", self.number(2)),
-            self.number(1)
-        )
-        
-        # if succeeded == 0 or succeeded == 1
+        # if succeeded == Fw.TimeComparison.EQ or succeeded == Fw.TimeComparison.GT
         success_check = self.if_stmt(
             self.binary(
-                self.binary(self.ident(succeeded_name), "==", self.number(1)),
+                self.binary(self.ident(succeeded_name), "==", self.qualified_name("Fw", "TimeComparison", "GT")),
                 "or",
-                self.binary(self.ident(succeeded_name), "==", self.number(0))
+                self.binary(self.ident(succeeded_name), "==", self.qualified_name("Fw", "TimeComparison", "EQ"))
             ),
             [
                 self.assign(cs("result"), self.boolean(True)),
@@ -636,7 +628,7 @@ class DesugarCheckStatements(Transformer):
         # Main condition check if/else
         condition_check = self.if_stmt(
             copy.deepcopy(node.condition),
-            [update_last_true, check_persist, assert_persist_comparable, success_check],
+            [update_last_true, check_persist, success_check],
             [self.assign(cs("last_was_true"), self.boolean(False))]
         )
         
@@ -803,7 +795,6 @@ class DesugarTimeOperators(Transformer):
         return result_node
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        from fpy.types import TimeIntervalValue
         from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 
         lhs_type = state.synthesized_types.get(node.lhs)
@@ -814,12 +805,12 @@ class DesugarTimeOperators(Transformer):
         # Check if types are Time or TimeInterval
         lhs_is_time = issubclass(lhs_type, TimeValue)
         rhs_is_time = issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
         
         # Time - Time -> time_sub
         if lhs_is_time and rhs_is_time and node.op == BinaryStackOp.SUBTRACT:
-            return self._make_func_call(node, "time_sub", TimeIntervalValue, state)
+            return self._make_func_call(node, "time_sub", state.time_interval_type, state)
         
         # Time + TimeInterval -> time_add
         if lhs_is_time and rhs_is_interval and node.op == BinaryStackOp.ADD:
@@ -831,11 +822,11 @@ class DesugarTimeOperators(Transformer):
         
         # TimeInterval + TimeInterval -> time_interval_add
         if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.ADD:
-            return self._make_func_call(node, "time_interval_add", TimeIntervalValue, state)
+            return self._make_func_call(node, "time_interval_add", state.time_interval_type, state)
         
         # TimeInterval - TimeInterval -> time_interval_sub
         if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.SUBTRACT:
-            return self._make_func_call(node, "time_interval_sub", TimeIntervalValue, state)
+            return self._make_func_call(node, "time_interval_sub", state.time_interval_type, state)
         
         # TimeInterval comparisons -> time_interval_cmp
         if lhs_is_interval and rhs_is_interval and node.op in COMPARISON_OPS:

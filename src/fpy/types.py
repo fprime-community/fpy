@@ -154,11 +154,6 @@ class RangeValue(FppValue):
         raise NotImplementedError()
 
 
-TimeIntervalValue = StructValue.construct_type(
-    "Fw.TimeIntervalValue",
-    [("seconds", U32Value, "", ""), ("useconds", U32Value, "", "")],
-)
-
 # this is the "internal" string type that string literals have by
 # default. it is arbitrary length. it is also only used in places where
 # we know the value is constant
@@ -467,6 +462,9 @@ class CompileState:
     global_value_scope: SymbolTable
     """The global value scope: a symbol table whose leaf nodes are runtime values
     (telemetry channels, parameters, enum constants, variables)."""
+    
+    time_interval_type: type
+    """The Fw.TimeIntervalValue type from the dictionary"""
 
     compile_args: dict = field(default_factory=dict)
     

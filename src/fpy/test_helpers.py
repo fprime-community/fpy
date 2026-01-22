@@ -7,8 +7,8 @@ from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
+from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
 
@@ -47,27 +47,8 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
 
 def lookup_type(fprime_test_api, type_name: str):
     dictionary = default_dictionary  # fprime_test_api.pipeline.dictionary_path
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (cmd_id_dict, cmd_name_dict, versions) = cmd_json_dict_loader.construct_dicts(
-        dictionary
-    )
-
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (ch_id_dict, ch_name_dict, versions) = ch_json_dict_loader.construct_dicts(
-        dictionary
-    )
-    prm_json_dict_loader = PrmJsonLoader(dictionary)
-    (prm_id_dict, prm_name_dict, versions) = prm_json_dict_loader.construct_dicts(
-        dictionary
-    )
-    event_json_dict_loader = EventJsonLoader(dictionary)
-    (event_id_dict, event_name_dict, versions) = event_json_dict_loader.construct_dicts(
-        dictionary
-    )
-    type_name_dict = cmd_json_dict_loader.parsed_types
-    type_name_dict.update(ch_json_dict_loader.parsed_types)
-    type_name_dict.update(prm_json_dict_loader.parsed_types)
-    type_name_dict.update(event_json_dict_loader.parsed_types)
+    type_json_dict_loader = TypeJsonLoader(dictionary)
+    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
 
     return type_name_dict[type_name]
 

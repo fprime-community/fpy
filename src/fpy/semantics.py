@@ -58,7 +58,6 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fpy.types import TimeIntervalValue
 from fprime_gds.common.models.serialize.type_base import ValueType
 from fprime_gds.common.models.serialize.serializable_type import (
     SerializableType as StructValue,
@@ -773,13 +772,13 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         )
 
     def pick_time_intermediate_type(
-        self, lhs_type: FppType, rhs_type: FppType, op: BinaryStackOp
+        self, lhs_type: FppType, rhs_type: FppType, op: BinaryStackOp, state: CompileState
     ) -> FppType | None:
         """Return intermediate type for time/interval operations, or None if not a time operation."""
         lhs_is_time = lhs_type is not None and issubclass(lhs_type, TimeValue)
         rhs_is_time = rhs_type is not None and issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
         
         # Time - Time -> TimeIntervalValue (via time_sub)
         if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
@@ -795,20 +794,20 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         
         # TimeInterval + TimeInterval -> TimeInterval (via time_interval_add)
         if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.ADD:
-            return TimeIntervalValue
+            return state.time_interval_type
         
         # TimeInterval - TimeInterval -> TimeInterval (via time_interval_sub)
         if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.SUBTRACT:
-            return TimeIntervalValue
+            return state.time_interval_type
         
         # TimeInterval comparisons
         if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
-            return TimeIntervalValue
+            return state.time_interval_type
         
         return None
 
     def pick_intermediate_type(
-        self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp
+        self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp, state: CompileState
     ) -> FppType:
         """return the intermediate type that all arguments should be converted to for the given operator"""
 
@@ -817,7 +816,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         # Handle time type operations (these will be desugared to function calls later)
         if len(arg_types) == 2:
-            time_intermediate = self.pick_time_intermediate_type(arg_types[0], arg_types[1], op)
+            time_intermediate = self.pick_time_intermediate_type(arg_types[0], arg_types[1], op, state)
             if time_intermediate is not None:
                 return time_intermediate
 
@@ -1063,22 +1062,22 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         state.contextual_types[node] = result_type
 
     def _get_time_op_result_type(
-        self, lhs_type: type[FppValue], rhs_type: type[FppValue], op: BinaryStackOp
+        self, lhs_type: type[FppValue], rhs_type: type[FppValue], op: BinaryStackOp, state: CompileState
     ) -> type[FppValue] | None:
         """Return the result type for time/interval operations, or None if not a time operation."""
         lhs_is_time = issubclass(lhs_type, TimeValue)
         rhs_is_time = issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue" or lhs_type is TimeIntervalValue
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue" or rhs_type is TimeIntervalValue
+        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
+        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
 
         if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
-            return TimeIntervalValue
+            return state.time_interval_type
         if lhs_is_time and rhs_is_time and op in COMPARISON_OPS:
             return BoolValue
         if lhs_is_time and rhs_is_interval and op == BinaryStackOp.ADD:
             return TimeValue
         if lhs_is_interval and rhs_is_interval and op in (BinaryStackOp.ADD, BinaryStackOp.SUBTRACT):
-            return TimeIntervalValue
+            return state.time_interval_type
         if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
             return BoolValue
         return None
@@ -1087,7 +1086,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
 
-        intermediate_type = self.pick_intermediate_type([lhs_type, rhs_type], node.op)
+        intermediate_type = self.pick_intermediate_type([lhs_type, rhs_type], node.op, state)
         if intermediate_type is None:
             state.err(
                 f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
@@ -1096,7 +1095,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             return
 
         # Check for time/interval operations - these skip coercion and will be desugared to function calls
-        time_result = self._get_time_op_result_type(lhs_type, rhs_type, node.op)
+        time_result = self._get_time_op_result_type(lhs_type, rhs_type, node.op, state)
         if time_result is not None:
             result_type = time_result
         else:
@@ -1113,7 +1112,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
         val_type = state.synthesized_types[node.val]
 
-        intermediate_type = self.pick_intermediate_type([val_type], node.op)
+        intermediate_type = self.pick_intermediate_type([val_type], node.op, state)
         if intermediate_type is None:
             state.err(f"Op {node.op} undefined for {typename(val_type)}", node)
             return

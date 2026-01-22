@@ -59,7 +59,6 @@ from fpy.types import (
     CommandSymbol,
     NameGroup,
     SymbolTable,
-    TimeIntervalValue,
     TypeCtorSymbol,
     Visitor,
     create_symbol_table,
@@ -69,6 +68,7 @@ from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
+from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from pathlib import Path
 from lark import Lark, LarkError
@@ -194,15 +194,11 @@ def _load_dictionary(dictionary: str) -> tuple:
     (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(dictionary)
     prm_json_dict_loader = PrmJsonLoader(dictionary)
     (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
-    event_json_dict_loader = EventJsonLoader(dictionary)
-    (_, _, _) = event_json_dict_loader.construct_dicts(dictionary)
 
-    # the type name dict is a mapping of a fully qualified name to an fprime type
-    # here we put into it all types found while parsing all cmds, params and tlm channels
-    type_name_dict: dict[str, FppType] = dict(cmd_json_dict_loader.parsed_types)
-    type_name_dict.update(ch_json_dict_loader.parsed_types)
-    type_name_dict.update(prm_json_dict_loader.parsed_types)
-    type_name_dict.update(event_json_dict_loader.parsed_types)
+    # Load all types from typeDefinitions - this includes types not referenced
+    # by any command, channel, parameter, or event (e.g. Fw.TimeComparison)
+    type_json_dict_loader = TypeJsonLoader(dictionary)
+    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
 
     return (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict)
 
@@ -238,12 +234,13 @@ def _build_global_scopes(dictionary: str) -> tuple:
     type_name_dict["bool"] = BoolValue
     # note no string type at the moment
 
-    # this is a hack because right now the timeintervalvalue isn't in the dict
+    # Require Fw.TimeIntervalValue and Fw.TimeComparison from the dictionary
     if "Fw.TimeIntervalValue" not in type_name_dict:
-        type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
-        time_interval_type = TimeIntervalValue
-    else:
-        time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+        raise ValueError("Dictionary must contain Fw.TimeIntervalValue type")
+    time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+
+    if "Fw.TimeComparison" not in type_name_dict:
+        raise ValueError("Dictionary must contain Fw.TimeComparison enum")
 
     # once we have timeintervalvalue, make the checkstate struct
     # This is an internal type (prefixed with $) not directly accessible to users,
@@ -325,12 +322,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
         ),
     )
 
-    return (type_scope, callable_scope, values_scope)
+    return (type_scope, callable_scope, values_scope, time_interval_type)
 
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
+    type_scope, callable_scope, values_scope, time_interval_type = _build_global_scopes(dictionary)
     sequence_config = _load_sequence_config(dictionary)
 
     # Make copies of the scopes since we'll mutate them during compilation
@@ -341,6 +338,7 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
+        time_interval_type=time_interval_type,
         compile_args=compile_args or dict(),
         max_directives_count=sequence_config["max_directives_count"],
         max_directive_size=sequence_config["max_directive_size"],

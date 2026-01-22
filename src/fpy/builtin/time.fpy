@@ -1,23 +1,23 @@
-def time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8:
+def time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeComparison:
     if lhs.time_base != rhs.time_base:
-        return 2 # incomparable
+        return Fw.TimeComparison.INCOMPARABLE
     # times are comparable
     lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
     rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
     if lhs_micros < rhs_micros:
-        return -1
+        return Fw.TimeComparison.LT
     elif lhs_micros == rhs_micros:
-        return 0
-    return 1
+        return Fw.TimeComparison.EQ
+    return Fw.TimeComparison.GT
 
-def time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8:
+def time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> Fw.TimeComparison:
     lhs_micros: U64 = lhs.seconds * 1_000_000 + lhs.useconds
     rhs_micros: U64 = rhs.seconds * 1_000_000 + rhs.useconds
     if lhs_micros < rhs_micros:
-        return -1
+        return Fw.TimeComparison.LT
     elif lhs_micros == rhs_micros:
-        return 0
-    return 1
+        return Fw.TimeComparison.EQ
+    return Fw.TimeComparison.GT
 
 
 # time subtraction produces a time delta
