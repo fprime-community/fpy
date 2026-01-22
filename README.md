@@ -413,7 +413,7 @@ t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
 ## 15. Time Functions
-Fpy provides built-in functions for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
+Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
 
 You can get the current time with `now()`:
 ```py
@@ -430,6 +430,8 @@ t2: Fw.Time = now()
 
 assert t1 <= t2
 ```
+
+If the times are incomparable due to having different time bases, the sequence will assert. To safely compare times which may have different time bases, use the `time_cmp` function, in `time.fpy`.
 
 You can also compare two `Fw.TimeIntervalValue` values:
 ```py

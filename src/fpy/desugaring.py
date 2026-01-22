@@ -816,9 +816,9 @@ class DesugarTimeOperators(Transformer):
         if lhs_is_time and rhs_is_interval and node.op == BinaryStackOp.ADD:
             return self._make_func_call(node, "time_add", TimeValue, state)
         
-        # Time comparisons -> time_cmp
+        # Time comparisons -> time_cmp_assert_comparable (asserts time bases are equal)
         if lhs_is_time and rhs_is_time and node.op in COMPARISON_OPS:
-            return self._make_cmp_expr(node, "time_cmp", state)
+            return self._make_cmp_expr(node, "time_cmp_assert_comparable", state)
         
         # TimeInterval + TimeInterval -> time_interval_add
         if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.ADD:
