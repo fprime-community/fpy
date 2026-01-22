@@ -455,9 +455,10 @@ end: Fw.Time = Fw.Time(1, 0, 105, 500000)
 assert (end - start).seconds == 5
 ```
 
-> Note: Subtraction of two `Fw.Time` values asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+Subtraction of two `Fw.Time` values asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+
 > If at any point the output value would overflow, the sequence will exit with an error.
-> Under the hood, these operators are just calling the built in `time_cmp`, `time_sub`, `time_add`, etc. functions.
+> Under the hood, these operators are just calling the built in `time_cmp`, `time_sub`, `time_add`, etc. functions in `time.fpy`.
 
 ## 16. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
