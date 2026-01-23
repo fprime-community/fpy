@@ -69,7 +69,11 @@ from fprime_gds.common.models.serialize.numerical_types import (
     U16Type as U16Value,
     U32Type as U32Value,
     U64Type as U64Value,
+    I8Type as I8Value,
+    I16Type as I16Value,
+    I32Type as I32Value,
     I64Type as I64Value,
+    F32Type as F32Value,
     F64Type as F64Value,
     FloatType as FloatValue,
     IntegerType as IntegerValue,
@@ -772,9 +776,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         )
 
     def pick_time_intermediate_type(
-        self, lhs_type: FppType, rhs_type: FppType, op: BinaryStackOp, state: CompileState
+        self, arg_types: list[FppType], op: BinaryStackOp, state: CompileState
     ) -> FppType | None:
         """Return intermediate type for time/interval operations, or None if not a time operation."""
+        if len(arg_types) != 2:
+            return None
+        lhs_type, rhs_type = arg_types
         lhs_is_time = lhs_type is not None and issubclass(lhs_type, TimeValue)
         rhs_is_time = rhs_type is not None and issubclass(rhs_type, TimeValue)
         lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
@@ -806,70 +813,120 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         
         return None
 
-    def pick_intermediate_type(
-        self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp, state: CompileState
-    ) -> FppType:
-        """return the intermediate type that all arguments should be converted to for the given operator"""
+    def _pick_numeric_type_category(
+        self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp
+    ) -> str:
+        """Determine the type category (float, uint, int) for a numeric op intermediate or result type."""
+        if op == BinaryStackOp.DIVIDE or op == BinaryStackOp.EXPONENT:
+            # always do true division and exponentiation over floats, python style
+            return "float"
+        elif any(issubclass(t, FloatValue) for t in arg_types):
+            return "float"
+        elif any(t in UNSIGNED_INTEGER_TYPES for t in arg_types):
+            return "uint"
+        else:
+            return "int"
 
+    def _select_type_for_category_and_bits(self, type_category: str, bits: int) -> FppType:
+        """Select the appropriate concrete type given a category and bitwidth."""
+        if type_category == "float":
+            return F64Value if bits > 32 else F32Value
+        if type_category == "uint":
+            if bits <= 8:
+                return U8Value
+            elif bits <= 16:
+                return U16Value
+            elif bits <= 32:
+                return U32Value
+            else:
+                return U64Value
+        assert type_category == "int"
+        if bits <= 8:
+            return I8Value
+        elif bits <= 16:
+            return I16Value
+        elif bits <= 32:
+            return I32Value
+        else:
+            return I64Value
+
+    def pick_intermediate_type(
+        self,
+        arg_types: list[FppType],
+        op: BinaryStackOp | UnaryStackOp,
+    ) -> FppType | None:
+        """Return the intermediate type for an operation (excluding time ops).
+        
+        This always returns 64-bit types for non-constant numerics, as required by the VM.
+        Returns None if the operation is invalid for the given types.
+        """
         if op in BOOLEAN_OPERATORS:
             return BoolValue
-
-        # Handle time type operations (these will be desugared to function calls later)
-        if len(arg_types) == 2:
-            time_intermediate = self.pick_time_intermediate_type(arg_types[0], arg_types[1], op, state)
-            if time_intermediate is not None:
-                return time_intermediate
 
         non_numeric = any(not issubclass(t, NumericalValue) for t in arg_types)
 
         if (op == BinaryStackOp.EQUAL or op == BinaryStackOp.NOT_EQUAL) and non_numeric:
             # comparison of complex types (structs/strings/arrays/enum consts)
             if len(set(arg_types)) != 1:
-                # can only compare equality between the same types
                 return None
             return arg_types[0]
 
-        # all other cases require that arguments are numeric
         if non_numeric:
             return None
 
-        # we split this algo up into two stages: picking the type category (float, uint or int), and picking the type bitwidth
+        # Check for mixed signed/unsigned integers - no valid common type exists
+        # (floats are fine to mix with any integer, and arbitrary precision can convert to anything)
+        concrete_types = [t for t in arg_types if t not in ARBITRARY_PRECISION_TYPES]
+        has_float = any(issubclass(t, FloatValue) for t in concrete_types)
+        if not has_float and len(concrete_types) >= 2:
+            has_signed = any(t in SIGNED_INTEGER_TYPES for t in concrete_types)
+            has_unsigned = any(t in UNSIGNED_INTEGER_TYPES for t in concrete_types)
+            if has_signed and has_unsigned:
+                return None
 
-        # pick the type category:
-        type_category = None
-        if op == BinaryStackOp.DIVIDE or op == BinaryStackOp.EXPONENT:
-            # always do true division and exponentiation over floats, python style
-            # this is because, for the given op, even with integer inputs, we might get
-            # float outputs
-            type_category = "float"
-        elif any(issubclass(t, FloatValue) for t in arg_types):
-            # otherwise if any args are floats, use float
-            type_category = "float"
-        elif any(t in UNSIGNED_INTEGER_TYPES for t in arg_types):
-            # otherwise if any args are unsigned, use unsigned
-            type_category = "uint"
-        else:
-            # otherwise use signed int
-            type_category = "int"
+        type_category = self._pick_numeric_type_category(arg_types, op)
 
-        # pick the bitwidth
-        # we only use the arb precision types for constants, so if theyre all arb precision, they're consts
-        constants = all(t in ARBITRARY_PRECISION_TYPES for t in arg_types)
-
-        if constants:
-            # we can constant fold this, so use infinite bitwidth
+        # If all operands are arbitrary precision constants, we can constant fold
+        if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):
             if type_category == "float":
                 return FpyFloatValue
-            assert type_category == "int" or type_category == "uint"
             return FpyIntegerValue
 
-        # can't const fold
-        if type_category == "float":
-            return F64Value
-        if type_category == "uint":
-            return U64Value
-        assert type_category == "int"
-        return I64Value
+        return self._select_type_for_category_and_bits(type_category, 64)
+
+    def pick_result_type(
+        self, arg_types: list[FppType], intermediate_type: FppType, op: BinaryStackOp | UnaryStackOp
+    ) -> FppType:
+        """Derive the result type from the intermediate type (excluding time ops).
+
+        For numerics, shrinks to max input bitwidth.
+        Arbitrary precision literals are treated as 64-bit, so e.g. `U32 * literal` results in U64.
+        """
+        if op in BOOLEAN_OPERATORS or op in COMPARISON_OPS:
+            return BoolValue
+
+        # all other cases, result is a number
+        assert op in NUMERIC_OPERATORS
+
+        # if all args are arb precision consts, keep it that way
+        if intermediate_type in (FpyIntegerValue, FpyFloatValue):
+            return intermediate_type
+
+        # Compute max bitwidth, treating arbitrary precision as 64-bit
+        def get_bits(t: FppType) -> int:
+            return 64 if t in ARBITRARY_PRECISION_TYPES else t.get_bits()
+
+        bits = max(get_bits(t) for t in arg_types)
+
+        # Determine category from intermediate type
+        if issubclass(intermediate_type, FloatValue):
+            type_category = "float"
+        elif intermediate_type in UNSIGNED_INTEGER_TYPES:
+            type_category = "uint"
+        else:
+            type_category = "int"
+
+        return self._select_type_for_category_and_bits(type_category, bits)
 
     def is_type_constant_size(self, type: FppType) -> bool:
         """return true if the type is statically sized"""
@@ -1061,7 +1118,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
-    def _get_time_op_result_type(
+    def pick_time_result_type(
         self, lhs_type: type[FppValue], rhs_type: type[FppValue], op: BinaryStackOp, state: CompileState
     ) -> type[FppValue] | None:
         """Return the result type for time/interval operations, or None if not a time operation."""
@@ -1085,8 +1142,19 @@ class PickTypesAndResolveMembersAndElements(Visitor):
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
+        arg_types = [lhs_type, rhs_type]
 
-        intermediate_type = self.pick_intermediate_type([lhs_type, rhs_type], node.op, state)
+        # Time/interval operations are desugared to function calls
+        time_intermediate = self.pick_time_intermediate_type(arg_types, node.op, state)
+        if time_intermediate is not None:
+            time_result = self.pick_time_result_type(lhs_type, rhs_type, node.op, state)
+            assert time_result is not None
+            state.op_intermediate_types[node] = time_intermediate
+            state.synthesized_types[node] = time_result
+            state.contextual_types[node] = time_result
+            return
+
+        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
             state.err(
                 f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
@@ -1094,16 +1162,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             )
             return
 
-        # Check for time/interval operations - these skip coercion and will be desugared to function calls
-        time_result = self._get_time_op_result_type(lhs_type, rhs_type, node.op, state)
-        if time_result is not None:
-            result_type = time_result
-        else:
-            if not self.coerce_expr_type(node.lhs, intermediate_type, state):
-                return
-            if not self.coerce_expr_type(node.rhs, intermediate_type, state):
-                return
-            result_type = intermediate_type if node.op in NUMERIC_OPERATORS else BoolValue
+        if not self.coerce_expr_type(node.lhs, intermediate_type, state):
+            return
+        if not self.coerce_expr_type(node.rhs, intermediate_type, state):
+            return
+
+        result_type = self.pick_result_type(arg_types, intermediate_type, node.op)
 
         state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type
@@ -1111,8 +1175,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
         val_type = state.synthesized_types[node.val]
+        arg_types = [val_type]
 
-        intermediate_type = self.pick_intermediate_type([val_type], node.op, state)
+        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
             state.err(f"Op {node.op} undefined for {typename(val_type)}", node)
             return
@@ -1120,11 +1185,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         if not self.coerce_expr_type(node.val, intermediate_type, state):
             return
 
-        result_type = None
-        if node.op in NUMERIC_OPERATORS:
-            result_type = intermediate_type
-        else:
-            result_type = BoolValue
+        result_type = self.pick_result_type(arg_types, intermediate_type, node.op)
 
         state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type

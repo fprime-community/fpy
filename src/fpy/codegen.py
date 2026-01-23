@@ -757,6 +757,12 @@ class GenerateFunctionBody(Emitter):
                     # don't include no op
                     dirs.append(dir())
 
+            # The VM operates on 64-bit values, so after the op we have a 64-bit result.
+            # Convert from the 64-bit intermediate type to the synthesized result type.
+            synthesized_type = state.synthesized_types[node]
+            if intermediate_type in SPECIFIC_NUMERIC_TYPES and synthesized_type in SPECIFIC_NUMERIC_TYPES:
+                dirs.extend(self.convert_numeric_type(intermediate_type, synthesized_type))
+
         # and convert the result of the op into the desired result of this expr
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
@@ -814,6 +820,12 @@ class GenerateFunctionBody(Emitter):
                 dirs.append(PushValDirective(I64Value(-1).serialize()))
 
         dirs.append(dir())
+
+        # The VM operates on 64-bit values, so after the op we have a 64-bit result.
+        # Convert from the 64-bit intermediate type to the synthesized result type.
+        synthesized_type = state.synthesized_types[node]
+        if intermediate_type in SPECIFIC_NUMERIC_TYPES and synthesized_type in SPECIFIC_NUMERIC_TYPES:
+            dirs.extend(self.convert_numeric_type(intermediate_type, synthesized_type))
 
         # and convert the result of the op into the desired result of this expr
         unconverted_type = state.synthesized_types[node]
