@@ -32,12 +32,15 @@ def human_readable_size(size_bytes):
     size_bytes = int(size_bytes)
     return f"{size_bytes} {units[unit_idx]}"
 
-def get_description() -> str:
-    return f"fprime-fpyc version {MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION} schema {SCHEMA_VERSION}"
+
+def get_version_str() -> str:
+    return f"Version {MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION} schema {SCHEMA_VERSION}"
 
 
 def compile_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=get_description())
+    arg_parser = argparse.ArgumentParser(
+        description=f"Fpy compiler. {get_version_str()}"
+    )
     arg_parser.add_argument("input", type=Path, help="The input .fpy file")
     arg_parser.add_argument(
         "-o",
@@ -113,7 +116,7 @@ def compile_main(args: list[str] = None):
 
 
 def model_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=get_description())
+    arg_parser = argparse.ArgumentParser(description=f"FpySequencer model for testing. {get_version_str()}")
     arg_parser.add_argument("input", type=Path, help="The input .bin file")
     arg_parser.add_argument(
         "--debug",
@@ -142,7 +145,7 @@ def model_main(args: list[str] = None):
 
 
 def assemble_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=get_description())
+    arg_parser = argparse.ArgumentParser(description=f"Fpy assembler. {get_version_str()}")
     arg_parser.add_argument("input", type=Path, help="The input .fpybc file")
     arg_parser.add_argument(
         "-o",
@@ -173,7 +176,7 @@ def assemble_main(args: list[str] = None):
 
 
 def disassemble_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=get_description())
+    arg_parser = argparse.ArgumentParser(description=f"Fpy disassembler. {get_version_str()}")
     arg_parser.add_argument("input", type=Path, help="The input .bin file")
     arg_parser.add_argument(
         "-o",

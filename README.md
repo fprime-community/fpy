@@ -1,4 +1,4 @@
-# Fpy Guide
+# Fpy User's Guide
 
 Fpy is an easy to learn, powerful spacecraft scripting language backed by decades of JPL heritage. It is designed to work with the FPrime flight software framework. The syntax is inspired by Python, and it compiles to an efficient binary format.
 
@@ -396,3 +396,30 @@ assert 1 > 2, 123
 
 ## 16. Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.
+
+
+# Fpy Developer's Guide
+
+## Developer tools
+
+### `fprime-fpyc` debugging flags
+The compiler has an optional `debug` flag. When passed, the compiler will print a stack trace of where each compile error is generated.
+
+
+The compiler has an optional `bytecode` flag. When passed, the compiler will output human-readable `.fpybc` files instead of `.bin` files.
+
+### `fprime-fpy-model`
+
+`fprime-fpy-model` is a Python model of the FpySequencer runtime. 
+* Given a sequence binary file, it deserializes and runs the sequence as if it were running on a real FpySequencer.
+* Commands always return successfully, without blocking.
+* Telemetry and parameter access always raise `(PR|TL)M_CHAN_NOT_FOUND`.
+* Use `--debug` to print each directive and the stack as it executes.
+
+### `fprime-fpy-asm`
+
+`fprime-fpy-asm` assembles human-readable `.fpybc` bytecode files into binary `.bin` files.
+
+### `fprime-fpy-disasm`
+
+`fprime-fpy-disasm` disassembles binary `.bin` files into human-readable `.fpybc` bytecode.
