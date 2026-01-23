@@ -4120,6 +4120,33 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIn
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_check_duplicate_timeout(fprime_test_api):
+    """Test that duplicate timeout clauses cause a compile error."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) timeout time_add(now(), Fw.TimeIntervalValue(2, 0)):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_duplicate_persist(fprime_test_api):
+    """Test that duplicate persist clauses cause a compile error."""
+    seq = """
+check True persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_duplicate_freq(fprime_test_api):
+    """Test that duplicate freq clauses cause a compile error."""
+    seq = """
+check True freq Fw.TimeIntervalValue(1, 0) freq Fw.TimeIntervalValue(2, 0):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
 # ==================== Check Statement Multi-line Syntax Tests ====================
 
 

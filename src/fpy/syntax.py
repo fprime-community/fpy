@@ -370,6 +370,8 @@ def handle_check_clauses(meta, children):
 
 def handle_check_stmt(meta, children):
     """Parse check statement with optional timeout/persist/freq clauses."""
+    from fpy.error import SyntaxErrorDuringTransform
+    
     condition = children[0]
     timeout = None
     persist = None
@@ -377,26 +379,31 @@ def handle_check_stmt(meta, children):
     body = None
     timeout_body = None
     
+    def set_clause(clause_type, expr):
+        nonlocal timeout, persist, freq
+        if clause_type == "timeout":
+            if timeout is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
+            timeout = expr
+        elif clause_type == "persist":
+            if persist is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
+            persist = expr
+        elif clause_type == "freq":
+            if freq is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'freq' clause in check statement", expr)
+            freq = expr
+    
     for child in children[1:]:
         # Handle check_clauses which returns ("check_clauses_result", clauses, body)
         if isinstance(child, tuple) and len(child) == 3 and child[0] == "check_clauses_result":
             _, clauses, stmts = child
             for clause_type, expr in clauses:
-                if clause_type == "timeout":
-                    timeout = expr
-                elif clause_type == "persist":
-                    persist = expr
-                elif clause_type == "freq":
-                    freq = expr
+                set_clause(clause_type, expr)
             body = stmts
         elif isinstance(child, tuple) and len(child) == 2:
             clause_type, expr = child
-            if clause_type == "timeout":
-                timeout = expr
-            elif clause_type == "persist":
-                persist = expr
-            elif clause_type == "freq":
-                freq = expr
+            set_clause(clause_type, expr)
         elif isinstance(child, AstStmtList):
             if body is None:
                 body = child

@@ -152,6 +152,11 @@ def text_to_ast(text: str):
                 ),
                 file=sys.stderr,
             )
+        elif isinstance(e.orig_exc, fpy.error.SyntaxErrorDuringTransform):
+            print(
+                fpy.error.CompileError(e.orig_exc.msg, e.orig_exc.node),
+                file=sys.stderr,
+            )
         else:
             print(
                 fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),

@@ -65,6 +65,14 @@ input_lines = None
 COMPILER_ERROR_CONTEXT_LINE_COUNT = 1
 
 
+class SyntaxErrorDuringTransform(Exception):
+    """Raised during AST transformation for user-facing syntax errors."""
+    def __init__(self, msg: str, node=None):
+        self.msg = msg
+        self.node = node
+        super().__init__(msg)
+
+
 @dataclass
 class CompileError:
     msg: str
