@@ -568,7 +568,7 @@ class GenerateFunctionBody(Emitter):
         if enclosing_loop in state.desugared_for_loops:
             loop_start = state.for_loop_inc_labels[enclosing_loop]
         else:
-            loop_start = state.while_loop_end_labels[enclosing_loop]
+            loop_start = state.while_loop_start_labels[enclosing_loop]
         return [IrGoto(loop_start)]
 
     def emit_AstDef(self, node: AstDef, state: CompileState):

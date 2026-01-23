@@ -2635,26 +2635,33 @@ for i in 0 .. 100:
 
 
 def test_while_continue_in_if(fprime_test_api):
+    """Test that continue both skips rest of body AND loops back to condition."""
     seq = """
 i: U64 = 0
-while i < 2:
+while i < 5:
     i = i + 1
     if True:
         continue
-    exit(1)
+    exit(1)  # should be skipped by continue
+
+# Verify loop ran all 5 iterations (not just 1 like a break would)
+assert i == 5
 """
 
     assert_run_success(fprime_test_api, seq)
 
 
 def test_for_continue_in_if(fprime_test_api):
+    """Test that continue both skips rest of body AND continues to next iteration."""
     seq = """
 sum: U64 = 0
 for i in 0 .. 100:
     sum = sum + 1
     if True:
         continue
-    exit(1)
+    exit(1)  # should be skipped by continue
+
+# Verify loop ran all 100 iterations
 assert sum == 100
 """
 
@@ -4299,6 +4306,207 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIn
 timeout:
     assert False, 1
 assert check_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ==================== Check Statement Control Flow Tests ====================
+
+
+def test_check_break_not_allowed(fprime_test_api):
+    """Test that break inside check body is not allowed when check is not in a loop."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    break
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_continue_not_allowed(fprime_test_api):
+    """Test that continue inside check body is not allowed when check is not in a loop."""
+    seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    continue
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_break_allowed_in_loop(fprime_test_api):
+    """Test that break inside check body IS allowed when check is inside a loop."""
+    seq = """
+loop_ran: bool = False
+while True:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        loop_ran = True
+        break
+assert loop_ran
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_continue_allowed_in_loop(fprime_test_api):
+    """Test that continue inside check body IS allowed when check is inside a loop."""
+    seq = """
+iterations: I64 = 0
+while iterations < 3:
+    iterations = iterations + 1
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        continue
+assert iterations == 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_return_in_function(fprime_test_api):
+    """Test that return inside check body works correctly in a function."""
+    seq = """
+def check_and_return() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+    return 0
+
+result: I64 = check_and_return()
+assert result == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_return_from_timeout_body(fprime_test_api):
+    """Test that return from timeout body works correctly."""
+    seq = """
+def check_timeout_return() -> I64:
+    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
+        return 1
+    timeout:
+        return 42
+    return 0
+
+result: I64 = check_timeout_return()
+assert result == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_both_branches_return(fprime_test_api):
+    """Test that a function with check where both bodies return doesn't need trailing return."""
+    seq = """
+def check_returns() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+    timeout:
+        return 0
+
+result: I64 = check_returns()
+assert result == 42
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_no_timeout_body_return_required(fprime_test_api):
+    """Test that a function with check but no timeout body still needs trailing return."""
+    seq = """
+def check_needs_return() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_no_timeout_clause_still_needs_return(fprime_test_api):
+    """Test that a check with no timeout clause still needs a trailing return 
+    because the desugared if/else has an implicit else branch that doesn't return."""
+    seq = """
+def check_no_timeout() -> I64:
+    check True:
+        return 42
+"""
+    # The check desugars to: while True:...; if result: <body> else: <implicit>
+    # The implicit else doesn't return, so we need a trailing return
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_check_nested(fprime_test_api):
+    """Test nested check statements."""
+    seq = """
+outer_passed: bool = False
+inner_passed: bool = False
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    outer_passed = True
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        inner_passed = True
+
+assert outer_passed
+assert inner_passed
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_nested_timeout_body(fprime_test_api):
+    """Test nested check with inner check timing out."""
+    seq = """
+outer_passed: bool = False
+inner_timed_out: bool = False
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    outer_passed = True
+    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
+        pass
+    timeout:
+        inner_timed_out = True
+
+assert outer_passed
+assert inner_timed_out
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_inside_while_loop(fprime_test_api):
+    """Test check inside a while loop."""
+    seq = """
+iterations: I64 = 0
+checks_passed: I64 = 0
+
+while iterations < 3:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        checks_passed = checks_passed + 1
+    iterations = iterations + 1
+
+assert iterations == 3
+assert checks_passed == 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_inside_for_loop(fprime_test_api):
+    """Test check inside a for loop."""
+    seq = """
+checks_passed: I64 = 0
+
+for i in 0..3:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        checks_passed = checks_passed + 1
+
+assert checks_passed == 3
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_check_with_zero_clauses(fprime_test_api):
+    """Test check with absolutely no clauses (all defaults)."""
+    seq = """
+counter: I64 = 0
+
+def eventually_true() -> bool:
+    counter = counter + 1
+    return counter >= 2
+
+passed: bool = False
+check eventually_true():
+    passed = True
+
+assert passed
+assert counter >= 2
 """
     assert_run_success(fprime_test_api, seq)
 
