@@ -85,7 +85,7 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 
-debug = True
+debug = False
 
 # store return addr and prev stack frame offset in stack frame header
 # each is StackSizeType (U32), so 4 bytes each = 8 bytes total
