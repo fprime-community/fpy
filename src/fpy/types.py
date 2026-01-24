@@ -1,7 +1,6 @@
 from __future__ import annotations
 from abc import ABC
 from decimal import Decimal
-from importlib.metadata import version
 import inspect
 from dataclasses import astuple, dataclass, field, fields
 import math
@@ -796,21 +795,9 @@ class Emitter:
         return self.emitters[type(node)](node, state)
 
 
-def _get_version_tuple() -> tuple[int, int, int]:
-    try:
-        import re
-        v = version("fprime-fpy")
-        # Handle versions like "0.0.1a3.dev103+g244fdeadc"
-        # Extract just the major.minor.patch part
-        match = re.match(r"(\d+)\.(\d+)\.(\d+)", v)
-        if match:
-            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
-        return (0, 0, 0)
-    except Exception:
-        return (0, 0, 0)
-
-
-MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
+MAJOR_VERSION = 0
+MINOR_VERSION = 3
+PATCH_VERSION = 0
 SCHEMA_VERSION = 4
 
 HEADER_FORMAT = "!BBBBBHI"
