@@ -514,3 +514,15 @@ The compiler has an optional `bytecode` flag. When passed, the compiler will out
 ### `fprime-fpy-disasm`
 
 `fprime-fpy-disasm` disassembles binary `.bin` files into human-readable `.fpybc` bytecode.
+
+## Running tests
+
+Use `pytest` to run the test suite:
+```sh
+pytest test/
+```
+
+By default, debug output from the sequencer model is disabled for performance. To enable verbose debug output (prints each directive and stack state), use the `--fpy-debug` flag:
+```sh
+pytest test/ --fpy-debug
+```
