@@ -81,7 +81,6 @@ def run_seq(
     (cmd_id_dict, cmd_name_dict, versions) = cmd_json_dict_loader.construct_dicts(
         dictionary
     )
-    fpy.model.debug = True
     model = FpySequencerModel(
         cmd_dict=cmd_id_dict,
         time_base=time_base,
