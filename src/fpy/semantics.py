@@ -576,6 +576,27 @@ class ResolveQualifiedNames(TopDownVisitor):
         assert not is_instance_compat(node, AstStmtWithExpr), node
 
 
+def is_type_constant_size(type: FppType) -> bool:
+    """Return true if the type has a statically known size.
+    
+    Types with strings (directly or nested) don't have constant size because
+    strings can vary in length.
+    """
+    if issubclass(type, StringValue):
+        return False
+
+    if issubclass(type, ArrayValue):
+        return is_type_constant_size(type.MEMBER_TYPE)
+
+    if issubclass(type, StructValue):
+        for _, arg_type, _, _ in type.MEMBER_LIST:
+            if not is_type_constant_size(arg_type):
+                return False
+        return True
+
+    return True
+
+
 class UpdateTypesAndFuncs(Visitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -588,6 +609,12 @@ class UpdateTypesAndFuncs(Visitor):
             func.return_type = NothingValue
         else:
             return_type = state.resolved_symbols[node.return_type]
+            if not is_type_constant_size(return_type):
+                state.err(
+                    f"Type {typename(return_type)} is not constant-sized (contains strings)",
+                    node.return_type,
+                )
+                return
             func.return_type = return_type
 
         # Resolve parameter types
@@ -595,6 +622,12 @@ class UpdateTypesAndFuncs(Visitor):
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
                 arg_type = state.resolved_symbols[arg_type_name]
+                if not is_type_constant_size(arg_type):
+                    state.err(
+                        f"Type {typename(arg_type)} is not constant-sized (contains strings)",
+                        arg_type_name,
+                    )
+                    return
                 # update the var type
                 arg_var = state.resolved_symbols[arg_name_var]
                 assert is_instance_compat(arg_var, VariableSymbol), arg_var
@@ -608,6 +641,13 @@ class UpdateTypesAndFuncs(Visitor):
             return
 
         var_type = state.resolved_symbols[node.type_ann]
+
+        if not is_type_constant_size(var_type):
+            state.err(
+                f"Type {typename(var_type)} is not constant-sized (contains strings)",
+                node.type_ann,
+            )
+            return
 
         var = state.resolved_symbols[node.lhs]
 
@@ -928,22 +968,6 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         return self._select_type_for_category_and_bits(type_category, bits)
 
-    def is_type_constant_size(self, type: FppType) -> bool:
-        """return true if the type is statically sized"""
-        if issubclass(type, StringValue):
-            return False
-
-        if issubclass(type, ArrayValue):
-            return self.is_type_constant_size(type.MEMBER_TYPE)
-
-        if issubclass(type, StructValue):
-            for _, arg_type, _, _ in type.MEMBER_LIST:
-                if not self.is_type_constant_size(arg_type):
-                    return False
-            return True
-
-        return True
-
     def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
         if isinstance(sym, ChTemplate):
@@ -987,9 +1011,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
                 state.err(f"{typename(parent_type)} is not a struct, cannot access members", node)
                 return
 
-            if not self.is_type_constant_size(parent_type):
+            if not is_type_constant_size(parent_type):
                 state.err(
-                    f"{parent_type} has non-constant sized members, cannot access members",
+                    f"{typename(parent_type)} is not constant-sized (contains strings), cannot access members",
                     node,
                 )
                 return
@@ -1061,9 +1085,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         parent_type = state.synthesized_types[node.parent]
 
-        if not self.is_type_constant_size(parent_type):
+        if not is_type_constant_size(parent_type):
             state.err(
-                f"{typename(parent_type)} has non-constant sized members, cannot access items",
+                f"{typename(parent_type)} is not constant-sized (contains strings), cannot access items",
                 node,
             )
             return
@@ -1344,6 +1368,16 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             # so it's not even a symbol, just some expr
             state.err(f"Unknown function", node.func)
             return
+
+        # Check that type constructors are for constant-sized types
+        if is_instance_compat(func, TypeCtorSymbol):
+            if not is_type_constant_size(func.type):
+                state.err(
+                    f"Type {typename(func.type)} is not constant-sized (contains strings)",
+                    node.func,
+                )
+                return
+
         node_args = node.args if node.args else []
 
         # Build resolved args: reorder named args, fill in defaults, check for missing required

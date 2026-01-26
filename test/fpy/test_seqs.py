@@ -4850,3 +4850,39 @@ def test_time_function_u32_overflow(fprime_test_api):
 t: Fw.Time = time("2200-01-01T00:00:00Z")
 """
     assert_compile_failure(fprime_test_api, seq)
+
+
+# Tests for non-constant-sized types (types containing strings)
+
+def test_non_const_sized_var_decl(fprime_test_api):
+    """Variable declarations with non-constant-sized types should fail."""
+    seq = """
+val: Ref.DpDemo.StringArray = Ref.DpDemo.StringArray("a", "b")
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_non_const_sized_func_param(fprime_test_api):
+    """Function parameters with non-constant-sized types should fail."""
+    seq = """
+def foo(x: Ref.DpDemo.StringArray):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_non_const_sized_func_return(fprime_test_api):
+    """Function return types with non-constant-sized types should fail."""
+    seq = """
+def foo() -> Ref.DpDemo.StringArray:
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_non_const_sized_ctor_call(fprime_test_api):
+    """Calling constructors for non-constant-sized types should fail."""
+    seq = """
+Ref.DpDemo.StringArray("a", "b")
+"""
+    assert_compile_failure(fprime_test_api, seq)

@@ -89,7 +89,7 @@ def typename(typ: FppType) -> str:
         return "String"
     if typ == RangeValue:
         return "Range"
-    return str(typ)
+    return typ.__name__
 
 
 # this is the "internal" integer type that integer literals have by

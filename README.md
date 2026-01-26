@@ -147,7 +147,7 @@ Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
 
 You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#16-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
 
-There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#18-strings).
+There are some restrictions on using string values, or complex types containing string values. See [Strings](#18-strings).
 
 ## 7. Getting Telemetry Channels and Parameters
 
@@ -486,7 +486,7 @@ assert 1 > 2, 123
 ```
 
 ## 18. Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to FPrime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
 
 
 # Fpy Developer's Guide
