@@ -25,14 +25,13 @@ except ImportError:
     UNION_TYPES = (Union,)
 
 from fpy.bytecode.directives import (
+    BinaryStackOp,
+    COMPARISON_OPS,
     Directive,
 )
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -199,6 +198,21 @@ SPECIFIC_FLOAT_TYPES = (
     F64Value,
 )
 ARBITRARY_PRECISION_TYPES = (FpyFloatValue, FpyIntegerValue)
+
+# Time operator overloads: maps (lhs_category, rhs_category, op) -> (intermediate_category, result_category)
+# Categories are: "time", "interval", "bool"
+TIME_OP_OVERLOADS: dict[tuple[str, str, BinaryStackOp], tuple[str, str]] = {
+    # Time - Time -> TimeInterval
+    ("time", "time", BinaryStackOp.SUBTRACT): ("time", "interval"),
+    # Time + TimeInterval -> Time  
+    ("time", "interval", BinaryStackOp.ADD): ("time", "time"),
+    # TimeInterval +/- TimeInterval -> TimeInterval
+    ("interval", "interval", BinaryStackOp.ADD): ("interval", "interval"),
+    ("interval", "interval", BinaryStackOp.SUBTRACT): ("interval", "interval"),
+    # Comparisons -> Bool
+    **{("time", "time", op): ("time", "bool") for op in COMPARISON_OPS},
+    **{("interval", "interval", op): ("interval", "bool") for op in COMPARISON_OPS},
+}
 
 
 def is_instance_compat(obj, cls):

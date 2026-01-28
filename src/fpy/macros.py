@@ -153,6 +153,16 @@ def generate_log_signed_int(node: Ast) -> list[Directive | Ir]:
         FloatLogDirective(),
     ]
 
+TIME_MACRO = BuiltinFuncSymbol(
+        "time",
+        TimeValue,
+        [
+            ("timestamp", FpyStringValue, None),
+            ("time_base", U16Value, U16Value(0)),
+            ("time_context", U8Value, U8Value(0)),
+        ],
+        lambda n: [],  # placeholder - const eval handles this
+    )
 
 MACROS: dict[str, BuiltinFuncSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
@@ -173,14 +183,5 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
     # The generate function should never be called since this is always const-evaluated
-    "time": BuiltinFuncSymbol(
-        "time",
-        TimeValue,
-        [
-            ("timestamp", FpyStringValue, None),
-            ("time_base", U16Value, U16Value(0)),
-            ("time_context", U8Value, U8Value(0)),
-        ],
-        lambda n: [],  # placeholder - const eval handles this
-    ),
+    "time": TIME_MACRO,
 }

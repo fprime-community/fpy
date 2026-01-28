@@ -3,14 +3,15 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
 import struct
-from numbers import Number
 from typing import Union
 
 from fpy.error import CompileError
+from fpy.macros import TIME_MACRO
 from fpy.types import (
     ARBITRARY_PRECISION_TYPES,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
+    TIME_OP_OVERLOADS,
     UNSIGNED_INTEGER_TYPES,
     BuiltinFuncSymbol,
     CompileState,
@@ -733,7 +734,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
 
-class PickTypesAndResolveMembersAndElements(Visitor):
+class PickTypesAndResolveFields(Visitor):
 
     def coerce_expr_type(
         self, node: AstExpr, type: FppType, state: CompileState
@@ -766,39 +767,26 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             # if one of the src or dest aren't numerical, we can't coerce
             return False
 
-        # now we must answer:
-        # are all values of from_type representable in the destination type?
+        # three questions:
+        # are ANY values of from_type representable in the destination type?
+        # in all cases, yes. int->int and float->float are obvious
+        # int->float is okay, because floats can represent integers exactly (up to a certain max)
+        # and thus the inverse (float->int) must also be possible sometimes
 
-        # if we have a const, we know its value, we can check later if the value fits in the dest.
-        # for now, permit it?
-        
-        # if we have a non-const, and we're going to const, we will fail
+        # okay so can't reject anything outright...
 
-        # if going from float to integer, definitely not
-        if issubclass(from_type, FloatValue) and issubclass(to_type, IntegerValue):
-            return False
-
-        # in general: if either src or dest is one of our FpyXYZValue types, which are
-        # arb precision, we allow this coercion.
-        # it's easy to argue we should allow converting to arb precision. but why would
-        # we allow arb precision to go to an 8 bit type, e.g.?
-        # we have a big advantage: the arb precision types are only used for constants. that
-        # means we actually know what the value is, so we can actually check!
-        # however, we won't perform that check here. That will happen later in the
-        # const_convert_type func in the CalcConstExprValues
-        # for now, we will let the compilation proceed if either side is arb precision
-
-        if (
-            from_type in ARBITRARY_PRECISION_TYPES
-            or to_type in ARBITRARY_PRECISION_TYPES
-        ):
+        # second question: is the actual current value of from_type representable in the dest type?
+        # well, if it's not a const, we won't be able to tell. but if it is, well, we don't know yet,
+        # but we can check later, so let's allow it for now and check in the ConstExprEval pass
+        if from_const:
             return True
 
-        # otherwise, both src and dest have finite bits
+        # third question: are ALL values of from_type representable in the dest type?
 
-        # if we currently have a float
+        # if we currently have a float, 
         if issubclass(from_type, FloatValue):
             # the dest must be a float and must be >= width
+            # FpyFloatType returns inf for get_bits so it works nicely
             return (
                 issubclass(to_type, FloatValue)
                 and to_type.get_bits() >= from_type.get_bits()
@@ -806,12 +794,19 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         # otherwise must be an int
         assert issubclass(from_type, IntegerValue)
-        # int to float is allowed in any case.
-        # this is the big exception to our rule about full representation. this can cause loss of precision
-        # for large integer values
+
+        # int to float is allowed in any case, even I64 to F32... sus?
+        # we actually have an exception for large integers converting to floats. technically
+        # not all integers can be losslessly converted to floats (those over a certain max are rounded)
+        # but we just let it happen, silently. this is pretty common in PLs
         if issubclass(to_type, FloatValue):
             return True
 
+        # int to arb precision int is always allowed
+        if issubclass(to_type, FpyIntegerValue):
+            return True
+
+        # finally:
         # the dest must be an int with the same signedness and >= width
         from_unsigned = from_type in UNSIGNED_INTEGER_TYPES
         to_unsigned = to_type in UNSIGNED_INTEGER_TYPES
@@ -819,43 +814,25 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             from_unsigned == to_unsigned and to_type.get_bits() >= from_type.get_bits()
         )
 
-    def pick_time_intermediate_type(
-        self, arg_types: list[FppType], op: BinaryStackOp, state: CompileState
-    ) -> FppType | None:
-        """Return intermediate type for time/interval operations, or None if not a time operation."""
-        if len(arg_types) != 2:
+    def get_time_category(self, typ: FppType) -> str | None:
+        """Return 'time', 'interval', or None."""
+        if typ is None:
             return None
-        lhs_type, rhs_type = arg_types
-        lhs_is_time = lhs_type is not None and issubclass(lhs_type, TimeValue)
-        rhs_is_time = rhs_type is not None and issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
-        
-        # Time - Time -> TimeIntervalValue (via time_sub)
-        if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
-            return TimeValue  # intermediate type is Time, result will be interval
-        
-        # Time + TimeInterval -> Time (via time_add)
-        if lhs_is_time and rhs_is_interval and op == BinaryStackOp.ADD:
-            return TimeValue  # intermediate type doesn't need conversion
-        
-        # Time comparisons
-        if lhs_is_time and rhs_is_time and op in COMPARISON_OPS:
-            return TimeValue
-        
-        # TimeInterval + TimeInterval -> TimeInterval (via time_interval_add)
-        if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.ADD:
-            return state.time_interval_type
-        
-        # TimeInterval - TimeInterval -> TimeInterval (via time_interval_sub)
-        if lhs_is_interval and rhs_is_interval and op == BinaryStackOp.SUBTRACT:
-            return state.time_interval_type
-        
-        # TimeInterval comparisons
-        if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
-            return state.time_interval_type
-        
+        if getattr(typ, '__name__', None) == "Fw.TimeIntervalValue":
+            return "interval"
+        if issubclass(typ, TimeValue):
+            return "time"
         return None
+
+    def resolve_time_category(self, category: str, state: CompileState) -> FppType:
+        """Convert 'time', 'interval', or 'bool' to actual FppType."""
+        if category == "bool":
+            return BoolValue
+        if category == "time":
+            return TimeValue
+        if category == "interval":
+            return state.time_interval_type
+        assert False, f"Unknown time category: {category}"
 
     def _pick_numeric_type_category(
         self, arg_types: list[FppType], op: BinaryStackOp | UnaryStackOp
@@ -1189,27 +1166,6 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
-    def pick_time_result_type(
-        self, lhs_type: type[FppValue], rhs_type: type[FppValue], op: BinaryStackOp, state: CompileState
-    ) -> type[FppValue] | None:
-        """Return the result type for time/interval operations, or None if not a time operation."""
-        lhs_is_time = issubclass(lhs_type, TimeValue)
-        rhs_is_time = issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
-
-        if lhs_is_time and rhs_is_time and op == BinaryStackOp.SUBTRACT:
-            return state.time_interval_type
-        if lhs_is_time and rhs_is_time and op in COMPARISON_OPS:
-            return BoolValue
-        if lhs_is_time and rhs_is_interval and op == BinaryStackOp.ADD:
-            return TimeValue
-        if lhs_is_interval and rhs_is_interval and op in (BinaryStackOp.ADD, BinaryStackOp.SUBTRACT):
-            return state.time_interval_type
-        if lhs_is_interval and rhs_is_interval and op in COMPARISON_OPS:
-            return BoolValue
-        return None
-
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
@@ -1218,15 +1174,18 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         if node.lhs in state.const_exprs and node.rhs in state.const_exprs:
             state.const_exprs.add(node)
 
-        # Time/interval operations are desugared to function calls
-        time_intermediate = self.pick_time_intermediate_type(arg_types, node.op, state)
-        if time_intermediate is not None:
-            time_result = self.pick_time_result_type(lhs_type, rhs_type, node.op, state)
-            assert time_result is not None
-            state.op_intermediate_types[node] = time_intermediate
-            state.synthesized_types[node] = time_result
-            state.contextual_types[node] = time_result
-            return
+        # Check for time/interval operator overloads
+        lhs_cat = self.get_time_category(lhs_type)
+        rhs_cat = self.get_time_category(rhs_type)
+        if lhs_cat is not None and rhs_cat is not None:
+            overload = TIME_OP_OVERLOADS.get((lhs_cat, rhs_cat, node.op))
+            if overload is not None:
+                intermediate_type = self.resolve_time_category(overload[0], state)
+                result_type = self.resolve_time_category(overload[1], state)
+                state.op_intermediate_types[node] = intermediate_type
+                state.synthesized_types[node] = result_type
+                state.contextual_types[node] = result_type
+                return
 
         intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
@@ -1479,10 +1438,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
                 # should be good 2 go based on the check func above
                 state.contextual_types[value_expr] = arg_type
 
+        const_arg_values = all(arg in state.const_exprs for arg in node_args)
         # Note: if you're going to make function default arguments non-const exprs, then you will have
         # to update this line
-        if all(arg in state.const_exprs for arg in node_args):
-            # a function has a const value if all non-default args are const
+        if const_arg_values and (is_instance_compat(func, (TypeCtorSymbol, CastSymbol)) or (func is TIME_MACRO)):
+            # a function has a const value if all non-default args are const, and it is a type ctor, or a cast,
+            # or the special case time macro which is only evaluated at compile time
             # (default args must be const so don't have to check them)
             state.const_exprs.add(node)
         state.synthesized_types[node] = func.return_type
@@ -2000,7 +1961,7 @@ class CalculateConstExprValues(Visitor):
             # should only be one value. it should be of some numeric type
             # our const convert type func will convert it for us
             expr_value = arg_values[0]
-        elif is_instance_compat(func, BuiltinFuncSymbol) and func.name == "time":
+        elif func is TIME_MACRO:
             # time() builtin parses ISO 8601 timestamps at compile time
             timestamp_str = arg_values[0].val
             time_base = arg_values[1].val
