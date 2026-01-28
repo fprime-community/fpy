@@ -54,7 +54,7 @@ class DesugarForLoops(Transformer):
         state.next_node_id += 1
         state.contextual_types[node] = contextual_type
         state.synthesized_types[node] = synthesized_type
-        state.contextual_values[node] = contextual_value
+        state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
         state.resolved_symbols[node] = resolved_symbol
         return node
@@ -334,7 +334,7 @@ class DesugarDefaultArgs(Transformer):
         # Register the new node in state so codegen can find its type/value
         state.synthesized_types[node] = type(value)
         state.contextual_types[node] = type(value)
-        state.contextual_values[node] = value
+        state.const_expr_values[node] = value
         return node
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
@@ -693,7 +693,7 @@ class DesugarTimeOperators(Transformer):
         state.next_node_id += 1
         state.contextual_types[node] = contextual_type
         state.synthesized_types[node] = synthesized_type
-        state.contextual_values[node] = contextual_value
+        state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
         state.resolved_symbols[node] = resolved_symbol
         return node

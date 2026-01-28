@@ -4886,3 +4886,13 @@ def test_non_const_sized_ctor_call(fprime_test_api):
 Ref.DpDemo.StringArray("a", "b")
 """
     assert_compile_failure(fprime_test_api, seq)
+
+
+def test_return_nothing_expr_in_void_func(fprime_test_api):
+    seq = """
+def test():
+    return Fw
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+

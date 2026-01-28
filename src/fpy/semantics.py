@@ -753,7 +753,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         )
         return False
 
-    def can_coerce_type(self, from_type: FppType, to_type: FppType) -> bool:
+    def can_coerce_type(self, from_type: FppType, from_const: bool, to_type: FppType, to_const: bool) -> bool:
         """return True if the type coercion rules allow from_type to be implicitly converted to to_type"""
         if from_type == to_type:
             # no coercion necessary
@@ -769,6 +769,11 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         # now we must answer:
         # are all values of from_type representable in the destination type?
+
+        # if we have a const, we know its value, we can check later if the value fits in the dest.
+        # for now, permit it?
+        
+        # if we have a non-const, and we're going to const, we will fail
 
         # if going from float to integer, definitely not
         if issubclass(from_type, FloatValue) and issubclass(to_type, IntegerValue):
@@ -893,6 +898,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
     def pick_intermediate_type(
         self,
         arg_types: list[FppType],
+        arg_consts: list[bool],
         op: BinaryStackOp | UnaryStackOp,
     ) -> FppType | None:
         """Return the intermediate type for an operation (excluding time ops).
@@ -900,24 +906,51 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         This always returns 64-bit types for non-constant numerics, as required by the VM.
         Returns None if the operation is invalid for the given types.
         """
+
+        # intermediate type is really about two things:
+        # 1: we must pick a type for which a bytecode impl, or compile time const impl, exists
+        # okay, so we know which types work for bytecode ops. but which types work for compile time consts?
+        # any type? i guess so. why not pick I8 for all?
+        # for compile time consts, do they even need to be converted?
+        # it doesn't really matter what the intermediate type is for compile time consts.
+        # the result type matters, but intermediate type, well, as long as inputs are consts, we 
+
+        # well, what is intermed type used for? it's used to coerce both args into that. so if we skip it
+        # for consts, then yeah i mean that's what we're already pretty much trying to do. 
+
+        # so maybe skip this step for compile time consts?
+
+        # 2: we must pick a type to which both args can be coerced
+
+        # perhaps we focus on 2 first. are there common types to which both args can be coerced?
+
+        # we can decide the intermediate type based on the following properties, and
+        # also the operator itself
+        non_numeric = any(not issubclass(t, NumericalValue) for t in arg_types)
+        has_finite_precision = any(t not in ARBITRARY_PRECISION_TYPES for t in arg_types)
+        has_arbitrary_precision = any(t in ARBITRARY_PRECISION_TYPES for t in arg_types)
+        has_float = any(issubclass(t, FloatValue) for t in arg_types)
+        has_unsigned = any(t in UNSIGNED_INTEGER_TYPES for t in arg_types)
+        more_than_one_input_type = len(set(arg_types)) > 1
+        
+        # all boolean operators operate on bool type
         if op in BOOLEAN_OPERATORS:
             return BoolValue
 
-        non_numeric = any(not issubclass(t, NumericalValue) for t in arg_types)
-
-        if (op == BinaryStackOp.EQUAL or op == BinaryStackOp.NOT_EQUAL) and non_numeric:
-            # comparison of complex types (structs/strings/arrays/enum consts)
-            if len(set(arg_types)) != 1:
-                return None
-            return arg_types[0]
-
         if non_numeric:
+            # non numeric arg types are only valid for == and !=
+            if (op == BinaryStackOp.EQUAL or op == BinaryStackOp.NOT_EQUAL):
+                # comparison of complex types (structs/strings/arrays/enum consts)
+                # only valid if == 1 unique input type (cannot compare dissimilar types)
+                if more_than_one_input_type:
+                    return None
+                return arg_types[0]
             return None
+
+        
 
         # Check for mixed signed/unsigned integers - no valid common type exists
         # (floats are fine to mix with any integer, and arbitrary precision can convert to anything)
-        concrete_types = [t for t in arg_types if t not in ARBITRARY_PRECISION_TYPES]
-        has_float = any(issubclass(t, FloatValue) for t in concrete_types)
         if not has_float and len(concrete_types) >= 2:
             has_signed = any(t in SIGNED_INTEGER_TYPES for t in concrete_types)
             has_unsigned = any(t in UNSIGNED_INTEGER_TYPES for t in concrete_types)
@@ -1070,6 +1103,15 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         sym_type = self.get_type_of_symbol(this_sym)
 
+        is_const = False
+
+        if is_instance_compat(this_sym, FppValue):
+            is_const = True
+        elif is_instance_compat(this_sym, FieldAccess):
+            is_const = node.parent in state.const_exprs
+
+        if is_const:
+            state.const_exprs.add(node)
         state.resolved_symbols[node] = this_sym
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
@@ -1114,6 +1156,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
             idx_expr=node.item,
         )
 
+        if node.parent in state.const_exprs and node.item in state.const_exprs:
+            # this is a const expr if parent and item are consts
+            state.const_exprs.add(node)
         state.resolved_symbols[node] = sym
         state.synthesized_types[node] = parent_type.MEMBER_TYPE
         state.contextual_types[node] = parent_type.MEMBER_TYPE
@@ -1128,6 +1173,8 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         sym_type = self.get_type_of_symbol(sym)
 
+        if is_instance_compat(sym, FppValue):
+            state.const_exprs.add(node)
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
 
@@ -1139,6 +1186,7 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         else:
             result_type = FpyIntegerValue
 
+        state.const_exprs.add(node)
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
@@ -1167,6 +1215,9 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
+
+        if node.lhs in state.const_exprs and node.rhs in state.const_exprs:
+            state.const_exprs.add(node)
 
         # Time/interval operations are desugared to function calls
         time_intermediate = self.pick_time_intermediate_type(arg_types, node.op, state)
@@ -1211,15 +1262,19 @@ class PickTypesAndResolveMembersAndElements(Visitor):
 
         result_type = self.pick_result_type(arg_types, intermediate_type, node.op)
 
+        if node.val in state.const_exprs:
+            state.const_exprs.add(node)
         state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
     def visit_AstString(self, node: AstString, state: CompileState):
+        state.const_exprs.add(node)
         state.synthesized_types[node] = FpyStringValue
         state.contextual_types[node] = FpyStringValue
 
     def visit_AstBoolean(self, node: AstBoolean, state: CompileState):
+        state.const_exprs.add(node)
         state.synthesized_types[node] = BoolValue
         state.contextual_types[node] = BoolValue
 
@@ -1425,6 +1480,12 @@ class PickTypesAndResolveMembersAndElements(Visitor):
                 # should be good 2 go based on the check func above
                 state.contextual_types[value_expr] = arg_type
 
+        # Note: if you're going to make function default arguments non-const exprs, then you will have
+        # to update this line
+        if all(arg in state.const_exprs for arg in node_args):
+            # a function has a const value if all non-default args are const
+            # (default args must be const so don't have to check them)
+            state.const_exprs.add(node)
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
 
@@ -1434,6 +1495,8 @@ class PickTypesAndResolveMembersAndElements(Visitor):
         if not self.coerce_expr_type(node.upper_bound, LoopVarType, state):
             return
 
+        if node.lower_bound in state.const_exprs and node.upper_bound in state.const_exprs:
+            state.const_exprs.add(node)
         state.synthesized_types[node] = RangeValue
         state.contextual_types[node] = RangeValue
 
@@ -1544,7 +1607,7 @@ class CalculateDefaultArgConstValues(Visitor):
                 return
 
             # Check that the default value is a const expression
-            const_value = state.contextual_values.get(default_value)
+            const_value = state.const_expr_values.get(default_value)
             if const_value is None:
                 state.err(
                     f"Default value for argument '{arg_name_var.name}' must be a constant expression",
@@ -1751,7 +1814,7 @@ class CalculateConstExprValues(Visitor):
             if expr_value is None:
                 return
 
-        state.contextual_values[node] = expr_value
+        state.const_expr_values[node] = expr_value
 
     def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         sym = state.resolved_symbols[node]
@@ -1762,15 +1825,15 @@ class CalculateConstExprValues(Visitor):
         expr_value = None
         if is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
             # has a value but won't try to calc at compile time
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
         elif is_instance_compat(sym, FieldAccess):
-            parent_value = state.contextual_values[node.parent]
+            parent_value = state.const_expr_values[node.parent]
             if parent_value is None:
                 # no compile time constant value for our parent here
-                state.contextual_values[node] = None
+                state.const_expr_values[node] = None
                 return
 
             # we are accessing an attribute of something with an fprime value at compile time
@@ -1805,26 +1868,26 @@ class CalculateConstExprValues(Visitor):
             )
             if expr_value is None:
                 return
-        state.contextual_values[node] = expr_value
+        state.const_expr_values[node] = expr_value
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         sym = state.resolved_symbols[node]
         # index expression can only be a field symbol
         assert is_instance_compat(sym, FieldAccess), sym
 
-        parent_value = state.contextual_values[node.parent]
+        parent_value = state.const_expr_values[node.parent]
 
         if parent_value is None:
             # no compile time constant value for our parent here
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         assert is_instance_compat(parent_value, ArrayValue), parent_value
 
-        idx = state.contextual_values.get(node.item)
+        idx = state.const_expr_values.get(node.item)
         if idx is None:
             # no compile time constant value for our index
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         assert is_instance_compat(idx, ArrayIndexType)
@@ -1845,7 +1908,7 @@ class CalculateConstExprValues(Visitor):
             )
             if expr_value is None:
                 return
-        state.contextual_values[node] = expr_value
+        state.const_expr_values[node] = expr_value
 
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         sym = state.resolved_symbols[node]
@@ -1861,7 +1924,7 @@ class CalculateConstExprValues(Visitor):
             # on default argument expressions BEFORE this pass runs on variable assignments.
             # So if a default value references a variable, the variable's const value won't
             # be available yet, and the default value will incorrectly be rejected as non-const.
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
         elif is_instance_compat(sym, FppValue):
             expr_value = sym
@@ -1882,7 +1945,7 @@ class CalculateConstExprValues(Visitor):
             )
             if expr_value is None:
                 return
-        state.contextual_values[node] = expr_value
+        state.const_expr_values[node] = expr_value
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols[node.func]
@@ -1899,7 +1962,7 @@ class CalculateConstExprValues(Visitor):
         arg_values = []
         for arg_expr in resolved_args:
             if is_instance_compat(arg_expr, Ast):
-                arg_values.append(state.contextual_values.get(arg_expr))
+                arg_values.append(state.const_expr_values.get(arg_expr))
             else:
                 # It's a raw FppValue default from a builtin
                 arg_values.append(arg_expr)
@@ -1907,7 +1970,7 @@ class CalculateConstExprValues(Visitor):
         unknown_value = any(v is None for v in arg_values)
         if unknown_value:
             # we will have to calculate this at runtime
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         expr_value = None
@@ -1951,7 +2014,7 @@ class CalculateConstExprValues(Visitor):
         else:
             # don't try to calculate the value of this function call
             # it's something like a user defined func, cmd or builtin
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         unconverted_type = state.synthesized_types[node]
@@ -1969,15 +2032,15 @@ class CalculateConstExprValues(Visitor):
             if expr_value is None:
                 return
 
-        state.contextual_values[node] = expr_value
+        state.const_expr_values[node] = expr_value
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
-        lhs_value: FppValue = state.contextual_values.get(node.lhs)
-        rhs_value: FppValue = state.contextual_values.get(node.rhs)
+        lhs_value: FppValue = state.const_expr_values.get(node.lhs)
+        rhs_value: FppValue = state.const_expr_values.get(node.rhs)
 
         if lhs_value is None or rhs_value is None:
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         # Both sides are constants, evaluate the operation if the operator is supported
@@ -2078,13 +2141,13 @@ class CalculateConstExprValues(Visitor):
             )
             if folded_value is None:
                 return
-        state.contextual_values[node] = folded_value
+        state.const_expr_values[node] = folded_value
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        value: FppValue = state.contextual_values.get(node.val)
+        value: FppValue = state.const_expr_values.get(node.val)
 
         if value is None:
-            state.contextual_values[node] = None
+            state.const_expr_values[node] = None
             return
 
         # input is constant, evaluate the operation if the operator is supported
@@ -2132,11 +2195,11 @@ class CalculateConstExprValues(Visitor):
             )
             if folded_value is None:
                 return
-        state.contextual_values[node] = folded_value
+        state.const_expr_values[node] = folded_value
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # ranges don't really end up having a value, they kinda just exist as a type
-        state.contextual_values[node] = None
+        state.const_expr_values[node] = None
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -2219,7 +2282,7 @@ class CheckFunctionReturns(Visitor):
 class CheckConstArrayAccesses(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        idx_value = state.contextual_values.get(node.item)
+        idx_value = state.const_expr_values.get(node.item)
         if idx_value is None:
             # can't check at compile time
             return
@@ -2238,8 +2301,8 @@ class CheckConstArrayAccesses(Visitor):
 class WarnRangesAreNotEmpty(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        lower_value: LoopVarType = state.contextual_values.get(node.lower_bound)
-        upper_value: LoopVarType = state.contextual_values.get(node.upper_bound)
+        lower_value: LoopVarType = state.const_expr_values.get(node.lower_bound)
+        upper_value: LoopVarType = state.const_expr_values.get(node.upper_bound)
         if lower_value is None or upper_value is None:
             # cannot check at compile time
             return

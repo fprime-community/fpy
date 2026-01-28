@@ -502,13 +502,14 @@ class CompileState:
 
     op_intermediate_types: dict[AstOp, FppType] = field(default_factory=dict)
     """the intermediate type that all args should be converted to for the given op"""
+    const_exprs: set[AstExpr] = field(default_factory=set)
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
     """a list of nodes which are explicit casts"""
     contextual_types: dict[AstExpr, FppType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    contextual_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    const_expr_values: dict[AstExpr, FppValue | NothingValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.
