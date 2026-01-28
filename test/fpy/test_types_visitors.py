@@ -10,7 +10,7 @@ from fpy.syntax import (
     AstPass,
     AstBlock,
     AstString,
-    AstVar,
+    AstIdent,
 )
 from fpy.types import Transformer, Visitor, TopDownVisitor
 
@@ -56,8 +56,8 @@ def test_visitor_depth_first_traversal():
             self.visited = []
             super().__init__()
 
-        def visit_var(self, node: AstVar, state):
-            self.visited.append(f"var:{node.var}")
+        def visit_ident(self, node: AstIdent, state):
+            self.visited.append(f"ident:{node.name}")
 
         def visit_number(self, node: AstNumber, state):
             self.visited.append(f"number:{node.value}")
@@ -68,13 +68,13 @@ def test_visitor_depth_first_traversal():
     visitor = RecordingVisitor()
     state = _make_state()
 
-    lhs = AstVar(meta=None, var="x")
+    lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=7)
     assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     visitor.run(assign, state)
 
-    assert visitor.visited == ["var:x", "number:7", "assign"]
+    assert visitor.visited == ["ident:x", "number:7", "assign"]
 
 def test_top_down_visitor_breadth_first_order():
     class RecordingTopDownVisitor(TopDownVisitor):
@@ -85,8 +85,8 @@ def test_top_down_visitor_breadth_first_order():
         def visit_assign(self, node: AstAssign, state):
             self.visited.append("assign")
 
-        def visit_var(self, node: AstVar, state):
-            self.visited.append(f"var:{node.var}")
+        def visit_var(self, node: AstIdent, state):
+            self.visited.append(f"ident:{node.name}")
 
         def visit_number(self, node: AstNumber, state):
             self.visited.append(f"number:{node.value}")
@@ -94,13 +94,13 @@ def test_top_down_visitor_breadth_first_order():
     visitor = RecordingTopDownVisitor()
     state = _make_state()
 
-    lhs = AstVar(meta=None, var="x")
+    lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=5)
     assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     visitor.run(assign, state)
 
-    assert visitor.visited == ["assign", "var:x", "number:5"]
+    assert visitor.visited == ["assign", "ident:x", "number:5"]
 
 
 def test_visitor_default_handler_invoked():
@@ -118,10 +118,10 @@ def test_visitor_default_handler_invoked():
     visitor = DefaultingVisitor()
     state = _make_state()
 
-    node = AstVar(meta=None, var="y")
+    node = AstIdent(meta=None, name="y")
     visitor.run(node, state)
 
-    assert visitor.default_hits == [AstVar]
+    assert visitor.default_hits == [AstIdent]
 
 
 def test_visitor_stops_on_error():
@@ -129,7 +129,7 @@ def test_visitor_stops_on_error():
         def __init__(self):
             super().__init__()
 
-        def visit_var(self, node: AstVar, state):
+        def visit_var(self, node: AstIdent, state):
             state.err("boom", node)
 
         def visit_number(self, node: AstNumber, state):
@@ -138,7 +138,7 @@ def test_visitor_stops_on_error():
     visitor = ErroringVisitor()
     state = _make_state()
 
-    lhs = AstVar(meta=None, var="x")
+    lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=9)
     assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
 
@@ -149,13 +149,13 @@ def test_visitor_stops_on_error():
 
 def test_visitor_handler_exception_propagates():
     class ExplodingVisitor(Visitor):
-        def visit_var(self, node: AstVar, state):
+        def visit_var(self, node: AstIdent, state):
             raise RuntimeError("should fail")
 
     visitor = ExplodingVisitor()
     state = _make_state()
 
-    node = AstVar(meta=None, var="z")
+    node = AstIdent(meta=None, name="z")
 
     with pytest.raises(RuntimeError, match="should fail"):
         visitor.run(node, state)
@@ -170,7 +170,7 @@ def test_transformer_replaces_child_nodes():
     transformer = ZeroingTransformer()
     state = _make_state()
 
-    lhs = AstVar(meta=None, var="answer")
+    lhs = AstIdent(meta=None, name="answer")
     rhs = AstNumber(meta=None, value=42)
     assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
 
