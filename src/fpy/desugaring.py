@@ -28,6 +28,7 @@ from fpy.types import (
     FppType,
     Symbol,
     FpyIntegerValue,
+    TIME_OPS,
     Transformer,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
@@ -792,42 +793,15 @@ class DesugarTimeOperators(Transformer):
         return result_node
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-
         lhs_type = state.synthesized_types.get(node.lhs)
         rhs_type = state.synthesized_types.get(node.rhs)
-        assert lhs_type is not None, "lhs_type should be set after semantic analysis"
-        assert rhs_type is not None, "rhs_type should be set after semantic analysis"
         
-        # Check if types are Time or TimeInterval
-        lhs_is_time = issubclass(lhs_type, TimeValue)
-        rhs_is_time = issubclass(rhs_type, TimeValue)
-        lhs_is_interval = getattr(lhs_type, '__name__', None) == "Fw.TimeIntervalValue"
-        rhs_is_interval = getattr(rhs_type, '__name__', None) == "Fw.TimeIntervalValue"
+        time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
+        if time_op is None:
+            return None
         
-        # Time - Time -> time_sub
-        if lhs_is_time and rhs_is_time and node.op == BinaryStackOp.SUBTRACT:
-            return self._make_func_call(node, "time_sub", state.time_interval_type, state)
-        
-        # Time + TimeInterval -> time_add
-        if lhs_is_time and rhs_is_interval and node.op == BinaryStackOp.ADD:
-            return self._make_func_call(node, "time_add", TimeValue, state)
-        
-        # Time comparisons -> time_cmp_assert_comparable (asserts time bases are equal)
-        if lhs_is_time and rhs_is_time and node.op in COMPARISON_OPS:
-            return self._make_cmp_expr(node, "time_cmp_assert_comparable", state)
-        
-        # TimeInterval + TimeInterval -> time_interval_add
-        if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.ADD:
-            return self._make_func_call(node, "time_interval_add", state.time_interval_type, state)
-        
-        # TimeInterval - TimeInterval -> time_interval_sub
-        if lhs_is_interval and rhs_is_interval and node.op == BinaryStackOp.SUBTRACT:
-            return self._make_func_call(node, "time_interval_sub", state.time_interval_type, state)
-        
-        # TimeInterval comparisons -> time_interval_cmp
-        if lhs_is_interval and rhs_is_interval and node.op in COMPARISON_OPS:
-            return self._make_cmp_expr(node, "time_interval_cmp", state)
-        
-        # Not a time operation, don't transform
-        return None
+        _, result_type, func_name, is_comparison = time_op
+        if is_comparison:
+            return self._make_cmp_expr(node, func_name, state)
+        else:
+            return self._make_func_call(node, func_name, result_type, state)

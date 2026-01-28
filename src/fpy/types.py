@@ -32,6 +32,9 @@ from fpy.bytecode.directives import (
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
+from fprime_gds.common.models.serialize.serializable_type import (
+    SerializableType as StructValue,
+)
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -48,6 +51,8 @@ from fprime_gds.common.models.serialize.numerical_types import (
     NumericalType as NumericalValue,
 )
 from fprime_gds.common.models.serialize.string_type import StringType as StringValue
+from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fpy.syntax import (
     AstBreak,
     AstContinue,
@@ -199,19 +204,29 @@ SPECIFIC_FLOAT_TYPES = (
 )
 ARBITRARY_PRECISION_TYPES = (FpyFloatValue, FpyIntegerValue)
 
-# Time operator overloads: maps (lhs_category, rhs_category, op) -> (intermediate_category, result_category)
-# Categories are: "time", "interval", "bool"
-TIME_OP_OVERLOADS: dict[tuple[str, str, BinaryStackOp], tuple[str, str]] = {
+# The canonical Fw.TimeIntervalValue struct type
+# This must match the dictionary's Fw.TimeIntervalValue definition
+TimeIntervalValue = StructValue.construct_type(
+    "Fw.TimeIntervalValue",
+    [
+        ("seconds", U32Value, "", "seconds portion of TimeInterval"),
+        ("useconds", U32Value, "", "microseconds portion of TimeInterval"),
+    ],
+)
+
+# Time operator overloads: maps (lhs_type, rhs_type, op) -> (intermediate_type, result_type, func_name, is_comparison)
+TIME_OPS: dict[tuple[type, type, BinaryStackOp], tuple[type, type, str, bool]] = {
     # Time - Time -> TimeInterval
-    ("time", "time", BinaryStackOp.SUBTRACT): ("time", "interval"),
+    (TimeValue, TimeValue, BinaryStackOp.SUBTRACT): (TimeValue, TimeIntervalValue, "time_sub", False),
     # Time + TimeInterval -> Time  
-    ("time", "interval", BinaryStackOp.ADD): ("time", "time"),
+    (TimeValue, TimeIntervalValue, BinaryStackOp.ADD): (TimeValue, TimeValue, "time_add", False),
     # TimeInterval +/- TimeInterval -> TimeInterval
-    ("interval", "interval", BinaryStackOp.ADD): ("interval", "interval"),
-    ("interval", "interval", BinaryStackOp.SUBTRACT): ("interval", "interval"),
-    # Comparisons -> Bool
-    **{("time", "time", op): ("time", "bool") for op in COMPARISON_OPS},
-    **{("interval", "interval", op): ("interval", "bool") for op in COMPARISON_OPS},
+    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.ADD): (TimeIntervalValue, TimeIntervalValue, "time_interval_add", False),
+    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.SUBTRACT): (TimeIntervalValue, TimeIntervalValue, "time_interval_sub", False),
+    # Time comparisons -> Bool
+    **{(TimeValue, TimeValue, op): (TimeValue, BoolValue, "time_cmp_assert_comparable", True) for op in COMPARISON_OPS},
+    # TimeInterval comparisons -> Bool
+    **{(TimeIntervalValue, TimeIntervalValue, op): (TimeIntervalValue, BoolValue, "time_interval_cmp", True) for op in COMPARISON_OPS},
 }
 
 
@@ -477,9 +492,6 @@ class CompileState:
     global_value_scope: SymbolTable
     """The global value scope: a symbol table whose leaf nodes are runtime values
     (telemetry channels, parameters, enum constants, variables)."""
-    
-    time_interval_type: type
-    """The Fw.TimeIntervalValue type from the dictionary"""
 
     compile_args: dict = field(default_factory=dict)
     

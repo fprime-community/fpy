@@ -52,6 +52,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
+    TimeIntervalValue,
     CompileState,
     CallableSymbol,
     CastSymbol,
@@ -239,7 +240,17 @@ def _build_global_scopes(dictionary: str) -> tuple:
     # Require Fw.TimeIntervalValue and Fw.TimeComparison from the dictionary
     if "Fw.TimeIntervalValue" not in type_name_dict:
         raise ValueError("Dictionary must contain Fw.TimeIntervalValue type")
-    time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+    dict_time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
+    # Verify the dictionary's type matches our expected structure
+    expected_members = list(TimeIntervalValue.MEMBER_LIST)
+    dict_members = list(dict_time_interval_type.MEMBER_LIST)
+    if expected_members != dict_members:
+        raise ValueError(
+            f"Dictionary Fw.TimeIntervalValue has members {dict_members}, "
+            f"expected {expected_members}"
+        )
+    # Use our canonical type (which has the same structure)
+    type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
 
     if "Fw.TimeComparison" not in type_name_dict:
         raise ValueError("Dictionary must contain Fw.TimeComparison enum")
@@ -250,9 +261,9 @@ def _build_global_scopes(dictionary: str) -> tuple:
     CheckStateValue = StructValue.construct_type(
         "$CheckState",
         [
-            ("persist", time_interval_type, "", ""),
+            ("persist", TimeIntervalValue, "", ""),
             ("timeout", TimeValue, "", ""),
-            ("freq", time_interval_type, "", ""),
+            ("freq", TimeIntervalValue, "", ""),
             ("result", BoolValue, "", ""),
             ("last_was_true", BoolValue, "", ""),
             ("last_time_true", TimeValue, "", ""),
@@ -324,12 +335,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
         ),
     )
 
-    return (type_scope, callable_scope, values_scope, time_interval_type)
+    return (type_scope, callable_scope, values_scope)
 
 
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope, time_interval_type = _build_global_scopes(dictionary)
+    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
     sequence_config = _load_sequence_config(dictionary)
 
     # Make copies of the scopes since we'll mutate them during compilation
@@ -340,7 +351,6 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
-        time_interval_type=time_interval_type,
         compile_args=compile_args or dict(),
         max_directives_count=sequence_config["max_directives_count"],
         max_directive_size=sequence_config["max_directive_size"],
