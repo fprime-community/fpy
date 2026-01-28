@@ -16,7 +16,7 @@ from fpy.syntax import (
     AstFuncCall,
     AstNumber,
     AstRange,
-    AstStmtList,
+    AstBlock,
     AstUnaryOp,
     AstIdent,
     AstWhile,
@@ -458,16 +458,13 @@ class DesugarCheckStatements(Transformer):
     def assign(self, lhs, rhs, type_ann=None) -> AstAssign:
         return AstAssign(self.meta, lhs, type_ann, rhs)
     
-    def stmt_list(self, *stmts) -> AstStmtList:
-        return AstStmtList(self.meta, list(stmts))
-    
     def if_stmt(self, cond, body_stmts, else_stmts=None) -> AstIf:
-        body = self.stmt_list(*body_stmts)
-        els = self.stmt_list(*else_stmts) if else_stmts else None
+        body = AstBlock(self.meta, list(body_stmts))
+        els = AstBlock(self.meta, list(else_stmts)) if else_stmts else None
         return AstIf(self.meta, cond, body, [], els)
     
     def while_stmt(self, cond, body_stmts) -> AstWhile:
-        body = self.stmt_list(*body_stmts)
+        body = AstBlock(self.meta, list(body_stmts))
         return AstWhile(self.meta, cond, body)
     
     def break_stmt(self) -> AstBreak:

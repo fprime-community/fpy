@@ -188,28 +188,28 @@ class AstAssign(Ast):
 @dataclass
 class AstElif(Ast):
     condition: AstExpr
-    body: "AstStmtList"
+    body: "AstBlock"
 
 
 @dataclass()
 class AstIf(Ast):
     condition: AstExpr
-    body: "AstStmtList"
+    body: "AstBlock"
     elifs: list[AstElif]
-    els: Union["AstStmtList", None]
+    els: Union["AstBlock", None]
 
 
 @dataclass
 class AstFor(Ast):
     loop_var: AstIdent
     range: AstExpr
-    body: AstStmtList
+    body: AstBlock
 
 
 @dataclass
 class AstWhile(Ast):
     condition: AstExpr
-    body: AstStmtList
+    body: AstBlock
 
 
 @dataclass
@@ -218,8 +218,8 @@ class AstCheck(Ast):
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
     freq: Union[AstExpr, None]    # Default: 1 second interval
-    body: "AstStmtList"
-    timeout_body: Union["AstStmtList", None] = None
+    body: "AstBlock"
+    timeout_body: Union["AstBlock", None] = None
 
 
 @dataclass
@@ -288,11 +288,6 @@ AstNodeWithSideEffects = Union[
 
 
 @dataclass
-class AstStmtList(Ast):
-    stmts: list[AstStmt]
-
-
-@dataclass
 class AstBlock(Ast):
     stmts: list[AstStmt]
 
@@ -351,7 +346,7 @@ def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
     
     Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
-    (clause_type, expr) tuples and body_stmts is an AstStmtList.
+    (clause_type, expr) tuples and body_stmts is an AstBlock.
     """
     clauses = []
     stmts = []
@@ -365,7 +360,7 @@ def handle_check_clauses(meta, children):
             stmts.append(child)
     
     # Return as a special tuple that handle_check_stmt can recognize
-    return ("check_clauses_result", clauses, AstStmtList(meta, stmts))
+    return ("check_clauses_result", clauses, AstBlock(meta, stmts))
 
 
 def handle_check_stmt(meta, children):
@@ -404,7 +399,7 @@ def handle_check_stmt(meta, children):
         elif isinstance(child, tuple) and len(child) == 2:
             clause_type, expr = child
             set_clause(clause_type, expr)
-        elif isinstance(child, AstStmtList):
+        elif isinstance(child, AstBlock):
             if body is None:
                 body = child
             else:
@@ -459,7 +454,7 @@ class FpyTransformer(Transformer):
 
     elifs = no_inline_or_meta(list)
     elif_ = AstElif
-    stmt_list = no_inline(AstStmtList)
+    block = no_inline(AstBlock)
     binary_op = AstBinaryOp
     unary_op = AstUnaryOp
 

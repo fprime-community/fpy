@@ -84,7 +84,6 @@ from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fpy.syntax import (
     AstAssert,
     AstBinaryOp,
-    AstStmtList,
     AstBoolean,
     AstBreak,
     AstContinue,
@@ -2210,8 +2209,8 @@ class CheckAllBranchesReturn(Visitor):
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         state.does_return[node] = True
 
-    def visit_AstStmtList(
-        self, node: Union[AstStmtList, AstBlock], state: CompileState
+    def visit_AstBlock(
+        self, node: AstBlock, state: CompileState
     ):
         state.does_return[node] = any(state.does_return[n] for n in node.stmts)
 

@@ -109,7 +109,6 @@ from fpy.syntax import (
     Ast,
     AstAssert,
     AstBinaryOp,
-    AstStmtList,
     AstBreak,
     AstContinue,
     AstDef,
@@ -205,6 +204,23 @@ class GenerateFunctions(Visitor):
             return
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
+        
+        # Calculate and allocate space for local variables in the function body
+        lvar_array_size_bytes = 0
+        for name, sym in state.enclosing_value_scope[node.body].items():
+            if not is_instance_compat(sym, VariableSymbol):
+                # doesn't require space to be allocated
+                continue
+            if sym.frame_offset < 0:
+                # function argument (negative)
+                continue
+            # Track the max offset to know how much space to allocate
+            end_of_var = sym.frame_offset + sym.type.getMaxSize()
+            if end_of_var > lvar_array_size_bytes:
+                lvar_array_size_bytes = end_of_var
+        if lvar_array_size_bytes > 0:
+            code.append(AllocateDirective(lvar_array_size_bytes))
+        
         code.extend(GenerateFunctionBody().emit(node.body, state))
         func = state.resolved_symbols[node.name]
         if func.return_type is NothingValue and not state.does_return[node.body]:
@@ -433,39 +449,6 @@ class GenerateFunctionBody(Emitter):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
-        # Calculate lvar array size bytes (offsets already assigned by AssignVariableOffsets)
-        lvar_array_size_bytes = 0
-        for name, sym in state.enclosing_value_scope[node].items():
-            if not is_instance_compat(sym, VariableSymbol):
-                # doesn't require space to be allocated
-                continue
-            if sym.frame_offset < 0:
-                # function argument (negative)
-                continue
-            if sym.is_global and self.in_function:
-                # Global variable accessed from inside a function - already allocated at top level
-                continue
-            # Track the max offset to know how much space to allocate
-            end_of_var = sym.frame_offset + sym.type.getMaxSize()
-            if end_of_var > lvar_array_size_bytes:
-                lvar_array_size_bytes = end_of_var
-
-        bytes_to_allocate = lvar_array_size_bytes
-        if bytes_to_allocate > 0:
-            dirs.append(AllocateDirective(bytes_to_allocate))
-
-        for stmt in node.stmts:
-            if not is_instance_compat(stmt, AstNodeWithSideEffects):
-                # if the stmt can't do anything on its own, ignore it
-                # TODO warn
-                continue
-            dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
-        return dirs
-
-    def emit_AstStmtList(self, node: AstStmtList, state: CompileState):
-        dirs = []
         for stmt in node.stmts:
             if not is_instance_compat(stmt, AstNodeWithSideEffects):
                 # if the stmt can't do anything on its own, ignore it
@@ -479,7 +462,7 @@ class GenerateFunctionBody(Emitter):
     def emit_AstIf(self, node: AstIf, state: CompileState):
         dirs = []
 
-        cases: list[tuple[AstExpr, AstStmtList]] = []
+        cases: list[tuple[AstExpr, AstBlock]] = []
 
         cases.append((node.condition, node.body))
 
@@ -1034,7 +1017,22 @@ class GenerateModule(Emitter):
             return []
 
         # generate the main function using GenerateTopLevel (not in a function context)
-        main_body = GenerateTopLevel().emit(node, state)
+        main_body = []
+        
+        # Calculate and allocate space for top-level local variables
+        lvar_array_size_bytes = 0
+        for name, sym in state.enclosing_value_scope[node].items():
+            if not is_instance_compat(sym, VariableSymbol):
+                continue
+            if sym.frame_offset < 0:
+                continue
+            end_of_var = sym.frame_offset + sym.type.getMaxSize()
+            if end_of_var > lvar_array_size_bytes:
+                lvar_array_size_bytes = end_of_var
+        if lvar_array_size_bytes > 0:
+            main_body.append(AllocateDirective(lvar_array_size_bytes))
+        
+        main_body.extend(GenerateTopLevel().emit(node, state))
 
         # if there are functions, emit them at the top with a goto to skip past them
         if state.generated_funcs:

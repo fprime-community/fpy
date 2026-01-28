@@ -15,11 +15,7 @@ _small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | 
 # compound statements may contain other statements
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
-# an indented list of statements which does not define a semantic scope
-stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
-# -> AstStmtList(stmts)
-
-# an indented list of statements which does define a semantic scope
+# an indented list of statements
 block: _NEWLINE _INDENT _stmt+ _DEDENT
 # -> AstBlock(stmts)
 
@@ -52,10 +48,10 @@ parameter: name ":" expr ["=" expr]
 
 # loop statements
 # for loops have a loop variable, a range expression and a list of body statements
-for_stmt: "for" name "in" expr ":" stmt_list
+for_stmt: "for" name "in" expr ":" block
 # -> AstFor(loop_var, range, body)
 # while loops have a conditional expression and a list of body statements
-while_stmt: "while" expr ":" stmt_list
+while_stmt: "while" expr ":" block
 # -> AstWhile(condition, body)
 
 # check statement
@@ -75,8 +71,8 @@ check_clause_final: check_timeout_final | check_persist_final | check_freq_final
 # followed by one final clause with colon, then statements at same indentation
 check_clauses: _NEWLINE _INDENT (check_clause _NEWLINE)* check_clause_final _NEWLINE _stmt+ _DEDENT
 # Clauses can be inline, on indented lines, or mixed (some inline, rest indented)
-check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]
-          | "check" expr check_clause* check_clauses ["timeout" ":" stmt_list]
+check_stmt: "check" expr check_clause* ":" block ["timeout" ":" block]
+          | "check" expr check_clause* check_clauses ["timeout" ":" block]
 # -> AstCheck(condition, timeout, persist, freq, body, timeout_body)
 
 
@@ -86,11 +82,11 @@ check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]
 # have a conditional expression and a list of body statements.
 # it is also optionally followed by an else clause, which
 # has a list of body statements
-if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]
+if_stmt: "if" expr ":" block elifs ["else" ":" block]
 # -> AstIf(condition, body, elifs, els)
 elifs: elif_*
 # -> list[AstElif]
-elif_: "elif" expr ":" stmt_list
+elif_: "elif" expr ":" block
 # -> AstElif(condition, body)
 
 # an expr statement is just an expression "on its own" on the line
