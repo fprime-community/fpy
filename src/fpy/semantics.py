@@ -579,7 +579,7 @@ class ResolveQualifiedNames(TopDownVisitor):
 
 def is_type_constant_size(type: FppType) -> bool:
     """Return true if the type has a statically known size.
-    
+
     Types with strings (directly or nested) don't have constant size because
     strings can vary in length.
     """
@@ -755,66 +755,79 @@ class PickTypesAndResolveFields(Visitor):
         )
         return False
 
-    def can_coerce_type(self, from_type: FppType, to_type: FppType, expr_is_const: bool) -> bool:
-        """return True if the type coercion rules allow from_type to be implicitly converted to to_type"""
+    def find_common_type(self, from_type: FppType, to_type: FppType) -> FppType | None:
+        # TODO unit test that this "works either way"
         if from_type == to_type:
             # no coercion necessary
-            return True
-        if from_type == FpyStringValue and issubclass(to_type, StringValue):
-            # we can convert the literal String type to any string type
-            return True
+            return to_type
+        if issubclass(from_type, StringValue) and to_type == FpyStringValue:
+            # we can convert any string type to the String type
+            return to_type
         if not issubclass(from_type, NumericalValue) or not issubclass(
             to_type, NumericalValue
         ):
-            # if one of the src or dest aren't numerical, we can't coerce
-            return False
+            # there are no other non numeric types which have a common type
+            return None
 
-        # three questions:
-        # are ANY values of from_type representable in the destination type?
-        # in all cases, yes. int->int and float->float are obvious
-        # int->float is okay, because floats can represent integers exactly (up to a certain max)
-        # and thus the inverse (float->int) must also be possible sometimes
+        to_float = issubclass(to_type, FloatValue)
+        from_float = issubclass(from_type, FloatValue)
 
-        # okay so can't reject anything outright...
+        if to_float and not from_float:
+            # any integer can be converted to any float
+            return to_type
 
-        # second question: is the actual current value of from_type representable in the dest type?
-        # well, if it's not a const, we won't be able to tell. but if it is, well, we don't know yet,
-        # but we can check later, so let's allow it for now and check in the ConstExprEval pass
-        if expr_is_const:
-            return True
+        if not to_float and from_float:
+            # no float type can be converted to an integer
+            return None
 
-        # third question: are ALL values of from_type representable in the dest type?
+        # only case left is that we're going from (float -> float) or (int -> int)
 
-        # if we currently have a float, 
-        if issubclass(from_type, FloatValue):
-            # the dest must be a float and must be >= width
-            # FpyFloatType returns inf for get_bits so it works nicely
-            return (
-                issubclass(to_type, FloatValue)
-                and to_type.get_bits() >= from_type.get_bits()
-            )
+        if to_float:
+            return self.find_common_float_type(from_type, to_type)
 
-        # otherwise must be an int
-        assert issubclass(from_type, IntegerValue)
+        return self.find_common_integer_type(from_type, to_type)
 
-        # int to float is allowed in any case, even I64 to F32... sus?
-        # we actually have an exception for large integers converting to floats. technically
-        # not all integers can be losslessly converted to floats (those over a certain max are rounded)
-        # but we just let it happen, silently. this is pretty common in PLs
-        if issubclass(to_type, FloatValue):
-            return True
+    def find_common_float_type(
+        self, from_type: FppType, to_type: FppType
+    ) -> FppType | None:
+        min_bits = min(from_type.get_bits(), to_type.get_bits())
 
-        # int to arb precision int is always allowed
-        if issubclass(to_type, FpyIntegerValue):
-            return True
+        if min_bits == 32:
+            return F32Value
+        if min_bits == 64:
+            return F64Value
+        return FpyFloatValue
 
-        # finally:
-        # the dest must be an int with the same signedness and >= width
-        from_unsigned = from_type in UNSIGNED_INTEGER_TYPES
-        to_unsigned = to_type in UNSIGNED_INTEGER_TYPES
-        return (
-            from_unsigned == to_unsigned and to_type.get_bits() >= from_type.get_bits()
-        )
+    def find_common_integer_type(
+        self, from_type: FppType, to_type: FppType
+    ) -> FppType | None:
+        # unsigned types may be converted to signed
+        hierarchy = [
+            U8Value,
+            I8Value,
+            U16Value,
+            I16Value,
+            U32Value,
+            I32Value,
+            U64Value,
+            I64Value,
+        ]
+        from_range = from_type.range()
+        to_range = to_type.range()
+
+        for typ in hierarchy:
+            type_range = typ.range()
+            if (
+                type_range[0] <= from_range[0]
+                and type_range[0] <= to_range[0]
+                and type_range[1] >= from_range[1]
+                and type_range[1] >= to_range[1]
+            ):
+                # both ranges fit inside this type
+                return typ
+
+        # no finite bitwidth integer type fits both these types
+        return FpyIntegerValue
 
     def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
@@ -856,7 +869,10 @@ class PickTypesAndResolveFields(Visitor):
             parent_type = state.synthesized_types[node.parent]
 
             if not issubclass(parent_type, (StructValue, TimeValue)):
-                state.err(f"{typename(parent_type)} is not a struct, cannot access members", node)
+                state.err(
+                    f"{typename(parent_type)} is not a struct, cannot access members",
+                    node,
+                )
                 return
 
             if not is_type_constant_size(parent_type):
@@ -1006,9 +1022,12 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
-
-    def _select_type_for_category_and_bits(self, type_category: str, bits: int) -> FppType:
+    def get_type_from_category_and_bits(self, type_category: str, bits: int) -> FppType:
         """Select the appropriate concrete type given a category and bitwidth."""
+        if bits == math.inf:
+            if type_category == "float":
+                return FpyFloatValue
+            return FpyIntegerValue
         if type_category == "float":
             return F64Value if bits > 32 else F32Value
         if type_category == "uint":
@@ -1036,10 +1055,27 @@ class PickTypesAndResolveFields(Visitor):
         op: BinaryStackOp | UnaryStackOp,
         expr_is_const: bool,
     ) -> FppType | None:
-        """Return the intermediate type for an operation
-        
+        if op in BOOLEAN_OPERATORS:
+            return BoolValue
+
+    def pick_numeric_intermediate_type(
+        self,
+        arg_types: list[FppType],
+        op: BinaryStackOp | UnaryStackOp,
+        expr_is_const: bool,
+    ) -> FppType | None:
+        """Return the intermediate type for a numeric operation
+
         Returns None if the operation is invalid for the given types.
         """
+
+        assert all(issubclass(arg_type, NumericalValue) for arg_type in arg_types)
+
+        if any(t in UNSIGNED_INTEGER_TYPES for t in arg_types) and any(
+            t in SIGNED_INTEGER_TYPES for t in arg_types
+        ):
+            # cannot mix signed and unsigned
+            return None
 
         # first let's decide at which bitwidth we want to do the op. we only have two options: arbitrary, or 64 bit
 
@@ -1066,44 +1102,13 @@ class PickTypesAndResolveFields(Visitor):
         if op == BinaryStackOp.DIVIDE or op == BinaryStackOp.EXPONENT:
             kind = "float"
 
-        
-
-        
-
-        # Check for mixed signed/unsigned integers - no valid common type exists
-        # (floats are fine to mix with any integer, and arbitrary precision can convert to anything)
-        if not has_float and len(concrete_types) >= 2:
-            has_signed = any(t in SIGNED_INTEGER_TYPES for t in concrete_types)
-            has_unsigned = any(t in UNSIGNED_INTEGER_TYPES for t in concrete_types)
-            if has_signed and has_unsigned:
-                return None
-
-        type_category = self._pick_numeric_type_category(arg_types, op)
-
-        # If all operands are arbitrary precision constants, we can constant fold
-        if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):
-            if type_category == "float":
-                return FpyFloatValue
-            return FpyIntegerValue
-
-        return self._select_type_for_category_and_bits(type_category, 64)
-
-        # all boolean operators operate on bool type
-        if op in BOOLEAN_OPERATORS:
-            return BoolValue
-
-        if non_numeric:
-            # non numeric arg types are only valid for == and !=
-            if (op == BinaryStackOp.EQUAL or op == BinaryStackOp.NOT_EQUAL):
-                # comparison of complex types (structs/strings/arrays/enum consts)
-                # only valid if == 1 unique input type (cannot compare dissimilar types)
-                if more_than_one_input_type:
-                    return None
-                return arg_types[0]
-            return None
+        return self.get_type_from_category_and_bits(kind, bitwidth)
 
     def pick_result_type(
-        self, arg_types: list[FppType], intermediate_type: FppType, op: BinaryStackOp | UnaryStackOp
+        self,
+        arg_types: list[FppType],
+        intermediate_type: FppType,
+        op: BinaryStackOp | UnaryStackOp,
     ) -> FppType:
         """Derive the result type from the intermediate type (excluding time ops).
 
@@ -1134,42 +1139,64 @@ class PickTypesAndResolveFields(Visitor):
         else:
             type_category = "int"
 
-        return self._select_type_for_category_and_bits(type_category, bits)
+        return self.get_type_from_category_and_bits(type_category, bits)
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
 
+        is_const_expr = False
         if node.lhs in state.const_exprs and node.rhs in state.const_exprs:
+            is_const_expr = True
             state.const_exprs.add(node)
 
         # Check for time/interval operator overloads
         time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
         if time_op is not None:
             # operator behavior is overridden
-            intermediate_type, result_type, _, _ = time_op
-            state.op_intermediate_types[node] = intermediate_type
+            common_type, result_type, _, _ = time_op
+            state.op_intermediate_types[node] = common_type
             state.synthesized_types[node] = result_type
             state.contextual_types[node] = result_type
             return
 
-        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
-        if intermediate_type is None:
+        common_type = self.find_common_type(lhs_type, rhs_type)
+        if common_type is None:
             state.err(
                 f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
                 node,
             )
             return
 
-        if not self.coerce_expr_type(node.lhs, intermediate_type, state):
-            return
-        if not self.coerce_expr_type(node.rhs, intermediate_type, state):
+
+        # okay. now this is something we can work with. both types are GUARANTEED to fit
+        # in this type.
+
+        # okay, problem. if we do U8 + 1, we're going to get Integer. But we want U8?
+        # i guess the reason is because we know the value of rhs. so we can check
+        # so, for the common type, 
+
+        # however, if this type is an arb precision type, then we can't do it at runtime, so
+        # this expr has to be a const expr (cuz then we will evaluate it at compile time)
+
+        if common_type in ARBITRARY_PRECISION_TYPES and not is_const_expr:
+            state.err(
+                f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
+                node,
+            )
             return
 
-        result_type = self.pick_result_type(arg_types, intermediate_type, node.op)
+        # if this isn't an arb precision type, 
 
-        state.op_intermediate_types[node] = intermediate_type
+        if not self.coerce_expr_type(node.lhs, common_type, state):
+            return
+        if not self.coerce_expr_type(node.rhs, common_type, state):
+            return
+
+        result_type = self.pick_result_type(arg_types, common_type, node.op)
+
+        state.op_intermediate_types[node] = common_type
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
@@ -1177,7 +1204,7 @@ class PickTypesAndResolveFields(Visitor):
         val_type = state.synthesized_types[node.val]
         arg_types = [val_type]
 
-        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
+        intermediate_type = self.pick_numeric_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
             state.err(f"Op {node.op} undefined for {typename(val_type)}", node)
             return
@@ -1408,7 +1435,10 @@ class PickTypesAndResolveFields(Visitor):
         const_arg_values = all(arg in state.const_exprs for arg in node_args)
         # Note: if you're going to make function default arguments non-const exprs, then you will have
         # to update this line
-        if const_arg_values and (is_instance_compat(func, (TypeCtorSymbol, CastSymbol)) or (func is TIME_MACRO)):
+        if const_arg_values and (
+            is_instance_compat(func, (TypeCtorSymbol, CastSymbol))
+            or (func is TIME_MACRO)
+        ):
             # a function has a const value if all non-default args are const, and it is a type ctor, or a cast,
             # or the special case time macro which is only evaluated at compile time
             # (default args must be const so don't have to check them)
@@ -1422,7 +1452,10 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.upper_bound, LoopVarType, state):
             return
 
-        if node.lower_bound in state.const_exprs and node.upper_bound in state.const_exprs:
+        if (
+            node.lower_bound in state.const_exprs
+            and node.upper_bound in state.const_exprs
+        ):
             state.const_exprs.add(node)
         state.synthesized_types[node] = RangeValue
         state.contextual_types[node] = RangeValue
@@ -1602,7 +1635,12 @@ class CalculateConstExprValues(Visitor):
                 )
                 return None
 
-            return TimeValue(time_base=time_base, time_context=time_context, seconds=seconds, useconds=useconds)
+            return TimeValue(
+                time_base=time_base,
+                time_context=time_context,
+                seconds=seconds,
+                useconds=useconds,
+            )
 
         except ValueError as e:
             state.err(
@@ -2137,9 +2175,7 @@ class CheckAllBranchesReturn(Visitor):
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         state.does_return[node] = True
 
-    def visit_AstBlock(
-        self, node: AstBlock, state: CompileState
-    ):
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
         state.does_return[node] = any(state.does_return[n] for n in node.stmts)
 
     def visit_AstIf(self, node: AstIf, state: CompileState):

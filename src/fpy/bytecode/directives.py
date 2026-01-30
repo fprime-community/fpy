@@ -821,7 +821,7 @@ UNARY_STACK_OPS: dict[str, dict[type[FppValue], type[StackOpDirective]]] = {
     },
     UnaryStackOp.NEGATE: {
         I64Value: IntMultiplyDirective,
-        U64Value: IntMultiplyDirective,
+        U64Value: IntMultiplyDirective, # TODO disallow uint negation
         F64Value: FloatMultiplyDirective,
     },
 }

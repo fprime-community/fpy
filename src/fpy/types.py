@@ -102,7 +102,7 @@ def typename(typ: FppType) -> str:
 class FpyIntegerValue(IntegerValue):
     @classmethod
     def range(cls):
-        raise NotImplementedError()
+        return (-math.inf, math.inf)
 
     @staticmethod
     def get_serialize_format():

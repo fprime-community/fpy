@@ -1760,7 +1760,11 @@ start: Fw.Time = Fw.Time(1, 0, 100, 0)
 end: Fw.Time = Fw.Time(1, 0, 105, 500000)
 assert (end - start).seconds == 5
 """
-    assert_run_success(fprime_test_api, seq, {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()})
+    assert_run_success(
+        fprime_test_api,
+        seq,
+        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()},
+    )
 
 
 def test_unary_plus_unsigned(fprime_test_api):
@@ -2139,6 +2143,7 @@ assert i == 7
 """
     assert_run_success(fprime_test_api, seq)
 
+
 def test_loop_var_redeclare_right_type_after(fprime_test_api):
     seq = """
 for i in 0 .. 7:
@@ -2174,6 +2179,7 @@ def test():
     i: I64 = 123
 """
     assert_compile_failure(fprime_test_api, seq)
+
 
 def test_two_fors_same_loop_var(fprime_test_api):
     seq = """
@@ -3016,6 +3022,23 @@ assert i == 2
     assert_run_success(fprime_test_api, seq)
 
 
+def test_modify_global_var_in_func_before_defn(fprime_test_api):
+    """Test that functions can modify top-level (global) variables, declared after the function definition"""
+    seq = """
+increment()
+
+def increment():
+    assert i == 0
+    i = i + 1
+
+i: I64 = 123
+
+assert i == 123
+"""
+
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_use_lvar_from_func_outside_func(fprime_test_api):
     seq = """
 def test():
@@ -3024,7 +3047,6 @@ assert i == 0
 """
 
     assert_compile_failure(fprime_test_api, seq)
-
 
 
 def test_use_arg_from_func_outside_func(fprime_test_api):
@@ -3036,7 +3058,6 @@ if arg == 0:
 """
 
     assert_compile_failure(fprime_test_api, seq)
-
 
 
 def test_func_in_func(fprime_test_api):
@@ -3199,6 +3220,7 @@ test()
 
     assert_run_success(fprime_test_api, seq)
 
+
 def test_missing_return(fprime_test_api):
     seq = """
 def test() -> U32:
@@ -3301,6 +3323,7 @@ assert F64(narrow) == 16777216.0
 """
 
     assert_run_success(fprime_test_api, rounding_seq)
+
 
 def test_const_float_overflow(fprime_test_api):
     overflow_seq = """
@@ -3530,7 +3553,7 @@ def test(a: U64 = helper()) -> U64:
 
 def test_default_arg_forward_called_function(fprime_test_api):
     """Default arg const values are calculated even for forward-called functions.
-    
+
     This tests that when a function is called before it's defined in the source,
     the default argument's const value is still properly available.
     """
@@ -3602,6 +3625,7 @@ def test(a: U64 = undefined_var) -> U64:
 
 
 # Named arguments tests
+
 
 def test_named_arg_simple(fprime_test_api):
     """Basic named argument usage."""
@@ -3905,7 +3929,7 @@ assert eval_count >= 3
 
 def test_check_condition_must_persist(fprime_test_api):
     """Test that condition must remain true for the full persist duration.
-    
+
     If condition becomes false before persist duration, the timer resets.
     """
     seq = """
@@ -4413,7 +4437,7 @@ def check_needs_return() -> I64:
 
 
 def test_check_no_timeout_clause_still_needs_return(fprime_test_api):
-    """Test that a check with no timeout clause still needs a trailing return 
+    """Test that a check with no timeout clause still needs a trailing return
     because the desugared if/else has an implicit else branch that doesn't return."""
     seq = """
 def check_no_timeout() -> I64:
@@ -4529,7 +4553,7 @@ assert val == 123
 
 class TestSimulatedTime:
     """Tests for simulated time functionality.
-    
+
     These tests verify that the sequencer model properly:
     - Tracks simulated time
     - Advances time when sleep() is called
@@ -4626,7 +4650,7 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
 
     def test_check_with_different_time_base_crashes(self, fprime_test_api):
         """Test that check crashes when now() and timeout have different time_bases.
-        
+
         This tests the full check statement integration: the check desugars to use
         time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
         """
@@ -4646,7 +4670,7 @@ timeout:
 
     def test_check_with_simulated_time_timeout(self, fprime_test_api):
         """Test that check properly times out based on simulated time advancement.
-        
+
         This test verifies the full check loop:
         1. now() returns simulated time
         2. sleep() advances simulated time
@@ -4671,7 +4695,7 @@ assert timed_out
 
     def test_check_condition_persists_over_simulated_time(self, fprime_test_api):
         """Test that persist duration is measured using simulated time.
-        
+
         The check condition must remain true for the full persist duration
         (measured in simulated time).
         """
@@ -4737,6 +4761,8 @@ assert time_base_ok
 assert check_count >= 3
 """
         assert_run_success(fprime_test_api, seq, time_base=3)
+
+
 # ==================== Time Function Tests ====================
 
 
@@ -4854,6 +4880,7 @@ t: Fw.Time = time("2200-01-01T00:00:00Z")
 
 # Tests for non-constant-sized types (types containing strings)
 
+
 def test_non_const_sized_var_decl(fprime_test_api):
     """Variable declarations with non-constant-sized types should fail."""
     seq = """
@@ -4895,4 +4922,3 @@ def test():
 """
 
     assert_compile_failure(fprime_test_api, seq)
-
