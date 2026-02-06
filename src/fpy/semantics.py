@@ -737,6 +737,14 @@ class CheckUseBeforeDefine(TopDownVisitor):
 
 class PickTypesAndResolveFields(Visitor):
 
+    def can_coerce_type(self, source: FppType, target: FppType) -> bool:
+        """Returns True if source can be implicitly coerced to target.
+
+        Coercion is allowed when the common type of source and target IS target,
+        meaning target can already represent everything source can.
+        """
+        return self.find_common_type(source, target) == target
+
     def coerce_expr_type(
         self, node: AstExpr, type: FppType, state: CompileState
     ) -> bool:
@@ -746,22 +754,13 @@ class PickTypesAndResolveFields(Visitor):
             unconverted_type,
             state.contextual_types[node],
         )
-        common_type = self.find_common_type(unconverted_type, type)
-        if common_type == type:
+        if self.can_coerce_type(unconverted_type, type):
             state.contextual_types[node] = type
             return True
         state.err(
             f"Expected {typename(type)}, found {typename(unconverted_type)}", node
         )
         return False
-
-    def find_(self, first_type: FppType, second_type: FppType, const: bool) -> FppType | None:
-        common_type = self.find_common_type(first_type, second_type)
-        if common_type in ARBITRARY_PRECISION_TYPES and not const:
-            # not gonna work. we can't do this conversion at runtime
-            # can we get a runtime-valid common type if 
-            return None
-        elif common_type in ARBITRARY_PRECISION_TYPES
 
     def find_common_type(self, first_type: FppType, second_type: FppType) -> FppType | None:
 
@@ -777,11 +776,11 @@ class PickTypesAndResolveFields(Visitor):
             # no coercion necessary
             return second_type
 
-        # common type of (any str, FpyString) is FpyString
+        # literal strings adapt to specific strings
         if issubclass(first_type, StringValue) and second_type == FpyStringValue:
-            return second_type
-        if issubclass(second_type, StringValue) and first_type == FpyStringValue:
             return first_type
+        if issubclass(second_type, StringValue) and first_type == FpyStringValue:
+            return second_type
 
         if not issubclass(first_type, NumericalValue) or not issubclass(
             second_type, NumericalValue
@@ -793,9 +792,15 @@ class PickTypesAndResolveFields(Visitor):
         first_float = issubclass(first_type, FloatValue)
 
         # common type of int and float is float
+        # but arb-precision adapts to specific: if one side is a specific int
+        # and the other is an arb-precision float, the result is F64 (not arb float)
         if second_float and not first_float:
+            if second_type == FpyFloatValue and first_type not in ARBITRARY_PRECISION_TYPES:
+                return F64Value
             return second_type
         if not second_float and first_float:
+            if first_type == FpyFloatValue and second_type not in ARBITRARY_PRECISION_TYPES:
+                return F64Value
             return first_type
 
         # only case left is that we have both floats, or both ints
@@ -807,46 +812,36 @@ class PickTypesAndResolveFields(Visitor):
     def find_common_float_type(
         self, first_type: FppType, second_type: FppType
     ) -> FppType | None:
-        min_bits = min(first_type.get_bits(), second_type.get_bits())
-
-        if min_bits == 32:
-            return F32Value
-        if min_bits == 64:
+        # arb precision adapts to specific
+        if first_type == FpyFloatValue:
+            return second_type
+        if second_type == FpyFloatValue:
+            return first_type
+        # both specific: wider wins
+        if max(first_type.get_bits(), second_type.get_bits()) > 32:
             return F64Value
-        return FpyFloatValue
+        return F32Value
 
     def find_common_integer_type(
         self, first_type: FppType, second_type: FppType
     ) -> FppType | None:
+        # arb precision adapts to specific
+        if first_type == FpyIntegerValue:
+            return second_type
+        if second_type == FpyIntegerValue:
+            return first_type
+
+        # both specific: must have matching signedness
         first_unsigned = first_type in UNSIGNED_INTEGER_TYPES
         second_unsigned = second_type in UNSIGNED_INTEGER_TYPES
 
-        if first_unsigned and not second_unsigned:
-            return None
-        if not first_unsigned and second_unsigned:
+        if first_unsigned != second_unsigned:
             return None
 
-        # only case left is both signed, or both unsigned
-        min_bits = min(first_type.get_bits(), second_type.get_bits())
-        if min_bits == 8:
-            if first_unsigned:
-                return U8Value
-            return I8Value
-        if min_bits == 16:
-            if first_unsigned:
-                return U16Value
-            return I16Value
-        if min_bits == 32:
-            if first_unsigned:
-                return U32Value
-            return I32Value
-        if min_bits == 64:
-            if first_unsigned:
-                return U64Value
-            return I64Value
-
-        # no finite bitwidth integer type fits both these types
-        return FpyIntegerValue
+        # same signedness: wider wins
+        bits = max(first_type.get_bits(), second_type.get_bits())
+        category = "uint" if first_unsigned else "int"
+        return self.get_type_from_category_and_bits(category, bits)
 
     def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
@@ -1068,71 +1063,70 @@ class PickTypesAndResolveFields(Visitor):
         else:
             return I64Value
 
+    def widen_to_64(self, common_type: FppType) -> FppType:
+        """Widen a specific numeric type to its 64-bit counterpart for VM execution.
+        Returns the type unchanged if it's already 64-bit or arb precision.
+        """
+        if common_type in ARBITRARY_PRECISION_TYPES:
+            return common_type
+        if issubclass(common_type, FloatValue):
+            return F64Value
+        if common_type in UNSIGNED_INTEGER_TYPES:
+            return U64Value
+        if common_type in SIGNED_INTEGER_TYPES:
+            return I64Value
+        assert False, common_type
+
     def pick_intermediate_type(
         self,
         arg_types: list[FppType],
         op: BinaryStackOp | UnaryStackOp,
-        expr_is_const: bool,
     ) -> FppType | None:
-        if op in BOOLEAN_OPERATORS:
-            return BoolValue
+        """Determine the intermediate type for an operator.
 
-    def pick_numeric_intermediate_type(
-        self,
-        arg_types: list[FppType],
-        op: BinaryStackOp | UnaryStackOp,
-        expr_is_const: bool,
-    ) -> FppType | None:
-        """Return the intermediate type for a numeric operation
+        Uses find_common_type as the base, then applies op-specific
+        overrides and widens to 64-bit for runtime VM execution.
 
         Returns None if the operation is invalid for the given types.
         """
+        if op in BOOLEAN_OPERATORS:
+            return BoolValue
 
-        assert all(issubclass(arg_type, NumericalValue) for arg_type in arg_types)
+        # for == and !=, non-numeric same-type comparisons are valid
+        if op in (BinaryStackOp.EQUAL, BinaryStackOp.NOT_EQUAL):
+            if len(arg_types) == 2 and arg_types[0] == arg_types[1]:
+                if not issubclass(arg_types[0], NumericalValue):
+                    # non-numeric equality (struct, array, enum, time)
+                    return arg_types[0]
 
-        if any(t in UNSIGNED_INTEGER_TYPES for t in arg_types) and any(
-            t in SIGNED_INTEGER_TYPES for t in arg_types
-        ):
-            # cannot mix signed and unsigned
+        # from here, all args must be numeric
+        if not all(issubclass(t, NumericalValue) for t in arg_types):
             return None
 
-        # first let's decide at which bitwidth we want to do the op. we only have two options: arbitrary, or 64 bit
+        # division and exponentiation always operate over floats
+        if op in (BinaryStackOp.DIVIDE, BinaryStackOp.EXPONENT):
+            if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):
+                return FpyFloatValue
+            return F64Value
 
-        # if the expression is a const, then evaluation will take place in the compiler, at arb
-        # precision
-        if expr_is_const:
-            bitwidth = math.inf
-        else:
-            # otherwise, evaluation must happen in the vm, which only supports 64 bit ops
-            bitwidth = 64
+        # for everything else, find the common type then widen to 64-bit
+        common = self.find_common_type(*arg_types) if len(arg_types) == 2 else arg_types[0]
+        if common is None:
+            return None
 
-        # next, let's decide what kind of number we want the result to be, based on a simple
-        # "type hierarchy": float beats uint, uint beats int
-
-        if any(issubclass(t, FloatValue) for t in arg_types):
-            kind = "float"
-        elif any(t in UNSIGNED_INTEGER_TYPES for t in arg_types):
-            kind = "uint"
-        else:
-            kind = "int"
-
-        # there is an override for division and exponentiation.
-        # always do true division and exponentiation over floats, python style
-        if op == BinaryStackOp.DIVIDE or op == BinaryStackOp.EXPONENT:
-            kind = "float"
-
-        return self.get_type_from_category_and_bits(kind, bitwidth)
+        return self.widen_to_64(common)
 
     def pick_result_type(
         self,
-        arg_types: list[FppType],
         intermediate_type: FppType,
         op: BinaryStackOp | UnaryStackOp,
     ) -> FppType:
         """Derive the result type from the intermediate type (excluding time ops).
 
-        For numerics, shrinks to max input bitwidth.
-        Arbitrary precision literals are treated as 64-bit, so e.g. `U32 * literal` results in U64.
+        For comparisons and boolean ops, the result is always bool.
+        For numeric ops, the result type equals the intermediate type.
+        This avoids data loss from truncating back to a narrower type
+        (e.g. U32 * literal computes in U64 and stays U64).
         """
         if op in BOOLEAN_OPERATORS or op in COMPARISON_OPS:
             return BoolValue
@@ -1140,95 +1134,45 @@ class PickTypesAndResolveFields(Visitor):
         # all other cases, result is a number
         assert op in NUMERIC_OPERATORS
 
-        # if all args are arb precision consts, keep it that way
-        if intermediate_type in (FpyIntegerValue, FpyFloatValue):
-            return intermediate_type
-
-        # Compute max bitwidth, treating arbitrary precision as 64-bit
-        def get_bits(t: FppType) -> int:
-            return 64 if t in ARBITRARY_PRECISION_TYPES else t.get_bits()
-
-        bits = max(get_bits(t) for t in arg_types)
-
-        # Determine category from intermediate type
-        if issubclass(intermediate_type, FloatValue):
-            type_category = "float"
-        elif intermediate_type in UNSIGNED_INTEGER_TYPES:
-            type_category = "uint"
-        else:
-            type_category = "int"
-
-        return self.get_type_from_category_and_bits(type_category, bits)
+        return intermediate_type
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
 
-        lhs_is_const_expr = node.lhs in state.const_exprs
-        rhs_is_const_expr = node.rhs in state.const_exprs
-        is_const_expr = lhs_is_const_expr and rhs_is_const_expr
+        is_const_expr = node.lhs in state.const_exprs and node.rhs in state.const_exprs
         if is_const_expr:
             state.const_exprs.add(node)
 
         # Check for time/interval operator overloads
         time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
         if time_op is not None:
-            # operator behavior is overridden
             common_type, result_type, _, _ = time_op
             state.op_intermediate_types[node] = common_type
             state.synthesized_types[node] = result_type
             state.contextual_types[node] = result_type
             return
 
-        if is_const_expr:
-            # normal common type works
-            common_type = self.find_common_type(lhs_type, rhs_type)
-        elif lhs_is_const_expr and not rhs_is_const_expr:
-            # can we convert this const
-            # can't convert float to int
-            # otherwise 
-            common_type = 
-        
-
-        common_type = self.find_common_type(lhs_type, rhs_type)
-        if common_type is None:
+        # pick_intermediate_type uses find_common_type internally,
+        # then applies op overrides and widens to 64-bit for runtime
+        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
+        if intermediate_type is None:
             state.err(
                 f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
                 node,
             )
             return
 
-        # okay. now this is something we can work with. both types are GUARANTEED to fit
-        # in this type.
-
-        # okay, problem. if we do U8 + 1, we're going to get Integer. But we want U8?
-        # fundamentally: knowing nothing about the values of the two args, this operation
-        # would have to be performed in arbitrary precision
-        # so Integer is the right answer--knowing nothing about the types
-        # okay. what if we know that the Integer type has a constant value?
-        # 
-
-        # however, if this type is an arb precision type, then we can't do it at runtime, so
-        # this expr has to be a const expr (cuz then we will evaluate it at compile time)
-
-        if common_type in ARBITRARY_PRECISION_TYPES and not is_const_expr:
-            state.err(
-                f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
-                node,
-            )
+        # coerce both operands to the intermediate type
+        if not self.coerce_expr_type(node.lhs, intermediate_type, state):
+            return
+        if not self.coerce_expr_type(node.rhs, intermediate_type, state):
             return
 
-        # if this isn't an arb precision type, 
+        result_type = self.pick_result_type(intermediate_type, node.op)
 
-        if not self.coerce_expr_type(node.lhs, common_type, state):
-            return
-        if not self.coerce_expr_type(node.rhs, common_type, state):
-            return
-
-        result_type = self.pick_result_type(arg_types, common_type, node.op)
-
-        state.op_intermediate_types[node] = common_type
+        state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
@@ -1236,7 +1180,7 @@ class PickTypesAndResolveFields(Visitor):
         val_type = state.synthesized_types[node.val]
         arg_types = [val_type]
 
-        intermediate_type = self.pick_numeric_intermediate_type(arg_types, node.op)
+        intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
             state.err(f"Op {node.op} undefined for {typename(val_type)}", node)
             return
@@ -1244,7 +1188,7 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.val, intermediate_type, state):
             return
 
-        result_type = self.pick_result_type(arg_types, intermediate_type, node.op)
+        result_type = self.pick_result_type(intermediate_type, node.op)
 
         if node.val in state.const_exprs:
             state.const_exprs.add(node)
@@ -2113,6 +2057,11 @@ class CalculateConstExprValues(Visitor):
 
         if type(folded_value) == int:
             folded_value = FpyIntegerValue(folded_value)
+        elif type(folded_value) == float:
+            # can happen when operands were previously const-converted to
+            # specific float types (F32Value/F64Value) whose .val is a
+            # Python float, or from int / int (true division) in Python
+            folded_value = FpyFloatValue(Decimal(folded_value))
         elif type(folded_value) == Decimal:
             folded_value = FpyFloatValue(folded_value)
         elif type(folded_value) == bool:
@@ -2168,6 +2117,8 @@ class CalculateConstExprValues(Visitor):
 
         if type(folded_value) == int:
             folded_value = FpyIntegerValue(folded_value)
+        elif type(folded_value) == float:
+            folded_value = FpyFloatValue(Decimal(folded_value))
         elif type(folded_value) == Decimal:
             folded_value = FpyFloatValue(folded_value)
         elif type(folded_value) == bool:

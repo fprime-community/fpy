@@ -1073,6 +1073,21 @@ exit(1)
     assert_run_success(fprime_test_api, seq)
 
 
+def test_const_fold_specific_float_binop(fprime_test_api):
+    """Const folding binary ops on specific float types (F64, F32).
+
+    When both operands are cast to a specific float type (e.g. F64(1.5)),
+    their .val is a Python float, not Decimal. The const folder must handle
+    the bare `float` result from `float + float` etc.
+    """
+    seq = """
+if F64(1.5) + F64(2.5) == 4.0:
+    exit(0)
+exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
 # this test inspired by a bug
 def test_float_truncate_stack_size(fprime_test_api):
     seq = """

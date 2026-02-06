@@ -206,11 +206,12 @@ ARBITRARY_PRECISION_TYPES = (FpyFloatValue, FpyIntegerValue)
 
 # The canonical Fw.TimeIntervalValue struct type
 # This must match the dictionary's Fw.TimeIntervalValue definition
+# The format string '{}' and empty description match what the GDS JSON loader produces
 TimeIntervalValue = StructValue.construct_type(
     "Fw.TimeIntervalValue",
     [
-        ("seconds", U32Value, "", "seconds portion of TimeInterval"),
-        ("useconds", U32Value, "", "microseconds portion of TimeInterval"),
+        ("seconds", U32Value, "{}", ""),
+        ("useconds", U32Value, "{}", ""),
     ],
 )
 
