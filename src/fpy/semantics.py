@@ -746,8 +746,8 @@ class PickTypesAndResolveFields(Visitor):
             unconverted_type,
             state.contextual_types[node],
         )
-        expr_is_const = node in state.const_exprs
-        if self.can_coerce_type(unconverted_type, type, expr_is_const):
+        common_type = self.find_common_type(unconverted_type, type)
+        if common_type == type:
             state.contextual_types[node] = type
             return True
         state.err(
@@ -755,42 +755,59 @@ class PickTypesAndResolveFields(Visitor):
         )
         return False
 
-    def find_common_type(self, from_type: FppType, to_type: FppType) -> FppType | None:
+    def find_(self, first_type: FppType, second_type: FppType, const: bool) -> FppType | None:
+        common_type = self.find_common_type(first_type, second_type)
+        if common_type in ARBITRARY_PRECISION_TYPES and not const:
+            # not gonna work. we can't do this conversion at runtime
+            # can we get a runtime-valid common type if 
+            return None
+        elif common_type in ARBITRARY_PRECISION_TYPES
+
+    def find_common_type(self, first_type: FppType, second_type: FppType) -> FppType | None:
+
+        # important principles to reduce surprise:
+
+        # type of an operation should be decided by the types of its inputs. let's not do
+        # anything clever with trying to inspect the values of consts
+
+        # no common type between signed and unsigned int
+
         # TODO unit test that this "works either way"
-        if from_type == to_type:
+        if first_type == second_type:
             # no coercion necessary
-            return to_type
-        if issubclass(from_type, StringValue) and to_type == FpyStringValue:
-            # we can convert any string type to the String type
-            return to_type
-        if not issubclass(from_type, NumericalValue) or not issubclass(
-            to_type, NumericalValue
+            return second_type
+
+        # common type of (any str, FpyString) is FpyString
+        if issubclass(first_type, StringValue) and second_type == FpyStringValue:
+            return second_type
+        if issubclass(second_type, StringValue) and first_type == FpyStringValue:
+            return first_type
+
+        if not issubclass(first_type, NumericalValue) or not issubclass(
+            second_type, NumericalValue
         ):
             # there are no other non numeric types which have a common type
             return None
 
-        to_float = issubclass(to_type, FloatValue)
-        from_float = issubclass(from_type, FloatValue)
+        second_float = issubclass(second_type, FloatValue)
+        first_float = issubclass(first_type, FloatValue)
 
-        if to_float and not from_float:
-            # any integer can be converted to any float
-            return to_type
+        # common type of int and float is float
+        if second_float and not first_float:
+            return second_type
+        if not second_float and first_float:
+            return first_type
 
-        if not to_float and from_float:
-            # no float type can be converted to an integer
-            return None
+        # only case left is that we have both floats, or both ints
+        if second_float:
+            return self.find_common_float_type(first_type, second_type)
 
-        # only case left is that we're going from (float -> float) or (int -> int)
-
-        if to_float:
-            return self.find_common_float_type(from_type, to_type)
-
-        return self.find_common_integer_type(from_type, to_type)
+        return self.find_common_integer_type(first_type, second_type)
 
     def find_common_float_type(
-        self, from_type: FppType, to_type: FppType
+        self, first_type: FppType, second_type: FppType
     ) -> FppType | None:
-        min_bits = min(from_type.get_bits(), to_type.get_bits())
+        min_bits = min(first_type.get_bits(), second_type.get_bits())
 
         if min_bits == 32:
             return F32Value
@@ -799,32 +816,34 @@ class PickTypesAndResolveFields(Visitor):
         return FpyFloatValue
 
     def find_common_integer_type(
-        self, from_type: FppType, to_type: FppType
+        self, first_type: FppType, second_type: FppType
     ) -> FppType | None:
-        # unsigned types may be converted to signed
-        hierarchy = [
-            U8Value,
-            I8Value,
-            U16Value,
-            I16Value,
-            U32Value,
-            I32Value,
-            U64Value,
-            I64Value,
-        ]
-        from_range = from_type.range()
-        to_range = to_type.range()
+        first_unsigned = first_type in UNSIGNED_INTEGER_TYPES
+        second_unsigned = second_type in UNSIGNED_INTEGER_TYPES
 
-        for typ in hierarchy:
-            type_range = typ.range()
-            if (
-                type_range[0] <= from_range[0]
-                and type_range[0] <= to_range[0]
-                and type_range[1] >= from_range[1]
-                and type_range[1] >= to_range[1]
-            ):
-                # both ranges fit inside this type
-                return typ
+        if first_unsigned and not second_unsigned:
+            return None
+        if not first_unsigned and second_unsigned:
+            return None
+
+        # only case left is both signed, or both unsigned
+        min_bits = min(first_type.get_bits(), second_type.get_bits())
+        if min_bits == 8:
+            if first_unsigned:
+                return U8Value
+            return I8Value
+        if min_bits == 16:
+            if first_unsigned:
+                return U16Value
+            return I16Value
+        if min_bits == 32:
+            if first_unsigned:
+                return U32Value
+            return I32Value
+        if min_bits == 64:
+            if first_unsigned:
+                return U64Value
+            return I64Value
 
         # no finite bitwidth integer type fits both these types
         return FpyIntegerValue
@@ -1146,9 +1165,10 @@ class PickTypesAndResolveFields(Visitor):
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
 
-        is_const_expr = False
-        if node.lhs in state.const_exprs and node.rhs in state.const_exprs:
-            is_const_expr = True
+        lhs_is_const_expr = node.lhs in state.const_exprs
+        rhs_is_const_expr = node.rhs in state.const_exprs
+        is_const_expr = lhs_is_const_expr and rhs_is_const_expr
+        if is_const_expr:
             state.const_exprs.add(node)
 
         # Check for time/interval operator overloads
@@ -1161,6 +1181,16 @@ class PickTypesAndResolveFields(Visitor):
             state.contextual_types[node] = result_type
             return
 
+        if is_const_expr:
+            # normal common type works
+            common_type = self.find_common_type(lhs_type, rhs_type)
+        elif lhs_is_const_expr and not rhs_is_const_expr:
+            # can we convert this const
+            # can't convert float to int
+            # otherwise 
+            common_type = 
+        
+
         common_type = self.find_common_type(lhs_type, rhs_type)
         if common_type is None:
             state.err(
@@ -1169,13 +1199,15 @@ class PickTypesAndResolveFields(Visitor):
             )
             return
 
-
         # okay. now this is something we can work with. both types are GUARANTEED to fit
         # in this type.
 
         # okay, problem. if we do U8 + 1, we're going to get Integer. But we want U8?
-        # i guess the reason is because we know the value of rhs. so we can check
-        # so, for the common type, 
+        # fundamentally: knowing nothing about the values of the two args, this operation
+        # would have to be performed in arbitrary precision
+        # so Integer is the right answer--knowing nothing about the types
+        # okay. what if we know that the Integer type has a constant value?
+        # 
 
         # however, if this type is an arb precision type, then we can't do it at runtime, so
         # this expr has to be a const expr (cuz then we will evaluate it at compile time)
