@@ -38,6 +38,7 @@ FwPrmIdType = U32Value
 FwOpcodeType = U32Value
 ArrayIndexType = I64Value
 StackSizeType = U32Value
+SignedStackSizeType = I32Value
 LoopVarType = ArrayIndexType
 
 
@@ -293,7 +294,7 @@ class MemCompareDirective(Directive):
 class LoadRelDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_REL
 
-    lvar_offset: Union[int, I32Value]
+    lvar_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -369,7 +370,7 @@ class StoreRelDirective(Directive):
 class StoreRelConstOffsetDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.STORE_REL_CONST_OFFSET
 
-    lvar_offset: Union[int, I32Value]
+    lvar_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -736,7 +737,7 @@ class LoadAbsDirective(Directive):
     """Load a value from a global variable (absolute offset from start of stack)"""
     opcode: ClassVar[DirectiveId] = DirectiveId.LOAD_ABS
 
-    global_offset: Union[int, I32Value]
+    global_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -753,7 +754,7 @@ class StoreAbsConstOffsetDirective(Directive):
     """Store a value to a global variable at a constant absolute offset"""
     opcode: ClassVar[DirectiveId] = DirectiveId.STORE_ABS_CONST_OFFSET
 
-    global_offset: Union[int, I32Value]
+    global_offset: Union[int, SignedStackSizeType]
     size: Union[int, StackSizeType]
 
 
@@ -802,6 +803,14 @@ NUMERIC_OPERATORS = {
     BinaryStackOp.FLOOR_DIVIDE,
 }
 BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 UNARY_STACK_OPS: dict[str, dict[type[FppValue], type[StackOpDirective]]] = {
     UnaryStackOp.NOT: {BoolValue: NotDirective},
@@ -812,7 +821,7 @@ UNARY_STACK_OPS: dict[str, dict[type[FppValue], type[StackOpDirective]]] = {
     },
     UnaryStackOp.NEGATE: {
         I64Value: IntMultiplyDirective,
-        U64Value: IntMultiplyDirective,
+        U64Value: IntMultiplyDirective, # TODO disallow uint negation
         F64Value: FloatMultiplyDirective,
     },
 }

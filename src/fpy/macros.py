@@ -9,7 +9,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import BuiltinSymbol, FpyStringValue, NothingValue
+from fpy.types import BuiltinFuncSymbol, FpyStringValue, NothingValue
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
@@ -63,7 +63,7 @@ def generate_abs_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_FLOAT = BuiltinSymbol("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
+MACRO_ABS_FLOAT = BuiltinFuncSymbol("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
 
 
 def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
@@ -89,11 +89,11 @@ def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_SIGNED_INT = BuiltinSymbol(
+MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
     "abs", I64Value, [("value", I64Value, None)], generate_abs_signed_int
 )
 
-MACRO_SLEEP_SECONDS_USECONDS = BuiltinSymbol(
+MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     "sleep",
     NothingValue,
     [
@@ -141,7 +141,7 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_SLEEP_FLOAT = BuiltinSymbol(
+MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
     "sleep", NothingValue, [("seconds", F64Value, None)], generate_sleep_float
 )
 
@@ -153,27 +153,7 @@ def generate_log_signed_int(node: Ast) -> list[Directive | Ir]:
         FloatLogDirective(),
     ]
 
-
-MACROS: dict[str, BuiltinSymbol] = {
-    "sleep": MACRO_SLEEP_SECONDS_USECONDS,
-    "sleep_until": BuiltinSymbol(
-        "sleep_until",
-        NothingValue,
-        [("wakeup_time", TimeValue, None)],
-        lambda n: [WaitAbsDirective()],
-    ),
-    "exit": BuiltinSymbol(
-        "exit", NothingValue, [("exit_code", U8Value, None)], lambda n: [ExitDirective()]
-    ),
-    "log": BuiltinSymbol(
-        "log", F64Value, [("operand", F64Value, None)], lambda n: [FloatLogDirective()]
-    ),
-    "now": BuiltinSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
-    "iabs": MACRO_ABS_SIGNED_INT,
-    "fabs": MACRO_ABS_FLOAT,
-    # time() parses ISO 8601 timestamps at compile time
-    # The generate function should never be called since this is always const-evaluated
-    "time": BuiltinSymbol(
+TIME_MACRO = BuiltinFuncSymbol(
         "time",
         TimeValue,
         [
@@ -182,5 +162,26 @@ MACROS: dict[str, BuiltinSymbol] = {
             ("time_context", U8Value, U8Value(0)),
         ],
         lambda n: [],  # placeholder - const eval handles this
+    )
+
+MACROS: dict[str, BuiltinFuncSymbol] = {
+    "sleep": MACRO_SLEEP_SECONDS_USECONDS,
+    "sleep_until": BuiltinFuncSymbol(
+        "sleep_until",
+        NothingValue,
+        [("wakeup_time", TimeValue, None)],
+        lambda n: [WaitAbsDirective()],
     ),
+    "exit": BuiltinFuncSymbol(
+        "exit", NothingValue, [("exit_code", U8Value, None)], lambda n: [ExitDirective()]
+    ),
+    "log": BuiltinFuncSymbol(
+        "log", F64Value, [("operand", F64Value, None)], lambda n: [FloatLogDirective()]
+    ),
+    "now": BuiltinFuncSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
+    "iabs": MACRO_ABS_SIGNED_INT,
+    "fabs": MACRO_ABS_FLOAT,
+    # time() parses ISO 8601 timestamps at compile time
+    # The generate function should never be called since this is always const-evaluated
+    "time": TIME_MACRO,
 }
