@@ -165,6 +165,42 @@ class CreateFunctionScopes(TopDownVisitor):
                 # Default values are evaluated at definition site, so they use the parent scope
 
 
+class CreateGlobalVariables(Visitor):
+    """Pre-populates global variable declarations so that functions defined
+    before a global variable can still reference it.  Only visits top-level
+    AstAssign nodes with type annotations."""
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        if node is not state.root:
+            return
+
+        # Collect names claimed by for-loops at global scope so we don't
+        # pre-register a variable that would mask a for-loop declaration
+        # ordering conflict (which should remain a compile error).
+        for_loop_names: set[str] = set()
+        for stmt in node.stmts:
+            if is_instance_compat(stmt, AstFor):
+                for_loop_names.add(stmt.loop_var.name)
+
+        for stmt in node.stmts:
+            if not is_instance_compat(stmt, AstAssign):
+                continue
+            if not is_instance_compat(stmt.lhs, AstIdent):
+                continue
+            if stmt.type_ann is None:
+                continue
+            name = stmt.lhs.name
+            if name in for_loop_names:
+                # Don't pre-register; let the normal ordering-sensitive
+                # pass detect and report the conflict.
+                continue
+            if state.global_value_scope.get(name) is not None:
+                # duplicate; CreateVariablesAndFuncs will report the error
+                continue
+            var = VariableSymbol(name, stmt.type_ann, stmt, is_global=True)
+            state.global_value_scope[name] = var
+
+
 class CreateVariablesAndFuncs(TopDownVisitor):
     """finds all variable declarations and adds them to the appropriate scope"""
 
@@ -194,6 +230,9 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # TODO shadowing check
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
+                if is_instance_compat(existing_local, VariableSymbol) and existing_local.declaration is node:
+                    # already pre-registered by CreateGlobalVariables
+                    return
                 # redeclaring an existing variable
                 state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
@@ -731,6 +770,11 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
         if sym not in self.currently_defined_vars:
+            # Global variables referenced from inside a function are always
+            # accessible — they are allocated and zero-initialized at sequence
+            # start, regardless of textual ordering.
+            if sym.is_global and state.enclosing_value_scope[node] is not state.global_value_scope:
+                return
             state.err(f"'{node.name}' used before defined", node)
             return
 
