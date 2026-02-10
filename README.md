@@ -400,7 +400,28 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 
 # Fpy Developer's Guide
 
-## Developer tools
+## Workflow
+
+1. Make a venv
+2. `pip install -e .`
+3. Make changes to the source
+4. `pytest`
+
+## Running on a test F-Prime deployment
+
+1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
+2. `cd fprime-fpy-testbed`
+3. `git submodule update --init --recursive`
+4. Make a venv, install fprime requirements
+5. `cd Ref`
+6. `fprime-util generate -f`
+7. `fprime-util build -j16`
+8. `fprime-gds`. You should see a green circle in the top right.
+9. Comment out the entire fixture on line 15 of `test_seqs.py`
+10. Comment in 85-88 in `run_seq` in `test_helpers.py`
+11. `pytest test/fpy/test_seqs.py` will run all of the test sequences, it will take longer than running via the Python model.
+
+## Tools
 
 ### `fprime-fpyc` debugging flags
 The compiler has an optional `debug` flag. When passed, the compiler will print a stack trace of where each compile error is generated.
