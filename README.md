@@ -417,9 +417,7 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 6. `fprime-util generate -f`
 7. `fprime-util build -j16`
 8. `fprime-gds`. You should see a green circle in the top right.
-9. Comment out the entire fixture on line 15 of `test_seqs.py`
-10. Comment in 85-88 in `run_seq` in `test_helpers.py`
-11. `pytest test/fpy/test_seqs.py` will run all of the test sequences, it will take longer than running via the Python model.
+9. In the `fpy` repo, `pytest --use-gds --dictionary test/fpy/RefTopologyDictionary.json test/fpy/test_seqs.py` will run all of the test sequences against the live GDS deployment.
 
 ## Tools
 
