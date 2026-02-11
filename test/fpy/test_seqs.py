@@ -211,6 +211,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
     assert_run_success(fprime_test_api, seq)
 
 
+def test_last_line_comment(fprime_test_api):
+    seq = """
+# test"""
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_call_namespace_fails(fprime_test_api):
     seq = """
 CdhCore.cmdDisp()

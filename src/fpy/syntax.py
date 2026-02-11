@@ -40,7 +40,16 @@ class PythonIndenter(PostLex):
             return
 
         indent_str = token.rsplit("\n", 1)[1]  # Tabs and spaces
-        indent = indent_str.count(" ") + indent_str.count("\t") * self.tab_len
+        # Only count leading whitespace; a trailing comment may appear
+        # at end-of-file when there is no final newline.
+        indent = 0
+        for ch in indent_str:
+            if ch == ' ':
+                indent += 1
+            elif ch == '\t':
+                indent += self.tab_len
+            else:
+                break
 
         if indent > self.indent_level[-1]:
             self.indent_level.append(indent)
