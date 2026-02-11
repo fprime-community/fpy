@@ -241,6 +241,14 @@ while counter < 100:
 # counter == 100
 ```
 
+Keep in mind, a busy-loop will eat up the whole thread of the `Svc.FpySequencer` component. If you do this for long enough, the queue will fill up and the component will assert. You may want to include at least one `sleep` in such a loop:
+
+```py
+while True:
+    # this will execute one loop body every time checkTimers is called
+    sleep()
+```
+
 You can also loop over a range of integers:
 ```py
 sum: I64 = 0
@@ -346,6 +354,9 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
 # sleep for half a second
 sleep(useconds=500_000)
 
+# sleep until the next checkTimers call on the Svc.FpySequencer component
+sleep()
+CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
@@ -429,8 +440,8 @@ The compiler has an optional `bytecode` flag. When passed, the compiler will out
 
 ### `fprime-fpy-model`
 
-`fprime-fpy-model` is a Python model of the FpySequencer runtime. 
-* Given a sequence binary file, it deserializes and runs the sequence as if it were running on a real FpySequencer.
+`fprime-fpy-model` is a Python model of the `FpySequencer` runtime. 
+* Given a sequence binary file, it deserializes and runs the sequence as if it were running on a real `FpySequencer`.
 * Commands always return successfully, without blocking.
 * Telemetry and parameter access always raise `(PR|TL)M_CHAN_NOT_FOUND`.
 * Use `--debug` to print each directive and the stack as it executes.
