@@ -42,6 +42,12 @@ def test_no_newline(fprime_test_api):
     assert_run_success(fprime_test_api, seq)
 
 
+def test_last_line_comment(fprime_test_api):
+    seq = """
+# test"""
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_simple_var(fprime_test_api):
     seq = """
 var: U32 = 1
