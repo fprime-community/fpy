@@ -1,3 +1,4 @@
+addoption
 astassign
 BBBBBHI
 bitwidth
@@ -34,6 +35,8 @@ fpyc
 fpybc
 fqn
 getcontext
+getfixturevalue
+getoption
 gz
 hh
 iabs

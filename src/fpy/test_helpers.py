@@ -6,6 +6,7 @@ import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.types import serialize_directives
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
@@ -62,14 +63,21 @@ def run_seq(
     time_context: int = 0,
     initial_time_us: int = 0,
 ):
-    """Run a list of directives using the sequencer model."""
+    """Run a list of directives.
+
+    When fprime_test_api is None (the default), runs against the Python
+    sequencer model.  When fprime_test_api is a live IntegrationTestAPI
+    (i.e. --use-gds was passed to pytest), serializes the directives to a
+    temp file and sends them to the running GDS deployment.
+    """
     if tlm is None:
         tlm = {}
 
-    # seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-    # Path(seq_file.name).write_bytes(serialize_directives(directives)[0])
-    # fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=4)
-    # return
+    if fprime_test_api is not None:
+        seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        Path(seq_file.name).write_bytes(serialize_directives(directives)[0])
+        fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=4)
+        return
 
     dictionary = default_dictionary
 

@@ -9,6 +9,12 @@ def pytest_addoption(parser):
         default=False,
         help="Enable debug output from the FPY sequencer model",
     )
+    parser.addoption(
+        "--use-gds",
+        action="store_true",
+        default=False,
+        help="Run sequences against a live F-Prime GDS instead of the Python model",
+    )
 
 
 @pytest.fixture(autouse=True)

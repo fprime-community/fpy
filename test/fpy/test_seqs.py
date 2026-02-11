@@ -11,10 +11,14 @@ from fpy.test_helpers import (
 )
 
 
-# define this function if you want to just use the Python fpy model
+# When --use-gds is NOT passed (the default), override fprime_test_api with None
+# so tests run against the Python model instead of a live GDS.
+# When --use-gds IS passed, delegate to the fprime-gds plugin's session fixture
+# so tests run against the real deployment.
 @pytest.fixture(name="fprime_test_api", scope="module")
-def fprime_test_api_override():
-    """A file-specific override that simply returns None."""
+def fprime_test_api_override(request):
+    if request.config.getoption("--use-gds"):
+        return request.getfixturevalue("fprime_test_api_session")
     return None
 
 
