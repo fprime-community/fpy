@@ -2305,6 +2305,21 @@ assert i == 0
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_redeclare_after_for_in_if(fprime_test_api):
+    # For-loops nested inside if/while at the top level still declare their
+    # loop variable in the global scope (no new scope is introduced by if/while).
+    # A subsequent typed declaration of the same name must be an error, just as
+    # it would be if the for-loop were at the top level.
+    seq = """
+if True:
+    for i in 0 .. 7:
+        pass
+i: I64 = 0
+"""
+
+    assert_compile_failure(fprime_test_api, seq)
+
+
 def test_nested_for_loops(fprime_test_api):
     seq = """
 counter: U64 = 0
@@ -4947,3 +4962,16 @@ def test():
 """
 
     assert_compile_failure(fprime_test_api, seq)
+
+def test_use_loop_var_in_func_before_declared(fprime_test_api):
+    seq = """
+def fun():
+    assert loop_var == 2
+
+for loop_var in 0..2:
+    pass
+
+fun()
+"""
+
+    assert_run_success(fprime_test_api, seq)

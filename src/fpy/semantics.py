@@ -32,6 +32,7 @@ from fpy.types import (
     FpyStringValue,
     NothingValue,
     RangeValue,
+    STOP_DESCENT,
     TopDownVisitor,
     Visitor,
     is_instance_compat,
@@ -165,44 +166,28 @@ class CreateFunctionScopes(TopDownVisitor):
                 # Default values are evaluated at definition site, so they use the parent scope
 
 
-class CreateGlobalVariables(Visitor):
-    """Pre-populates global variable declarations so that functions defined
-    before a global variable can still reference it.  Only visits top-level
-    AstAssign nodes with type annotations."""
-
-    def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.root:
-            return
-
-        # Collect names claimed by for-loops at global scope so we don't
-        # pre-register a variable that would mask a for-loop declaration
-        # ordering conflict (which should remain a compile error).
-        for_loop_names: set[str] = set()
-        for stmt in node.stmts:
-            if is_instance_compat(stmt, AstFor):
-                for_loop_names.add(stmt.loop_var.name)
-
-        for stmt in node.stmts:
-            if not is_instance_compat(stmt, AstAssign):
-                continue
-            if not is_instance_compat(stmt.lhs, AstIdent):
-                continue
-            if stmt.type_ann is None:
-                continue
-            name = stmt.lhs.name
-            if name in for_loop_names:
-                # Don't pre-register; let the normal ordering-sensitive
-                # pass detect and report the conflict.
-                continue
-            if state.global_value_scope.get(name) is not None:
-                # duplicate; CreateVariablesAndFuncs will report the error
-                continue
-            var = VariableSymbol(name, stmt.type_ann, stmt, is_global=True)
-            state.global_value_scope[name] = var
-
-
 class CreateVariablesAndFuncs(TopDownVisitor):
-    """finds all variable declarations and adds them to the appropriate scope"""
+    """Finds all variable declarations and adds them to the appropriate scope.
+
+    Function bodies are deferred: the top-down pass first processes every
+    non-function-body node so that all global variables and for-loop variables
+    are registered.  Then, in a second phase, it descends into each function
+    body.  This lets functions reference globals that are declared later in the
+    source without needing a separate pre-registration pass.
+    """
+
+    def run(self, start: Ast, state: CompileState):
+        self._deferred_defs: list[AstDef] = []
+
+        # Phase 1: visit everything; visit_AstDef returns STOP_DESCENT so
+        # the framework skips function bodies.
+        super().run(start, state)
+
+        # Phase 2: now descend into deferred function bodies.
+        for func_node in self._deferred_defs:
+            if state.errors:
+                break
+            super().run(func_node.body, state)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstReference):
@@ -230,9 +215,6 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # TODO shadowing check
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
-                if is_instance_compat(existing_local, VariableSymbol) and existing_local.declaration is node:
-                    # already pre-registered by CreateGlobalVariables
-                    return
                 # redeclaring an existing variable
                 state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
@@ -321,7 +303,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             state.err(
                 f"Function '{node.name.name}' has already been defined", node.name
             )
-            return
+            return STOP_DESCENT
 
         func = FunctionSymbol(
             # we know the name
@@ -337,7 +319,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
         if node.parameters is None:
             # no arguments
-            return
+            self._deferred_defs.append(node)
+            return STOP_DESCENT
 
         # Check that default arguments come after non-default arguments
         seen_default = False
@@ -351,7 +334,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"Non-default parameter '{arg_name_var.name}' follows default parameter",
                     arg_name_var,
                 )
-                return
+                return STOP_DESCENT
 
         # Parameters go in the function's value scope
         func_scope = state.enclosing_value_scope[node.body]
@@ -364,9 +347,15 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"Parameter '{arg_name_var.name}' has already been defined",
                     arg_name_var,
                 )
-                return
+                return STOP_DESCENT
             arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node)
             func_scope[arg_name_var.name] = arg_var
+
+        # Defer traversal of the function body to phase 2, so that all
+        # global-scope declarations are visible inside functions regardless
+        # of source ordering.
+        self._deferred_defs.append(node)
+        return STOP_DESCENT
 
 
 class SetEnclosingLoops(Visitor):

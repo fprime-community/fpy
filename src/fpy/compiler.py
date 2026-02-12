@@ -40,7 +40,6 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
-    CreateGlobalVariables,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
@@ -384,10 +383,9 @@ def ast_to_directives(
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
         CreateFunctionScopes(),
-        # pre-register global variable declarations so functions can
-        # reference globals declared later in the source
-        CreateGlobalVariables(),
-        # based on assignment syntax nodes, we know which variables exist where
+        # based on assignment syntax nodes, we know which variables exist where.
+        # Function bodies are deferred so that globals declared later in
+        # the source are visible inside functions.
         CreateVariablesAndFuncs(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),

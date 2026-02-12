@@ -589,6 +589,16 @@ class CompileState:
 _visitor_cache: dict[type, dict[type, str]] = {}
 
 
+class _StopDescent:
+    """Sentinel returned by a visit_* method to prevent the framework from
+    descending into the visited node's children."""
+    __slots__ = ()
+    def __repr__(self):
+        return "STOP_DESCENT"
+
+STOP_DESCENT = _StopDescent()
+
+
 class Visitor:
     """visits each class, calling a custom visit function, if one is defined, for each
     node type"""
@@ -672,6 +682,7 @@ class Visitor:
 
 
 class TopDownVisitor(Visitor):
+    """Like Visitor, but visits parent before children (top-down / pre-order)."""
 
     def run(self, start: Ast, state: CompileState):
         """runs the visitor, starting at the given node, descending breadth-first"""
@@ -693,15 +704,17 @@ class TopDownVisitor(Visitor):
             for child in children:
                 if not isinstance(child, Ast):
                     continue
-                self._visit(child, state)
+                result = self._visit(child, state)
                 if len(state.errors) != 0:
                     break
-                _descend(child)
+                if result is not STOP_DESCENT:
+                    _descend(child)
                 if len(state.errors) != 0:
                     break
 
-        self._visit(start, state)
-        _descend(start)
+        result = self._visit(start, state)
+        if result is not STOP_DESCENT:
+            _descend(start)
 
 
 class Transformer(Visitor):
