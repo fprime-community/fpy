@@ -4840,7 +4840,7 @@ assert t.useconds == 123456
 def test_time_function_sleep_until(fprime_test_api):
     """time() can be passed directly to sleep_until()."""
     seq = """
-sleep_until(time("2000-01-01T00:00:00Z"))
+sleep_until(time("2000-01-01T00:00:00Z", time_base=2))
 """
     assert_run_success(fprime_test_api, seq)
 
