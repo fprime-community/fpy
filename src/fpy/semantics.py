@@ -996,15 +996,6 @@ class PickTypesAndResolveFields(Visitor):
 
         sym_type = self.get_type_of_symbol(this_sym)
 
-        is_const = False
-
-        if is_instance_compat(this_sym, FppValue):
-            is_const = True
-        elif is_instance_compat(this_sym, FieldAccess):
-            is_const = node.parent in state.const_exprs
-
-        if is_const:
-            state.const_exprs.add(node)
         state.resolved_symbols[node] = this_sym
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
@@ -1049,9 +1040,6 @@ class PickTypesAndResolveFields(Visitor):
             idx_expr=node.item,
         )
 
-        if node.parent in state.const_exprs and node.item in state.const_exprs:
-            # this is a const expr if parent and item are consts
-            state.const_exprs.add(node)
         state.resolved_symbols[node] = sym
         state.synthesized_types[node] = parent_type.MEMBER_TYPE
         state.contextual_types[node] = parent_type.MEMBER_TYPE
@@ -1066,9 +1054,6 @@ class PickTypesAndResolveFields(Visitor):
 
         sym_type = self.get_type_of_symbol(sym)
 
-        if is_instance_compat(sym, FppValue):
-            # only possible case in which a lone ident can have a const value
-            state.const_exprs.add(node)
         state.synthesized_types[node] = sym_type
         state.contextual_types[node] = sym_type
 
@@ -1080,7 +1065,6 @@ class PickTypesAndResolveFields(Visitor):
         else:
             result_type = FpyIntegerValue
 
-        state.const_exprs.add(node)
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
@@ -1162,10 +1146,6 @@ class PickTypesAndResolveFields(Visitor):
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
 
-        is_const_expr = node.lhs in state.const_exprs and node.rhs in state.const_exprs
-        if is_const_expr:
-            state.const_exprs.add(node)
-
         # Check for time/interval operator overloads
         time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
         if time_op is not None:
@@ -1211,19 +1191,15 @@ class PickTypesAndResolveFields(Visitor):
 
         result_type = self.pick_result_type(intermediate_type, node.op)
 
-        if node.val in state.const_exprs:
-            state.const_exprs.add(node)
         state.op_intermediate_types[node] = intermediate_type
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
     def visit_AstString(self, node: AstString, state: CompileState):
-        state.const_exprs.add(node)
         state.synthesized_types[node] = FpyStringValue
         state.contextual_types[node] = FpyStringValue
 
     def visit_AstBoolean(self, node: AstBoolean, state: CompileState):
-        state.const_exprs.add(node)
         state.synthesized_types[node] = BoolValue
         state.contextual_types[node] = BoolValue
 
@@ -1429,17 +1405,6 @@ class PickTypesAndResolveFields(Visitor):
                 # should be good 2 go based on the check func above
                 state.contextual_types[value_expr] = arg_type
 
-        const_arg_values = all(arg in state.const_exprs for arg in node_args)
-        # Note: if you're going to make function default arguments non-const exprs, then you will have
-        # to update this line
-        if const_arg_values and (
-            is_instance_compat(func, (TypeCtorSymbol, CastSymbol))
-            or (func is TIME_MACRO)
-        ):
-            # a function has a const value if all non-default args are const, and it is a type ctor, or a cast,
-            # or the special case time macro which is only evaluated at compile time
-            # (default args must be const so don't have to check them)
-            state.const_exprs.add(node)
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
 
@@ -1449,11 +1414,6 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.upper_bound, LoopVarType, state):
             return
 
-        if (
-            node.lower_bound in state.const_exprs
-            and node.upper_bound in state.const_exprs
-        ):
-            state.const_exprs.add(node)
         state.synthesized_types[node] = RangeValue
         state.contextual_types[node] = RangeValue
 

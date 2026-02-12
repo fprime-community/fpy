@@ -529,7 +529,6 @@ class CompileState:
 
     op_intermediate_types: dict[AstOp, FppType] = field(default_factory=dict)
     """the intermediate type that all args should be converted to for the given op"""
-    const_exprs: set[AstExpr] = field(default_factory=set)
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
     """a list of nodes which are explicit casts"""
