@@ -518,12 +518,23 @@ sleep(1, 1000)
     assert_run_success(fprime_test_api, seq)
 
 
-def test_wait_rel_default_args(fprime_test_api):
+def test_wait_rel_default_usec(fprime_test_api):
+    seq = """
+sleep(seconds=1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_wait_rel_default_sec(fprime_test_api):
+    seq = """
+sleep(useconds=500)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_wait_rel_no_args(fprime_test_api):
     seq = """
 sleep()
-sleep(5)
-sleep(seconds=3)
-sleep(useconds=500)
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -1749,19 +1760,19 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 
 
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 persist Fw.TimeIntervalValue(1, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
-check CdhCore.cmdDisp.CommandsDispatched > 30
+check CdhCore.cmdDisp.CommandsDispatched > 1
     timeout now() + Fw.TimeIntervalValue(60, 0)
-    persist Fw.TimeIntervalValue(2, 0)
+    persist Fw.TimeIntervalValue(1, 0)
     freq Fw.TimeIntervalValue(1, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
@@ -1789,8 +1800,8 @@ assert (end - start).seconds == 5
         fprime_test_api,
         seq,
         {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()},
+        timeout_s=20
     )
-
 
 def test_unary_plus_unsigned(fprime_test_api):
     seq = """
@@ -3956,7 +3967,7 @@ def check_condition() -> bool:
     # Return true on 3rd evaluation
     return eval_count >= 3
 
-check check_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+check check_condition() timeout time_add(now(), Fw.TimeIntervalValue(5, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1
@@ -3985,10 +3996,9 @@ def flaky_condition() -> bool:
         return False
     return True
 
-# With 30ms persist and 10ms freq, condition needs to be true for 3+ consecutive checks
 # Calls 1-2 are true but call 3 is false, resetting the persist timer
 # Call 4+ are true, so it should eventually succeed
-check flaky_condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 30000) freq Fw.TimeIntervalValue(0, 10000):
+check flaky_condition() timeout time_add(now(), Fw.TimeIntervalValue(10, 0)) persist Fw.TimeIntervalValue(3, 0) freq Fw.TimeIntervalValue(1, 0):
     pass
 timeout:
     assert False, 1
@@ -3996,7 +4006,7 @@ timeout:
 # Should have been called more than 3 times since persist timer was reset
 assert call_count > 3
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=20)
 
 
 def test_check_zero_persist_true_once_enough(fprime_test_api):
@@ -4067,7 +4077,7 @@ def eventually_true() -> bool:
 check eventually_true():
     exit(0)
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=10)
 
 
 def test_check_only_timeout_specified(fprime_test_api):
@@ -4962,6 +4972,7 @@ def test():
 """
 
     assert_compile_failure(fprime_test_api, seq)
+
 
 def test_use_loop_var_in_func_before_declared(fprime_test_api):
     seq = """

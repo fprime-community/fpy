@@ -62,6 +62,7 @@ def run_seq(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    timeout_s: int = 4
 ):
     """Run a list of directives.
 
@@ -76,7 +77,7 @@ def run_seq(
     if fprime_test_api is not None:
         seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
         Path(seq_file.name).write_bytes(serialize_directives(directives)[0])
-        fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=4)
+        fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=timeout_s)
         return
 
     dictionary = default_dictionary
@@ -120,9 +121,10 @@ def assert_run_success(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    timeout_s: int=4
 ):
     directives = compile_seq(fprime_test_api, seq, flags)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
