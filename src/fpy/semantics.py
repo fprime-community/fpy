@@ -2,7 +2,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
-import math
 import struct
 from typing import Union
 
@@ -873,8 +872,24 @@ class PickTypesAndResolveFields(Visitor):
 
         # same signedness: wider wins
         bits = max(first_type.get_bits(), second_type.get_bits())
-        category = "uint" if first_unsigned else "int"
-        return self.get_type_from_category_and_bits(category, bits)
+        if first_unsigned:
+            if bits <= 8:
+                return U8Value
+            elif bits <= 16:
+                return U16Value
+            elif bits <= 32:
+                return U32Value
+            else:
+                return U64Value
+        else:
+            if bits <= 8:
+                return I8Value
+            elif bits <= 16:
+                return I16Value
+            elif bits <= 32:
+                return I32Value
+            else:
+                return I64Value
 
     def get_type_of_symbol(self, sym: Symbol) -> FppType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
@@ -1068,33 +1083,6 @@ class PickTypesAndResolveFields(Visitor):
         state.const_exprs.add(node)
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
-
-    def get_type_from_category_and_bits(self, type_category: str, bits: int) -> FppType:
-        """Select the appropriate concrete type given a category and bitwidth."""
-        if bits == math.inf:
-            if type_category == "float":
-                return FpyFloatValue
-            return FpyIntegerValue
-        if type_category == "float":
-            return F64Value if bits > 32 else F32Value
-        if type_category == "uint":
-            if bits <= 8:
-                return U8Value
-            elif bits <= 16:
-                return U16Value
-            elif bits <= 32:
-                return U32Value
-            else:
-                return U64Value
-        assert type_category == "int"
-        if bits <= 8:
-            return I8Value
-        elif bits <= 16:
-            return I16Value
-        elif bits <= 32:
-            return I32Value
-        else:
-            return I64Value
 
     def widen_to_64(self, common_type: FppType) -> FppType:
         """Widen a specific numeric type to its 64-bit counterpart for VM execution.
