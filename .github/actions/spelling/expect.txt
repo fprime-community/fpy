@@ -1,6 +1,8 @@
 addoption
 astassign
+autouse
 BBBBBHI
+binop
 bitwidth
 calcsize
 capsys
@@ -69,6 +71,7 @@ sgt
 siext
 signedness
 sitofp
+skipif
 sle
 smod
 smth
@@ -84,6 +87,7 @@ uitofp
 uk
 ul
 umod
+usec
 useconds
 vh
 vw

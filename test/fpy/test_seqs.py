@@ -3073,7 +3073,7 @@ assert i == 2
     assert_run_success(fprime_test_api, seq)
 
 
-def test_modify_global_var_in_func_before_defn(fprime_test_api):
+def test_modify_global_var_in_func_before_definition(fprime_test_api):
     """Test that functions can modify top-level (global) variables, declared after the function definition"""
     seq = """
 increment()
