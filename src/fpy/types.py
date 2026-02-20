@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC
 from decimal import Decimal
+from enum import Enum
 from importlib.metadata import version
 import inspect
 from dataclasses import astuple, dataclass, field, fields
@@ -24,11 +25,16 @@ except ImportError:
     UNION_TYPES = (Union,)
 
 from fpy.bytecode.directives import (
+    BinaryStackOp,
+    COMPARISON_OPS,
     Directive,
 )
 from fprime_gds.common.templates.ch_template import ChTemplate
 from fprime_gds.common.templates.cmd_template import CmdTemplate
 from fprime_gds.common.templates.prm_template import PrmTemplate
+from fprime_gds.common.models.serialize.serializable_type import (
+    SerializableType as StructValue,
+)
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
     U16Type as U16Value,
@@ -45,6 +51,8 @@ from fprime_gds.common.models.serialize.numerical_types import (
     NumericalType as NumericalValue,
 )
 from fprime_gds.common.models.serialize.string_type import StringType as StringValue
+from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
+from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fpy.syntax import (
     AstBreak,
     AstContinue,
@@ -52,19 +60,24 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstTypeExpr,
+    AstGetAttr,
+    AstIndexExpr,
     AstOp,
     AstReference,
     Ast,
-    AstAssign,
     AstReturn,
     AstBlock,
     AstWhile,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 
-MAX_DIRECTIVES_COUNT = 1024
-MAX_DIRECTIVE_SIZE = 2048
+# Default values for sequence limits - may be overridden by dictionary constants
+DEFAULT_MAX_DIRECTIVES_COUNT = 1024
+DEFAULT_MAX_DIRECTIVE_SIZE = 2048
+
+# Keep old names as aliases for backward compatibility
+MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT
+MAX_DIRECTIVE_SIZE = DEFAULT_MAX_DIRECTIVE_SIZE
 
 COMPILER_MAX_STRING_SIZE = 128
 
@@ -80,7 +93,7 @@ def typename(typ: FppType) -> str:
         return "String"
     if typ == RangeValue:
         return "Range"
-    return str(typ)
+    return typ.__name__
 
 
 # this is the "internal" integer type that integer literals have by
@@ -89,7 +102,7 @@ def typename(typ: FppType) -> str:
 class FpyIntegerValue(IntegerValue):
     @classmethod
     def range(cls):
-        raise NotImplementedError()
+        return (-math.inf, math.inf)
 
     @staticmethod
     def get_serialize_format():
@@ -125,6 +138,7 @@ class FpyFloatValue(FloatValue):
 
 class RangeValue(FppValue):
     """the type produced by range expressions `X .. Y`"""
+
     def serialize(self):
         raise NotImplementedError()
 
@@ -190,6 +204,32 @@ SPECIFIC_FLOAT_TYPES = (
 )
 ARBITRARY_PRECISION_TYPES = (FpyFloatValue, FpyIntegerValue)
 
+# The canonical Fw.TimeIntervalValue struct type
+# This must match the dictionary's Fw.TimeIntervalValue definition
+# The format string '{}' and empty description match what the GDS JSON loader produces
+TimeIntervalValue = StructValue.construct_type(
+    "Fw.TimeIntervalValue",
+    [
+        ("seconds", U32Value, "{}", ""),
+        ("useconds", U32Value, "{}", ""),
+    ],
+)
+
+# Time operator overloads: maps (lhs_type, rhs_type, op) -> (intermediate_type, result_type, func_name, is_comparison)
+TIME_OPS: dict[tuple[type, type, BinaryStackOp], tuple[type, type, str, bool]] = {
+    # Time - Time -> TimeInterval
+    (TimeValue, TimeValue, BinaryStackOp.SUBTRACT): (TimeValue, TimeIntervalValue, "time_sub", False),
+    # Time + TimeInterval -> Time  
+    (TimeValue, TimeIntervalValue, BinaryStackOp.ADD): (TimeValue, TimeValue, "time_add", False),
+    # TimeInterval +/- TimeInterval -> TimeInterval
+    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.ADD): (TimeIntervalValue, TimeIntervalValue, "time_interval_add", False),
+    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.SUBTRACT): (TimeIntervalValue, TimeIntervalValue, "time_interval_sub", False),
+    # Time comparisons -> Bool
+    **{(TimeValue, TimeValue, op): (TimeValue, BoolValue, "time_cmp_assert_comparable", True) for op in COMPARISON_OPS},
+    # TimeInterval comparisons -> Bool
+    **{(TimeIntervalValue, TimeIntervalValue, op): (TimeIntervalValue, BoolValue, "time_interval_cmp", True) for op in COMPARISON_OPS},
+}
+
 
 def is_instance_compat(obj, cls):
     """
@@ -246,9 +286,10 @@ class CommandSymbol(CallableSymbol):
 
 
 @dataclass
-class BuiltinSymbol(CallableSymbol):
+class BuiltinFuncSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall], list[Directive]]
     """a function which instantiates the builtin given the calling node"""
+
 
 @dataclass
 class FunctionSymbol(CallableSymbol):
@@ -266,7 +307,7 @@ class CastSymbol(CallableSymbol):
 
 
 @dataclass
-class FieldSymbol:
+class FieldAccess:
     """a reference to a member/element of an fprime struct/array type"""
 
     parent_expr: AstExpr
@@ -296,8 +337,8 @@ class VariableSymbol:
     """a mutable, typed value stored on the stack referenced by an unqualified name"""
 
     name: str
-    type_ref: AstTypeExpr | None
-    """the expression denoting the var's type"""
+    type_ref: AstExpr | None
+    """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
     type: FppType | None = None
@@ -313,12 +354,17 @@ class ForLoopAnalysis:
     loop_var: VariableSymbol
     upper_bound_var: VariableSymbol
     reuse_existing_loop_var: bool
-    
+
 
 next_symbol_table_id = 0
 
 
-# a symbol table (scope) 
+class NameGroup(str, Enum):
+    TYPE = "type"
+    CALLABLE = "callable"
+    VALUE = "value"
+
+
 class SymbolTable(dict):
     def __init__(self):
         global next_symbol_table_id
@@ -339,7 +385,7 @@ class SymbolTable(dict):
 
 
 def create_symbol_table(
-    symbols: dict[str, "Symbol"],
+    symbols: dict[str, "Symbol"]
 ) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""
@@ -354,7 +400,7 @@ def create_symbol_table(
             existing_child = ns.get(names_strs[0])
             if existing_child is None:
                 # this symbol table is not defined atm
-                existing_child = {}
+                existing_child = SymbolTable()
                 ns[names_strs[0]] = existing_child
 
             if not isinstance(existing_child, dict):
@@ -410,6 +456,19 @@ def merge_symbol_tables(lhs: SymbolTable, rhs: SymbolTable) -> SymbolTable:
     return new
 
 
+def is_symbol_an_expr(symbol: Symbol) -> bool:
+    """return True if the symbol is a valid expr (can be evaluated)"""
+    return is_instance_compat(
+        symbol,
+        (
+            ChTemplate,
+            PrmTemplate,
+            FppValue,
+            VariableSymbol,
+            FieldAccess
+        ),
+    )
+
 Symbol = typing.Union[
     ChTemplate,
     PrmTemplate,
@@ -417,57 +476,36 @@ Symbol = typing.Union[
     CallableSymbol,
     FppType,
     VariableSymbol,
-    FieldSymbol,
-    SymbolTable
+    SymbolTable,
+    FieldAccess
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
-
-
-def lookup_symbol(node: Ast, name: str, state: CompileState) -> VariableSymbol:
-    """look up a symbol by name, searching this scope and all parent scopes"""
-    symbol_table = state.local_scopes[node]
-    resolved = None
-    while symbol_table is not None and resolved is None:
-        resolved = symbol_table.get(name)
-        symbol_table = state.scope_parents[symbol_table]
-
-    return resolved
 
 
 @dataclass
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    types: SymbolTable
-    """a symbol table whose leaf nodes are subclasses of BaseType"""
-    callables: SymbolTable
-    """a symbol table whose leaf nodes are CallableSymbol instances"""
-    tlms: SymbolTable
-    """a symbol table whose leaf nodes are ChTemplates"""
-    prms: SymbolTable
-    """a symbol table whose leaf nodes are PrmTemplates"""
-    consts: SymbolTable
-    """a symbol table whose leaf nodes are VariableSymbols"""
-    runtime_values: SymbolTable = None
-    """a symbol table whose leaf nodes are tlms/prms/consts, all of which
-    have some value at runtime."""
+    global_type_scope: SymbolTable
+    """The global type scope: a symbol table whose leaf nodes are types"""
+    global_callable_scope: SymbolTable
+    """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
+    global_value_scope: SymbolTable
+    """The global value scope: a symbol table whose leaf nodes are runtime values
+    (telemetry channels, parameters, enum constants, variables)."""
 
     compile_args: dict = field(default_factory=dict)
-
-    def __post_init__(self):
-        self.runtime_values = merge_symbol_tables(
-            self.tlms,
-            merge_symbol_tables(self.prms, self.consts),
-        )
+    
+    # Sequence limits loaded from dictionary (or defaults if not specified)
+    max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT
+    max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
 
     next_node_id: int = 0
     root: AstBlock = None
-    scope_parents: dict[AstBlock, AstBlock | None] = field(
+    enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
-    """map of a scoped body node to the parent scoped body node it should use"""
-    local_scopes: dict[Ast, SymbolTable] = field(default_factory=dict, repr=False)
-    """map of node to the SymbolTable it should resolve names in"""
+    """map of node to its enclosing value scope (function scope or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -497,15 +535,13 @@ class CompileState:
     contextual_types: dict[AstExpr, FppType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    contextual_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    const_expr_values: dict[AstExpr, FppValue | NothingValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time"""
 
-    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(
-        default_factory=dict
-    )
+    resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(default_factory=dict)
     """function call to resolved arguments in positional order.
     Default values are filled in for arguments not provided at the call site."""
 
@@ -519,10 +555,13 @@ class CompileState:
 
     does_return: dict[Ast, bool] = field(default_factory=dict)
 
+    used_funcs: set[AstDef] = field(default_factory=set)
+    """set of function definitions that are actually called and need code generated"""
+
     func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
     """function to entry point label"""
 
-    generated_funcs: dict[AstDef, list[Directive|Ir]] = field(default_factory=dict)
+    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
 
     errors: list[CompileError] = field(default_factory=list)
     """a list of all compile exceptions generated by passes"""
@@ -547,6 +586,16 @@ class CompileState:
 
 # Cache for visitor method mappings, keyed by visitor class
 _visitor_cache: dict[type, dict[type, str]] = {}
+
+
+class _StopDescent:
+    """Sentinel returned by a visit_* method to prevent the framework from
+    descending into the visited node's children."""
+    __slots__ = ()
+    def __repr__(self):
+        return "STOP_DESCENT"
+
+STOP_DESCENT = _StopDescent()
 
 
 class Visitor:
@@ -632,6 +681,7 @@ class Visitor:
 
 
 class TopDownVisitor(Visitor):
+    """Like Visitor, but visits parent before children (top-down / pre-order)."""
 
     def run(self, start: Ast, state: CompileState):
         """runs the visitor, starting at the given node, descending breadth-first"""
@@ -653,15 +703,17 @@ class TopDownVisitor(Visitor):
             for child in children:
                 if not isinstance(child, Ast):
                     continue
-                self._visit(child, state)
+                result = self._visit(child, state)
                 if len(state.errors) != 0:
                     break
-                _descend(child)
+                if result is not STOP_DESCENT:
+                    _descend(child)
                 if len(state.errors) != 0:
                     break
 
-        self._visit(start, state)
-        _descend(start)
+        result = self._visit(start, state)
+        if result is not STOP_DESCENT:
+            _descend(start)
 
 
 class Transformer(Visitor):

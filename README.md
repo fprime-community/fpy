@@ -43,7 +43,7 @@ For types, Fpy has most of the same basic ones that FPP does:
 
 Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
-Note there is currently no built-in `string` type. See [Strings](#16-strings).
+Note there is currently no built-in `string` type. See [Strings](#18-strings).
 
 ## 3. Type coercion and casting
 If you have a lower-bitwidth numerical type and want to turn it into a higher-bitwidth type, this happens automatically:
@@ -145,9 +145,9 @@ param4: F32 = 15.0
 Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
 ```
 
-You can also pass variable arguments to the [`sleep`](#13-relative-and-absolute-sleep), [`exit`](#14-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
+You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#16-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
 
-There are some restrictions on passing string values, or complex types containing string values, to commands. See [Strings](#16-strings).
+There are some restrictions on using string values, or complex types containing string values. See [Strings](#18-strings).
 
 ## 7. Getting Telemetry Channels and Parameters
 
@@ -209,7 +209,50 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
-## 10. Getting Struct Members and Array Items
+## 10. Check statement
+
+A `check` statement is like an [`if`](#9-ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+```
+
+If you don't specify a value for `persist`, the condition only has to be true once.
+
+You can specify an absolute time at which the `check` should time out:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+```
+
+You can also specify a `timeout` clause, which executes if the `check` times out:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+```
+
+Finally, you can specify a `freq` at which the condition should be checked:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
+```
+
+If you don't specify a value for `freq`, the default frequency is 1 Hertz.
+
+The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30
+    timeout now() + Fw.TimeIntervalValue(60, 0)
+    persist Fw.TimeIntervalValue(2, 0)
+    freq Fw.TimeIntervalValue(1, 0):
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+timeout:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+```
+
+## 11. Getting Struct Members and Array Items
 
 You can access members of structs by name, or array elements by index:
 ```py
@@ -231,7 +274,7 @@ com_queue_depth: Svc.ComQueueDepth = ComCcsds.comQueue.comQueueDepth
 com_queue_depth[0] = 1
 ```
 
-## 11. For and while loops
+## 12. For and while loops
 You can loop while a condition is true:
 ```py
 counter: U64 = 0
@@ -289,7 +332,7 @@ for i in 0..10:
 # odd_numbers_sum == 25
 ```
 
-## 12. Functions
+## 13. Functions
 You can define and call functions:
 ```py
 def foobar():
@@ -344,7 +387,7 @@ recurse(5) # prints "tick" 5 times
 
 Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
 
-## 13. Relative and Absolute Sleep
+## 14. Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
@@ -380,7 +423,55 @@ t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## 14. Exit Macro
+## 15. Time Functions
+Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
+
+You can get the current time with `now()`:
+```py
+current_time: Fw.Time = now()
+```
+
+The underlying implementation of `now()` just calls the `getTime` port on the `FpySequencer` component.
+
+You can compare two `Fw.Time` values with comparison operators:
+```py
+t1: Fw.Time = now()
+sleep(1, 0)
+t2: Fw.Time = now()
+
+assert t1 <= t2
+```
+
+If the times are incomparable due to having different time bases, the sequence will assert. To safely compare times which may have different time bases, use the `time_cmp` function, in `time.fpy`.
+
+You can also compare two `Fw.TimeIntervalValue` values:
+```py
+interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
+interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+
+assert interval1 < interval2
+```
+
+You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
+```py
+current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
+offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+assert (current + offset).seconds == 160
+```
+
+You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
+```py
+start: Fw.Time = Fw.Time(1, 0, 100, 0)
+end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+assert (end - start).seconds == 5
+```
+
+Subtraction of two `Fw.Time` values asserts that both times have the same time base and that the first argument is greater than or equal to the second. If these conditions are not met, the sequence will exit with an error.
+
+> If at any point the output value would overflow, the sequence will exit with an error.
+> Under the hood, these operators are just calling the built in `time_cmp`, `time_sub`, `time_add`, etc. functions in `time.fpy`.
+
+## 16. Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
 ```py
 # exit takes a U8 argument
@@ -390,7 +481,7 @@ exit(0)
 exit(123)
 ```
 
-## 15. Assertions
+## 17. Assertions
 You can assert that a Boolean condition is true:
 ```py
 # won't end the sequence
@@ -405,8 +496,8 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
-## 16. Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation. These features will be added in a later Fpy update.
+## 18. Strings
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to FPrime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
 
 
 # Fpy Developer's Guide
@@ -453,3 +544,15 @@ The compiler has an optional `bytecode` flag. When passed, the compiler will out
 ### `fprime-fpy-disasm`
 
 `fprime-fpy-disasm` disassembles binary `.bin` files into human-readable `.fpybc` bytecode.
+
+## Running tests
+
+Use `pytest` to run the test suite:
+```sh
+pytest test/
+```
+
+By default, debug output from the sequencer model is disabled for performance. To enable verbose debug output (prints each directive and stack state), use the `--fpy-debug` flag:
+```sh
+pytest test/ --fpy-debug
+```
