@@ -131,8 +131,7 @@ class CreateScopes:
     """Creates block-level scopes for all AstBlocks.
 
     Each AstBlock creates a new scope that is a child of the enclosing scope.
-    Function bodies get special treatment: their scope's parent is the global
-    scope (functions can see globals but not enclosing block variables).
+    Function bodies create a scope with in_function=True.
     """
 
     def run(self, start: Ast, state: CompileState):
@@ -159,6 +158,8 @@ class CreateScopes:
         self._walk_children(node, state, scope)
 
     def _walk_def(self, node: AstDef, state: CompileState, scope: SymbolTable):
+        # Per grammar, defs only appear at the top level, so scope is always global.
+        assert scope is state.global_value_scope
         state.enclosing_value_scope[node] = scope
 
         # Name reference is in the enclosing scope
@@ -168,8 +169,8 @@ class CreateScopes:
         if node.return_type is not None:
             self._walk(node.return_type, state, scope)
 
-        # Create the function body scope with parent = global
-        func_body_scope = SymbolTable(parent=state.global_value_scope)
+        # Create the function body scope
+        func_body_scope = SymbolTable(parent=scope)
         func_body_scope.in_function = True
 
         # Parameters are in the function body scope

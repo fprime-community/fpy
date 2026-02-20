@@ -20,7 +20,7 @@ from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from lark import Lark
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
-    AssignVariableOffsets,
+    CalculateFrameSizes,
     CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
@@ -419,7 +419,7 @@ def ast_to_directives(
     codegen_passes = [
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
-        AssignVariableOffsets(),
+        CalculateFrameSizes(),
         # Collect which functions are called anywhere in the code
         CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),

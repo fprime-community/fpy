@@ -2089,9 +2089,11 @@ def test_for_loop_break(fprime_test_api):
     seq = """
 counter: I64 = 0
 for i in 0 .. 10:
-    break
     counter = counter + 1
-assert counter == 0
+    if counter == 5:
+        break
+    counter = counter + 1
+assert counter == 5
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2100,9 +2102,10 @@ def test_for_loop_continue(fprime_test_api):
     seq = """
 counter: I64 = 0
 for i in 0 .. 10:
+    counter = counter + 1
     continue
     counter = counter + 1
-assert counter == 0
+assert counter == 10
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2225,7 +2228,7 @@ def test():
     i: I64 = 123
     assert i == 123
 """
-    assert_compile_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_two_fors_same_loop_var(fprime_test_api):
