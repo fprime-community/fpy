@@ -353,7 +353,6 @@ class VariableSymbol:
 class ForLoopAnalysis:
     loop_var: VariableSymbol
     upper_bound_var: VariableSymbol
-    reuse_existing_loop_var: bool
 
 
 next_symbol_table_id = 0
@@ -366,10 +365,13 @@ class NameGroup(str, Enum):
 
 
 class SymbolTable(dict):
-    def __init__(self):
+    def __init__(self, parent: "SymbolTable | None" = None):
         global next_symbol_table_id
+        super().__init__()
         self.id = next_symbol_table_id
         next_symbol_table_id += 1
+        self.parent = parent
+        self.in_function = parent.in_function if parent is not None else False
 
     def __getitem__(self, key: str) -> Symbol:
         return super().__getitem__(key)
@@ -377,11 +379,27 @@ class SymbolTable(dict):
     def get(self, key) -> Symbol | None:
         return super().get(key, None)
 
+    def lookup(self, key: str) -> "Symbol | None":
+        """Look up a key in this scope and all ancestor scopes."""
+        val = self.get(key)
+        if val is not None:
+            return val
+        if self.parent is not None:
+            return self.parent.lookup(key)
+        return None
+
     def __hash__(self):
         return hash(self.id)
 
     def __eq__(self, value):
         return isinstance(value, SymbolTable) and value.id == self.id
+
+    def copy(self):
+        """Return a shallow copy that preserves SymbolTable metadata."""
+        new = SymbolTable(parent=self.parent)
+        new.in_function = self.in_function
+        new.update(self)
+        return new
 
 
 def create_symbol_table(
@@ -505,7 +523,7 @@ class CompileState:
     enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
-    """map of node to its enclosing value scope (function scope or global_value_scope)"""
+    """map of node to its enclosing value scope (block scope, function scope, or global_value_scope)"""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (

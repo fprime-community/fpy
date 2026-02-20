@@ -6,6 +6,7 @@ from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
+    assert_compile_success,
     assert_run_failure,
     lookup_type,
 )
@@ -2086,38 +2087,49 @@ for i in 0..2:
 
 def test_for_loop_break(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
     break
-assert i == 0
+    counter = counter + 1
+assert counter == 0
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_for_loop_continue(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
     continue
-assert i == 10 # will be equal to the ending index
+    counter = counter + 1
+assert counter == 0
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_while_break(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
     while True:
         break
-assert i == 10
+    counter = counter + 1
+assert counter == 10
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_loops_break_inner(fprime_test_api):
     seq = """
+outer_count: I64 = 0
+inner_count: I64 = 0
 for i in 0 .. 10:
     for j in 0 .. 5:
+        inner_count = inner_count + 1
         break
-assert i == 10 and j == 0
+    outer_count = outer_count + 1
+assert outer_count == 10
+assert inner_count == 10
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2152,12 +2164,9 @@ def test_loop_var_outside_loop_after(fprime_test_api):
 for i in 0 .. 7:
     pass
 assert i == 7
-# succeeds because i is declared in the scope of for
-i = 123
-assert i == 123
 """
-
-    assert_run_success(fprime_test_api, seq)
+    # i is scoped to the for loop body; not visible after
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_loop_var_outside_loop_before(fprime_test_api):
@@ -2175,7 +2184,7 @@ def test_loop_var_redeclare_right_type(fprime_test_api):
 i: I64 = 123
 for i in 0 .. 7:
     assert i >= 0 and i < 7
-assert i == 7
+assert i == 123
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2186,16 +2195,16 @@ for i in 0 .. 7:
     assert i >= 0 and i < 7
 
 i: I64 = 123
+assert i == 123
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
-def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+def test_loop_var_redeclare_in_inner_scope_func(fprime_test_api):
     seq = """
 def test():
     for i in 0 .. 7:
         assert i >= 0 and i < 7
-    assert i == 7
 
 i: I64 = 123
 
@@ -2206,15 +2215,17 @@ test()
     assert_run_success(fprime_test_api, seq)
 
 
-def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+def test_loop_var_redeclare_in_inner_scope_after(fprime_test_api):
     seq = """
 def test():
     for i in 0 .. 7:
         pass
 
+    # After block scoping, this is fine: i is scoped to the for body
     i: I64 = 123
+    assert i == 123
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_compile_success(fprime_test_api, seq)
 
 
 def test_two_fors_same_loop_var(fprime_test_api):
@@ -2223,33 +2234,35 @@ for i in 0 .. 7:
     assert i >= 0 and i < 7
 for i in 0 .. 7:
     assert i >= 0 and i < 7
-assert i == 7
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_loop_var_redeclare_wrong_type(fprime_test_api):
+    # With block scoping, the for loop var shadows the outer i. No conflict.
     seq = """
 i: U16 = 123
 for i in 0 .. 7:
     pass
+assert i == 123
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_scope_override_name(fprime_test_api):
+    # With block scoping, each indentation block creates a new scope.
+    # So while/if bodies can shadow variables from outer scopes.
     seq = """
 i: U8 = 0
 while True:
-    # fails because while does not begin a new scope
     i: U8 = 1
     if i == 1:
         exit(0)
     exit(1)
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_override_global_name(fprime_test_api):
@@ -2313,22 +2326,21 @@ i: U16 = 0
 assert i == 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_redeclare_after_for_in_if(fprime_test_api):
-    # For-loops nested inside if/while at the top level still declare their
-    # loop variable in the global scope (no new scope is introduced by if/while).
-    # A subsequent typed declaration of the same name must be an error, just as
-    # it would be if the for-loop were at the top level.
+    # For-loop var is scoped to the for body. After the if block, the
+    # name is free to be re-declared.
     seq = """
 if True:
     for i in 0 .. 7:
         pass
 i: I64 = 0
+assert i == 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_loops(fprime_test_api):
@@ -2353,9 +2365,10 @@ z: U8 = 123
 for i in 0 .. 7:
     for z in 0 .. 7:
         assert z < 8
+assert z == 123
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_for_loop_declare_var_bad(fprime_test_api):
@@ -4979,6 +4992,7 @@ def test():
 
 
 def test_use_loop_var_in_func_before_declared(fprime_test_api):
+    # loop_var is scoped to the for body; functions can't access it
     seq = """
 def fun():
     assert loop_var == 2
@@ -4989,4 +5003,4 @@ for loop_var in 0..2:
 fun()
 """
 
-    assert_run_success(fprime_test_api, seq)
+    assert_compile_failure(fprime_test_api, seq)

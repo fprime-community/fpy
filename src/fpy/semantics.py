@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import fields
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
@@ -126,43 +127,110 @@ class AssignIds(TopDownVisitor):
         state.next_node_id += 1
 
 
-class SetEnclosingValueScope(Visitor):
-    """Sets the enclosing value scope for all visited nodes."""
+class CreateScopes:
+    """Creates block-level scopes for all AstBlocks.
 
-    def __init__(self, scope: SymbolTable):
-        super().__init__()
-        self.scope = scope
-
-    def visit_default(self, node: Ast, state: CompileState):
-        state.enclosing_value_scope[node] = self.scope
-
-
-class CreateFunctionScopes(TopDownVisitor):
-    """Creates all function value scopes. Every other scope is global, so is already made at init
-    Assigns enclosing_value_scope for all nodes.
+    Each AstBlock creates a new scope that is a child of the enclosing scope.
+    Function bodies get special treatment: their scope's parent is the global
+    scope (functions can see globals but not enclosing block variables).
     """
 
-    def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.root:
-            # only handle the root node this way
+    def run(self, start: Ast, state: CompileState):
+        self._walk(start, state, state.global_value_scope)
+
+    def _walk(self, node, state: CompileState, scope: SymbolTable):
+        if not isinstance(node, Ast):
             return
-        # Global nodes use global_value_scope directly
-        SetEnclosingValueScope(state.global_value_scope).run(node, state)
 
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Make a new scope for the function body
-        func_scope = SymbolTable()
+        if isinstance(node, AstDef):
+            self._walk_def(node, state, scope)
+            return
 
-        # The function body gets the new scope
-        SetEnclosingValueScope(func_scope).run(node.body, state)
+        if isinstance(node, AstFor):
+            self._walk_for(node, state, scope)
+            return
 
-        # Parameter names and type annotations are in the function scope
-        # (they're defined inside the function)
+        if isinstance(node, AstBlock):
+            self._walk_block(node, state, scope)
+            return
+
+        # For all other nodes, set the scope and walk children
+        state.enclosing_value_scope[node] = scope
+        self._walk_children(node, state, scope)
+
+    def _walk_def(self, node: AstDef, state: CompileState, scope: SymbolTable):
+        state.enclosing_value_scope[node] = scope
+
+        # Name reference is in the enclosing scope
+        self._walk(node.name, state, scope)
+
+        # Return type annotation is in the enclosing scope
+        if node.return_type is not None:
+            self._walk(node.return_type, state, scope)
+
+        # Create the function body scope with parent = global
+        func_body_scope = SymbolTable(parent=state.global_value_scope)
+        func_body_scope.in_function = True
+
+        # Parameters are in the function body scope
         if node.parameters is not None:
             for arg_name_var, arg_type_name, default_value in node.parameters:
-                state.enclosing_value_scope[arg_name_var] = func_scope
-                state.enclosing_value_scope[arg_type_name] = func_scope
-                # Default values are evaluated at definition site, so they use the parent scope
+                self._walk(arg_name_var, state, func_body_scope)
+                self._walk(arg_type_name, state, func_body_scope)
+                # Default values are evaluated at definition site (enclosing scope)
+                if default_value is not None:
+                    self._walk(default_value, state, scope)
+
+        # Set the body scope directly (don't create a child scope for it)
+        state.enclosing_value_scope[node.body] = func_body_scope
+        for stmt in node.body.stmts:
+            self._walk(stmt, state, func_body_scope)
+
+    def _walk_for(self, node: AstFor, state: CompileState, scope: SymbolTable):
+        state.enclosing_value_scope[node] = scope
+
+        # Range is evaluated in the parent scope
+        self._walk(node.range, state, scope)
+
+        # Body creates a new scope; loop_var lives inside it
+        body_scope = SymbolTable(parent=scope)
+        state.enclosing_value_scope[node.body] = body_scope
+
+        # Loop variable is in the body scope
+        self._walk(node.loop_var, state, body_scope)
+
+        # Walk body statements
+        for stmt in node.body.stmts:
+            self._walk(stmt, state, body_scope)
+
+    def _walk_block(self, node: AstBlock, state: CompileState, scope: SymbolTable):
+        # Check if the scope was pre-set (e.g., function body)
+        pre_set = state.enclosing_value_scope.get(node)
+        if pre_set is not None:
+            block_scope = pre_set
+        elif node is state.root:
+            block_scope = scope
+        else:
+            # Each indentation block creates a new child scope
+            block_scope = SymbolTable(parent=scope)
+
+        state.enclosing_value_scope[node] = block_scope
+        for stmt in node.stmts:
+            self._walk(stmt, state, block_scope)
+
+    def _walk_children(self, node, state: CompileState, scope: SymbolTable):
+        for f in fields(node):
+            val = getattr(node, f.name)
+            if isinstance(val, list):
+                for item in val:
+                    if isinstance(item, Ast):
+                        self._walk(item, state, scope)
+                    elif isinstance(item, tuple):
+                        for elem in item:
+                            if isinstance(elem, Ast):
+                                self._walk(elem, state, scope)
+            elif isinstance(val, Ast):
+                self._walk(val, state, scope)
 
 
 class CreateVariablesAndFuncs(TopDownVisitor):
@@ -210,15 +278,14 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
         if node.type_ann is not None:
             # new variable declaration
-            # make sure it isn't defined in this scope
-            # TODO shadowing check
+            # make sure it isn't defined in this scope (shadowing parent scopes is ok)
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
-                # redeclaring an existing variable
+                # redeclaring an existing variable in the SAME scope
                 state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
             # okay, define the var
-            is_global = state.enclosing_value_scope[node] is state.global_value_scope
+            is_global = not scope.in_function
             var = VariableSymbol(
                 node.lhs.name, node.type_ann, node, is_global=is_global
             )
@@ -226,10 +293,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             scope[node.lhs.name] = var
         else:
             # otherwise, it's a reference to an existing var
-            # may be in this scope or outer scope
-            sym = scope.get(node.lhs.name) or state.global_value_scope.get(
-                node.lhs.name
-            )
+            # walk up the scope chain to find it
+            sym = scope.lookup(node.lhs.name)
             if sym is None:
                 # unable to find this symbol
                 state.err(
@@ -240,50 +305,16 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # okay, we were able to resolve it
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        # for loops have an implicit loop variable that they can define
-        # if it isn't already defined in the local scope
-        scope = state.enclosing_value_scope[node]
-        loop_var = scope.get(node.loop_var.name)
+        # The loop variable is always a new declaration in the loop body's scope.
+        body_scope = state.enclosing_value_scope[node.body]
+        is_global = not body_scope.in_function
 
-        reuse_existing_loop_var = False
-        if loop_var is not None:
-            # this is okay as long as the variable is of the same type
+        loop_var = VariableSymbol(
+            node.loop_var.name, None, node, LoopVarType, is_global=is_global
+        )
+        body_scope[loop_var.name] = loop_var
 
-            # what follows is a bit of a hack
-            # there are two cases: either loop_var has been defined before but we only know the type expr (if it was an AstAssign decl)
-            # or loop_var has been defined before and we only know the type, but have no type expr (from some other for loop)
-
-            # case 1 is easy, just check the type == LoopVarType
-            # case 2 is harder, we have to check if the type ident is an AstIdent
-            # that matches the canonical name of the LoopVarType
-
-            # the alternative to this is that we do some primitive type resolution in the same pass as variable creation
-            # i'm doing this hack because we're going to switch to type inference for variables later and that will make this go away
-
-            if (loop_var.type_ref is None and loop_var.type != LoopVarType) or (
-                loop_var.type is None
-                and not (
-                    is_instance_compat(loop_var.type_ref, AstIdent)
-                    and loop_var.type_ref.name == LoopVarType.get_canonical_name()
-                )
-            ):
-                state.err(
-                    f"Variable '{node.loop_var.name}' has already been defined as a type other than {typename(LoopVarType)}",
-                    node,
-                )
-                return
-            reuse_existing_loop_var = True
-        else:
-            # new var. put it in the scope
-            is_global = state.enclosing_value_scope[node] is state.global_value_scope
-            loop_var = VariableSymbol(
-                node.loop_var.name, None, node, LoopVarType, is_global=is_global
-            )
-            scope[loop_var.name] = loop_var
-
-        # each loop also defines an implicit ub variable
-        # type of ub var is same as loop var type
-        is_global = state.enclosing_value_scope[node] is state.global_value_scope
+        # Each loop also defines an implicit upper-bound variable
         upper_bound_var = VariableSymbol(
             state.new_anonymous_variable_name(),
             None,
@@ -291,8 +322,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             LoopVarType,
             is_global=is_global,
         )
-        scope[upper_bound_var.name] = upper_bound_var
-        analysis = ForLoopAnalysis(loop_var, upper_bound_var, reuse_existing_loop_var)
+        body_scope[upper_bound_var.name] = upper_bound_var
+        analysis = ForLoopAnalysis(loop_var, upper_bound_var)
         state.for_loops[node] = analysis
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -431,14 +462,8 @@ class ResolveQualifiedNames(TopDownVisitor):
         elif group == NameGroup.TYPE:
             root_symbol = state.global_type_scope.get(root_node.name)
         else:
-            root_symbol = state.enclosing_value_scope[root_node].get(root_node.name)
-            if (
-                root_symbol is None
-                and state.enclosing_value_scope[root_node]
-                is not state.global_value_scope
-            ):
-                # if we just checked and failed in a function value scope, check the global value scope
-                root_symbol = state.global_value_scope.get(root_node.name)
+            # Walk up the scope chain to find the value
+            root_symbol = state.enclosing_value_scope[root_node].lookup(root_node.name)
 
         # the node which corresponds to the entire qualified name
         # note this does not include nodes which are member accesses
@@ -761,7 +786,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # Global variables referenced from inside a function are always
             # accessible — they are allocated and zero-initialized at sequence
             # start, regardless of textual ordering.
-            if sym.is_global and state.enclosing_value_scope[node] is not state.global_value_scope:
+            if sym.is_global and state.enclosing_value_scope[node].in_function:
                 return
             state.err(f"'{node.name}' used before defined", node)
             return

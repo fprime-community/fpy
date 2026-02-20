@@ -63,24 +63,18 @@ class DesugarForLoops(Transformer):
     def initialize_loop_var(
         self, state: CompileState, loop_node: AstFor, loop_info: ForLoopAnalysis
     ) -> Ast:
-        # 1 <node.loop_var>: LoopVarType = <node.range.lower_bound>
-        # OR (depending on whether redeclaring or not)
-        # 1 <node.loop_var> = <node.range.lower_bound>
+        # <node.loop_var>: LoopVarType = <node.range.lower_bound>
 
-        if loop_info.reuse_existing_loop_var:
-            loop_var_type_var = None
-        else:
-            loop_var_type_name = LoopVarType.get_canonical_name()
-            # create a new node for the type_ann
-            loop_var_type_var = self.new(
-                state,
-                AstIdent(None, loop_var_type_name),
-                contextual_type=None,
-                synthesized_type=None,
-                contextual_value=None,
-                op_intermediate_type=None,
-                resolved_symbol=LoopVarType,
-            )
+        loop_var_type_name = LoopVarType.get_canonical_name()
+        loop_var_type_var = self.new(
+            state,
+            AstIdent(None, loop_var_type_name),
+            contextual_type=None,
+            synthesized_type=None,
+            contextual_value=None,
+            op_intermediate_type=None,
+            resolved_symbol=LoopVarType,
+        )
 
         lhs = loop_node.loop_var
         rhs = loop_node.range.lower_bound
@@ -271,8 +265,6 @@ class DesugarForLoops(Transformer):
         # to:
 
         # 1 <node.loop_var>: LoopVarType = <node.range.lower_bound>
-        # OR (depending on whether redeclaring or not)
-        # 1 <node.loop_var> = <node.range.lower_bound>
         # 2 $upper_bound_var: LoopVarType = <node.range.upper_bound>
         # 3 while <node.loop_var> < $upper_bound_var:
         #      <node.body>

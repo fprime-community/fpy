@@ -32,7 +32,7 @@ from fpy.codegen import (
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
 from fpy.semantics import (
     AssignIds,
-    CreateFunctionScopes,
+    CreateScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
@@ -382,7 +382,7 @@ def ast_to_directives(
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
-        CreateFunctionScopes(),
+        CreateScopes(),
         # based on assignment syntax nodes, we know which variables exist where.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
