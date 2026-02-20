@@ -1,0 +1,12 @@
+goto 7
+load_rel -12 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 1
+add
+itrunc_64_32
+return 4 4
+allocate 4
+push_val 0 0 0 5
+push_val 0 0 0 1
+call
+store_rel_const_offset 0 4

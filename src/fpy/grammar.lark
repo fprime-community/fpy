@@ -1,54 +1,107 @@
 # Adapted from: https://docs.python.org/3/reference/grammar.html and the Lark Python grammar
 
+# input is the top-level rule, consisting of zero or more newlines or top level statements
 input: (_NEWLINE | _toplevel_stmt)*
-
-_literal: number | string | boolean
 
 # Top-level statements: function definitions OR regular statements
 # Function definitions can ONLY appear here, not nested in any control structure
 _toplevel_stmt: def_stmt | _stmt
 
 # Regular statements (no function definitions allowed)
-_stmt: _small_stmt [_NEWLINE] | _compound_stmt
-_small_stmt: expr_stmt | assign | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
-_compound_stmt: if_stmt | for_stmt | while_stmt
-pass_stmt: "pass"
-break_stmt: "break"
-continue_stmt: "continue"
+# Small statements must be followed by a newline; compound statements end with their block's DEDENT
+_stmt: _small_stmt _NEWLINE | _compound_stmt
+# small statements are those which cannot themselves contain statements
+_small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
+# compound statements may contain other statements
+_compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
-?expr_stmt: expr
-
-
-assert_stmt: "assert" expr ["," expr]
-
-return_stmt: "return" [expr]
-
-# assignment
-
-assign: expr [":" type_expr] "=" expr
-
-parameter: var ":" type_expr ["=" expr]
-parameters: parameter ("," parameter)*
-def_stmt: "def" var "(" [parameters] ")" ["->" type_expr] ":" block
-
-# loops (cannot contain function definitions since they use stmt_list, not toplevel)
-for_stmt: "for" var "in" expr ":" stmt_list
-while_stmt: "while" expr ":" stmt_list
-
-# branching (cannot contain function definitions since they use stmt_list, not toplevel)
-if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]
-elifs: elif_*
-elif_: "elif" expr ":" stmt_list
-
-# Bodies that cannot contain function definitions
-stmt_list: _NEWLINE _INDENT _stmt+ _DEDENT
+# an indented list of statements
 block: _NEWLINE _INDENT _stmt+ _DEDENT
+# -> AstBlock(stmts)
 
+
+# non-compound, non-expr statements. the simplest kind
+pass_stmt: "pass"
+# -> AstPass
+break_stmt: "break"
+# -> AstBreak
+continue_stmt: "continue"
+# -> AstContinue
+assert_stmt: "assert" expr ["," expr]
+# -> AstAssert(condition, exit_code)
+return_stmt: "return" [expr]
+# -> AstReturn(value)
+assign_stmt: expr [":" expr] "=" expr
+# -> AstAssign(lhs, type_ann, rhs)
+
+
+# the function definition statement
+# functions may be defined with zero or more comma-separated parameters, and an
+# optional return type annotation. They are followed by an indented, scoped code block
+def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block
+# -> AstDef(name, parameters, return_type, body)
+parameters: parameter ("," parameter)*
+# -> list[tuple[arg_name, arg_type, arg_default_value]]
+# each parameter has a type, and an optional default value expression
+parameter: name ":" expr ["=" expr]
+
+
+# loop statements
+# for loops have a loop variable, a range expression and a list of body statements
+for_stmt: "for" name "in" expr ":" block
+# -> AstFor(loop_var, range, body)
+# while loops have a conditional expression and a list of body statements
+while_stmt: "while" expr ":" block
+# -> AstWhile(condition, body)
+
+# check statement
+# check has a conditional, optional timeout/persist/freq expressions, a list of body statements,
+# and an optional list of timeout body statements
+# The clauses can appear on the same line as the condition, on separate indented lines, or mixed.
+check_timeout: "timeout" expr
+check_persist: "persist" expr
+check_freq: "freq" expr
+# For multi-line format: the last clause can have the colon attached
+check_timeout_final: "timeout" expr ":"
+check_persist_final: "persist" expr ":"
+check_freq_final: "freq" expr ":"
+check_clause: check_timeout | check_persist | check_freq
+check_clause_final: check_timeout_final | check_persist_final | check_freq_final
+# Multi-line clauses: zero or more non-final clauses (each followed by newline),
+# followed by one final clause with colon, then statements at same indentation
+check_clauses: _NEWLINE _INDENT (check_clause _NEWLINE)* check_clause_final _NEWLINE _stmt+ _DEDENT
+# Clauses can be inline, on indented lines, or mixed (some inline, rest indented)
+check_stmt: "check" expr check_clause* ":" block ["timeout" ":" block]
+          | "check" expr check_clause* check_clauses ["timeout" ":" block]
+# -> AstCheck(condition, timeout, persist, freq, body, timeout_body)
+
+
+# branching statement
+# if has a conditional expression and a list of body statements.
+# it is followed by zero or more elif clauses, each of which
+# have a conditional expression and a list of body statements.
+# it is also optionally followed by an else clause, which
+# has a list of body statements
+if_stmt: "if" expr ":" block elifs ["else" ":" block]
+# -> AstIf(condition, body, elifs, els)
+elifs: elif_*
+# -> list[AstElif]
+elif_: "elif" expr ":" block
+# -> AstElif(condition, body)
+
+# an expr statement is just an expression "on its own" on the line
+?expr_stmt: expr
+# an expression is the most complex bit of Fpy syntax.
+# the definition of expression encodes the precedence rules and
+# associativity for operators, function calls, field accesses,
+# and variable accesses
 ?expr: _test
 
+# the least binding Fpy operation is the logical test (and/or/not)
 # logical tests
 _test: or_test
 
+# order of binding strength, from least to most: or, and, not
 ?or_test: or_test OR_OP and_test -> binary_op
         | and_test
 
@@ -58,13 +111,19 @@ _test: or_test
 ?not_test: NOT_OP not_test -> unary_op
           | comparison
 
-# all comparisons have same precedence
+# all comparison operators (<, >, ==, etc) have same precedence
 ?comparison: comparison COMPARISON_OP range -> binary_op
            | range
 
+# the range operator has less precedence than comparison but more than arithmetic
+# terms
 ?range: sum RANGE_OPERATOR sum
       | sum
+# -> AstRange(lower_bound, op, upper_bound)
 
+# standard order of operations: PEMDAS, or in reverse as shown here: SADMEP
+# subtraction and addition are least binding, followed by mul/div/floor div/modulus,
+# followed by unary minus/plus, followed by exponentiation
 ?sum: sum ADD_OP term -> binary_op
     | sum SUB_OP term -> binary_op
     | term
@@ -79,36 +138,42 @@ _test: or_test
        | SUB_OP factor -> unary_op # unary minus (negation)
        | power
 
+
 ?power: atom_expr POW_OP factor -> binary_op
       | atom_expr
 
-argument: name "=" expr -> named_argument
-        | expr -> positional_argument
-arguments: argument ("," argument)*
+# binary_op -> AstBinaryOp(lhs, op, rhs)
+# unary_op -> AstUnaryOp(op, val)
 
-# Qualified name for types (e.g., Fw.Time, Svc.DpRecord)
-# Used in type annotations and return types where only names are allowed
-type_expr: name ("." name)*
-
+# the "indivisible" unit of an expression
 ?atom_expr: atom_expr "(" [arguments] ")" -> func_call
           | atom_expr "[" expr "]" -> index_expr
-          | atom_expr "." name -> member_access
-          | atom
+          | atom_expr "." NAME -> get_attr
+          | _literal
+          | "(" expr ")"
+          | name
+# func_call -> AstFuncCall(func, args)
+# index_expr -> AstIndexExpr(parent, item)
+# get_attr -> AstGetAttr(parent, attr)
 
-?atom: _literal
-     | "(" expr ")"
-     | var
+arguments: argument ("," argument)*
+argument: NAME "=" expr -> named_argument
+        | expr -> positional_argument
+# named_argument -> AstNamedArgument(name, value)
+# positional_argument just creates whatever node the expr creates
 
-var: name
-
-# not used in grammar, but may appear in "node" passed from Parser to Compiler
-encoding_decl: name
+name: NAME
+# -> AstIdent(value)
 
 RANGE_OPERATOR: ".."
 
-number: DEC_NUMBER | FLOAT_NUMBER
+_literal: number | string | boolean
+number: DEC_NUMBER | FLOAT_NUMBER | HEX_NUMBER
+# -> AstNumber(value)
 string: STRING
+# -> AstString(value)
 boolean: CONST_FALSE | CONST_TRUE
+# -> AstBoolean(value)
 
 # Other terminals
 
@@ -122,8 +187,8 @@ _NEWLINE: ( /\r?\n[\t ]*/ | COMMENT )+
 
 # Python terminals
 
-!name: NAME
-NAME: /[^\W\d]\w*/
+# Names can be prefixed with $ to escape reserved words (e.g., $def is the same as def but doesn't conflict with the keyword)
+NAME: /\$?[^\W\d]\w*/
 COMMENT: /#[^\n]*/
 CONST_TRUE: "True"
 CONST_FALSE: "False"
@@ -143,7 +208,10 @@ STRING: /("(?!"").*?(?<!\\)(\\\\)*?"|'(?!'').*?(?<!\\)(\\\\)*?')/i
 
 # -2 prio so we resolve after floats
 DEC_NUMBER.-2:   "1".."9"        ("_"?  "0".."9"                       )*
-             |   "0"             ("_"?  "0"                            )* /(?![1-9])/
+             |   "0"             ("_"?  "0"                            )* /(?![1-9xX])/
+
+# Hex integer literals (0x or 0X prefix)
+HEX_NUMBER: ("0x" | "0X") ("_"? /[0-9a-fA-F]/)+
 
 _SPECIAL_DEC: "0".."9"        ("_"?  "0".."9"                       )*
 
