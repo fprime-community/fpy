@@ -4,12 +4,17 @@ Fpy is a user-friendly spacecraft scripting language for the F-Prime flight soft
 
 ## Principles
 
-Fpy has a couple principles:
+Fpy has a few principles:
 
 * Be safe
+* Be pragmatic
 * Be a joy to work with
 
 That's really all there is to it. It's gotta work for all users and missions, and people have to love it. The rest will follow.
+
+>*The art of making a good language is to restrict the user in a good way* 
+>
+> – Andrey Breslav, creator of Kotlin
 
 ## Overview
 
@@ -35,6 +40,46 @@ CdhCore.cmdDisp.CMD_NO_OP() # empty parentheses indicate no arguments
 You can compile it with `fprime-fpyc test.fpy --dictionary Ref/build-artifacts/Linux/dict/RefTopologyDictionary.json`
 
 Make sure your deployment topology has an instance of the `Svc.FpySequencer` component. You can run the sequence by passing it in as an argument to the `Svc.FpySequencer.RUN` command.
+
+## Commands
+
+Fpy supports calling any command in the F-Prime dictionary:
+
+```py
+CdhCore.cmdDisp.CMD_NO_OP()
+# no delay between commands
+CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
+# the sequence waits until a command response is returned
+```
+
+Commands arguments are type checked, and they do not need to be constants. You can pass command arguments by name:
+```py
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+```
+
+If a command doesn't successfully execute, the sequence can optionally exit with an error. You can configure this in the sequence by setting the `Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL` flag:
+
+```py
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence proceeds normally
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence exits with an error
+```
+
+This is kind of like Bash's `set -e` and `set +e` commands.
+
+If you choose to allow command failures, you can also handle the return status of the command:
+```py
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+
+if success == Fw.CmdResponse.OK:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+```
+
+You can configure the default value of that flag for all sequences by changing the `Svc.FpySequencer.FLAG_DEFAULT_EXIT_ON_CMD_FAIL` parameter.
 
 ## Variables and Basic Types
 
@@ -148,21 +193,6 @@ Fpy supports the following math operations:
 
 The behavior of these operators is designed to mimic Python. 
 > Note that **division always returns a float**. This means that `5 / 2 == 2.5`, not `2`. This may be confusing coming from C++, but it is consistent with Python. If you want integer division, use the `//` operator.
-
-## Variable Arguments to Commands, Macros and Constructors
-
-Where this really gets interesting is when you pass variables or expressions into commands:
-```py
-# this is a command that takes an F32
-Ref.sendBuffComp.PARAMETER4_PRM_SET(1 - 2 + 3 * 4 + 10 / 5 * 2)
-# alternatively:
-param4: F32 = 15.0
-Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
-```
-
-You can also pass variable arguments to the [`sleep`](#relative-and-absolute-sleep), [`exit`](#exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
-
-There are some restrictions on using string values, or complex types containing string values. See [Strings](#strings).
 
 ## Getting Telemetry Channels and Parameters
 
