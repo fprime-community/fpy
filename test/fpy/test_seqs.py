@@ -4601,6 +4601,7 @@ assert val == 123
 # ==================== Simulated Time Tests ====================
 
 
+@pytest.mark.skipif("config.getoption('--use-gds')", reason="simulated time is only available in the Python model")
 class TestSimulatedTime:
     """Tests for simulated time functionality.
 
@@ -4609,6 +4610,9 @@ class TestSimulatedTime:
     - Advances time when sleep() is called
     - Returns the configured time_base from now()
     - Correctly handles time_base incompatibility
+
+    These tests are skipped when --use-gds is passed because they rely on the
+    Python model's simulated time, which cannot be configured on a live GDS.
     """
 
     def test_now_returns_initial_time(self, fprime_test_api):
