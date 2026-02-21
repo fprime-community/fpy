@@ -4,7 +4,7 @@ autouse
 BBBBBHI
 binop
 bitwidth
-breslav
+Breslav
 calcsize
 capsys
 Ccsds
