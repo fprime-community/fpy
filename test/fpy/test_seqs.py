@@ -1634,6 +1634,7 @@ def test_too_many_dirs(fprime_test_api):
     assert_compile_failure(fprime_test_api, seq)
 
 
+
 def test_dir_too_large(fprime_test_api):
     # TODO this doesn't actually crash cuz the dir is too large... not sure at the moment how to trigger this
     from fpy.types import MAX_DIRECTIVE_SIZE

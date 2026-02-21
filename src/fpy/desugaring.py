@@ -22,15 +22,17 @@ from fpy.syntax import (
     AstWhile,
 )
 from fpy.types import (
+    FppType,
+    FpyIntegerValue,
+    TIME_OPS,
+)
+from fpy.state import (
     CompileState,
     FieldAccess,
     ForLoopAnalysis,
-    FppType,
     Symbol,
-    FpyIntegerValue,
-    TIME_OPS,
-    Transformer,
 )
+from fpy.visitors import Transformer
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime_gds.common.models.serialize.numerical_types import IntegerType as IntegerValue

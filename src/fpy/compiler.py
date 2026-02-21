@@ -54,15 +54,17 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     FlagIdValue,
     TimeIntervalValue,
-    CompileState,
+)
+from fpy.state import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    CompileState,
     TypeCtorSymbol,
-    Visitor,
     create_symbol_table,
     merge_symbol_tables,
 )
+from fpy.visitors import Visitor
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.event_json_loader import EventJsonLoader

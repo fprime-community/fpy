@@ -1,5 +1,8 @@
 from __future__ import annotations
-from dataclasses import dataclass, field, fields
+import struct
+import zlib
+from dataclasses import astuple, dataclass, field, fields
+from importlib.metadata import version
 from numbers import Number
 from pathlib import Path
 from typing import Union
@@ -11,6 +14,8 @@ from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from fprime_gds.common.models.serialize.string_type import StringType as StringValue
 from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
 from fprime_gds.common.models.serialize.numerical_types import NumericalType as NumericalValue
+
+from fpy.error import CompileError
 
 fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text()
 
@@ -225,3 +230,103 @@ def directives_to_fpybc(dirs: list[Directive]) -> str:
         out += "\n"
 
     return out
+
+
+def _get_version_tuple() -> tuple[int, int, int]:
+    try:
+        import re
+        v = version("fprime-fpy")
+        # Handle versions like "0.0.1a3.dev103+g244fdeadc"
+        # Extract just the major.minor.patch part
+        match = re.match(r"(\d+)\.(\d+)\.(\d+)", v)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        return (0, 0, 0)
+    except Exception:
+        return (0, 0, 0)
+
+
+MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
+SCHEMA_VERSION = 4
+
+HEADER_FORMAT = "!BBBBBHI"
+HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+
+
+@dataclass
+class Header:
+    majorVersion: int
+    minorVersion: int
+    patchVersion: int
+    schemaVersion: int
+    argumentCount: int
+    statementCount: int
+    bodySize: int
+
+
+FOOTER_FORMAT = "!I"
+FOOTER_SIZE = struct.calcsize(FOOTER_FORMAT)
+
+
+@dataclass
+class Footer:
+    crc: int
+
+
+def deserialize_directives(bytes: bytes) -> list[Directive]:
+    header = Header(*struct.unpack_from(HEADER_FORMAT, bytes))
+
+    if header.schemaVersion != SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
+        )
+
+    dirs = []
+    idx = 0
+    offset = HEADER_SIZE
+    while idx < header.statementCount:
+        offset_and_dir = Directive.deserialize(bytes, offset)
+        if offset_and_dir is None:
+            raise RuntimeError("Unable to deserialize sequence")
+        offset, dir = offset_and_dir
+        dirs.append(dir)
+        idx += 1
+
+    if offset != len(bytes) - FOOTER_SIZE:
+        raise RuntimeError(
+            f"{len(bytes) - FOOTER_SIZE - offset} extra bytes at end of sequence"
+        )
+
+    return dirs
+
+
+def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048) -> tuple[bytes, int]:
+    output_bytes = bytes()
+
+    for dir in dirs:
+        dir_bytes = dir.serialize()
+        if len(dir_bytes) > max_directive_size:
+            print(
+                CompileError(
+                    f"Directive {dir} in sequence too large (expected less than {max_directive_size}, was {len(dir_bytes)})"
+                )
+            )
+            exit(1)
+        output_bytes += dir_bytes
+
+    header = Header(
+        MAJOR_VERSION,
+        MINOR_VERSION,
+        PATCH_VERSION,
+        SCHEMA_VERSION,
+        0,
+        len(dirs),
+        len(output_bytes),
+    )
+    output_bytes = struct.pack(HEADER_FORMAT, *astuple(header)) + output_bytes
+
+    crc = zlib.crc32(output_bytes) % (1 << 32)
+    footer = Footer(crc)
+    output_bytes += struct.pack(FOOTER_FORMAT, *astuple(footer))
+
+    return output_bytes, crc

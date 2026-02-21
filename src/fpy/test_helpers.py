@@ -6,7 +6,7 @@ import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
-from fpy.types import serialize_directives
+from fpy.bytecode.assembler import serialize_directives
 from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
 from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
 from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader

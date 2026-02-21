@@ -12,7 +12,7 @@ from fpy.syntax import (
     AstString,
     AstIdent,
 )
-from fpy.types import Transformer, Visitor, TopDownVisitor
+from fpy.visitors import Transformer, Visitor, TopDownVisitor
 
 
 class _State(SimpleNamespace):

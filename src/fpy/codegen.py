@@ -19,25 +19,29 @@ from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
-    STOP_DESCENT,
     UNSIGNED_INTEGER_TYPES,
-    CompileState,
-    Emitter,
-    FieldAccess,
     FppType,
-    CastSymbol,
-    CommandSymbol,
     FpyFloatValue,
-    FunctionSymbol,
-    BuiltinFuncSymbol,
-    TopDownVisitor,
-    TypeCtorSymbol,
-    VariableSymbol,
     FpyIntegerValue,
     FpyStringValue,
     NothingValue,
-    Visitor,
     is_instance_compat,
+)
+from fpy.state import (
+    BuiltinFuncSymbol,
+    CastSymbol,
+    CommandSymbol,
+    CompileState,
+    FieldAccess,
+    FunctionSymbol,
+    TypeCtorSymbol,
+    VariableSymbol,
+)
+from fpy.visitors import (
+    STOP_DESCENT,
+    Emitter,
+    TopDownVisitor,
+    Visitor,
 )
 
 from fpy.bytecode.directives import (

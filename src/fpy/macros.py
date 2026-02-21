@@ -11,7 +11,8 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import BuiltinFuncSymbol, FlagIdValue, FpyStringValue, NothingValue
+from fpy.types import FlagIdValue, FpyStringValue, NothingValue
+from fpy.state import BuiltinFuncSymbol
 from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
 from fprime_gds.common.models.serialize.numerical_types import (
     U8Type as U8Value,
