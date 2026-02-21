@@ -52,6 +52,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
+    FlagIdValue,
     TimeIntervalValue,
     CompileState,
     CallableSymbol,
@@ -251,6 +252,22 @@ def _build_global_scopes(dictionary: str) -> tuple:
         )
     # Use our canonical type (which has the same structure)
     type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
+
+    # Require Svc.Fpy.FlagId from the dictionary
+    if "Svc.Fpy.FlagId" not in type_name_dict:
+        raise ValueError("Dictionary must contain Svc.Fpy.FlagId enum")
+    dict_flag_id_type = type_name_dict["Svc.Fpy.FlagId"]
+    if dict_flag_id_type.ENUM_DICT != FlagIdValue.ENUM_DICT:
+        raise ValueError(
+            f"Dictionary Svc.Fpy.FlagId has enum dict {dict_flag_id_type.ENUM_DICT}, "
+            f"expected {FlagIdValue.ENUM_DICT}"
+        )
+    if dict_flag_id_type.REP_TYPE != FlagIdValue.REP_TYPE:
+        raise ValueError(
+            f"Dictionary Svc.Fpy.FlagId has rep type {dict_flag_id_type.REP_TYPE}, "
+            f"expected {FlagIdValue.REP_TYPE}"
+        )
+    type_name_dict["Svc.Fpy.FlagId"] = FlagIdValue
 
     if "Fw.TimeComparison" not in type_name_dict:
         raise ValueError("Dictionary must contain Fw.TimeComparison enum")

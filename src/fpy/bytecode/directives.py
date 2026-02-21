@@ -720,6 +720,18 @@ class PushTimeDirective(Directive):
 
 
 @dataclass
+class SetFlagDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.SET_FLAG
+    flag_idx: Union[int, U8Value]
+
+
+@dataclass
+class GetFlagDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.GET_FLAG
+    flag_idx: Union[int, U8Value]
+
+
+@dataclass
 class CallDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.CALL
 

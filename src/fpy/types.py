@@ -204,6 +204,16 @@ SPECIFIC_FLOAT_TYPES = (
 )
 ARBITRARY_PRECISION_TYPES = (FpyFloatValue, FpyIntegerValue)
 
+from fprime_gds.common.models.serialize.enum_type import EnumType as EnumValue
+
+# The canonical Svc.Fpy.FlagId enum type
+# This must match the dictionary's Svc.Fpy.FlagId definition
+FlagIdValue = EnumValue.construct_type(
+    "Svc.Fpy.FlagId",
+    {"EXIT_ON_CMD_FAIL": 0},
+    "U8",
+)
+
 # The canonical Fw.TimeIntervalValue struct type
 # This must match the dictionary's Fw.TimeIntervalValue definition
 # The format string '{}' and empty description match what the GDS JSON loader produces
@@ -287,8 +297,12 @@ class CommandSymbol(CallableSymbol):
 
 @dataclass
 class BuiltinFuncSymbol(CallableSymbol):
-    generate: Callable[[AstFuncCall], list[Directive]]
-    """a function which instantiates the builtin given the calling node"""
+    generate: Callable[[AstFuncCall, dict[int, FppValue]], list[Directive]]
+    """a function which instantiates the builtin given the calling node and
+    a dict mapping const_arg_indices to their compile-time values"""
+    const_arg_indices: frozenset[int] = field(default_factory=frozenset)
+    """indices of args that must be compile-time constants and are NOT pushed
+    to the stack; instead their values are passed to generate()"""
 
 
 @dataclass
