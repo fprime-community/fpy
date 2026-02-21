@@ -1,5 +1,4 @@
 from __future__ import annotations
-import json
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -17,7 +16,7 @@ from fprime_gds.common.models.serialize.numerical_types import (
     NumericalType as NumericalValue,
 )
 from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from lark import Lark
+from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
     CalculateFrameSizes,
@@ -30,6 +29,7 @@ from fpy.codegen import (
     ResolveLabels,
 )
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
+from fpy.dictionary import load_dictionary
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
@@ -65,14 +65,6 @@ from fpy.state import (
     merge_symbol_tables,
 )
 from fpy.visitors import Visitor
-from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
-from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
-from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
-from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
-from fprime_gds.common.templates.cmd_template import CmdTemplate
-from pathlib import Path
-from lark import Lark, LarkError
 
 from fpy.error import BackendError, CompileError, handle_lark_error
 import fpy.error
@@ -173,17 +165,11 @@ def _load_sequence_config(dictionary: str) -> dict:
     Load sequence configuration from the dictionary constants section.
     Returns a dict with max_directives_count and max_directive_size.
     """
-    with open(dictionary, "r") as f:
-        dict_json = json.load(f)
-    
-    constants = dict_json.get("constants", [])
-    
-    # Build a lookup dict for constants by qualified name
-    constants_by_name = {c["qualifiedName"]: c["value"] for c in constants if "qualifiedName" in c and "value" in c}
-    
+    d = load_dictionary(dictionary)
+    constants = d["constants"]
     return {
-        "max_directives_count": constants_by_name.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
-        "max_directive_size": constants_by_name.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
+        "max_directives_count": constants.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
+        "max_directive_size": constants.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     }
 
 
@@ -193,20 +179,8 @@ def _load_dictionary(dictionary: str) -> tuple:
     Load and parse the dictionary file once, caching the results.
     Returns a tuple of (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict).
     """
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
-
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(dictionary)
-    prm_json_dict_loader = PrmJsonLoader(dictionary)
-    (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
-
-    # Load all types from typeDefinitions - this includes types not referenced
-    # by any command, channel, parameter, or event (e.g. Fw.TimeComparison)
-    type_json_dict_loader = TypeJsonLoader(dictionary)
-    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
-
-    return (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict)
+    d = load_dictionary(dictionary)
+    return (d["cmd_name_dict"], d["ch_name_dict"], d["prm_name_dict"], d["type_defs"])
 
 
 @lru_cache(maxsize=4)

@@ -7,10 +7,7 @@ from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
-from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
-from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
-from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
+from fpy.dictionary import load_dictionary
 from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
 
@@ -48,11 +45,8 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
 
 
 def lookup_type(fprime_test_api, type_name: str):
-    dictionary = default_dictionary  # fprime_test_api.pipeline.dictionary_path
-    type_json_dict_loader = TypeJsonLoader(dictionary)
-    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
-
-    return type_name_dict[type_name]
+    d = load_dictionary(default_dictionary)
+    return d["type_defs"][type_name]
 
 
 def run_seq(
@@ -81,16 +75,9 @@ def run_seq(
         fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=timeout_s)
         return
 
-    dictionary = default_dictionary
-
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (ch_id_dict, ch_name_dict, versions) = ch_json_dict_loader.construct_dicts(
-        dictionary
-    )
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (cmd_id_dict, cmd_name_dict, versions) = cmd_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    d = load_dictionary(default_dictionary)
+    ch_name_dict = d["ch_name_dict"]
+    cmd_id_dict = d["cmd_id_dict"]
     model = FpySequencerModel(
         cmd_dict=cmd_id_dict,
         time_base=time_base,
