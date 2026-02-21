@@ -1,10 +1,30 @@
-# Fpy User's Guide
+# Fpy
 
-Fpy is an easy to learn, powerful spacecraft scripting language backed by decades of JPL heritage. It is designed to work with the FPrime flight software framework. The syntax is inspired by Python, and it compiles to an efficient binary format.
+Fpy is a user-friendly spacecraft scripting language for the F-Prime flight software framework.
 
-This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and FPrime before.
+## Principles
 
-## 1. Compiling and Running a Sequence
+Fpy has a few principles:
+
+* Be safe
+* Be pragmatic
+* Be a joy to work with
+
+That's really all there is to it. It's gotta work for all users and missions, and people have to love it. The rest will follow.
+
+>*The art of making a good language is to restrict the user in a good way* 
+>
+> – Andrey Breslav, creator of Kotlin
+
+## Overview
+
+This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy bytecode can be run on the `FpySequencer` virtual machine, or with the `fprime-fpy-model` CLI. If you're interested in contributing, see the [Developer's Guide](#developers-guide).
+
+# User's Guide
+
+This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F-Prime before.
+
+## Compiling and Running a Sequence
 
 First, make sure `fprime-fpy` is installed.
 
@@ -21,7 +41,47 @@ You can compile it with `fprime-fpyc test.fpy --dictionary Ref/build-artifacts/L
 
 Make sure your deployment topology has an instance of the `Svc.FpySequencer` component. You can run the sequence by passing it in as an argument to the `Svc.FpySequencer.RUN` command.
 
-## 2. Variables and Basic Types
+## Commands
+
+Fpy supports calling any command in the F-Prime dictionary:
+
+```py
+CdhCore.cmdDisp.CMD_NO_OP()
+# no delay between commands
+CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
+# the sequence waits until a command response is returned
+```
+
+Commands arguments are type checked, and they do not need to be constants. You can pass command arguments by name:
+```py
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+```
+
+If a command doesn't successfully execute, the sequence can optionally exit with an error. You can configure this in the sequence by setting the `Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL` flag:
+
+```py
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence proceeds normally
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence exits with an error
+```
+
+This is kind of like Bash's `set -e` and `set +e` commands.
+
+If you choose to allow command failures, you can also handle the return status of the command:
+```py
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+
+if success == Fw.CmdResponse.OK:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+```
+
+You can configure the default value of that flag for all sequences by changing the `Svc.FpySequencer.FLAG_DEFAULT_EXIT_ON_CMD_FAIL` parameter.
+
+## Variables and Basic Types
 
 Fpy supports statically-typed, mutable local variables. You can change their value, but the type of the variable can't change. 
 
@@ -43,9 +103,9 @@ For types, Fpy has most of the same basic ones that FPP does:
 
 Float literals can include either a decimal point or exponent notation (`5.0`, `.1`, `1e-5`), and Boolean literals have a capitalized first letter: `True`, `False`. There is no way to differentiate between signed and unsigned integer literals.
 
-Note there is currently no built-in `string` type. See [Strings](#18-strings).
+Note there is currently no built-in `string` type. See [Strings](#strings).
 
-## 3. Type coercion and casting
+## Type coercion and casting
 If you have a lower-bitwidth numerical type and want to turn it into a higher-bitwidth type, this happens automatically:
 ```py
 low_bitwidth_int: U8 = 123
@@ -101,9 +161,9 @@ int: I32 = I32(uint)
 ```
 
 
-## 4. Dictionary Types
+## Dictionary Types
 
-Fpy also has access to all structs, arrays and enums in the FPrime dictionary:
+Fpy also has access to all structs, arrays and enums in the F-Prime dictionary:
 ```py
 # you can access enum constants by name:
 enum_var: Fw.Success = Fw.Success.SUCCESS
@@ -117,7 +177,7 @@ struct_var: Ref.SignalPair = Ref.SignalPair(0.0, 1.0)
 
 In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`.
 
-## 5. Math
+## Math
 You can do basic math and store the result in variables in Fpy:
 ```py
 pemdas: F32 = 1 - 2 + 3 * 4 + 10 / 5 * 2 # == 15.0
@@ -134,22 +194,7 @@ Fpy supports the following math operations:
 The behavior of these operators is designed to mimic Python. 
 > Note that **division always returns a float**. This means that `5 / 2 == 2.5`, not `2`. This may be confusing coming from C++, but it is consistent with Python. If you want integer division, use the `//` operator.
 
-## 6. Variable Arguments to Commands, Macros and Constructors
-
-Where this really gets interesting is when you pass variables or expressions into commands:
-```py
-# this is a command that takes an F32
-Ref.sendBuffComp.PARAMETER4_PRM_SET(1 - 2 + 3 * 4 + 10 / 5 * 2)
-# alternatively:
-param4: F32 = 15.0
-Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
-```
-
-You can also pass variable arguments to the [`sleep`](#14-relative-and-absolute-sleep), [`exit`](#16-exit-macro), `fabs`, `iabs` and `log` macros, as well as to constructors.
-
-There are some restrictions on using string values, or complex types containing string values. See [Strings](#18-strings).
-
-## 7. Getting Telemetry Channels and Parameters
+## Getting Telemetry Channels and Parameters
 
 Fpy supports getting the value of telemetry channels:
 ```py
@@ -168,7 +213,7 @@ prm_3: U8 = Ref.sendBuffComp.parameter3
 A significant limitation of this is that it will only return the value most recently saved to the parameter database. This means you must command `_PRM_SAVE` before the sequence will see the new value.
 
 > Note:  If a telemetry channel and parameter have the same fully-qualified name, the fully-qualified name will get the value of the telemetry channel
-## 8. Conditionals
+## Conditionals
 Fpy supports comparison operators:
 ```py
 value: bool = 1 > 2 and (3 + 4) != 5
@@ -186,7 +231,7 @@ record1: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 record2: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 records_equal: bool = record1 == record2 # == True
 ```
-## 9. If/elif/else
+## If/elif/else
 
 You can branch off of conditionals with `if`, `elif` and `else`:
 ```py
@@ -209,9 +254,9 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
-## 10. Check statement
+## Check statement
 
-A `check` statement is like an [`if`](#9-ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
+A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
@@ -252,7 +297,7 @@ timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 ```
 
-## 11. Getting Struct Members and Array Items
+## Getting Struct Members and Array Items
 
 You can access members of structs by name, or array elements by index:
 ```py
@@ -274,7 +319,7 @@ com_queue_depth: Svc.ComQueueDepth = ComCcsds.comQueue.comQueueDepth
 com_queue_depth[0] = 1
 ```
 
-## 12. For and while loops
+## For and while loops
 You can loop while a condition is true:
 ```py
 counter: U64 = 0
@@ -332,7 +377,7 @@ for i in 0..10:
 # odd_numbers_sum == 25
 ```
 
-## 13. Functions
+## Functions
 You can define and call functions:
 ```py
 def foobar():
@@ -387,7 +432,7 @@ recurse(5) # prints "tick" 5 times
 
 Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
 
-## 14. Relative and Absolute Sleep
+## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
@@ -423,7 +468,7 @@ t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## 15. Time Functions
+## Time Functions
 Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
 
 You can get the current time with `now()`:
@@ -471,7 +516,7 @@ Subtraction of two `Fw.Time` values asserts that both times have the same time b
 > If at any point the output value would overflow, the sequence will exit with an error.
 > Under the hood, these operators are just calling the built in `time_cmp`, `time_sub`, `time_add`, etc. functions in `time.fpy`.
 
-## 16. Exit Macro
+## Exit Macro
 You can end the execution of the sequence early by calling the `exit` macro:
 ```py
 # exit takes a U8 argument
@@ -481,7 +526,7 @@ exit(0)
 exit(123)
 ```
 
-## 17. Assertions
+## Assertions
 You can assert that a Boolean condition is true:
 ```py
 # won't end the sequence
@@ -496,11 +541,11 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
-## 18. Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to FPrime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
+## Strings
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
 
 
-# Fpy Developer's Guide
+# Developer's Guide
 
 ## Workflow
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import inspect
+from dataclasses import fields
 from typing import Callable, Union, get_args, get_origin
 import typing
 
@@ -14,10 +15,11 @@ except ImportError:
 
 from fpy.error import BackendError
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
-from fpy.model import DirectiveErrorCode
+from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
+    STOP_DESCENT,
     UNSIGNED_INTEGER_TYPES,
     CompileState,
     Emitter,
@@ -28,6 +30,7 @@ from fpy.types import (
     FpyFloatValue,
     FunctionSymbol,
     BuiltinFuncSymbol,
+    TopDownVisitor,
     TypeCtorSymbol,
     VariableSymbol,
     FpyIntegerValue,
@@ -144,48 +147,48 @@ class CollectUsedFunctions(Visitor):
         state.used_funcs.add(func.definition)
 
 
-class AssignVariableOffsets(Visitor):
+class CalculateFrameSizes(TopDownVisitor):
     """Assigns frame offsets to variables before code generation.
+
+    Each instance handles one frame (global or function). Visits blocks
+    top-down, assigning sequential offsets to variables. At function
+    boundaries, spawns a fresh instance for the function's frame and
+    returns STOP_DESCENT to isolate frames from each other.
 
     This must run before GenerateFunctions so that global variable offsets
     are known when generating function bodies that access them.
     """
 
+    def __init__(self):
+        super().__init__()
+        self.offset = 0
+
+    def run(self, start: Ast, state: CompileState):
+        super().run(start, state)
+        state.frame_sizes[start] = self.offset
+
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        # Assign offsets to variables in this scope
-        lvar_array_size_bytes = 0
-        for name, sym in state.enclosing_value_scope[node].items():
-            if not is_instance_compat(sym, VariableSymbol):
-                # doesn't require space to be allocated
-                continue
-            if sym.frame_offset is not None:
-                # Already has an offset (e.g., function argument or global)
-                continue
-            # Assign new offset
-            sym.frame_offset = lvar_array_size_bytes
-            lvar_array_size_bytes += sym.type.getMaxSize()
+        scope = state.enclosing_value_scope.get(node)
+        if scope is None:
+            return
+        for _name, sym in scope.items():
+            if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
+                sym.frame_offset = self.offset
+                self.offset += sym.type.getMaxSize()
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Assign offsets for function arguments (negative offsets before frame start)
-        # The args come before the call frame header (return addr + prev frame ptr)
-        # so they have negative offsets relative to the function's stack frame start
+        # Assign argument offsets (negative offsets before frame start)
         func = state.resolved_symbols[node.name]
-        if func.args is None or len(func.args) == 0:
-            # no args
-            return
-
-        # Args are pushed left-to-right, so first arg is deepest
-        # After CALL, the stack looks like:
-        #   [args...] [return_addr] [prev_frame_ptr] <-- stack_frame_start points here
-        # So to access args, we use negative offsets from stack_frame_start
-        from fpy.model import STACK_FRAME_HEADER_SIZE
-
-        arg_offset = -STACK_FRAME_HEADER_SIZE
-        for arg in reversed(func.args):
-            arg_name, arg_type, _ = arg
-            arg_var = state.enclosing_value_scope[node.body][arg_name]
-            arg_offset -= arg_type.getMaxSize()
-            arg_var.frame_offset = arg_offset
+        if func.args:
+            arg_offset = -STACK_FRAME_HEADER_SIZE
+            for arg in reversed(func.args):
+                arg_name, arg_type, _ = arg
+                arg_var = state.enclosing_value_scope[node.body][arg_name]
+                arg_offset -= arg_type.getMaxSize()
+                arg_var.frame_offset = arg_offset
+        # Assign body variable offsets in a fresh frame
+        CalculateFrameSizes().run(node.body, state)
+        return STOP_DESCENT
 
 
 class GenerateFunctionEntryPoints(Visitor):
@@ -205,19 +208,8 @@ class GenerateFunctions(Visitor):
         entry_label = state.func_entry_labels[node]
         code = [entry_label]
         
-        # Calculate and allocate space for local variables in the function body
-        lvar_array_size_bytes = 0
-        for name, sym in state.enclosing_value_scope[node.body].items():
-            if not is_instance_compat(sym, VariableSymbol):
-                # doesn't require space to be allocated
-                continue
-            if sym.frame_offset < 0:
-                # function argument (negative)
-                continue
-            # Track the max offset to know how much space to allocate
-            end_of_var = sym.frame_offset + sym.type.getMaxSize()
-            if end_of_var > lvar_array_size_bytes:
-                lvar_array_size_bytes = end_of_var
+        # Allocate space for local variables
+        lvar_array_size_bytes = state.frame_sizes[node.body]
         if lvar_array_size_bytes > 0:
             code.append(AllocateDirective(lvar_array_size_bytes))
         
@@ -1019,16 +1011,8 @@ class GenerateModule(Emitter):
         # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
         
-        # Calculate and allocate space for top-level local variables
-        lvar_array_size_bytes = 0
-        for name, sym in state.enclosing_value_scope[node].items():
-            if not is_instance_compat(sym, VariableSymbol):
-                continue
-            if sym.frame_offset < 0:
-                continue
-            end_of_var = sym.frame_offset + sym.type.getMaxSize()
-            if end_of_var > lvar_array_size_bytes:
-                lvar_array_size_bytes = end_of_var
+        # Allocate space for top-level local variables
+        lvar_array_size_bytes = state.frame_sizes[node]
         if lvar_array_size_bytes > 0:
             main_body.append(AllocateDirective(lvar_array_size_bytes))
         

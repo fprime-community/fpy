@@ -20,7 +20,7 @@ from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from lark import Lark
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
-    AssignVariableOffsets,
+    CalculateFrameSizes,
     CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
@@ -32,7 +32,7 @@ from fpy.codegen import (
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
 from fpy.semantics import (
     AssignIds,
-    CreateFunctionScopes,
+    CreateScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
@@ -382,7 +382,7 @@ def ast_to_directives(
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
-        CreateFunctionScopes(),
+        CreateScopes(),
         # based on assignment syntax nodes, we know which variables exist where.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
@@ -419,7 +419,7 @@ def ast_to_directives(
     codegen_passes = [
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
-        AssignVariableOffsets(),
+        CalculateFrameSizes(),
         # Collect which functions are called anywhere in the code
         CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
