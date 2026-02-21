@@ -845,11 +845,19 @@ class GenerateFunctionBody(Emitter):
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
         elif is_instance_compat(func, BuiltinFuncSymbol):
-            # put all arg values on stack
-            for arg_node in node_args:
-                dirs.extend(self.emit(arg_node, state))
+            # collect compile-time constant args (not pushed to stack)
+            const_arg_values: dict[int, FppValue] = {}
+            for i in func.const_arg_indices:
+                const_val = state.const_expr_values.get(node_args[i])
+                assert const_val is not None, f"const arg {i} of {func.name} should have been validated by semantics"
+                const_arg_values[i] = const_val
 
-            dirs.extend(func.generate(node))
+            # put non-const arg values on stack
+            for i, arg_node in enumerate(node_args):
+                if i not in func.const_arg_indices:
+                    dirs.extend(self.emit(arg_node, state))
+
+            dirs.extend(func.generate(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:

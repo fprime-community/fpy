@@ -11,6 +11,7 @@ from fpy.bytecode.directives import (
     ConstCmdDirective,
     Directive,
     FwOpcodeType,
+    GetFlagDirective,
     PeekDirective,
     ExitDirective,
     FloatAddDirective,
@@ -44,6 +45,7 @@ from fpy.bytecode.directives import (
     LoadRelDirective,
     LoadAbsDirective,
     NoOpDirective,
+    SetFlagDirective,
     NotDirective,
     OrDirective,
     PushValDirective,
@@ -122,14 +124,23 @@ class DirectiveErrorCode(Enum):
 
 class FpySequencerModel:
 
+    # CmdResponse enum values matching Fw.CmdResponse
+    CMD_RESPONSE_OK = 0
+    CMD_RESPONSE_EXECUTION_ERROR = 4
+
+    # Flag indices
+    FLAG_EXIT_ON_CMD_FAIL = 0
+
     def __init__(
         self, stack_size=4096, cmd_dict: dict[int, CmdTemplate] = None,
-        time_base: int = 0, time_context: int = 0, initial_time_us: int = 0
+        time_base: int = 0, time_context: int = 0, initial_time_us: int = 0,
+        failing_opcodes: set[int] = None,
     ) -> None:
         self.stack = bytearray()
         self.max_stack_size = stack_size
         self.stack_frame_start = 0
         self.cmd_dict = cmd_dict
+        self.failing_opcodes: set[int] = failing_opcodes or set()
 
         self.dirs: list[Directive] = None
         self.next_dir_idx = 0
@@ -141,6 +152,11 @@ class FpySequencerModel:
         self.time_context = time_context
         self.initial_time_us = initial_time_us
         self.simulated_time_us = initial_time_us
+
+        # Flags: indexed boolean array, initialized to defaults
+        # Index 0 = EXIT_ON_CMD_FAIL (default: False)
+        self.NUM_FLAGS = 1
+        self.flags: list[bool] = [False] * self.NUM_FLAGS
 
         self.handlers: dict[type[Directive], typing.Callable] = {}
         self.find_handlers()
@@ -171,6 +187,7 @@ class FpySequencerModel:
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
         self.simulated_time_us = self.initial_time_us
+        self.flags = [False] * self.NUM_FLAGS
 
     def dispatch(self, dir: Directive) -> DirectiveErrorCode:
         opcode = dir.opcode
@@ -462,13 +479,25 @@ class FpySequencerModel:
         print("wait abs", time_context, time_base, seconds, useconds)
         return None
 
+    def _push_cmd_response(self, opcode: int):
+        """Push a CmdResponse onto the stack and check EXIT_ON_CMD_FAIL.
+
+        Returns a DirectiveErrorCode if the sequencer should halt, else None.
+        """
+        if opcode in self.failing_opcodes:
+            response = self.CMD_RESPONSE_EXECUTION_ERROR
+        else:
+            response = self.CMD_RESPONSE_OK
+        self.push(response, size=1)
+        if self.flags[self.FLAG_EXIT_ON_CMD_FAIL] and response != self.CMD_RESPONSE_OK:
+            return DirectiveErrorCode.EXIT_WITH_ERROR
+        return None
+
     def handle_const_cmd(self, dir: ConstCmdDirective):
         print("cmd opcode", dir.cmd_opcode, "args", dir.args)
-        # always push CmdResponse.OK
         if not self.validate_cmd(dir.cmd_opcode, dir.args):
             raise RuntimeError("Invalid cmd")
-        self.push(0, size=1)
-        return None
+        return self._push_cmd_response(dir.cmd_opcode)
 
     def handle_stack_cmd(self, dir: StackCmdDirective):
         if len(self.stack) < dir.args_size + FwOpcodeType.getMaxSize():
@@ -488,9 +517,7 @@ class FpySequencerModel:
         )
         if not self.validate_cmd(opcode, cmd[: -FwOpcodeType.getMaxSize()]):
             raise RuntimeError("Invalid cmd")
-        # always push CmdResponse.OK
-        self.push(0, size=1)
-        return None
+        return self._push_cmd_response(opcode)
 
     def handle_goto(self, dir: GotoDirective):
         if dir.dir_idx > len(self.dirs):
@@ -1024,6 +1051,23 @@ class FpySequencerModel:
         seconds = self.simulated_time_us // 1000000
         useconds = self.simulated_time_us % 1000000
         self.push(TimeValue(self.time_base, self.time_context, seconds, useconds).serialize())
+        return None
+
+    def handle_set_flag(self, dir: SetFlagDirective):
+        if dir.flag_idx >= self.NUM_FLAGS:
+            return DirectiveErrorCode.FLAG_IDX_OUT_OF_BOUNDS
+        if len(self.stack) < 1:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        value = self.pop(type=int, size=1)
+        self.flags[dir.flag_idx] = value != 0
+        return None
+
+    def handle_get_flag(self, dir: GetFlagDirective):
+        if dir.flag_idx >= self.NUM_FLAGS:
+            return DirectiveErrorCode.FLAG_IDX_OUT_OF_BOUNDS
+        if len(self.stack) + 1 > self.max_stack_size:
+            return DirectiveErrorCode.STACK_OVERFLOW
+        self.push(dir.flag_idx < self.NUM_FLAGS and self.flags[dir.flag_idx])
         return None
 
     def handle_call(self, dir: CallDirective):

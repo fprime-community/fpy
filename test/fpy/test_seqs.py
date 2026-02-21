@@ -5007,3 +5007,156 @@ fun()
 """
 
     assert_compile_failure(fprime_test_api, seq)
+
+
+# ── Flag tests ──────────────────────────────────────────────────────────────
+
+
+def test_set_flag_basic(fprime_test_api):
+    """set_flag with a FlagId enum constant and True value should succeed."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_false(fprime_test_api):
+    """set_flag with False value should succeed."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_and_get_flag(fprime_test_api):
+    """set_flag followed by get_flag should return the set value."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_toggle(fprime_test_api):
+    """Setting a flag to True then False should work."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == False
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_dynamic_value(fprime_test_api):
+    """set_flag should accept a runtime bool expression for value."""
+    seq = """
+x: bool = True
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, x)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_get_flag_in_expression(fprime_test_api):
+    """get_flag result should be usable in boolean expressions."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+x: bool = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) and True
+assert x == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_wrong_type(fprime_test_api):
+    """set_flag with an integer instead of FlagId should fail compilation."""
+    seq = """
+set_flag(0, True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_wrong_type(fprime_test_api):
+    """get_flag with an integer instead of FlagId should fail compilation."""
+    seq = """
+get_flag(0)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_set_flag_non_const_index(fprime_test_api):
+    """set_flag with a non-constant flag index should fail compilation."""
+    seq = """
+x: Svc.Fpy.FlagId = Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL
+set_flag(x, True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_non_const_index(fprime_test_api):
+    """get_flag with a non-constant flag index should fail compilation."""
+    seq = """
+x: Svc.Fpy.FlagId = Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL
+get_flag(x)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_assign_to_var(fprime_test_api):
+    """get_flag result can be assigned to a bool variable."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+flag_val: bool = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL)
+assert flag_val == False
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+flag_val = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL)
+assert flag_val == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ── EXIT_ON_CMD_FAIL behavior tests ────────────────────────────────────
+
+# CdhCore.cmdDisp.CMD_NO_OP opcode from the dictionary
+CMD_NO_OP_OPCODE = 16777216
+
+
+def test_exit_on_cmd_fail_flag_causes_exit(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is set and a command fails, the sequence should exit with error."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_failure(
+        fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+        failing_opcodes={CMD_NO_OP_OPCODE},
+    )
+
+
+def test_no_exit_on_cmd_fail_flag_allows_failure(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is explicitly off, a failing command should not halt the sequence."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.cmdDisp.CMD_NO_OP()
+resp: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+
+
+def test_exit_on_cmd_fail_with_successful_cmd(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is set but the command succeeds, no exit should occur."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_exit_on_cmd_fail_toggle_off_before_cmd(fprime_test_api):
+    """Setting EXIT_ON_CMD_FAIL then unsetting it before a failing cmd should not exit."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})

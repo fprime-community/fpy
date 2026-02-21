@@ -1916,6 +1916,18 @@ class CalculateConstExprValues(Visitor):
                 arg_values.append(arg_expr)
 
         unknown_value = any(v is None for v in arg_values)
+
+        # Check that any args required to be compile-time constants actually are,
+        # even if other args are unknown (those will be evaluated at runtime).
+        if is_instance_compat(func, BuiltinFuncSymbol):
+            for i in func.const_arg_indices:
+                if arg_values[i] is None:
+                    state.errors.append(CompileError(
+                        f"Argument '{func.args[i][0]}' of '{func.name}' must be a compile-time constant",
+                        resolved_args[i],
+                    ))
+                    return
+
         if unknown_value:
             # we will have to calculate this at runtime
             state.const_expr_values[node] = None
