@@ -9,11 +9,6 @@ from lark.indenter import DedentError
 from decimal import Decimal
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Operator enums & tables
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 class UnaryStackOp(str, Enum):
     NOT = "not"
     IDENTITY = "+"

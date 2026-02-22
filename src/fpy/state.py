@@ -1,6 +1,6 @@
 from __future__ import annotations
 import typing
-from typing import Callable, Union, get_args, get_origin
+from typing import Callable, Union
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -14,8 +14,6 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
-    AstGetAttr,
-    AstIndexExpr,
     AstOp,
     AstReference,
     AstReturn,
@@ -27,7 +25,6 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     FpyType,
     FpyValue,
-    NOTHING,
     CmdDef,
     ChDef,
     PrmDef,

@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Union, get_args, get_origin
+from fpy.syntax import (
+    BinaryStackOp,
+    COMPARISON_OPS,
+)
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
@@ -29,11 +33,6 @@ COMPILER_MAX_STRING_SIZE = 128
 # FPP wire-format constants for boolean serialization
 FW_SERIALIZE_TRUE_VALUE = 0xFF
 FW_SERIALIZE_FALSE_VALUE = 0x00
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TypeKind enum
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class TypeKind(str, Enum):
@@ -61,10 +60,6 @@ class TypeKind(str, Enum):
     RANGE = "Range"  # range expression
     NOTHING = "Nothing"  # void / no-value
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Primitive type metadata tables
-# ─────────────────────────────────────────────────────────────────────────────
 
 # struct format for each primitive kind
 _PRIMITIVE_FORMATS: dict[TypeKind, str] = {
@@ -146,20 +141,10 @@ _INTERNAL_KINDS = frozenset(
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# StructMember
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class StructMember:
     name: str
     type: FpyType
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FpyType — the type descriptor
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class FpyType:
@@ -279,9 +264,9 @@ class FpyType:
         if self.kind in _PRIMITIVE_SIZES:
             return _PRIMITIVE_SIZES[self.kind]
         if self.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            assert self.max_length is not None, (
-                "Cannot compute size of arbitrary-length string"
-            )
+            assert (
+                self.max_length is not None
+            ), "Cannot compute size of arbitrary-length string"
             return 2 + self.max_length
         if self.kind == TypeKind.ENUM:
             return self.rep_type.max_size
@@ -325,10 +310,6 @@ class FpyType:
                     f"Value {val} out of range [{lo}, {hi}] for {self.name}"
                 )
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Singleton type instances
-# ─────────────────────────────────────────────────────────────────────────────
 
 U8 = FpyType(TypeKind.U8, "U8")
 U16 = FpyType(TypeKind.U16, "U16")
@@ -379,11 +360,6 @@ PRIMITIVE_TYPE_MAP: dict[str, FpyType] = {
     "F64": F64,
     "bool": BOOL,
 }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FpyValue — a concrete typed value
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class FpyValue:
@@ -463,9 +439,7 @@ class FpyValue:
         assert False, f"Cannot serialize {self.type}"
 
     @staticmethod
-    def deserialize(
-        typ: FpyType, data: bytes, offset: int = 0
-    ) -> tuple[FpyValue, int]:
+    def deserialize(typ: FpyType, data: bytes, offset: int = 0) -> tuple[FpyValue, int]:
         """Deserialize a value of *typ* from *data* at *offset*.
         Returns ``(value, new_offset)``."""
         kind = typ.kind
@@ -516,11 +490,6 @@ class FpyValue:
 NOTHING_VALUE = FpyValue(NOTHING, None)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Command / Channel / Parameter definitions (replace GDS templates)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 @dataclass
 class CmdDef:
     """Command definition (replaces CmdTemplate)."""
@@ -564,10 +533,6 @@ class PrmDef:
     description: str = ""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Constructed dictionary types
-# ─────────────────────────────────────────────────────────────────────────────
-
 # The canonical Svc.Fpy.FlagId enum type
 FlagIdValue = FpyType(
     TypeKind.ENUM,
@@ -587,11 +552,6 @@ TimeIntervalValue = FpyType(
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Utilities
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def is_instance_compat(obj, cls):
     """
     A wrapper for isinstance() that correctly handles Union types in Python 3.9+.
@@ -600,19 +560,6 @@ def is_instance_compat(obj, cls):
     if origin in UNION_TYPES:
         return isinstance(obj, get_args(cls))
     return isinstance(obj, cls)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Operator tables (re-exported from syntax.py; TIME_OPS stays here)
-# ─────────────────────────────────────────────────────────────────────────────
-
-from fpy.syntax import (  # noqa: E402
-    UnaryStackOp,
-    BinaryStackOp,
-    NUMERIC_OPERATORS,
-    BOOLEAN_OPERATORS,
-    COMPARISON_OPS,
-)
 
 
 # Time operator overloads:

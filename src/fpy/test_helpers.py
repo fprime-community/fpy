@@ -1,8 +1,6 @@
 from pathlib import Path
 import tempfile
-import traceback
 import fpy.error
-import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives

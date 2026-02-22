@@ -84,7 +84,7 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     IntegerTruncate64To8Directive,
 )
-from fpy.types import FpyValue, TIME, U16, U8, U32
+from fpy.types import FpyValue, TIME
 from fpy.state import CmdDef
 
 debug = False

@@ -22,7 +22,6 @@ from fpy.types import (
     INTERNAL_STRING,
     RANGE,
     NOTHING,
-    NOTHING_VALUE,
     BOOL,
     TIME,
     U8,

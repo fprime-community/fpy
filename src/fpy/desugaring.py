@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, COMPARISON_OPS, Directive, LoopVarType
+from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,

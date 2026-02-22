@@ -46,9 +46,6 @@ from fpy.types import (
     StructMember,
     TIME,
     BOOL,
-    U8,
-    U16,
-    U32,
     I64,
 )
 from fpy.state import (
