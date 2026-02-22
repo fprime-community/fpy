@@ -10,10 +10,7 @@ from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
 from fpy.bytecode.directives import Directive, StackOpDirective
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from fprime_gds.common.models.serialize.string_type import StringType as StringValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.numerical_types import NumericalType as NumericalValue
+from fpy.types import FpyValue
 
 from fpy.error import CompileError
 
@@ -211,8 +208,7 @@ def directives_to_fpybc(dirs: list[Directive]) -> str:
             field_value = getattr(dir, field.name)
             val = None
 
-            if isinstance(field_value, FppValue):
-                assert isinstance(field_value, (NumericalValue, StringValue, BoolValue)), field_value
+            if isinstance(field_value, FpyValue):
                 val = field_value.val
             else:
                 val = field_value

@@ -19,28 +19,23 @@ from fpy.dictionary import (
     PRIMITIVE_TYPE_MAP,
 )
 
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    U64Type as U64Value,
-    I8Type as I8Value,
-    I16Type as I16Value,
-    I32Type as I32Value,
-    I64Type as I64Value,
-    F32Type as F32Value,
-    F64Type as F64Value,
+from fpy.types import (
+    FpyType,
+    TypeKind,
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+    BOOL,
+    INTERNAL_STRING,
 )
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.string_type import StringType as StringValue
-from fprime_gds.common.models.serialize.enum_type import EnumType as EnumValue
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.templates.ch_template import ChTemplate
-from fprime_gds.common.templates.cmd_template import CmdTemplate
-from fprime_gds.common.templates.prm_template import PrmTemplate
+from fpy.state import CmdDef, ChDef, PrmDef
 
 
 REF_DICT_PATH = str(Path(__file__).parent / "RefTopologyDictionary.json")
@@ -57,11 +52,11 @@ class TestResolveType:
 
     def test_float_f32(self):
         desc = {"kind": "float", "name": "F32", "size": 32}
-        assert _resolve_type(desc, {}) is F32Value
+        assert _resolve_type(desc, {}) is F32
 
     def test_float_f64(self):
         desc = {"kind": "float", "name": "F64", "size": 64}
-        assert _resolve_type(desc, {}) is F64Value
+        assert _resolve_type(desc, {}) is F64
 
     def test_float_unknown_size(self):
         desc = {"kind": "float", "name": "F128", "size": 128}
@@ -70,15 +65,15 @@ class TestResolveType:
 
     def test_bool(self):
         desc = {"kind": "bool", "name": "bool"}
-        assert _resolve_type(desc, {}) is BoolValue
+        assert _resolve_type(desc, {}) is BOOL
 
     def test_string(self):
         desc = {"kind": "string", "name": "string", "size": 80}
         result = _resolve_type(desc, {})
-        assert issubclass(result, StringValue)
+        assert result.is_string
 
     def test_qualified_identifier_found(self):
-        fake_type = type("Fake", (U32Value,), {})
+        fake_type = FpyType(TypeKind.U32, "Fake")
         type_defs = {"My.Type": fake_type}
         desc = {"kind": "qualifiedIdentifier", "name": "My.Type"}
         assert _resolve_type(desc, type_defs) is fake_type
@@ -114,8 +109,8 @@ class TestParseTypeDefinitions:
         result = _parse_type_definitions(raw)
         assert "My.Color" in result
         typ = result["My.Color"]
-        assert issubclass(typ, EnumValue)
-        assert typ.ENUM_DICT == {"RED": 0, "GREEN": 1, "BLUE": 2}
+        assert typ.kind == TypeKind.ENUM
+        assert typ.enum_dict == {"RED": 0, "GREEN": 1, "BLUE": 2}
 
     def test_alias_to_primitive(self):
         raw = [
@@ -127,7 +122,7 @@ class TestParseTypeDefinitions:
             }
         ]
         result = _parse_type_definitions(raw)
-        assert result["FwIndexType"] is I16Value
+        assert result["FwIndexType"] is I16
 
     def test_alias_to_enum(self):
         """Alias whose underlyingType references an enum parsed in the same batch."""
@@ -146,7 +141,7 @@ class TestParseTypeDefinitions:
             },
         ]
         result = _parse_type_definitions(raw)
-        assert issubclass(result["My.StatusAlias"], EnumValue)
+        assert result["My.StatusAlias"].kind == TypeKind.ENUM
 
     def test_array(self):
         raw = [
@@ -160,9 +155,9 @@ class TestParseTypeDefinitions:
         ]
         result = _parse_type_definitions(raw)
         typ = result["My.ThreeU32s"]
-        assert issubclass(typ, ArrayValue)
-        assert typ.LENGTH == 3
-        assert typ.MEMBER_TYPE is U32Value
+        assert typ.kind == TypeKind.ARRAY
+        assert typ.length == 3
+        assert typ.elem_type is U32
 
     def test_struct(self):
         raw = [
@@ -177,9 +172,8 @@ class TestParseTypeDefinitions:
         ]
         result = _parse_type_definitions(raw)
         typ = result["My.Point"]
-        assert issubclass(typ, StructValue)
-        member_names = [m[0] for m in typ.MEMBER_LIST]
-        assert member_names == ["x", "y"]
+        assert typ.kind == TypeKind.STRUCT
+        member_names = [m.name for m in typ.members]
 
     def test_struct_member_order_by_index(self):
         """Members should be sorted by index, not by dict key order."""
@@ -195,7 +189,7 @@ class TestParseTypeDefinitions:
             }
         ]
         result = _parse_type_definitions(raw)
-        member_names = [m[0] for m in result["My.Reversed"].MEMBER_LIST]
+        member_names = [m.name for m in result["My.Reversed"].members]
         assert member_names == ["a", "m", "z"]
 
     def test_array_of_enum(self):
@@ -215,8 +209,8 @@ class TestParseTypeDefinitions:
             },
         ]
         result = _parse_type_definitions(raw)
-        assert issubclass(result["My.Dirs"], ArrayValue)
-        assert issubclass(result["My.Dirs"].MEMBER_TYPE, EnumValue)
+        assert result["My.Dirs"].kind == TypeKind.ARRAY
+        assert result["My.Dirs"].elem_type.kind == TypeKind.ENUM
 
     def test_struct_referencing_array(self):
         """Struct with a member that is an array — tests cross-reference resolution."""
@@ -238,9 +232,9 @@ class TestParseTypeDefinitions:
         ]
         result = _parse_type_definitions(raw)
         pose = result["My.Pose"]
-        assert issubclass(pose, StructValue)
+        assert pose.kind == TypeKind.STRUCT
         # first member should be the array type
-        assert issubclass(pose.MEMBER_LIST[0][1], ArrayValue)
+        assert pose.members[0].type.kind == TypeKind.ARRAY
 
     def test_unknown_type_definition_kind(self):
         raw = [{"kind": "union", "qualifiedName": "My.Bad"}]
@@ -270,12 +264,12 @@ class TestParseCommands:
         assert 1234 in id_dict
         assert "Ref.cmdDisp.CMD_NO_OP" in name_dict
         cmd = id_dict[1234]
-        assert cmd.get_full_name() == "Ref.cmdDisp.CMD_NO_OP"
-        assert cmd.get_op_code() == 1234
+        assert cmd.name == "Ref.cmdDisp.CMD_NO_OP"
+        assert cmd.opcode == 1234
         assert cmd.arguments == []
 
     def test_command_with_args(self):
-        enum_type = EnumValue.construct_type("TestCmd.Color", {"RED": 0, "GREEN": 1}, "U32")
+        enum_type = FpyType(TypeKind.ENUM, "TestCmd.Color", enum_dict={"RED": 0, "GREEN": 1}, rep_type=U32)
         type_defs = {"TestCmd.Color": enum_type}
         raw = [
             {
@@ -300,9 +294,9 @@ class TestParseCommands:
         cmd = id_dict[42]
         assert len(cmd.arguments) == 2
         assert cmd.arguments[0][0] == "color"
-        assert issubclass(cmd.arguments[0][2], EnumValue)
+        assert cmd.arguments[0][2].kind == TypeKind.ENUM
         assert cmd.arguments[1][0] == "brightness"
-        assert cmd.arguments[1][2] is U8Value
+        assert cmd.arguments[1][2] is U8
 
     def test_empty_commands(self):
         id_dict, name_dict = _parse_commands([], {})
@@ -328,9 +322,9 @@ class TestParseChannels:
         assert 999 in id_dict
         assert "Ref.comp.MyChannel" in name_dict
         ch = id_dict[999]
-        assert ch.get_full_name() == "Ref.comp.MyChannel"
-        assert ch.get_id() == 999
-        assert ch.ch_type_obj is U32Value
+        assert ch.name == "Ref.comp.MyChannel"
+        assert ch.ch_id == 999
+        assert ch.ch_type is U32
 
     def test_channel_with_limits(self):
         raw = [
@@ -346,10 +340,10 @@ class TestParseChannels:
         ]
         id_dict, _ = _parse_channels(raw, {})
         ch = id_dict[500]
-        assert ch.get_id() == 500
+        assert ch.ch_id == 500
 
     def test_channel_with_enum_type(self):
-        enum_type = EnumValue.construct_type("TestCh.Status", {"OK": 0, "ERR": 1}, "U8")
+        enum_type = FpyType(TypeKind.ENUM, "TestCh.Status", enum_dict={"OK": 0, "ERR": 1}, rep_type=U8)
         type_defs = {"TestCh.Status": enum_type}
         raw = [
             {
@@ -359,7 +353,7 @@ class TestParseChannels:
             }
         ]
         id_dict, _ = _parse_channels(raw, type_defs)
-        assert issubclass(id_dict[777].ch_type_obj, EnumValue)
+        assert id_dict[777].ch_type.kind == TypeKind.ENUM
 
     def test_empty_channels(self):
         id_dict, name_dict = _parse_channels([], {})
@@ -383,12 +377,12 @@ class TestParseParameters:
         assert 1001 in id_dict
         assert "Ref.comp.MY_PARAM" in name_dict
         prm = id_dict[1001]
-        assert prm.get_full_name() == "Ref.comp.MY_PARAM"
-        assert prm.get_id() == 1001
-        assert prm.prm_type_obj is U32Value
+        assert prm.name == "Ref.comp.MY_PARAM"
+        assert prm.prm_id == 1001
+        assert prm.prm_type is U32
 
     def test_parameter_with_enum_type(self):
-        enum_type = EnumValue.construct_type("TestPrm.Choice", {"A": 0, "B": 1, "C": 2}, "I32")
+        enum_type = FpyType(TypeKind.ENUM, "TestPrm.Choice", enum_dict={"A": 0, "B": 1, "C": 2}, rep_type=I32)
         type_defs = {"TestPrm.Choice": enum_type}
         raw = [
             {
@@ -398,7 +392,7 @@ class TestParseParameters:
             }
         ]
         id_dict, _ = _parse_parameters(raw, type_defs)
-        assert issubclass(id_dict[2002].prm_type_obj, EnumValue)
+        assert id_dict[2002].prm_type.kind == TypeKind.ENUM
 
     def test_empty_parameters(self):
         id_dict, name_dict = _parse_parameters([], {})
@@ -447,7 +441,7 @@ class TestLoadDictionary:
 
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["type_defs"]) == 87
+        assert len(d["type_defs"]) == 89
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)
@@ -469,53 +463,53 @@ class TestLoadDictionary:
         assert len(d["constants"]) == 15
 
     def test_command_attributes(self):
-        """Verify CmdTemplate attributes match expected API."""
+        """Verify CmdDef attributes match expected API."""
         d = load_dictionary(REF_DICT_PATH)
         # Find a command with args
         cmd = d["cmd_name_dict"]["Ref.dpDemo.SelectColor"]
-        assert cmd.get_full_name() == "Ref.dpDemo.SelectColor"
-        assert isinstance(cmd.get_op_code(), int)
+        assert cmd.name == "Ref.dpDemo.SelectColor"
+        assert isinstance(cmd.opcode, int)
         assert len(cmd.arguments) == 1
         arg_name, arg_desc, arg_type = cmd.arguments[0]
         assert arg_name == "color"
-        assert issubclass(arg_type, EnumValue)
+        assert arg_type.kind == TypeKind.ENUM
 
     def test_channel_attributes(self):
-        """Verify ChTemplate attributes match expected API."""
+        """Verify ChDef attributes match expected API."""
         d = load_dictionary(REF_DICT_PATH)
         ch = d["ch_name_dict"]["CdhCore.cmdDisp.CommandsDispatched"]
-        assert ch.get_full_name() == "CdhCore.cmdDisp.CommandsDispatched"
-        assert isinstance(ch.get_id(), int)
-        assert ch.ch_type_obj is U32Value
+        assert ch.name == "CdhCore.cmdDisp.CommandsDispatched"
+        assert isinstance(ch.ch_id, int)
+        assert ch.ch_type is U32
 
     def test_parameter_attributes(self):
-        """Verify PrmTemplate attributes match expected API."""
+        """Verify PrmDef attributes match expected API."""
         d = load_dictionary(REF_DICT_PATH)
         prm = d["prm_name_dict"]["Ref.typeDemo.CHOICE_PRM"]
-        assert prm.get_full_name() == "Ref.typeDemo.CHOICE_PRM"
-        assert isinstance(prm.get_id(), int)
-        assert issubclass(prm.prm_type_obj, EnumValue)
+        assert prm.name == "Ref.typeDemo.CHOICE_PRM"
+        assert isinstance(prm.prm_id, int)
+        assert prm.prm_type.kind == TypeKind.ENUM
 
     def test_id_and_name_dicts_consistent(self):
         """Every entry in name_dict should also appear in id_dict."""
         d = load_dictionary(REF_DICT_PATH)
 
         for cmd in d["cmd_name_dict"].values():
-            assert d["cmd_id_dict"][cmd.get_op_code()] is cmd
+            assert d["cmd_id_dict"][cmd.opcode] is cmd
 
         for ch in d["ch_name_dict"].values():
-            assert d["ch_id_dict"][ch.get_id()] is ch
+            assert d["ch_id_dict"][ch.ch_id] is ch
 
         for prm in d["prm_name_dict"].values():
-            assert d["prm_id_dict"][prm.get_id()] is prm
+            assert d["prm_id_dict"][prm.prm_id] is prm
 
     def test_enum_type_parsed(self):
         """Enum types should have ENUM_DICT populated."""
         d = load_dictionary(REF_DICT_PATH)
         # Ref.Choice is used as a parameter type
         choice = d["type_defs"]["Ref.Choice"]
-        assert issubclass(choice, EnumValue)
-        assert "ONE" in choice.ENUM_DICT
+        assert choice.kind == TypeKind.ENUM
+        assert "ONE" in choice.enum_dict
 
     def test_struct_type_parsed(self):
         """Struct types should have MEMBER_LIST populated."""
@@ -524,12 +518,12 @@ class TestLoadDictionary:
         structs = {
             name: typ
             for name, typ in d["type_defs"].items()
-            if issubclass(typ, StructValue)
+            if typ.kind == TypeKind.STRUCT
         }
         assert len(structs) > 0
         for name, typ in structs.items():
-            assert hasattr(typ, "MEMBER_LIST")
-            assert len(typ.MEMBER_LIST) > 0
+            assert typ.members is not None
+            assert len(typ.members) > 0
 
     def test_array_type_parsed(self):
         """Array types should have LENGTH and MEMBER_TYPE."""
@@ -537,13 +531,13 @@ class TestLoadDictionary:
         arrays = {
             name: typ
             for name, typ in d["type_defs"].items()
-            if issubclass(typ, ArrayValue)
+            if typ.kind == TypeKind.ARRAY
         }
         assert len(arrays) > 0
         for name, typ in arrays.items():
-            assert hasattr(typ, "LENGTH")
-            assert typ.LENGTH > 0
-            assert hasattr(typ, "MEMBER_TYPE")
+            assert typ.length is not None
+            assert typ.length > 0
+            assert typ.elem_type is not None
 
     def test_constants_values(self):
         """Spot-check known constants from the Ref dictionary."""
@@ -614,7 +608,7 @@ class TestSyntheticDictionary:
         path = self._write_dict(data)
         d = load_dictionary(path)
         cmd = d["cmd_id_dict"][1]
-        assert cmd.get_full_name() == "A.b.NO_OP"
+        assert cmd.name == "A.b.NO_OP"
         assert cmd.arguments == []
         os.unlink(path)
 
@@ -630,7 +624,7 @@ class TestSyntheticDictionary:
         )
         path = self._write_dict(data)
         d = load_dictionary(path)
-        assert d["ch_id_dict"][10].ch_type_obj is BoolValue
+        assert d["ch_id_dict"][10].ch_type is BOOL
         os.unlink(path)
 
     def test_chained_aliases(self):
@@ -653,8 +647,8 @@ class TestSyntheticDictionary:
         )
         path = self._write_dict(data)
         d = load_dictionary(path)
-        assert d["type_defs"]["Synth.AliasA"] is U32Value
-        assert d["type_defs"]["Synth.AliasB"] is U32Value
+        assert d["type_defs"]["Synth.AliasA"] is U32
+        assert d["type_defs"]["Synth.AliasB"] is U32
         os.unlink(path)
 
     def test_struct_with_enum_member(self):
@@ -679,11 +673,11 @@ class TestSyntheticDictionary:
         path = self._write_dict(data)
         d = load_dictionary(path)
         move = d["type_defs"]["Synth.Move"]
-        assert issubclass(move, StructValue)
-        assert move.MEMBER_LIST[0][0] == "dir"
-        assert issubclass(move.MEMBER_LIST[0][1], EnumValue)
-        assert move.MEMBER_LIST[1][0] == "dist"
-        assert move.MEMBER_LIST[1][1] is U32Value
+        assert move.kind == TypeKind.STRUCT
+        assert move.members[0].name == "dir"
+        assert move.members[0].type.kind == TypeKind.ENUM
+        assert move.members[1].name == "dist"
+        assert move.members[1].type is U32
         os.unlink(path)
 
     def test_command_with_struct_arg(self):
@@ -719,7 +713,7 @@ class TestSyntheticDictionary:
         cmd = d["cmd_id_dict"][99]
         assert len(cmd.arguments) == 1
         assert cmd.arguments[0][0] == "pair"
-        assert issubclass(cmd.arguments[0][2], StructValue)
+        assert cmd.arguments[0][2].kind == TypeKind.STRUCT
         os.unlink(path)
 
     def test_string_type_in_channel(self):
@@ -735,7 +729,7 @@ class TestSyntheticDictionary:
         path = self._write_dict(data)
         d = load_dictionary(path)
         ch = d["ch_id_dict"][55]
-        assert issubclass(ch.ch_type_obj, StringValue)
+        assert ch.ch_type.is_string
         os.unlink(path)
 
     def test_multiple_commands_unique_opcodes(self):

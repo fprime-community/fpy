@@ -32,7 +32,6 @@ classifiers = [
 ]
 dependencies = [
     "pytest>=6.2.4",
-    "fprime-gds>=4.1.0",
     "lark>=1.2.2",
 ]
 

@@ -8,7 +8,6 @@ from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
-from fprime_gds.common.testing_fw.api import IntegrationTestAPI
 
 
 default_dictionary = str(
@@ -50,7 +49,7 @@ def lookup_type(fprime_test_api, type_name: str):
 
 
 def run_seq(
-    fprime_test_api: IntegrationTestAPI,
+    fprime_test_api,
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
     time_base: int = 0,
@@ -88,7 +87,7 @@ def run_seq(
     tlm_db = {}
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
-        tlm_db[ch_template.get_id()] = val
+        tlm_db[ch_template.ch_id] = val
     ret = model.run(directives, tlm_db)
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)

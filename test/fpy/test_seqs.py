@@ -1,6 +1,6 @@
 import pytest
 
-from fprime_gds.common.models.serialize.numerical_types import U32Type as U32Value
+from fpy.types import FpyValue, U32
 
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
@@ -381,7 +381,7 @@ exit(1)
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(1).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 1).serialize()},
     )
 
 
@@ -404,7 +404,7 @@ else:
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(4).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 4).serialize()},
     )
 
 
@@ -451,7 +451,7 @@ exit(1)
         fprime_test_api,
         seq,
         {
-            "Ref.typeDemo.ChoicePairCh": lookup_type(fprime_test_api, "Ref.ChoicePair")(
+            "Ref.typeDemo.ChoicePairCh": FpyValue(lookup_type(fprime_test_api, "Ref.ChoicePair"),
                 {"firstChoice": "ONE", "secondChoice": "ONE"}
             ).serialize()
         },
@@ -1801,7 +1801,7 @@ assert (end - start).seconds == 5
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
         timeout_s=20
     )
 

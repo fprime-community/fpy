@@ -2,20 +2,6 @@ from __future__ import annotations
 import sys
 from functools import lru_cache
 from pathlib import Path
-from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.enum_type import EnumType as EnumValue
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    NumericalType as NumericalValue,
-)
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
@@ -54,6 +40,16 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     FlagIdValue,
     TimeIntervalValue,
+    FpyType,
+    FpyValue,
+    TypeKind,
+    StructMember,
+    TIME,
+    BOOL,
+    U8,
+    U16,
+    U32,
+    I64,
 )
 from fpy.state import (
     CallableSymbol,
@@ -197,21 +193,21 @@ def _build_global_scopes(dictionary: str) -> tuple:
     type_name_dict = dict(type_name_dict)
 
     # enum const dict is a dict of fully qualified enum const name (like Ref.Choice.ONE) to its fprime value
-    enum_const_name_dict: dict[str, FppValue] = {}
+    enum_const_name_dict: dict[str, FpyValue] = {}
 
     # find each enum type, and put each of its values in the enum const dict
     for name, typ in type_name_dict.items():
-        if issubclass(typ, EnumValue):
-            for enum_const_name, val in typ.ENUM_DICT.items():
-                enum_const_name_dict[name + "." + enum_const_name] = typ(
-                    enum_const_name
+        if typ.kind == TypeKind.ENUM:
+            for enum_const_name, val in typ.enum_dict.items():
+                enum_const_name_dict[name + "." + enum_const_name] = FpyValue(
+                    typ, enum_const_name
                 )
 
     # insert the builtin types into the dict
-    type_name_dict["Fw.Time"] = TimeValue
+    type_name_dict["Fw.Time"] = TIME
     for typ in SPECIFIC_NUMERIC_TYPES:
-        type_name_dict[typ.get_canonical_name()] = typ
-    type_name_dict["bool"] = BoolValue
+        type_name_dict[typ.name] = typ
+    type_name_dict["bool"] = BOOL
     # note no string type at the moment
 
     # Require Fw.TimeIntervalValue and Fw.TimeComparison from the dictionary
@@ -219,12 +215,10 @@ def _build_global_scopes(dictionary: str) -> tuple:
         raise ValueError("Dictionary must contain Fw.TimeIntervalValue type")
     dict_time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
     # Verify the dictionary's type matches our expected structure
-    expected_members = list(TimeIntervalValue.MEMBER_LIST)
-    dict_members = list(dict_time_interval_type.MEMBER_LIST)
-    if expected_members != dict_members:
+    if TimeIntervalValue.members != dict_time_interval_type.members:
         raise ValueError(
-            f"Dictionary Fw.TimeIntervalValue has members {dict_members}, "
-            f"expected {expected_members}"
+            f"Dictionary Fw.TimeIntervalValue has members {dict_time_interval_type.members}, "
+            f"expected {TimeIntervalValue.members}"
         )
     # Use our canonical type (which has the same structure)
     type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
@@ -233,15 +227,15 @@ def _build_global_scopes(dictionary: str) -> tuple:
     if "Svc.Fpy.FlagId" not in type_name_dict:
         raise ValueError("Dictionary must contain Svc.Fpy.FlagId enum")
     dict_flag_id_type = type_name_dict["Svc.Fpy.FlagId"]
-    if dict_flag_id_type.ENUM_DICT != FlagIdValue.ENUM_DICT:
+    if dict_flag_id_type.enum_dict != FlagIdValue.enum_dict:
         raise ValueError(
-            f"Dictionary Svc.Fpy.FlagId has enum dict {dict_flag_id_type.ENUM_DICT}, "
-            f"expected {FlagIdValue.ENUM_DICT}"
+            f"Dictionary Svc.Fpy.FlagId has enum dict {dict_flag_id_type.enum_dict}, "
+            f"expected {FlagIdValue.enum_dict}"
         )
-    if dict_flag_id_type.REP_TYPE != FlagIdValue.REP_TYPE:
+    if dict_flag_id_type.rep_type != FlagIdValue.rep_type:
         raise ValueError(
-            f"Dictionary Svc.Fpy.FlagId has rep type {dict_flag_id_type.REP_TYPE}, "
-            f"expected {FlagIdValue.REP_TYPE}"
+            f"Dictionary Svc.Fpy.FlagId has rep type {dict_flag_id_type.rep_type}, "
+            f"expected {FlagIdValue.rep_type}"
         )
     type_name_dict["Svc.Fpy.FlagId"] = FlagIdValue
 
@@ -251,17 +245,18 @@ def _build_global_scopes(dictionary: str) -> tuple:
     # once we have timeintervalvalue, make the checkstate struct
     # This is an internal type (prefixed with $) not directly accessible to users,
     # used for desugaring check statements
-    CheckStateValue = StructValue.construct_type(
+    CheckStateValue = FpyType(
+        TypeKind.STRUCT,
         "$CheckState",
-        [
-            ("persist", TimeIntervalValue, "", ""),
-            ("timeout", TimeValue, "", ""),
-            ("freq", TimeIntervalValue, "", ""),
-            ("result", BoolValue, "", ""),
-            ("last_was_true", BoolValue, "", ""),
-            ("last_time_true", TimeValue, "", ""),
-            ("time_started", TimeValue, "", ""),
-        ],
+        members=(
+            StructMember("persist", TimeIntervalValue),
+            StructMember("timeout", TIME),
+            StructMember("freq", TimeIntervalValue),
+            StructMember("result", BOOL),
+            StructMember("last_was_true", BOOL),
+            StructMember("last_time_true", TIME),
+            StructMember("time_started", TIME),
+        ),
     )
     # Add to type dict so it can be used internally
     type_name_dict["$CheckState"] = CheckStateValue
@@ -270,38 +265,32 @@ def _build_global_scopes(dictionary: str) -> tuple:
     callable_name_dict: dict[str, CallableSymbol] = {}
     # add all cmds to the callable dict
     for name, cmd in cmd_name_dict.items():
-        cmd: CmdTemplate
         args = []
         for arg_name, _, arg_type in cmd.arguments:
             args.append((arg_name, arg_type, None))  # No default values for cmds
         # cmds are thought of as callables with a Fw.CmdResponse return value
         callable_name_dict[name] = CommandSymbol(
-            cmd.get_full_name(), cmd_response_type, args, cmd
+            cmd.name, cmd_response_type, args, cmd
         )
 
     # add numeric type casts to callable dict
     for typ in SPECIFIC_NUMERIC_TYPES:
-        callable_name_dict[typ.get_canonical_name()] = CastSymbol(
-            typ.get_canonical_name(), typ, [("value", NumericalValue, None)], typ
+        callable_name_dict[typ.name] = CastSymbol(
+            typ.name, typ, [("value", I64, None)], typ
         )
 
-    # for each type in the dict, if it has a constructor, create an TypeCtorSymbol
+    # for each type in the dict, if it has a constructor, create a TypeCtorSymbol
     # object to track the constructor and put it in the callable name dict
     for name, typ in type_name_dict.items():
         args = []
-        if issubclass(typ, StructValue):
-            for arg_name, arg_type, _, _ in typ.MEMBER_LIST:
+        if typ.kind == TypeKind.STRUCT:
+            for m in typ.members:
                 args.append(
-                    (arg_name, arg_type, None)
+                    (m.name, m.type, None)
                 )  # No default values for struct ctors
-        elif issubclass(typ, ArrayValue):
-            for i in range(0, typ.LENGTH):
-                args.append(("e" + str(i), typ.MEMBER_TYPE, None))
-        elif issubclass(typ, TimeValue):
-            args.append(("time_base", U16Value, None))
-            args.append(("time_context", U8Value, None))
-            args.append(("seconds", U32Value, None))
-            args.append(("useconds", U32Value, None))
+        elif typ.kind == TypeKind.ARRAY:
+            for i in range(0, typ.length):
+                args.append(("e" + str(i), typ.elem_type, None))
         else:
             # bool, enum, string or numeric type
             # none of these have callable ctors

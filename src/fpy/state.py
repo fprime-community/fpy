@@ -25,36 +25,34 @@ from fpy.syntax import (
 from fpy.types import (
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
-    FppType,
-    FppValue,
-    NothingType,
-    NothingValue,
+    FpyType,
+    FpyValue,
+    NOTHING,
+    CmdDef,
+    ChDef,
+    PrmDef,
     is_instance_compat,
 )
 from fpy.bytecode.directives import Directive
-
-from fprime_gds.common.templates.ch_template import ChTemplate
-from fprime_gds.common.templates.cmd_template import CmdTemplate
-from fprime_gds.common.templates.prm_template import PrmTemplate
 
 
 @dataclass
 class CallableSymbol:
     name: str
-    return_type: FppType | NothingType
+    return_type: FpyType
     # args is a list of (name, type, default_value) tuples
     # default_value is an AstExpr or None if no default is provided
-    args: list[tuple[str, FppType, AstExpr | None]]
+    args: list[tuple[str, FpyType, AstExpr | None]]
 
 
 @dataclass
 class CommandSymbol(CallableSymbol):
-    cmd: CmdTemplate
+    cmd: CmdDef
 
 
 @dataclass
 class BuiltinFuncSymbol(CallableSymbol):
-    generate: Callable[[AstFuncCall, dict[int, FppValue]], list[Directive]]
+    generate: Callable[[AstFuncCall, dict[int, FpyValue]], list[Directive]]
     """a function which instantiates the builtin given the calling node and
     a dict mapping const_arg_indices to their compile-time values"""
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
@@ -69,12 +67,12 @@ class FunctionSymbol(CallableSymbol):
 
 @dataclass
 class TypeCtorSymbol(CallableSymbol):
-    type: FppType
+    type: FpyType
 
 
 @dataclass
 class CastSymbol(CallableSymbol):
-    to_type: FppType
+    to_type: FpyType
 
 
 @dataclass
@@ -85,7 +83,7 @@ class FieldAccess:
     """the complete qualifier"""
     base_sym: Union[Symbol, None]
     """the base symbol, up through all the layers of field symbols, or None if parent at some point is not a symbol at all"""
-    type: FppType
+    type: FpyType
     """the fprime type of this reference"""
     is_struct_member: bool = False
     """True if this is a struct member reference"""
@@ -112,7 +110,7 @@ class VariableSymbol:
     """the AST node denoting the var's type"""
     declaration: Ast
     """the node where this var is declared"""
-    type: FppType | None = None
+    type: FpyType | None = None
     """the resolved type of the variable. None if type unsure at the moment"""
     frame_offset: int | None = None
     """the offset in the lvar array where this var is stored"""
@@ -250,20 +248,20 @@ def is_symbol_an_expr(symbol: Symbol) -> bool:
     return is_instance_compat(
         symbol,
         (
-            ChTemplate,
-            PrmTemplate,
-            FppValue,
+            ChDef,
+            PrmDef,
+            FpyValue,
             VariableSymbol,
             FieldAccess
         ),
     )
 
 Symbol = typing.Union[
-    ChTemplate,
-    PrmTemplate,
-    FppValue,
+    ChDef,
+    PrmDef,
+    FpyValue,
     CallableSymbol,
-    FppType,
+    FpyType,
     VariableSymbol,
     SymbolTable,
     FieldAccess
@@ -276,7 +274,7 @@ class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
     global_type_scope: SymbolTable
-    """The global type scope: a symbol table whose leaf nodes are types"""
+    """The global type scope: a symbol table whose leaf nodes are FpyType instances."""
     global_callable_scope: SymbolTable
     """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
     global_value_scope: SymbolTable
@@ -311,24 +309,24 @@ class CompileState:
     )
     """reference to its singular resolution"""
 
-    synthesized_types: dict[AstExpr, FppType | NothingType] = field(
+    synthesized_types: dict[AstExpr, FpyType] = field(
         default_factory=dict
     )
     """expr to its fprime type, before type conversions are applied"""
 
-    op_intermediate_types: dict[AstOp, FppType] = field(default_factory=dict)
+    op_intermediate_types: dict[AstOp, FpyType] = field(default_factory=dict)
     """the intermediate type that all args should be converted to for the given op"""
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
     """a list of nodes which are explicit casts"""
-    contextual_types: dict[AstExpr, FppType] = field(default_factory=dict)
+    contextual_types: dict[AstExpr, FpyType] = field(default_factory=dict)
     """expr to fprime type it will end up being on the stack after type conversions"""
 
-    const_expr_values: dict[AstExpr, FppValue | NothingValue | None] = field(
+    const_expr_values: dict[AstExpr, FpyValue | None] = field(
         default_factory=dict
     )
     """expr to the fprime value it will end up being on the stack after type conversions.
-    None if unsure at compile time"""
+    None if unsure at compile time.  NOTHING_VALUE for void expressions."""
 
     resolved_func_args: dict[AstFuncCall, list[AstExpr]] = field(default_factory=dict)
     """function call to resolved arguments in positional order.

@@ -1,11 +1,63 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator, List, Literal as TypingLiteral, Union
 from lark import Token, Transformer, v_args
 from lark.tree import Meta
 from lark.lark import PostLex
 from lark.indenter import DedentError
 from decimal import Decimal
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Operator enums & tables
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class UnaryStackOp(str, Enum):
+    NOT = "not"
+    IDENTITY = "+"
+    NEGATE = "-"
+
+
+class BinaryStackOp(str, Enum):
+    EXPONENT = "**"
+    MODULUS = "%"
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+    FLOOR_DIVIDE = "//"
+    GREATER_THAN = ">"
+    GREATER_THAN_OR_EQUAL = ">="
+    LESS_THAN_OR_EQUAL = "<="
+    LESS_THAN = "<"
+    EQUAL = "=="
+    NOT_EQUAL = "!="
+    OR = "or"
+    AND = "and"
+
+
+NUMERIC_OPERATORS = {
+    UnaryStackOp.IDENTITY,
+    UnaryStackOp.NEGATE,
+    BinaryStackOp.ADD,
+    BinaryStackOp.SUBTRACT,
+    BinaryStackOp.MULTIPLY,
+    BinaryStackOp.DIVIDE,
+    BinaryStackOp.MODULUS,
+    BinaryStackOp.EXPONENT,
+    BinaryStackOp.FLOOR_DIVIDE,
+}
+BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 
 class PythonIndenter(PostLex):
