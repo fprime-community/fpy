@@ -14,11 +14,9 @@ from fpy.syntax import (
     AstBoolean,
     AstFor,
     AstFuncCall,
-    AstNamedArgument,
     AstNumber,
     AstRange,
     AstBlock,
-    AstString,
     AstUnaryOp,
     AstIdent,
     AstWhile,
@@ -26,7 +24,6 @@ from fpy.syntax import (
 from fpy.types import (
     FpyType,
     FpyValue,
-    TypeKind,
     INTEGER,
     TIME_OPS,
     BOOL,
@@ -38,7 +35,6 @@ from fpy.state import (
     FieldAccess,
     ForLoopAnalysis,
     Symbol,
-    TypeCtorSymbol,
 )
 from fpy.visitors import Transformer
 
@@ -306,7 +302,9 @@ class DesugarDefaultArgs(Transformer):
     Desugars function calls with named or missing arguments by:
     1. Reordering named arguments to positional order
     2. Filling in default values for missing arguments
-    3. Converting FpyValue defaults (from builtins) to AstNumber/AstBoolean nodes
+
+    FpyValue defaults (from builtins or dictionary type constructors) are left
+    as-is and serialized directly in codegen via ``emit_arg``.
 
     For example, if we have:
         def foo(a: U8, b: U8 = 5, c: U8 = 10):
@@ -322,100 +320,18 @@ class DesugarDefaultArgs(Transformer):
     value expressions.
     """
 
-    def _fpy_value_to_ast(self, value: FpyValue, meta: Meta, state: CompileState) -> Ast:
-        """Convert an FpyValue (from builtin or dictionary default) to an AST literal node."""
-        if value.type == BOOL:
-            node = AstBoolean(meta=meta, value=value.val)
-        elif value.type.is_integer:
-            node = AstNumber(meta=meta, value=value.val)
-        elif value.type.is_float:
-            from decimal import Decimal
-            node = AstNumber(meta=meta, value=Decimal(str(value.val)))
-        elif value.type.is_string:
-            node = AstString(meta=meta, value=value.val)
-        elif value.type.kind == TypeKind.ENUM:
-            # Convert enum default to its integer representation
-            val = value.val
-            if isinstance(val, str):
-                assert val in value.type.enum_dict, f"Unknown enum constant: {val}"
-                val = value.type.enum_dict[val]
-            node = AstNumber(meta=meta, value=val)
-            # Register with the rep_type so codegen serializes correctly
-            state.synthesized_types[node] = value.type.rep_type
-            state.contextual_types[node] = value.type.rep_type
-            state.const_expr_values[node] = FpyValue(value.type.rep_type, val)
-            return node
-        elif value.type.kind == TypeKind.STRUCT:
-            # Create a synthetic type ctor call: TypeName(member1=val1, member2=val2, ...)
-            func_name = self._make_qualified_name_ast(value.type.name, meta, state)
-            args = []
-            for m in value.type.members:
-                member_val = value.val[m.name]
-                member_ast = self._fpy_value_to_ast(member_val, meta, state)
-                named_arg = AstNamedArgument(meta=meta, name=m.name, value=member_ast)
-                named_arg.id = state.next_node_id
-                state.next_node_id += 1
-                args.append(named_arg)
-            node = AstFuncCall(meta=meta, func=func_name, args=args)
-            node.id = state.next_node_id
-            state.next_node_id += 1
-            state.synthesized_types[node] = value.type
-            state.contextual_types[node] = value.type
-            state.const_expr_values[node] = value
-            return node
-        elif value.type.kind == TypeKind.ARRAY:
-            # Create a synthetic type ctor call: TypeName(e0, e1, ...)
-            func_name = self._make_qualified_name_ast(value.type.name, meta, state)
-            args = []
-            for elem_val in value.val:
-                args.append(self._fpy_value_to_ast(elem_val, meta, state))
-            node = AstFuncCall(meta=meta, func=func_name, args=args)
-            node.id = state.next_node_id
-            state.next_node_id += 1
-            state.synthesized_types[node] = value.type
-            state.contextual_types[node] = value.type
-            state.const_expr_values[node] = value
-            return node
-        else:
-            assert False, f"Unsupported FpyValue type for default arg: {value.type}"
-
-        # Register the new node in state so codegen can find its type/value
-        state.synthesized_types[node] = value.type
-        state.contextual_types[node] = value.type
-        state.const_expr_values[node] = value
-        return node
-
-    def _make_qualified_name_ast(self, qualified_name: str, meta: Meta, state: CompileState) -> Ast:
-        """Create an AST node for a qualified name like 'Ref.SignalPair'."""
-        parts = qualified_name.split(".")
-        node = AstIdent(meta=meta, name=parts[0])
-        node.id = state.next_node_id
-        state.next_node_id += 1
-        for part in parts[1:]:
-            node = AstGetAttr(meta=meta, parent=node, attr=part)
-            node.id = state.next_node_id
-            state.next_node_id += 1
-        return node
-
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         # Get the resolved arguments from semantic analysis.
         # This list is already in positional order with defaults filled in.
+        # FpyValue entries are kept as-is; codegen handles them directly.
         resolved_args = state.resolved_func_args.get(node)
         assert resolved_args is not None, (
             f"No resolved args for function call {node}. "
             f"This should have been set by PickTypesAndResolveAttrsAndItems."
         )
 
-        # Convert any FpyValue defaults to AST nodes
-        desugared_args = []
-        for arg in resolved_args:
-            if isinstance(arg, FpyValue):
-                desugared_args.append(self._fpy_value_to_ast(arg, node.meta, state))
-            else:
-                desugared_args.append(arg)
-
-        # Update the node's args with the desugared arguments
-        node.args = desugared_args
+        # Update the node's args with the resolved arguments
+        node.args = resolved_args
 
         return node
 

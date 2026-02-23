@@ -226,6 +226,16 @@ class GenerateFunctionBody(Emitter):
     # This affects how we access global variables (need GLOBAL directives)
     in_function = True
 
+    def _emit_func_arg(self, arg, state: CompileState) -> list[Directive | Ir]:
+        """Emit code to push a function argument onto the stack.
+
+        If *arg* is an FpyValue (a default value from a builtin or dictionary
+        type constructor), serialize it directly.  Otherwise delegate to the
+        normal AST emitter."""
+        if isinstance(arg, FpyValue):
+            return [PushValDirective(arg.serialize())]
+        return self.emit(arg, state)
+
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
@@ -818,14 +828,16 @@ class GenerateFunctionBody(Emitter):
         func = state.resolved_symbols[node.func]
         dirs = []
         if is_instance_compat(func, CommandSymbol):
-            const_args = not any(
-                state.const_expr_values[arg_node] is None for arg_node in node_args
+            const_args = all(
+                isinstance(arg_node, FpyValue) or 
+                (state.const_expr_values[arg_node] is not None)
+                for arg_node in node_args
             )
             if const_args:
                 # can just hardcode this cmd
                 arg_bytes = bytes()
                 for arg_node in node_args:
-                    arg_value = state.const_expr_values[arg_node]
+                    arg_value = arg_node if isinstance(arg_node, FpyValue) else state.const_expr_values[arg_node]
                     arg_bytes += arg_value.serialize()
                 dirs.append(ConstCmdDirective(func.cmd.opcode, arg_bytes))
             else:
@@ -833,8 +845,8 @@ class GenerateFunctionBody(Emitter):
                 # push all args to the stack
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
-                    dirs.extend(self.emit(arg_node, state))
-                    arg_converted_type = state.contextual_types[arg_node]
+                    dirs.extend(self._emit_func_arg(arg_node, state))
+                    arg_converted_type = arg_node.type if isinstance(arg_node, FpyValue) else state.contextual_types[arg_node]
                     arg_byte_count += arg_converted_type.max_size
                 # then push cmd opcode to stack as u32
                 dirs.append(
@@ -847,20 +859,21 @@ class GenerateFunctionBody(Emitter):
             # collect compile-time constant args (not pushed to stack)
             const_arg_values: dict[int, FpyValue] = {}
             for i in func.const_arg_indices:
-                const_val = state.const_expr_values.get(node_args[i])
+                arg = node_args[i]
+                const_val = arg if isinstance(arg, FpyValue) else state.const_expr_values.get(arg)
                 assert const_val is not None, f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
             # put non-const arg values on stack
             for i, arg_node in enumerate(node_args):
                 if i not in func.const_arg_indices:
-                    dirs.extend(self.emit(arg_node, state))
+                    dirs.extend(self._emit_func_arg(arg_node, state))
 
             dirs.extend(func.generate(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
-                dirs.extend(self.emit(arg_node, state))
+                dirs.extend(self._emit_func_arg(arg_node, state))
         elif is_instance_compat(func, CastSymbol):
             # just putting the arg value on the stack should be good enough, the
             # conversion will happen below
@@ -869,7 +882,7 @@ class GenerateFunctionBody(Emitter):
             # script-defined function
             # okay.. calling convention says we're going to put the args on the stack
             for arg_node in node_args:
-                dirs.extend(self.emit(arg_node, state))
+                dirs.extend(self._emit_func_arg(arg_node, state))
             # okay, args are on the stack. now we're going to generate CALL
             func_entry_label = state.func_entry_labels[func.definition]
             # push the offset of the func

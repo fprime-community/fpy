@@ -281,14 +281,26 @@ def _build_global_scopes(dictionary: str) -> tuple:
     for name, typ in type_name_dict.items():
         args = []
         if typ.kind == TypeKind.STRUCT:
-            # If the type has a default dict, decompose into per-member defaults
+            # Convert each member's default individually.
+            # Inline member arrays (members with a "size" key in the JSON) get
+            # wrapped in a synthetic array type, but the dictionary's raw default
+            # is shaped for the *inner* element type, not the wrapper. This is
+            # an FPP bug — the default should be nested to match the wrapper
+            # shape. We detect the shape mismatch and skip those members'
+            # defaults until FPP is fixed.
             struct_defaults = {}
             if typ.default is not None:
-                try:
-                    default_val = json_default_to_fpy_value(typ.default, typ)
-                    struct_defaults = default_val.val  # dict of member_name -> FpyValue
-                except (AssertionError, KeyError, TypeError):
-                    pass  # Skip defaults that don't match the type
+                for m in typ.members:
+                    raw_val = typ.default.get(m.name)
+                    if raw_val is None:
+                        continue
+                    # Skip inline member arrays whose default shape doesn't match
+                    # the synthetic wrapper type we created
+                    if m.type.kind == TypeKind.ARRAY and (
+                        not isinstance(raw_val, list) or len(raw_val) != m.type.length
+                    ):
+                        continue
+                    struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
             for m in typ.members:
                 member_default = struct_defaults.get(m.name)
                 args.append((m.name, m.type, member_default))
@@ -296,11 +308,8 @@ def _build_global_scopes(dictionary: str) -> tuple:
             # If the type has a default list, decompose into per-element defaults
             array_defaults = []
             if typ.default is not None:
-                try:
-                    default_val = json_default_to_fpy_value(typ.default, typ)
-                    array_defaults = default_val.val  # list of FpyValue
-                except (AssertionError, KeyError, TypeError):
-                    pass  # Skip defaults that don't match the type
+                default_val = json_default_to_fpy_value(typ.default, typ)
+                array_defaults = default_val.val  # list of FpyValue
             for i in range(0, typ.length):
                 elem_default = array_defaults[i] if i < len(array_defaults) else None
                 args.append(("e" + str(i), typ.elem_type, elem_default))
