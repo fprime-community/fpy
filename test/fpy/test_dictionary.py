@@ -1142,13 +1142,11 @@ class TestTypeCtorDefaults:
     @pytest.fixture(autouse=True)
     def clear_caches(self):
         load_dictionary.cache_clear()
-        from fpy.compiler import _build_global_scopes, _load_dictionary
+        from fpy.compiler import _build_global_scopes
         _build_global_scopes.cache_clear()
-        _load_dictionary.cache_clear()
         yield
         load_dictionary.cache_clear()
         _build_global_scopes.cache_clear()
-        _load_dictionary.cache_clear()
 
     def _get_callable_scope(self):
         from fpy.compiler import _build_global_scopes

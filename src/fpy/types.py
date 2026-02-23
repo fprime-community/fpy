@@ -537,20 +537,59 @@ class PrmDef:
 
 
 # The canonical Svc.Fpy.FlagId enum type
-FlagIdValue = FpyType(
+FLAG_ID = FpyType(
     TypeKind.ENUM,
     "Svc.Fpy.FlagId",
     enum_dict={"EXIT_ON_CMD_FAIL": 0},
     rep_type=U8,
 )
 
+# The canonical Fw.CmdResponse enum type
+CMD_RESPONSE = FpyType(
+    TypeKind.ENUM,
+    "Fw.CmdResponse",
+    enum_dict={
+        "OK": 0,
+        "INVALID_OPCODE": 1,
+        "VALIDATION_ERROR": 2,
+        "FORMAT_ERROR": 3,
+        "EXECUTION_ERROR": 4,
+        "BUSY": 5,
+    },
+    rep_type=U8,
+)
+
+# The canonical Fw.TimeComparison enum type
+TIME_COMPARISON = FpyType(
+    TypeKind.ENUM,
+    "Fw.TimeComparison",
+    enum_dict={"LT": -1, "EQ": 0, "GT": 1, "INCOMPARABLE": 2},
+    rep_type=I32,
+)
+
 # The canonical Fw.TimeIntervalValue struct type
-TimeIntervalValue = FpyType(
+TIME_INTERVAL = FpyType(
     TypeKind.STRUCT,
     "Fw.TimeIntervalValue",
     members=(
         StructMember("seconds", U32),
         StructMember("useconds", U32),
+    ),
+)
+
+# Internal type (prefixed with $) not directly accessible to users,
+# used for desugaring check statements.
+CHECK_STATE = FpyType(
+    TypeKind.STRUCT,
+    "$CheckState",
+    members=(
+        StructMember("persist", TIME_INTERVAL),
+        StructMember("timeout", TIME),
+        StructMember("freq", TIME_INTERVAL),
+        StructMember("result", BOOL),
+        StructMember("last_was_true", BOOL),
+        StructMember("last_time_true", TIME),
+        StructMember("time_started", TIME),
     ),
 )
 
@@ -573,22 +612,22 @@ TIME_OPS: dict[
     # Time - Time -> TimeInterval
     (TIME, TIME, BinaryStackOp.SUBTRACT): (
         TIME,
-        TimeIntervalValue,
+        TIME_INTERVAL,
         "time_sub",
         False,
     ),
     # Time + TimeInterval -> Time
-    (TIME, TimeIntervalValue, BinaryStackOp.ADD): (TIME, TIME, "time_add", False),
+    (TIME, TIME_INTERVAL, BinaryStackOp.ADD): (TIME, TIME, "time_add", False),
     # TimeInterval +/- TimeInterval -> TimeInterval
-    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.ADD): (
-        TimeIntervalValue,
-        TimeIntervalValue,
+    (TIME_INTERVAL, TIME_INTERVAL, BinaryStackOp.ADD): (
+        TIME_INTERVAL,
+        TIME_INTERVAL,
         "time_interval_add",
         False,
     ),
-    (TimeIntervalValue, TimeIntervalValue, BinaryStackOp.SUBTRACT): (
-        TimeIntervalValue,
-        TimeIntervalValue,
+    (TIME_INTERVAL, TIME_INTERVAL, BinaryStackOp.SUBTRACT): (
+        TIME_INTERVAL,
+        TIME_INTERVAL,
         "time_interval_sub",
         False,
     ),
@@ -599,8 +638,8 @@ TIME_OPS: dict[
     },
     # TimeInterval comparisons -> Bool
     **{
-        (TimeIntervalValue, TimeIntervalValue, op): (
-            TimeIntervalValue,
+        (TIME_INTERVAL, TIME_INTERVAL, op): (
+            TIME_INTERVAL,
             BOOL,
             "time_interval_cmp",
             True,
