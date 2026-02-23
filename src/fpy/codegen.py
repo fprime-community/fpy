@@ -1,8 +1,5 @@
 from __future__ import annotations
-import inspect
-from dataclasses import fields
-from typing import Callable, Union, get_args, get_origin
-import typing
+from typing import Union
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.

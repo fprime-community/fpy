@@ -160,6 +160,7 @@ class FpyType:
         "members",
         "elem_type",
         "length",
+        "default",
     )
 
     def __init__(
@@ -173,6 +174,7 @@ class FpyType:
         members: tuple[StructMember, ...] | None = None,
         elem_type: FpyType | None = None,
         length: int | None = None,
+        default: object | None = None,
     ):
         self.kind = kind
         self.name = name
@@ -182,6 +184,7 @@ class FpyType:
         self.members = members
         self.elem_type = elem_type
         self.length = length
+        self.default = default
 
     # -- identity ----------------------------------------------------------
 

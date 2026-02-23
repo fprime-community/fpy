@@ -12,6 +12,7 @@ from functools import lru_cache
 
 from fpy.types import (
     FpyType,
+    FpyValue,
     TypeKind,
     StructMember,
     CmdDef,
@@ -26,6 +27,67 @@ from fpy.types import (
 
 # Map of representation type name -> expected by enum rep_type
 ENUM_REP_TYPES = {"U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64"}
+
+
+def json_default_to_fpy_value(raw: object, typ: FpyType) -> FpyValue:
+    """Convert a raw JSON default value into an FpyValue for the given type.
+
+    Handles primitives (int, float, bool, str), enums (qualified constant name),
+    arrays (list of element defaults), and structs (dict of member defaults).
+    """
+    kind = typ.kind
+
+    if kind == TypeKind.BOOL:
+        assert isinstance(raw, bool), f"Expected bool default, got {type(raw)}"
+        return FpyValue(typ, raw)
+
+    if kind in (TypeKind.U8, TypeKind.U16, TypeKind.U32, TypeKind.U64,
+                TypeKind.I8, TypeKind.I16, TypeKind.I32, TypeKind.I64):
+        assert isinstance(raw, int), f"Expected int default, got {type(raw)}"
+        return FpyValue(typ, raw)
+
+    if kind in (TypeKind.F32, TypeKind.F64):
+        assert isinstance(raw, (int, float)), f"Expected float default, got {type(raw)}"
+        return FpyValue(typ, float(raw))
+
+    if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+        assert isinstance(raw, str), f"Expected str default, got {type(raw)}"
+        return FpyValue(typ, raw)
+
+    if kind == TypeKind.ENUM:
+        assert isinstance(raw, str), f"Expected str default for enum, got {type(raw)}"
+        # raw is a qualified name like "Ref.Choice.ONE"
+        # Extract just the constant name (the part after the enum type name)
+        prefix = typ.name + "."
+        if raw.startswith(prefix):
+            const_name = raw[len(prefix):]
+        else:
+            # Fallback: take the last dotted component
+            const_name = raw.rsplit(".", 1)[-1]
+        assert const_name in typ.enum_dict, (
+            f"Unknown enum constant '{const_name}' for {typ.name}"
+        )
+        return FpyValue(typ, const_name)
+
+    if kind == TypeKind.ARRAY:
+        assert isinstance(raw, list), f"Expected list default for array, got {type(raw)}"
+        assert len(raw) == typ.length, (
+            f"Array default length {len(raw)} != expected {typ.length}"
+        )
+        elements = [json_default_to_fpy_value(elem, typ.elem_type) for elem in raw]
+        return FpyValue(typ, elements)
+
+    if kind == TypeKind.STRUCT:
+        assert isinstance(raw, dict), f"Expected dict default for struct, got {type(raw)}"
+        members_dict = {}
+        for m in typ.members:
+            assert m.name in raw, (
+                f"Struct default missing member '{m.name}' for {typ.name}"
+            )
+            members_dict[m.name] = json_default_to_fpy_value(raw[m.name], m.type)
+        return FpyValue(typ, members_dict)
+
+    assert False, f"Cannot convert default for type {typ}"
 
 
 def _resolve_type(
@@ -110,11 +172,13 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
         enum_dict = {}
         for const in td["enumeratedConstants"]:
             enum_dict[const["name"]] = const["value"]
+        default = td.get("default")
         type_defs[name] = FpyType(
             TypeKind.ENUM,
             name,
             enum_dict=enum_dict,
             rep_type=PRIMITIVE_TYPE_MAP[rep_type_name],
+            default=default,
         )
 
     # Phase 2: Parse aliases (may reference primitives or already-parsed types)
@@ -148,11 +212,13 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                 if kind == "array":
                     elem_type = _resolve_type(td["elementType"], type_defs)
                     length = td["size"]
+                    default = td.get("default")
                     type_defs[name] = FpyType(
                         TypeKind.ARRAY,
                         name,
                         elem_type=elem_type,
                         length=length,
+                        default=default,
                     )
                 else:  # struct
                     members_json = td["members"]
@@ -176,10 +242,12 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                                 )
                             member_type = type_defs[array_name]
                         member_list.append(StructMember(member_name, member_type))
+                    default = td.get("default")
                     type_defs[name] = FpyType(
                         TypeKind.STRUCT,
                         name,
                         members=tuple(member_list),
+                        default=default,
                     )
             except (AssertionError, KeyError):
                 still_remaining.append((kind, td))

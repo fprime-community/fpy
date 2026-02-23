@@ -15,7 +15,7 @@ from fpy.codegen import (
     ResolveLabels,
 )
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
-from fpy.dictionary import load_dictionary
+from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
@@ -281,13 +281,29 @@ def _build_global_scopes(dictionary: str) -> tuple:
     for name, typ in type_name_dict.items():
         args = []
         if typ.kind == TypeKind.STRUCT:
+            # If the type has a default dict, decompose into per-member defaults
+            struct_defaults = {}
+            if typ.default is not None:
+                try:
+                    default_val = json_default_to_fpy_value(typ.default, typ)
+                    struct_defaults = default_val.val  # dict of member_name -> FpyValue
+                except (AssertionError, KeyError, TypeError):
+                    pass  # Skip defaults that don't match the type
             for m in typ.members:
-                args.append(
-                    (m.name, m.type, None)
-                )  # No default values for struct ctors
+                member_default = struct_defaults.get(m.name)
+                args.append((m.name, m.type, member_default))
         elif typ.kind == TypeKind.ARRAY:
+            # If the type has a default list, decompose into per-element defaults
+            array_defaults = []
+            if typ.default is not None:
+                try:
+                    default_val = json_default_to_fpy_value(typ.default, typ)
+                    array_defaults = default_val.val  # list of FpyValue
+                except (AssertionError, KeyError, TypeError):
+                    pass  # Skip defaults that don't match the type
             for i in range(0, typ.length):
-                args.append(("e" + str(i), typ.elem_type, None))
+                elem_default = array_defaults[i] if i < len(array_defaults) else None
+                args.append(("e" + str(i), typ.elem_type, elem_default))
         else:
             # bool, enum, string or numeric type
             # none of these have callable ctors

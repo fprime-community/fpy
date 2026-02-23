@@ -1325,9 +1325,10 @@ class PickTypesAndResolveFields(Visitor):
             arg_type = arg[1]
 
             # Skip type check for default values that are FpyValue instances
-            # this can only happen if the value is hardcoded into Fpy from a builtin func
+            # this can happen if the value is hardcoded from a builtin func
+            # or from dictionary defaults for type constructors
             if not is_instance_compat(value_expr, Ast):
-                assert is_instance_compat(func, BuiltinFuncSymbol), func
+                assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                 continue
 
             # Skip type check for default values from forward-called functions.
@@ -1399,9 +1400,9 @@ class PickTypesAndResolveFields(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
-                # Skip coercion for FpyValue defaults from builtins
+                # Skip coercion for FpyValue defaults from builtins or type constructors
                 if not is_instance_compat(value_expr, Ast):
-                    assert is_instance_compat(func, BuiltinFuncSymbol), func
+                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                     continue
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.

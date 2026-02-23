@@ -16,11 +16,13 @@ from fpy.dictionary import (
     _parse_parameters,
     _parse_constants,
     load_dictionary,
+    json_default_to_fpy_value,
     PRIMITIVE_TYPE_MAP,
 )
 
 from fpy.types import (
     FpyType,
+    FpyValue,
     TypeKind,
     U8,
     U16,
@@ -745,3 +747,490 @@ class TestSyntheticDictionary:
         assert len(d["cmd_id_dict"]) == 3
         assert len(d["cmd_name_dict"]) == 3
         os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# json_default_to_fpy_value
+# ---------------------------------------------------------------------------
+class TestJsonDefaultToFpyValue:
+    """Tests for converting raw JSON default values to FpyValue objects."""
+
+    def test_bool_default(self):
+        result = json_default_to_fpy_value(True, BOOL)
+        assert result == FpyValue(BOOL, True)
+
+        result = json_default_to_fpy_value(False, BOOL)
+        assert result == FpyValue(BOOL, False)
+
+    def test_integer_default(self):
+        result = json_default_to_fpy_value(42, U32)
+        assert result == FpyValue(U32, 42)
+
+    def test_signed_integer_default(self):
+        result = json_default_to_fpy_value(-5, I32)
+        assert result == FpyValue(I32, -5)
+
+    def test_float_default(self):
+        result = json_default_to_fpy_value(3.14, F32)
+        assert result == FpyValue(F32, 3.14)
+
+    def test_float_from_int_default(self):
+        """Integers should be accepted as float defaults."""
+        result = json_default_to_fpy_value(0, F64)
+        assert result == FpyValue(F64, 0.0)
+
+    def test_string_default(self):
+        string_type = FpyType(TypeKind.STRING, "String_80", max_length=80)
+        result = json_default_to_fpy_value("hello", string_type)
+        assert result == FpyValue(string_type, "hello")
+
+    def test_enum_default_qualified_name(self):
+        color = FpyType(
+            TypeKind.ENUM, "My.Color",
+            enum_dict={"RED": 0, "GREEN": 1, "BLUE": 2},
+            rep_type=U32,
+        )
+        result = json_default_to_fpy_value("My.Color.RED", color)
+        assert result == FpyValue(color, "RED")
+
+    def test_enum_default_extracts_constant_name(self):
+        """The constant name should be extracted from the qualified name."""
+        status = FpyType(
+            TypeKind.ENUM, "Svc.Status",
+            enum_dict={"OK": 0, "ERR": 1},
+            rep_type=U8,
+        )
+        result = json_default_to_fpy_value("Svc.Status.ERR", status)
+        assert result.val == "ERR"
+
+    def test_enum_default_unknown_constant(self):
+        color = FpyType(
+            TypeKind.ENUM, "My.Color",
+            enum_dict={"RED": 0},
+            rep_type=U32,
+        )
+        with pytest.raises(AssertionError, match="Unknown enum constant"):
+            json_default_to_fpy_value("My.Color.PURPLE", color)
+
+    def test_array_default(self):
+        arr_type = FpyType(
+            TypeKind.ARRAY, "My.ThreeU32s",
+            elem_type=U32, length=3,
+        )
+        result = json_default_to_fpy_value([10, 20, 30], arr_type)
+        assert len(result.val) == 3
+        assert result.val[0] == FpyValue(U32, 10)
+        assert result.val[1] == FpyValue(U32, 20)
+        assert result.val[2] == FpyValue(U32, 30)
+
+    def test_array_default_wrong_length(self):
+        arr_type = FpyType(
+            TypeKind.ARRAY, "My.TwoU32s",
+            elem_type=U32, length=2,
+        )
+        with pytest.raises(AssertionError, match="Array default length"):
+            json_default_to_fpy_value([1, 2, 3], arr_type)
+
+    def test_array_of_floats_default(self):
+        arr_type = FpyType(
+            TypeKind.ARRAY, "My.F32s",
+            elem_type=F32, length=3,
+        )
+        result = json_default_to_fpy_value([0.0, 1.0, 2.0], arr_type)
+        assert len(result.val) == 3
+        for elem in result.val:
+            assert elem.type == F32
+
+    def test_array_of_enums_default(self):
+        color = FpyType(
+            TypeKind.ENUM, "My.Color",
+            enum_dict={"RED": 0, "GREEN": 1},
+            rep_type=U8,
+        )
+        arr_type = FpyType(
+            TypeKind.ARRAY, "My.Colors",
+            elem_type=color, length=2,
+        )
+        result = json_default_to_fpy_value(
+            ["My.Color.RED", "My.Color.GREEN"], arr_type
+        )
+        assert result.val[0] == FpyValue(color, "RED")
+        assert result.val[1] == FpyValue(color, "GREEN")
+
+    def test_struct_default(self):
+        from fpy.types import StructMember
+        struct_type = FpyType(
+            TypeKind.STRUCT, "My.Point",
+            members=(
+                StructMember("x", I32),
+                StructMember("y", I32),
+            ),
+        )
+        result = json_default_to_fpy_value({"x": 0, "y": 0}, struct_type)
+        assert result.val["x"] == FpyValue(I32, 0)
+        assert result.val["y"] == FpyValue(I32, 0)
+
+    def test_struct_default_with_enum_member(self):
+        from fpy.types import StructMember
+        status = FpyType(
+            TypeKind.ENUM, "My.Status",
+            enum_dict={"OK": 0, "ERR": 1},
+            rep_type=U8,
+        )
+        struct_type = FpyType(
+            TypeKind.STRUCT, "My.Result",
+            members=(
+                StructMember("code", U32),
+                StructMember("status", status),
+            ),
+        )
+        result = json_default_to_fpy_value(
+            {"code": 42, "status": "My.Status.OK"}, struct_type
+        )
+        assert result.val["code"] == FpyValue(U32, 42)
+        assert result.val["status"] == FpyValue(status, "OK")
+
+    def test_struct_default_with_array_member(self):
+        from fpy.types import StructMember
+        arr_type = FpyType(
+            TypeKind.ARRAY, "My.Vec3",
+            elem_type=F32, length=3,
+        )
+        struct_type = FpyType(
+            TypeKind.STRUCT, "My.Pose",
+            members=(
+                StructMember("position", arr_type),
+                StructMember("heading", F32),
+            ),
+        )
+        result = json_default_to_fpy_value(
+            {"position": [0.0, 0.0, 0.0], "heading": 1.0}, struct_type
+        )
+        assert len(result.val["position"].val) == 3
+        assert result.val["heading"] == FpyValue(F32, 1.0)
+
+    def test_nested_struct_default(self):
+        from fpy.types import StructMember
+        inner = FpyType(
+            TypeKind.STRUCT, "My.Inner",
+            members=(
+                StructMember("a", U32),
+                StructMember("b", U32),
+            ),
+        )
+        outer = FpyType(
+            TypeKind.STRUCT, "My.Outer",
+            members=(
+                StructMember("inner", inner),
+                StructMember("flag", BOOL),
+            ),
+        )
+        result = json_default_to_fpy_value(
+            {"inner": {"a": 1, "b": 2}, "flag": True}, outer
+        )
+        assert result.val["inner"].val["a"] == FpyValue(U32, 1)
+        assert result.val["inner"].val["b"] == FpyValue(U32, 2)
+        assert result.val["flag"] == FpyValue(BOOL, True)
+
+    def test_struct_default_missing_member(self):
+        from fpy.types import StructMember
+        struct_type = FpyType(
+            TypeKind.STRUCT, "My.Point",
+            members=(
+                StructMember("x", I32),
+                StructMember("y", I32),
+            ),
+        )
+        with pytest.raises(AssertionError, match="missing member 'y'"):
+            json_default_to_fpy_value({"x": 0}, struct_type)
+
+
+# ---------------------------------------------------------------------------
+# Default values stored on FpyType during parsing
+# ---------------------------------------------------------------------------
+class TestTypeDefinitionDefaults:
+    """Tests that _parse_type_definitions captures default values on FpyType."""
+
+    def test_enum_default_parsed(self):
+        raw = [
+            {
+                "kind": "enum",
+                "qualifiedName": "My.Color",
+                "representationType": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                "enumeratedConstants": [
+                    {"name": "RED", "value": 0},
+                    {"name": "GREEN", "value": 1},
+                ],
+                "default": "My.Color.RED",
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["My.Color"]
+        assert typ.default == "My.Color.RED"
+
+    def test_enum_no_default(self):
+        raw = [
+            {
+                "kind": "enum",
+                "qualifiedName": "My.NoDefault",
+                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "enumeratedConstants": [{"name": "A", "value": 0}],
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["My.NoDefault"].default is None
+
+    def test_array_default_parsed(self):
+        raw = [
+            {
+                "kind": "array",
+                "qualifiedName": "My.ThreeU32s",
+                "size": 3,
+                "elementType": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                "default": [0, 0, 0],
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["My.ThreeU32s"]
+        assert typ.default == [0, 0, 0]
+
+    def test_array_no_default(self):
+        raw = [
+            {
+                "kind": "array",
+                "qualifiedName": "My.NoDef",
+                "size": 2,
+                "elementType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["My.NoDef"].default is None
+
+    def test_struct_default_parsed(self):
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "My.Point",
+                "members": {
+                    "x": {"type": {"name": "I32", "kind": "integer", "size": 32, "signed": True}, "index": 0},
+                    "y": {"type": {"name": "I32", "kind": "integer", "size": 32, "signed": True}, "index": 1},
+                },
+                "default": {"x": 0, "y": 0},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["My.Point"]
+        assert typ.default == {"x": 0, "y": 0}
+
+    def test_struct_no_default(self):
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "My.NoDef",
+                "members": {
+                    "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
+                },
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["My.NoDef"].default is None
+
+    def test_struct_default_with_enum_member(self):
+        """Struct with an enum member should store the raw default dict."""
+        raw = [
+            {
+                "kind": "enum",
+                "qualifiedName": "My.Status",
+                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "enumeratedConstants": [{"name": "OK", "value": 0}, {"name": "ERR", "value": 1}],
+                "default": "My.Status.OK",
+            },
+            {
+                "kind": "struct",
+                "qualifiedName": "My.Result",
+                "members": {
+                    "code": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
+                    "status": {"type": {"name": "My.Status", "kind": "qualifiedIdentifier"}, "index": 1},
+                },
+                "default": {"code": 0, "status": "My.Status.OK"},
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["My.Result"].default == {"code": 0, "status": "My.Status.OK"}
+
+    def test_array_of_enums_default(self):
+        raw = [
+            {
+                "kind": "enum",
+                "qualifiedName": "My.Dir",
+                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "enumeratedConstants": [{"name": "UP", "value": 0}, {"name": "DOWN", "value": 1}],
+                "default": "My.Dir.UP",
+            },
+            {
+                "kind": "array",
+                "qualifiedName": "My.Dirs",
+                "size": 2,
+                "elementType": {"name": "My.Dir", "kind": "qualifiedIdentifier"},
+                "default": ["My.Dir.UP", "My.Dir.DOWN"],
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["My.Dirs"].default == ["My.Dir.UP", "My.Dir.DOWN"]
+
+
+# ---------------------------------------------------------------------------
+# Defaults from ref dictionary (integration)
+# ---------------------------------------------------------------------------
+class TestRefDictionaryDefaults:
+    """Verify defaults are correctly parsed from the real RefTopologyDictionary."""
+
+    @pytest.fixture(autouse=True)
+    def clear_cache(self):
+        load_dictionary.cache_clear()
+        yield
+        load_dictionary.cache_clear()
+
+    def test_enum_default_from_ref(self):
+        d = load_dictionary(REF_DICT_PATH)
+        choice = d["type_defs"]["Ref.Choice"]
+        assert choice.kind == TypeKind.ENUM
+        assert choice.default == "Ref.Choice.ONE"
+
+    def test_array_default_from_ref(self):
+        d = load_dictionary(REF_DICT_PATH)
+        arr = d["type_defs"]["Svc.BuffQueueDepth"]
+        assert arr.kind == TypeKind.ARRAY
+        assert arr.default == [0]
+
+    def test_array_of_enums_default_from_ref(self):
+        d = load_dictionary(REF_DICT_PATH)
+        arr = d["type_defs"]["Ref.ManyChoices"]
+        assert arr.kind == TypeKind.ARRAY
+        assert arr.default == ["Ref.Choice.ONE", "Ref.Choice.ONE"]
+
+    def test_struct_default_from_ref(self):
+        d = load_dictionary(REF_DICT_PATH)
+        struct = d["type_defs"]["Ref.PacketStat"]
+        assert struct.kind == TypeKind.STRUCT
+        assert struct.default == {
+            "BuffRecv": 0,
+            "BuffErr": 0,
+            "PacketStatus": "Ref.PacketRecvStatus.PACKET_STATE_NO_PACKETS",
+        }
+
+    def test_struct_with_float_member_default(self):
+        d = load_dictionary(REF_DICT_PATH)
+        struct = d["type_defs"]["Ref.SignalPair"]
+        assert struct.kind == TypeKind.STRUCT
+        assert struct.default["time"] == 0.0
+        assert struct.default["value"] == 0.0
+
+    def test_time_interval_default(self):
+        d = load_dictionary(REF_DICT_PATH)
+        struct = d["type_defs"]["Fw.TimeIntervalValue"]
+        assert struct.kind == TypeKind.STRUCT
+        assert struct.default == {"seconds": 0, "useconds": 0}
+
+
+# ---------------------------------------------------------------------------
+# Compiler: type ctor defaults (integration with _build_global_scopes)
+# ---------------------------------------------------------------------------
+class TestTypeCtorDefaults:
+    """Tests that type constructor symbols in the compiler have correct defaults."""
+
+    @pytest.fixture(autouse=True)
+    def clear_caches(self):
+        load_dictionary.cache_clear()
+        from fpy.compiler import _build_global_scopes, _load_dictionary
+        _build_global_scopes.cache_clear()
+        _load_dictionary.cache_clear()
+        yield
+        load_dictionary.cache_clear()
+        _build_global_scopes.cache_clear()
+        _load_dictionary.cache_clear()
+
+    def _get_callable_scope(self):
+        from fpy.compiler import _build_global_scopes
+        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        return callable_scope
+
+    def _lookup_callable(self, name: str):
+        """Look up a callable by its qualified name in the scope tree."""
+        scope = self._get_callable_scope()
+        parts = name.split(".")
+        current = scope
+        for part in parts:
+            assert part in current, f"'{part}' not found in scope while looking up '{name}'"
+            current = current[part]
+        return current
+
+    def test_struct_ctor_has_defaults(self):
+        """Struct type constructors should have FpyValue defaults for each member."""
+        from fpy.state import TypeCtorSymbol
+        ctor = self._lookup_callable("Ref.SignalPair")
+        assert isinstance(ctor, TypeCtorSymbol)
+        # Ref.SignalPair has members: time (F32), value (F32)
+        # default: {"time": 0.0, "value": 0.0}
+        for arg_name, arg_type, arg_default in ctor.args:
+            assert arg_default is not None, f"Struct member '{arg_name}' should have a default"
+            assert isinstance(arg_default, FpyValue), f"Default for '{arg_name}' should be FpyValue"
+
+    def test_struct_ctor_default_values_correct(self):
+        ctor = self._lookup_callable("Ref.SignalPair")
+        # Both members have default 0.0
+        time_default = ctor.args[0][2]
+        value_default = ctor.args[1][2]
+        assert time_default.val == 0.0
+        assert value_default.val == 0.0
+
+    def test_struct_ctor_with_enum_member_default(self):
+        """Struct with an enum member should have enum FpyValue default."""
+        ctor = self._lookup_callable("Ref.PacketStat")
+        # Members (sorted by index): BuffRecv (U32), BuffErr (U32), PacketStatus (enum)
+        args_dict = {arg[0]: arg for arg in ctor.args}
+        assert args_dict["BuffRecv"][2] is not None
+        assert args_dict["BuffRecv"][2].val == 0
+        assert args_dict["BuffErr"][2] is not None
+        assert args_dict["BuffErr"][2].val == 0
+        assert args_dict["PacketStatus"][2] is not None
+        assert args_dict["PacketStatus"][2].val == "PACKET_STATE_NO_PACKETS"
+
+    def test_array_ctor_has_defaults(self):
+        """Array type constructors should have FpyValue defaults for each element."""
+        from fpy.state import TypeCtorSymbol
+        ctor = self._lookup_callable("Svc.BuffQueueDepth")
+        assert isinstance(ctor, TypeCtorSymbol)
+        # Svc.BuffQueueDepth is an array of 1 U32, default [0]
+        assert len(ctor.args) == 1
+        assert ctor.args[0][2] is not None
+        assert ctor.args[0][2].val == 0
+
+    def test_array_ctor_multi_element_defaults(self):
+        ctor = self._lookup_callable("Svc.ComQueueDepth")
+        # Array of 2 U32s, default [0, 0]
+        assert len(ctor.args) == 2
+        for _, _, default in ctor.args:
+            assert default is not None
+            assert default.val == 0
+
+    def test_array_of_enums_ctor_defaults(self):
+        ctor = self._lookup_callable("Ref.ManyChoices")
+        # Array of 2 Ref.Choice enums, default ["Ref.Choice.ONE", "Ref.Choice.ONE"]
+        assert len(ctor.args) == 2
+        for _, _, default in ctor.args:
+            assert default is not None
+            assert default.val == "ONE"
+
+    def test_struct_without_default_has_none_args(self):
+        """Structs without defaults should still have None for each member's default."""
+        # Find a type that has no default
+        scope = self._get_callable_scope()
+        # $CheckState is an internal struct with no default
+        parts = "$CheckState".split(".")
+        current = scope
+        for part in parts:
+            current = current[part]
+        ctor = current
+        for _, _, default in ctor.args:
+            assert default is None

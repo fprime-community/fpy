@@ -5161,3 +5161,66 @@ set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
     assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+
+
+# ---------------------------------------------------------------------------
+# Type constructor default values
+# ---------------------------------------------------------------------------
+def test_struct_ctor_all_defaults(fprime_test_api):
+    """Struct constructor with no args should use all defaults from dictionary."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair()
+assert pair.time == 0.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_partial_defaults(fprime_test_api):
+    """Struct constructor with some args should use defaults for the rest."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(time=1.0)
+assert pair.time == 1.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_override_all_defaults(fprime_test_api):
+    """Struct constructor with all args should ignore defaults."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)
+assert pair.time == 3.0
+assert pair.value == 4.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_all_defaults(fprime_test_api):
+    """Array constructor with no args should use all defaults from dictionary."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth()
+assert depths[0] == 0
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_partial_defaults(fprime_test_api):
+    """Array constructor with some args should use defaults for the rest."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth(e0=42)
+assert depths[0] == 42
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_enum_member_default(fprime_test_api):
+    """Struct with an enum member should be constructable with defaults."""
+    seq = """
+stat: Ref.PacketStat = Ref.PacketStat()
+assert stat.BuffRecv == 0
+assert stat.BuffErr == 0
+"""
+    assert_run_success(fprime_test_api, seq)
