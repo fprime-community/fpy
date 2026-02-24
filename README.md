@@ -1,6 +1,13 @@
-# Fpy
+![The letters 'fpy' in monospaced font, under a red planet illuminated by the light of a four pointed star.](fpy_logo.png)
 
-Fpy is a user-friendly spacecraft scripting language for the F-Prime flight software framework.
+[![Tests](https://github.com/fprime-community/fpy/actions/workflows/fprime-gds-tests.yml/badge.svg)](https://github.com/fprime-community/fpy/actions/workflows/fprime-gds-tests.yml)
+[![Python](https://img.shields.io/pypi/pyversions/fprime-fpy)](https://pypi.org/project/fprime-fpy/)
+[![License](https://img.shields.io/github/license/fprime-community/fpy)](LICENSE)
+
+
+Fpy is a user-friendly spacecraft scripting language for the [F-Prime](https://nasa.github.io/fprime/) flight software framework.
+
+---
 
 ## Principles
 
