@@ -151,10 +151,23 @@ _test: or_test
           | atom_expr "." NAME -> get_attr
           | _literal
           | "(" expr ")"
+          | anon_struct
+          | anon_array
           | name
 # func_call -> AstFuncCall(func, args)
 # index_expr -> AstIndexExpr(parent, item)
 # get_attr -> AstGetAttr(parent, attr)
+
+# anonymous struct expression: {} or {member1: value1, member2: value2, ...}
+anon_struct: "{" [anon_struct_members] "}"
+anon_struct_members: anon_struct_member ("," anon_struct_member)*
+anon_struct_member: NAME ":" expr
+# -> AstAnonStruct(members)
+
+# anonymous array expression: [] or [expr, expr, ...]
+anon_array: "[" [anon_array_elements] "]"
+anon_array_elements: expr ("," expr)*
+# -> AstAnonArray(elements)
 
 arguments: argument ("," argument)*
 argument: NAME "=" expr -> named_argument

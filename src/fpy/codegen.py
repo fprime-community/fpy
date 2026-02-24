@@ -109,6 +109,8 @@ from fpy.bytecode.directives import (
 )
 from fpy.syntax import (
     Ast,
+    AstAnonStruct,
+    AstAnonArray,
     AstAssert,
     AstBinaryOp,
     AstBreak,
@@ -999,6 +1001,32 @@ class GenerateFunctionBody(Emitter):
         const_dirs = self.try_emit_expr_as_const(node, state)
         assert const_dirs is not None
         return const_dirs
+
+    def emit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        # Try to emit as a constant first
+        const_dirs = self.try_emit_expr_as_const(node, state)
+        if const_dirs is not None:
+            return const_dirs
+
+        # Emit each resolved member value in target struct order
+        dirs = []
+        resolved_members = state.resolved_func_args[node]
+        for member_expr in resolved_members:
+            dirs.extend(self._emit_func_arg(member_expr, state))
+        return dirs
+
+    def emit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        # Try to emit as a constant first
+        const_dirs = self.try_emit_expr_as_const(node, state)
+        if const_dirs is not None:
+            return const_dirs
+
+        # Emit each element value
+        dirs = []
+        resolved_elements = state.resolved_func_args[node]
+        for elem_expr in resolved_elements:
+            dirs.extend(self._emit_func_arg(elem_expr, state))
+        return dirs
 
     def emit_AstAssert(self, node: AstAssert, state: CompileState):
         dirs = self.emit(node.condition, state)

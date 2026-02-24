@@ -59,6 +59,8 @@ class TypeKind(str, Enum):
     INTERNAL_STRING = "InternalString"  # arbitrary-length string
     RANGE = "Range"  # range expression
     NOTHING = "Nothing"  # void / no-value
+    ANON_STRUCT = "AnonStruct"  # anonymous struct literal
+    ANON_ARRAY = "AnonArray"  # anonymous array literal
 
 
 # struct format for each primitive kind
@@ -137,6 +139,8 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.INTERNAL_STRING,
         TypeKind.RANGE,
         TypeKind.NOTHING,
+        TypeKind.ANON_STRUCT,
+        TypeKind.ANON_ARRAY,
     }
 )
 
@@ -257,6 +261,10 @@ class FpyType:
             return "Float"
         if self.kind == TypeKind.INTERNAL_STRING:
             return "String"
+        if self.kind == TypeKind.ANON_STRUCT:
+            return "anonymous struct"
+        if self.kind == TypeKind.ANON_ARRAY:
+            return "anonymous array"
         return self.name
 
     # -- size / range properties -------------------------------------------

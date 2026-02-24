@@ -198,6 +198,9 @@ def _validate_and_replace_type(
                 f"expected {canonical.length}"
             )
     type_dict[name] = canonical
+    # Preserve defaults from the dictionary definition on the canonical type
+    if dict_type.default is not None and canonical.default is None:
+        canonical.default = dict_type.default
 
 
 def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:

@@ -16,6 +16,7 @@ from fpy.types import (
     UNSIGNED_INTEGER_TYPES,
     FpyType,
     FpyValue,
+    StructMember,
     TypeKind,
     INTEGER,
     FLOAT,
@@ -78,6 +79,8 @@ from fpy.bytecode.directives import (
 from fpy.state import ChDef, PrmDef
 from fpy.syntax import (
     AstAssert,
+    AstAnonStruct,
+    AstAnonArray,
     AstBinaryOp,
     AstBoolean,
     AstBreak,
@@ -607,6 +610,16 @@ class ResolveQualifiedNames(TopDownVisitor):
         # resolved
         pass
 
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        for _name, value_expr in node.members:
+            if not self.try_resolve_name(value_expr, NameGroup.VALUE, state):
+                return
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        for elem_expr in node.elements:
+            if not self.try_resolve_name(elem_expr, NameGroup.VALUE, state):
+                return
+
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node in state.resolved_symbols:
             # it exists in a context where we can resolve it
@@ -791,7 +804,13 @@ class PickTypesAndResolveFields(Visitor):
 
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
+        Anonymous types are optimistically coercible to their matching concrete
+        kind; actual member/element validation happens in _coerce_anon_*.
         """
+        if source.kind == TypeKind.ANON_STRUCT and target.kind == TypeKind.STRUCT:
+            return True
+        if source.kind == TypeKind.ANON_ARRAY and target.kind == TypeKind.ARRAY:
+            return True
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -803,6 +822,15 @@ class PickTypesAndResolveFields(Visitor):
             unconverted_type,
             state.contextual_types[node],
         )
+
+        # Special handling for anonymous struct coercion
+        if unconverted_type.kind == TypeKind.ANON_STRUCT:
+            return self._coerce_anon_struct(node, type, state)
+
+        # Special handling for anonymous array coercion
+        if unconverted_type.kind == TypeKind.ANON_ARRAY:
+            return self._coerce_anon_array(node, type, state)
+
         if self.can_coerce_type(unconverted_type, type):
             state.contextual_types[node] = type
             return True
@@ -810,6 +838,125 @@ class PickTypesAndResolveFields(Visitor):
             f"Expected {type.display_name}, found {unconverted_type.display_name}", node
         )
         return False
+
+    def _coerce_anon_struct(
+        self, node: AstAnonStruct, target: FpyType, state: CompileState
+    ) -> bool:
+        """Coerce an anonymous struct expression to a concrete struct type."""
+        if target.kind != TypeKind.STRUCT:
+            state.err(
+                f"Expected {target.display_name}, found anonymous struct", node
+            )
+            return False
+
+        if not is_type_constant_size(target):
+            state.err(
+                f"Type {target.display_name} is not constant-sized (contains strings)",
+                node,
+            )
+            return False
+
+        # Build a map of provided member names to their value expressions
+        provided_members: dict[str, AstExpr] = {}
+        for name, value_expr in node.members:
+            if name in provided_members:
+                state.err(f"Duplicate member '{name}' in anonymous struct", node)
+                return False
+            provided_members[name] = value_expr
+
+        # Check that all provided members exist in the target type
+        target_member_names = {m.name for m in target.members}
+        for name in provided_members:
+            if name not in target_member_names:
+                state.err(
+                    f"Member '{name}' does not exist in {target.display_name}", node
+                )
+                return False
+
+        # Look up the TypeCtorSymbol for defaults
+        ctor = state.global_callable_scope.lookup_qualified(target.name)
+        ctor_defaults: dict[str, object] = {}
+        if is_instance_compat(ctor, TypeCtorSymbol):
+            for arg_name, _, default_val in ctor.args:
+                if default_val is not None:
+                    ctor_defaults[arg_name] = default_val
+
+        # Build the resolved member list in target struct order
+        resolved_members = []
+        for member in target.members:
+            if member.name in provided_members:
+                value_expr = provided_members[member.name]
+                # Coerce the member value to the target member type
+                if not self.coerce_expr_type(value_expr, member.type, state):
+                    return False
+                resolved_members.append(value_expr)
+            elif member.name in ctor_defaults:
+                resolved_members.append(ctor_defaults[member.name])
+            else:
+                state.err(
+                    f"Missing member '{member.name}' in anonymous struct "
+                    f"(no default available for {target.display_name}.{member.name})",
+                    node,
+                )
+                return False
+
+        state.resolved_func_args[node] = resolved_members
+        state.contextual_types[node] = target
+        return True
+
+    def _coerce_anon_array(
+        self, node: AstAnonArray, target: FpyType, state: CompileState
+    ) -> bool:
+        """Coerce an anonymous array expression to a concrete array type."""
+        if target.kind != TypeKind.ARRAY:
+            state.err(
+                f"Expected {target.display_name}, found anonymous array", node
+            )
+            return False
+
+        if not is_type_constant_size(target):
+            state.err(
+                f"Type {target.display_name} is not constant-sized (contains strings)",
+                node,
+            )
+            return False
+
+        if len(node.elements) > target.length:
+            state.err(
+                f"Anonymous array has {len(node.elements)} elements, "
+                f"but {target.display_name} expects {target.length}",
+                node,
+            )
+            return False
+
+        # Coerce each provided element to the target element type
+        for elem_expr in node.elements:
+            if not self.coerce_expr_type(elem_expr, target.elem_type, state):
+                return False
+
+        # Fill remaining positions with defaults from the TypeCtorSymbol
+        resolved = list(node.elements)
+        if len(node.elements) < target.length:
+            ctor = state.global_callable_scope.lookup_qualified(target.name)
+            ctor_defaults: list[object] = []
+            if is_instance_compat(ctor, TypeCtorSymbol):
+                ctor_defaults = [default_val for _, _, default_val in ctor.args]
+
+            for i in range(len(node.elements), target.length):
+                if i < len(ctor_defaults) and ctor_defaults[i] is not None:
+                    resolved.append(ctor_defaults[i])
+                else:
+                    state.err(
+                        f"Anonymous array has {len(node.elements)} elements, "
+                        f"but {target.display_name} expects {target.length} "
+                        f"(no default available for element {i})",
+                        node,
+                    )
+                    return False
+
+        state.resolved_func_args[node] = resolved
+        state.contextual_types[node] = target
+        return True
 
     def find_common_type(self, first_type: FpyType, second_type: FpyType) -> FpyType | None:
 
@@ -991,7 +1138,8 @@ class PickTypesAndResolveFields(Visitor):
                     )
                     break
                 offset += arg_type.max_size
-                base_offset += arg_type.max_size
+                if base_offset is not None:
+                    base_offset += arg_type.max_size
 
             if this_sym is None:
                 state.err(
@@ -1209,6 +1357,31 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = BOOL
         state.contextual_types[node] = BOOL
 
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        # Synthesize an anonymous struct type from the member expressions
+        members = tuple(
+            StructMember(name, state.synthesized_types[value_expr])
+            for name, value_expr in node.members
+        )
+        anon_type = FpyType(
+            TypeKind.ANON_STRUCT,
+            f"$AnonStruct({', '.join(m.name for m in members)})",
+            members=members,
+        )
+        state.synthesized_types[node] = anon_type
+        state.contextual_types[node] = anon_type
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        # Synthesize an anonymous array type from the element expressions
+        elem_types = [state.synthesized_types[elem] for elem in node.elements]
+        anon_type = FpyType(
+            TypeKind.ANON_ARRAY,
+            f"$AnonArray[{len(elem_types)}]",
+            length=len(elem_types),
+        )
+        state.synthesized_types[node] = anon_type
+        state.contextual_types[node] = anon_type
+
     def build_resolved_call_args(
         self,
         node: AstFuncCall,
@@ -1408,9 +1581,14 @@ class PickTypesAndResolveFields(Visitor):
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
+                # Skip default values already coerced by visit_AstDef.
+                # When a function's default value AST node is reused in resolved_args,
+                # it may already have been coerced during the function definition visit.
+                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
+                    continue
                 arg_type = arg[1]
-                # should be good 2 go based on the check func above
-                state.contextual_types[value_expr] = arg_type
+                if not self.coerce_expr_type(value_expr, arg_type, state):
+                    return
 
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
@@ -2131,6 +2309,52 @@ class CalculateConstExprValues(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # ranges don't really end up having a value, they kinda just exist as a type
         state.const_expr_values[node] = None
+
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        converted_type = state.contextual_types[node]
+        assert converted_type.kind == TypeKind.STRUCT, converted_type
+
+        resolved_members = state.resolved_func_args[node]
+
+        # Gather member values
+        member_values = []
+        for member_expr in resolved_members:
+            if is_instance_compat(member_expr, Ast):
+                val = state.const_expr_values.get(member_expr)
+                if val is None:
+                    state.const_expr_values[node] = None
+                    return
+                member_values.append(val)
+            else:
+                # It's an FpyValue default
+                member_values.append(member_expr)
+
+        # Build the struct value
+        arg_dict = {m.name: v for m, v in zip(converted_type.members, member_values)}
+        expr_value = FpyValue(converted_type, arg_dict)
+        state.const_expr_values[node] = expr_value
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        converted_type = state.contextual_types[node]
+        assert converted_type.kind == TypeKind.ARRAY, converted_type
+
+        resolved_elements = state.resolved_func_args[node]
+
+        # Gather element values
+        elem_values = []
+        for elem_expr in resolved_elements:
+            if is_instance_compat(elem_expr, Ast):
+                val = state.const_expr_values.get(elem_expr)
+                if val is None:
+                    state.const_expr_values[node] = None
+                    return
+                elem_values.append(val)
+            else:
+                # It's an FpyValue default
+                elem_values.append(elem_expr)
+
+        expr_value = FpyValue(converted_type, elem_values)
+        state.const_expr_values[node] = expr_value
 
     def visit_default(self, node, state):
         # coding error, missed an expr
