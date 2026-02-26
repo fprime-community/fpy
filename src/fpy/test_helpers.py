@@ -62,7 +62,8 @@ def run_seq(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    timeout_s: int = 4
+    timeout_s: int = 4,
+    failing_opcodes: set[int] = None,
 ):
     """Run a list of directives.
 
@@ -95,6 +96,7 @@ def run_seq(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
+        failing_opcodes=failing_opcodes,
     )
     tlm_db = {}
     for chan_name, val in tlm.items():
@@ -121,10 +123,11 @@ def assert_run_success(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    timeout_s: int=4
+    timeout_s: int = 4,
+    failing_opcodes: set[int] = None,
 ):
     directives = compile_seq(fprime_test_api, seq, flags)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
@@ -146,10 +149,11 @@ def assert_run_failure(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    failing_opcodes: set[int] = None,
 ):
     directives = compile_seq(fprime_test_api, seq, flags)
     try:
-        run_seq(fprime_test_api, directives, time_base=time_base, time_context=time_context, initial_time_us=initial_time_us)
+        run_seq(fprime_test_api, directives, time_base=time_base, time_context=time_context, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
     except (RuntimeError, AssertionError) as e:
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)

@@ -1,5 +1,5 @@
 goto 163
-allocate 38
+allocate 16
 load_rel -30 11
 push_val 0 0 0 0
 get_field 11 2
@@ -24,7 +24,7 @@ push_val 0 0 0 7
 get_field 11 4
 ziext_32_64
 add
-store_rel_const_offset 22 8
+store_rel_const_offset 0 8
 load_rel -19 11
 push_val 0 0 0 3
 get_field 11 4
@@ -36,16 +36,16 @@ push_val 0 0 0 7
 get_field 11 4
 ziext_32_64
 add
-store_rel_const_offset 30 8
-load_rel 22 8
-load_rel 30 8
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
 ult
 if 46
 push_val 255 255 255 255
 return 4 22
 goto 53
-load_rel 22 8
-load_rel 30 8
+load_rel 0 8
+load_rel 8 8
 ieq
 if 53
 push_val 0 0 0 0
@@ -53,7 +53,7 @@ return 4 22
 goto 53
 push_val 0 0 0 1
 return 4 22
-allocate 32
+allocate 16
 load_rel -24 8
 push_val 0 0 0 0
 get_field 8 4
@@ -65,7 +65,7 @@ push_val 0 0 0 4
 get_field 8 4
 ziext_32_64
 add
-store_rel_const_offset 16 8
+store_rel_const_offset 0 8
 load_rel -16 8
 push_val 0 0 0 0
 get_field 8 4
@@ -77,16 +77,16 @@ push_val 0 0 0 4
 get_field 8 4
 ziext_32_64
 add
-store_rel_const_offset 24 8
-load_rel 16 8
-load_rel 24 8
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
 ult
 if 87
 push_val 255 255 255 255
 return 4 16
 goto 94
-load_rel 16 8
-load_rel 24 8
+load_rel 0 8
+load_rel 8 8
 ieq
 if 94
 push_val 0 0 0 0
@@ -94,7 +94,7 @@ return 4 16
 goto 94
 push_val 0 0 0 1
 return 4 16
-allocate 54
+allocate 32
 load_rel -30 11
 push_val 0 0 0 0
 get_field 11 2
@@ -119,7 +119,7 @@ push_val 0 0 0 7
 get_field 11 4
 ziext_32_64
 add
-store_rel_const_offset 22 8
+store_rel_const_offset 0 8
 load_rel -19 11
 push_val 0 0 0 3
 get_field 11 4
@@ -131,32 +131,32 @@ push_val 0 0 0 7
 get_field 11 4
 ziext_32_64
 add
-store_rel_const_offset 30 8
-load_rel 22 8
-load_rel 30 8
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
 uge
 not
 if 141
 push_val 1
 exit
-load_rel 22 8
-load_rel 30 8
+load_rel 0 8
+load_rel 8 8
 sub
-store_rel_const_offset 38 8
-load_rel 38 8
+store_rel_const_offset 16 8
+load_rel 16 8
 push_val 0 0 0 0 0 15 66 64
 udiv
-store_rel_const_offset 46 8
-load_rel 46 8
+store_rel_const_offset 24 8
+load_rel 24 8
 push_val 0 0 0 0 255 255 255 255
 ule
 not
 if 156
 push_val 1
 exit
-load_rel 46 8
+load_rel 24 8
 itrunc_64_32
-load_rel 38 8
+load_rel 16 8
 push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32

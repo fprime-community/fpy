@@ -6,6 +6,7 @@ from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
+    assert_compile_success,
     assert_run_failure,
     lookup_type,
 )
@@ -2086,38 +2087,52 @@ for i in 0..2:
 
 def test_for_loop_break(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
-    break
-assert i == 0
+    counter = counter + 1
+    if counter == 5:
+        break
+    counter = counter + 1
+assert counter == 5
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_for_loop_continue(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
+    counter = counter + 1
     continue
-assert i == 10 # will be equal to the ending index
+    counter = counter + 1
+assert counter == 10
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_while_break(fprime_test_api):
     seq = """
+counter: I64 = 0
 for i in 0 .. 10:
     while True:
         break
-assert i == 10
+    counter = counter + 1
+assert counter == 10
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_loops_break_inner(fprime_test_api):
     seq = """
+outer_count: I64 = 0
+inner_count: I64 = 0
 for i in 0 .. 10:
     for j in 0 .. 5:
+        inner_count = inner_count + 1
         break
-assert i == 10 and j == 0
+    outer_count = outer_count + 1
+assert outer_count == 10
+assert inner_count == 10
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2152,12 +2167,9 @@ def test_loop_var_outside_loop_after(fprime_test_api):
 for i in 0 .. 7:
     pass
 assert i == 7
-# succeeds because i is declared in the scope of for
-i = 123
-assert i == 123
 """
-
-    assert_run_success(fprime_test_api, seq)
+    # i is scoped to the for loop body; not visible after
+    assert_compile_failure(fprime_test_api, seq)
 
 
 def test_loop_var_outside_loop_before(fprime_test_api):
@@ -2175,7 +2187,7 @@ def test_loop_var_redeclare_right_type(fprime_test_api):
 i: I64 = 123
 for i in 0 .. 7:
     assert i >= 0 and i < 7
-assert i == 7
+assert i == 123
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -2186,16 +2198,16 @@ for i in 0 .. 7:
     assert i >= 0 and i < 7
 
 i: I64 = 123
+assert i == 123
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
-def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+def test_loop_var_redeclare_in_inner_scope_func(fprime_test_api):
     seq = """
 def test():
     for i in 0 .. 7:
         assert i >= 0 and i < 7
-    assert i == 7
 
 i: I64 = 123
 
@@ -2206,15 +2218,17 @@ test()
     assert_run_success(fprime_test_api, seq)
 
 
-def test_loop_var_redeclare_in_inner_scope_bad(fprime_test_api):
+def test_loop_var_redeclare_in_inner_scope_after(fprime_test_api):
     seq = """
 def test():
     for i in 0 .. 7:
         pass
 
+    # After block scoping, this is fine: i is scoped to the for body
     i: I64 = 123
+    assert i == 123
 """
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_two_fors_same_loop_var(fprime_test_api):
@@ -2223,33 +2237,35 @@ for i in 0 .. 7:
     assert i >= 0 and i < 7
 for i in 0 .. 7:
     assert i >= 0 and i < 7
-assert i == 7
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_loop_var_redeclare_wrong_type(fprime_test_api):
+    # With block scoping, the for loop var shadows the outer i. No conflict.
     seq = """
 i: U16 = 123
 for i in 0 .. 7:
     pass
+assert i == 123
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_scope_override_name(fprime_test_api):
+    # With block scoping, each indentation block creates a new scope.
+    # So while/if bodies can shadow variables from outer scopes.
     seq = """
 i: U8 = 0
 while True:
-    # fails because while does not begin a new scope
     i: U8 = 1
     if i == 1:
         exit(0)
     exit(1)
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_override_global_name(fprime_test_api):
@@ -2313,22 +2329,21 @@ i: U16 = 0
 assert i == 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_redeclare_after_for_in_if(fprime_test_api):
-    # For-loops nested inside if/while at the top level still declare their
-    # loop variable in the global scope (no new scope is introduced by if/while).
-    # A subsequent typed declaration of the same name must be an error, just as
-    # it would be if the for-loop were at the top level.
+    # For-loop var is scoped to the for body. After the if block, the
+    # name is free to be re-declared.
     seq = """
 if True:
     for i in 0 .. 7:
         pass
 i: I64 = 0
+assert i == 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_nested_for_loops(fprime_test_api):
@@ -2353,9 +2368,10 @@ z: U8 = 123
 for i in 0 .. 7:
     for z in 0 .. 7:
         assert z < 8
+assert z == 123
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_for_loop_declare_var_bad(fprime_test_api):
@@ -4979,6 +4995,7 @@ def test():
 
 
 def test_use_loop_var_in_func_before_declared(fprime_test_api):
+    # loop_var is scoped to the for body; functions can't access it
     seq = """
 def fun():
     assert loop_var == 2
@@ -4989,4 +5006,157 @@ for loop_var in 0..2:
 fun()
 """
 
+    assert_compile_failure(fprime_test_api, seq)
+
+
+# ── Flag tests ──────────────────────────────────────────────────────────────
+
+
+def test_set_flag_basic(fprime_test_api):
+    """set_flag with a FlagId enum constant and True value should succeed."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+"""
     assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_false(fprime_test_api):
+    """set_flag with False value should succeed."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_and_get_flag(fprime_test_api):
+    """set_flag followed by get_flag should return the set value."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_toggle(fprime_test_api):
+    """Setting a flag to True then False should work."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == False
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_dynamic_value(fprime_test_api):
+    """set_flag should accept a runtime bool expression for value."""
+    seq = """
+x: bool = True
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, x)
+assert get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_get_flag_in_expression(fprime_test_api):
+    """get_flag result should be usable in boolean expressions."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+x: bool = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL) and True
+assert x == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_set_flag_wrong_type(fprime_test_api):
+    """set_flag with an integer instead of FlagId should fail compilation."""
+    seq = """
+set_flag(0, True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_wrong_type(fprime_test_api):
+    """get_flag with an integer instead of FlagId should fail compilation."""
+    seq = """
+get_flag(0)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_set_flag_non_const_index(fprime_test_api):
+    """set_flag with a non-constant flag index should fail compilation."""
+    seq = """
+x: Svc.Fpy.FlagId = Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL
+set_flag(x, True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_non_const_index(fprime_test_api):
+    """get_flag with a non-constant flag index should fail compilation."""
+    seq = """
+x: Svc.Fpy.FlagId = Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL
+get_flag(x)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_get_flag_assign_to_var(fprime_test_api):
+    """get_flag result can be assigned to a bool variable."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+flag_val: bool = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL)
+assert flag_val == False
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+flag_val = get_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL)
+assert flag_val == True
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ── EXIT_ON_CMD_FAIL behavior tests ────────────────────────────────────
+
+# CdhCore.cmdDisp.CMD_NO_OP opcode from the dictionary
+CMD_NO_OP_OPCODE = 16777216
+
+
+def test_exit_on_cmd_fail_flag_causes_exit(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is set and a command fails, the sequence should exit with error."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_failure(
+        fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+        failing_opcodes={CMD_NO_OP_OPCODE},
+    )
+
+
+def test_no_exit_on_cmd_fail_flag_allows_failure(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is explicitly off, a failing command should not halt the sequence."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.cmdDisp.CMD_NO_OP()
+resp: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+
+
+def test_exit_on_cmd_fail_with_successful_cmd(fprime_test_api):
+    """When EXIT_ON_CMD_FAIL is set but the command succeeds, no exit should occur."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_exit_on_cmd_fail_toggle_off_before_cmd(fprime_test_api):
+    """Setting EXIT_ON_CMD_FAIL then unsetting it before a failing cmd should not exit."""
+    seq = """
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
