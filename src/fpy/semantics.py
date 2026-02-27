@@ -1073,58 +1073,78 @@ class PickTypesAndResolveFields(Visitor):
             # it may or may not have a compile time value, but it definitely has a type
             parent_type = state.synthesized_types[node.parent]
 
-            if parent_type.kind != TypeKind.STRUCT:
+            if parent_type.kind == TypeKind.ANON_STRUCT:
+                # Direct member access on anonymous struct literal
+                member_type = None
+                for m in parent_type.members:
+                    if m.name == node.attr:
+                        member_type = m.type
+                        break
+                if member_type is None:
+                    state.err(
+                        f"Anonymous struct has no member named '{node.attr}'",
+                        node,
+                    )
+                    return
+                this_sym = FieldAccess(
+                    is_struct_member=True,
+                    parent_expr=node.parent,
+                    type=member_type,
+                    base_sym=None,
+                    name=node.attr,
+                )
+            elif parent_type.kind == TypeKind.STRUCT:
+                if not is_type_constant_size(parent_type):
+                    state.err(
+                        f"{parent_type.display_name} is not constant-sized (contains strings), cannot access members",
+                        node,
+                    )
+                    return
+
+                # field symbols store their "base symbol", which is the first non-field-symbol parent of
+                # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
+                # you're talking about a field of
+                base_sym = (
+                    parent_sym
+                    if not is_instance_compat(parent_sym, FieldAccess)
+                    else parent_sym.base_sym
+                )
+                # we also calculate a "base offset" wrt. the start of the base_sym type, so you
+                # can easily pick out this field from a value of the base sym type
+                base_offset = (
+                    0
+                    if not is_instance_compat(parent_sym, FieldAccess)
+                    else parent_sym.base_offset
+                )
+
+                member_list = [(m.name, m.type) for m in parent_type.members]
+
+                offset = 0
+                for arg_name, arg_type in member_list:
+                    if arg_name == node.attr:
+                        this_sym = FieldAccess(
+                            is_struct_member=True,
+                            parent_expr=node.parent,
+                            type=arg_type,
+                            base_sym=base_sym,
+                            local_offset=offset,
+                            base_offset=base_offset,
+                            name=arg_name,
+                        )
+                        break
+                    offset += arg_type.max_size
+                    if base_offset is not None:
+                        base_offset += arg_type.max_size
+
+                if this_sym is None:
+                    state.err(
+                        f"{parent_type.display_name} has no member named {node.attr}",
+                        node,
+                    )
+                    return
+            else:
                 state.err(
                     f"{parent_type.display_name} is not a struct, cannot access members",
-                    node,
-                )
-                return
-
-            if not is_type_constant_size(parent_type):
-                state.err(
-                    f"{parent_type.display_name} is not constant-sized (contains strings), cannot access members",
-                    node,
-                )
-                return
-
-            # field symbols store their "base symbol", which is the first non-field-symbol parent of
-            # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
-            # you're talking about a field of
-            base_sym = (
-                parent_sym
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_sym
-            )
-            # we also calculate a "base offset" wrt. the start of the base_sym type, so you
-            # can easily pick out this field from a value of the base sym type
-            base_offset = (
-                0
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_offset
-            )
-
-            member_list = [(m.name, m.type) for m in parent_type.members]
-
-            offset = 0
-            for arg_name, arg_type in member_list:
-                if arg_name == node.attr:
-                    this_sym = FieldAccess(
-                        is_struct_member=True,
-                        parent_expr=node.parent,
-                        type=arg_type,
-                        base_sym=base_sym,
-                        local_offset=offset,
-                        base_offset=base_offset,
-                        name=arg_name,
-                    )
-                    break
-                offset += arg_type.max_size
-                if base_offset is not None:
-                    base_offset += arg_type.max_size
-
-            if this_sym is None:
-                state.err(
-                    f"{parent_type.display_name} has no member named {node.attr}",
                     node,
                 )
                 return
@@ -1145,6 +1165,29 @@ class PickTypesAndResolveFields(Visitor):
         # otherwise, we should definitely have a well-defined type for our parent expr
 
         parent_type = state.synthesized_types[node.parent]
+
+        if parent_type.kind == TypeKind.ANON_ARRAY:
+            # Index access on anonymous array literal
+            if parent_type.length == 0:
+                state.err("Cannot index into an empty anonymous array", node)
+                return
+
+            # coerce the index expression to array index type
+            if not self.coerce_expr_type(node.item, ArrayIndexType, state):
+                return
+
+            sym = FieldAccess(
+                is_array_element=True,
+                parent_expr=node.parent,
+                type=parent_type.elem_type,
+                base_sym=None,
+                idx_expr=node.item,
+            )
+
+            state.resolved_symbols[node] = sym
+            state.synthesized_types[node] = parent_type.elem_type
+            state.contextual_types[node] = parent_type.elem_type
+            return
 
         if not is_type_constant_size(parent_type):
             state.err(
@@ -1363,10 +1406,19 @@ class PickTypesAndResolveFields(Visitor):
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         # Synthesize an anonymous array type from the element expressions
         elem_types = [state.synthesized_types[elem] for elem in node.elements]
+        # Compute common element type (needed for index access on anon arrays)
+        common_elem_type = None
+        if len(elem_types) > 0:
+            common_elem_type = elem_types[0]
+            for et in elem_types[1:]:
+                common_elem_type = self.find_common_type(common_elem_type, et)
+                if common_elem_type is None:
+                    break
         anon_type = FpyType(
             TypeKind.ANON_ARRAY,
             f"$AnonArray[{len(elem_types)}]",
-            length=len(elem_types),
+            length=len(node.elements),
+            elem_type=common_elem_type,
         )
         state.synthesized_types[node] = anon_type
         state.contextual_types[node] = anon_type
@@ -1937,16 +1989,25 @@ class CalculateConstExprValues(Visitor):
         elif is_instance_compat(sym, FieldAccess):
             parent_value = state.const_expr_values[node.parent]
             if parent_value is None:
-                # no compile time constant value for our parent here
-                state.const_expr_values[node] = None
-                return
-
-            # we are accessing an attribute of something with an fprime value at compile time
-            # we must be getting a member
-            if isinstance(parent_value, FpyValue) and parent_value.type.kind == TypeKind.STRUCT:
-                expr_value = parent_value.val[node.attr]
+                # Parent is not const. For anon struct, try getting the member
+                # expression's const value directly.
+                if is_instance_compat(node.parent, AstAnonStruct):
+                    for name, value_expr in node.parent.members:
+                        if name == node.attr:
+                            member_val = state.const_expr_values.get(value_expr)
+                            if member_val is not None:
+                                expr_value = member_val
+                            break
+                if expr_value is None:
+                    state.const_expr_values[node] = None
+                    return
             else:
-                assert False, parent_value
+                # we are accessing an attribute of something with an fprime value at compile time
+                # we must be getting a member
+                if isinstance(parent_value, FpyValue) and parent_value.type.kind in (TypeKind.STRUCT, TypeKind.ANON_STRUCT):
+                    expr_value = parent_value.val[node.attr]
+                else:
+                    assert False, parent_value
 
         assert expr_value is not None
 
@@ -1972,11 +2033,10 @@ class CalculateConstExprValues(Visitor):
         parent_value = state.const_expr_values[node.parent]
 
         if parent_value is None:
-            # no compile time constant value for our parent here
             state.const_expr_values[node] = None
             return
 
-        assert isinstance(parent_value, FpyValue) and parent_value.type.kind == TypeKind.ARRAY, parent_value
+        assert isinstance(parent_value, FpyValue) and parent_value.type.kind in (TypeKind.ARRAY, TypeKind.ANON_ARRAY), parent_value
 
         idx = state.const_expr_values.get(node.item)
         if idx is None:
@@ -1985,6 +2045,11 @@ class CalculateConstExprValues(Visitor):
             return
 
         assert isinstance(idx, FpyValue)
+
+        if idx.val < 0 or idx.val >= len(parent_value.val):
+            # Out of bounds — CheckConstArrayAccesses will report the error
+            state.const_expr_values[node] = None
+            return
 
         expr_value = parent_value.val[idx.val]
 
@@ -2298,51 +2363,58 @@ class CalculateConstExprValues(Visitor):
         # ranges don't really end up having a value, they kinda just exist as a type
         state.const_expr_values[node] = None
 
+    def _collect_const_values(
+        self, exprs: list, state: CompileState
+    ) -> list[FpyValue] | None:
+        """Collect const values for a list of expressions.
+        Returns None if any expression is not a compile-time constant.
+        Handles both Ast nodes (looked up in const_expr_values) and
+        raw FpyValue defaults (used as-is).
+        """
+        values = []
+        for expr in exprs:
+            if is_instance_compat(expr, Ast):
+                val = state.const_expr_values.get(expr)
+                if val is None:
+                    return None
+                values.append(val)
+            else:
+                values.append(expr)
+        return values
+
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
         converted_type = state.contextual_types[node]
-        assert converted_type.kind == TypeKind.STRUCT, converted_type
 
-        resolved_members = state.resolved_args[node]
+        if converted_type.kind == TypeKind.ANON_STRUCT:
+            exprs = [value_expr for _, value_expr in node.members]
+            names = [name for name, _ in node.members]
+        else:
+            assert converted_type.kind == TypeKind.STRUCT, converted_type
+            exprs = state.resolved_args[node]
+            names = [m.name for m in converted_type.members]
 
-        # Gather member values
-        member_values = []
-        for member_expr in resolved_members:
-            if is_instance_compat(member_expr, Ast):
-                val = state.const_expr_values.get(member_expr)
-                if val is None:
-                    state.const_expr_values[node] = None
-                    return
-                member_values.append(val)
-            else:
-                # It's an FpyValue default
-                member_values.append(member_expr)
+        values = self._collect_const_values(exprs, state)
+        if values is None:
+            state.const_expr_values[node] = None
+            return
 
-        # Build the struct value
-        arg_dict = {m.name: v for m, v in zip(converted_type.members, member_values)}
-        expr_value = FpyValue(converted_type, arg_dict)
-        state.const_expr_values[node] = expr_value
+        state.const_expr_values[node] = FpyValue(converted_type, dict(zip(names, values)))
 
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         converted_type = state.contextual_types[node]
-        assert converted_type.kind == TypeKind.ARRAY, converted_type
 
-        resolved_elements = state.resolved_args[node]
+        if converted_type.kind == TypeKind.ANON_ARRAY:
+            exprs = list(node.elements)
+        else:
+            assert converted_type.kind == TypeKind.ARRAY, converted_type
+            exprs = state.resolved_args[node]
 
-        # Gather element values
-        elem_values = []
-        for elem_expr in resolved_elements:
-            if is_instance_compat(elem_expr, Ast):
-                val = state.const_expr_values.get(elem_expr)
-                if val is None:
-                    state.const_expr_values[node] = None
-                    return
-                elem_values.append(val)
-            else:
-                # It's an FpyValue default
-                elem_values.append(elem_expr)
+        values = self._collect_const_values(exprs, state)
+        if values is None:
+            state.const_expr_values[node] = None
+            return
 
-        expr_value = FpyValue(converted_type, elem_values)
-        state.const_expr_values[node] = expr_value
+        state.const_expr_values[node] = FpyValue(converted_type, values)
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -2424,12 +2496,18 @@ class CheckConstArrayAccesses(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
         idx_value = state.const_expr_values.get(node.item)
-        if idx_value is None:
-            # can't check at compile time
-            return
 
         parent_type = state.contextual_types[node.parent]
-        assert parent_type.kind == TypeKind.ARRAY, parent_type
+        assert parent_type.kind in (TypeKind.ARRAY, TypeKind.ANON_ARRAY), parent_type
+
+        if idx_value is None:
+            # can't check at compile time
+            if parent_type.kind == TypeKind.ANON_ARRAY:
+                state.err(
+                    "Index on anonymous array must be a compile-time constant",
+                    node.item,
+                )
+            return
 
         if idx_value.val < 0 or idx_value.val >= parent_type.length:
             state.err(

@@ -590,6 +590,20 @@ class GenerateFunctionBody(Emitter):
 
         # use the unconverted for this expr for now, because we haven't run conversion
         unconverted_type = state.synthesized_types[node]
+
+        if is_instance_compat(node.parent, AstAnonArray):
+            # Direct index access on anonymous array literal.
+            # The index must be a compile-time constant.
+            idx_value = state.const_expr_values.get(node.item)
+            assert idx_value is not None, "Dynamic indexing on anonymous array literals is not supported"
+            idx = idx_value.val
+            assert 0 <= idx < len(node.parent.elements), f"Index {idx} out of bounds"
+            dirs = self.emit(node.parent.elements[idx], state)
+            converted_type = state.contextual_types[node]
+            if unconverted_type != converted_type:
+                dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
+            return dirs
+
         # however, for parent, use converted because conversion has been run
         parent_type = state.contextual_types[node.parent]
 
@@ -682,18 +696,28 @@ class GenerateFunctionBody(Emitter):
             else:
                 dirs.append(LoadRelDirective(sym.frame_offset, sym.type.max_size))
         elif is_instance_compat(sym, FieldAccess):
-            # okay, put parent dirs in first
-            dirs.extend(self.emit(sym.parent_expr, state))
-            assert sym.local_offset is not None
-            # use the converted type of parent
-            parent_type = state.contextual_types[sym.parent_expr]
-            # push the offset to the stack
-            dirs.append(PushValDirective(FpyValue(StackSizeType, sym.local_offset).serialize()))
-            dirs.append(
-                GetFieldDirective(
-                    parent_type.max_size, unconverted_type.max_size
+            if is_instance_compat(sym.parent_expr, AstAnonStruct):
+                # Direct member access on anonymous struct literal.
+                # Emit just the accessed member expression (skip the struct build).
+                for name, value_expr in sym.parent_expr.members:
+                    if name == node.attr:
+                        dirs.extend(self.emit(value_expr, state))
+                        break
+                else:
+                    assert False, f"Member {node.attr} not found in anon struct"
+            else:
+                # okay, put parent dirs in first
+                dirs.extend(self.emit(sym.parent_expr, state))
+                assert sym.local_offset is not None
+                # use the converted type of parent
+                parent_type = state.contextual_types[sym.parent_expr]
+                # push the offset to the stack
+                dirs.append(PushValDirective(FpyValue(StackSizeType, sym.local_offset).serialize()))
+                dirs.append(
+                    GetFieldDirective(
+                        parent_type.max_size, unconverted_type.max_size
+                    )
                 )
-            )
         else:
             assert (
                 False

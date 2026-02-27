@@ -324,3 +324,118 @@ assert val.pairHistory[0].time == 1.0
 assert val.pairHistory[3].value == 8.0
 """
         assert_run_success(fprime_test_api, seq)
+
+
+# ── Direct member/index access on anonymous literals ────────────────────
+
+class TestAnonDirectAccess:
+    def test_anon_struct_member_access_const(self, fprime_test_api):
+        """Access a member directly on an anonymous struct literal."""
+        seq = """
+x: U32 = {xyz: 123}.xyz
+assert x == 123
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_multiple_members(self, fprime_test_api):
+        """Access a specific member from a multi-member anonymous struct."""
+        seq = """
+a: U32 = {x: 10, y: 20, z: 30}.y
+assert a == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_first_member(self, fprime_test_api):
+        """Access the first member of a multi-member anonymous struct."""
+        seq = """
+a: U32 = {x: 10, y: 20}.x
+assert a == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_last_member(self, fprime_test_api):
+        """Access the last member of a multi-member anonymous struct."""
+        seq = """
+a: U32 = {x: 10, y: 20}.y
+assert a == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_nonexistent_member(self, fprime_test_api):
+        """Accessing a non-existent member should fail."""
+        seq = """
+x: U32 = {xyz: 123}.abc
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_anon_array_index_access_const(self, fprime_test_api):
+        """Index into an anonymous array literal with a constant index."""
+        seq = """
+x: U32 = [1, 2, 3][1]
+assert x == 2
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_array_index_access_first(self, fprime_test_api):
+        """Index the first element of an anonymous array."""
+        seq = """
+x: U32 = [10, 20, 30][0]
+assert x == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_array_index_access_last(self, fprime_test_api):
+        """Index the last element of an anonymous array."""
+        seq = """
+x: U32 = [10, 20, 30][2]
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_array_index_out_of_bounds(self, fprime_test_api):
+        """Out-of-bounds index on anonymous array should fail."""
+        seq = """
+x: U32 = [1, 2, 3][3]
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_with_variable(self, fprime_test_api):
+        """Access member of anon struct where member value is a variable."""
+        seq = """
+y: U32 = 42
+x: U32 = {a: y}.a
+assert x == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_bool(self, fprime_test_api):
+        """Access a boolean member from an anonymous struct."""
+        seq = """
+x: bool = {flag: True}.flag
+assert x == True
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_member_access_in_expression(self, fprime_test_api):
+        """Use anonymous struct member access in a larger expression."""
+        seq = """
+x: U32 = {a: 10}.a + {b: 20}.b
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_array_index_in_expression(self, fprime_test_api):
+        """Use anonymous array index access in a larger expression."""
+        seq = """
+x: U32 = [10, 20][0] + [30, 40][1]
+assert x == 50
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_array_dynamic_index_fails(self, fprime_test_api):
+        """Dynamic (non-constant) indexing on anonymous array should fail."""
+        seq = """
+i: I64 = 1
+x: U32 = [10, 20, 30][i]
+"""
+        assert_compile_failure(fprime_test_api, seq)

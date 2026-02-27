@@ -2001,6 +2001,18 @@ exit(1)
     assert_compile_failure(fprime_test_api, seq)
 
 
+def test_const_array_oob(fprime_test_api):
+    """Out-of-bounds on a const array expression (not a variable).
+    The parent is a type constructor call, so CalculateConstExprValues
+    has a non-None parent_value. Without the bounds guard there,
+    this would crash with a Python IndexError instead of a compile error.
+    """
+    seq = """
+val: U32 = Svc.ComQueueDepth(10, 20)[2]
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
 def test_get_variable_array_idx(fprime_test_api):
     seq = """
 val: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)
@@ -5222,5 +5234,20 @@ def test_struct_ctor_enum_member_default(fprime_test_api):
 stat: Ref.PacketStat = Ref.PacketStat()
 assert stat.BuffRecv == 0
 assert stat.BuffErr == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_elem_non_first_struct_member(fprime_test_api):
+    """Accessing a non-first struct member on an array element must not crash.
+    """
+    seq = """
+val: Ref.SignalPairSet = Ref.SignalPairSet( \
+    Ref.SignalPair(1.0, 2.0), \
+    Ref.SignalPair(3.0, 4.0), \
+    Ref.SignalPair(5.0, 6.0), \
+    Ref.SignalPair(7.0, 8.0))
+assert val[0].value == 2.0
+assert val[1].value == 4.0
 """
     assert_run_success(fprime_test_api, seq)
