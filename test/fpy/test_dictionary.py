@@ -966,7 +966,7 @@ class TestTypeDefinitionDefaults:
         ]
         result = _parse_type_definitions(raw)
         typ = result["My.Color"]
-        assert typ.default == "My.Color.RED"
+        assert typ.json_default == "My.Color.RED"
 
     def test_enum_no_default(self):
         raw = [
@@ -978,7 +978,7 @@ class TestTypeDefinitionDefaults:
             }
         ]
         result = _parse_type_definitions(raw)
-        assert result["My.NoDefault"].default is None
+        assert result["My.NoDefault"].json_default is None
 
     def test_array_default_parsed(self):
         raw = [
@@ -992,7 +992,7 @@ class TestTypeDefinitionDefaults:
         ]
         result = _parse_type_definitions(raw)
         typ = result["My.ThreeU32s"]
-        assert typ.default == [0, 0, 0]
+        assert typ.json_default == [0, 0, 0]
 
     def test_array_no_default(self):
         raw = [
@@ -1004,7 +1004,7 @@ class TestTypeDefinitionDefaults:
             }
         ]
         result = _parse_type_definitions(raw)
-        assert result["My.NoDef"].default is None
+        assert result["My.NoDef"].json_default is None
 
     def test_struct_default_parsed(self):
         raw = [
@@ -1020,7 +1020,7 @@ class TestTypeDefinitionDefaults:
         ]
         result = _parse_type_definitions(raw)
         typ = result["My.Point"]
-        assert typ.default == {"x": 0, "y": 0}
+        assert typ.json_default == {"x": 0, "y": 0}
 
     def test_struct_no_default(self):
         raw = [
@@ -1033,7 +1033,7 @@ class TestTypeDefinitionDefaults:
             }
         ]
         result = _parse_type_definitions(raw)
-        assert result["My.NoDef"].default is None
+        assert result["My.NoDef"].json_default is None
 
     def test_struct_default_with_enum_member(self):
         """Struct with an enum member should store the raw default dict."""
@@ -1056,7 +1056,7 @@ class TestTypeDefinitionDefaults:
             },
         ]
         result = _parse_type_definitions(raw)
-        assert result["My.Result"].default == {"code": 0, "status": "My.Status.OK"}
+        assert result["My.Result"].json_default == {"code": 0, "status": "My.Status.OK"}
 
     def test_array_of_enums_default(self):
         raw = [
@@ -1076,7 +1076,7 @@ class TestTypeDefinitionDefaults:
             },
         ]
         result = _parse_type_definitions(raw)
-        assert result["My.Dirs"].default == ["My.Dir.UP", "My.Dir.DOWN"]
+        assert result["My.Dirs"].json_default == ["My.Dir.UP", "My.Dir.DOWN"]
 
 
 # ---------------------------------------------------------------------------
@@ -1095,25 +1095,25 @@ class TestRefDictionaryDefaults:
         d = load_dictionary(REF_DICT_PATH)
         choice = d["type_defs"]["Ref.Choice"]
         assert choice.kind == TypeKind.ENUM
-        assert choice.default == "Ref.Choice.ONE"
+        assert choice.json_default == "Ref.Choice.ONE"
 
     def test_array_default_from_ref(self):
         d = load_dictionary(REF_DICT_PATH)
         arr = d["type_defs"]["Svc.BuffQueueDepth"]
         assert arr.kind == TypeKind.ARRAY
-        assert arr.default == [0]
+        assert arr.json_default == [0]
 
     def test_array_of_enums_default_from_ref(self):
         d = load_dictionary(REF_DICT_PATH)
         arr = d["type_defs"]["Ref.ManyChoices"]
         assert arr.kind == TypeKind.ARRAY
-        assert arr.default == ["Ref.Choice.ONE", "Ref.Choice.ONE"]
+        assert arr.json_default == ["Ref.Choice.ONE", "Ref.Choice.ONE"]
 
     def test_struct_default_from_ref(self):
         d = load_dictionary(REF_DICT_PATH)
         struct = d["type_defs"]["Ref.PacketStat"]
         assert struct.kind == TypeKind.STRUCT
-        assert struct.default == {
+        assert struct.json_default == {
             "BuffRecv": 0,
             "BuffErr": 0,
             "PacketStatus": "Ref.PacketRecvStatus.PACKET_STATE_NO_PACKETS",
@@ -1123,21 +1123,21 @@ class TestRefDictionaryDefaults:
         d = load_dictionary(REF_DICT_PATH)
         struct = d["type_defs"]["Ref.SignalPair"]
         assert struct.kind == TypeKind.STRUCT
-        assert struct.default["time"] == 0.0
-        assert struct.default["value"] == 0.0
+        assert struct.json_default["time"] == 0.0
+        assert struct.json_default["value"] == 0.0
 
     def test_time_interval_default(self):
         d = load_dictionary(REF_DICT_PATH)
         struct = d["type_defs"]["Fw.TimeIntervalValue"]
         assert struct.kind == TypeKind.STRUCT
-        assert struct.default == {"seconds": 0, "useconds": 0}
+        assert struct.json_default == {"seconds": 0, "useconds": 0}
 
 
 # ---------------------------------------------------------------------------
-# Compiler: type ctor defaults (integration with _build_global_scopes)
+# Compiler: type defaults (integration with _build_global_scopes)
 # ---------------------------------------------------------------------------
 class TestTypeCtorDefaults:
-    """Tests that type constructor symbols in the compiler have correct defaults."""
+    """Tests that types and their constructors have correct defaults."""
 
     @pytest.fixture(autouse=True)
     def clear_caches(self):
@@ -1153,6 +1153,11 @@ class TestTypeCtorDefaults:
         _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
+    def _get_type_scope(self):
+        from fpy.compiler import _build_global_scopes
+        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        return type_scope
+
     def _lookup_callable(self, name: str):
         """Look up a callable by its qualified name in the scope tree."""
         scope = self._get_callable_scope()
@@ -1163,20 +1168,77 @@ class TestTypeCtorDefaults:
             current = current[part]
         return current
 
+    def _lookup_type(self, name: str) -> FpyType:
+        """Look up a type by its qualified name in the type scope tree."""
+        scope = self._get_type_scope()
+        parts = name.split(".")
+        current = scope
+        for part in parts:
+            assert part in current, f"'{part}' not found in scope while looking up '{name}'"
+            current = current[part]
+        return current
+
+    def test_struct_member_defaults(self):
+        """Struct types should have member_defaults dict on FpyType."""
+        typ = self._lookup_type("Ref.SignalPair")
+        assert typ.kind == TypeKind.STRUCT
+        assert typ.member_defaults is not None
+        for m in typ.members:
+            assert m.name in typ.member_defaults, f"Struct member '{m.name}' should have a default"
+            assert isinstance(typ.member_defaults[m.name], FpyValue), f"Default for '{m.name}' should be FpyValue"
+
+    def test_struct_member_default_values_correct(self):
+        typ = self._lookup_type("Ref.SignalPair")
+        assert typ.member_defaults["time"].val == 0.0
+        assert typ.member_defaults["value"].val == 0.0
+
+    def test_struct_member_with_enum_default(self):
+        """Struct with an enum member should have enum FpyValue default."""
+        typ = self._lookup_type("Ref.PacketStat")
+        defaults = typ.member_defaults
+        assert defaults["BuffRecv"] is not None
+        assert defaults["BuffRecv"].val == 0
+        assert defaults["BuffErr"] is not None
+        assert defaults["BuffErr"].val == 0
+        assert defaults["PacketStatus"] is not None
+        assert defaults["PacketStatus"].val == "PACKET_STATE_NO_PACKETS"
+
+    def test_array_elem_defaults(self):
+        """Array types should have elem_defaults directly on FpyType."""
+        typ = self._lookup_type("Svc.BuffQueueDepth")
+        assert typ.kind == TypeKind.ARRAY
+        assert typ.elem_defaults is not None
+        assert len(typ.elem_defaults) == 1
+        assert typ.elem_defaults[0] is not None
+        assert typ.elem_defaults[0].val == 0
+
+    def test_array_multi_element_defaults(self):
+        typ = self._lookup_type("Svc.ComQueueDepth")
+        assert typ.elem_defaults is not None
+        assert len(typ.elem_defaults) == 2
+        for d in typ.elem_defaults:
+            assert d is not None
+            assert d.val == 0
+
+    def test_array_of_enums_elem_defaults(self):
+        typ = self._lookup_type("Ref.ManyChoices")
+        assert typ.elem_defaults is not None
+        assert len(typ.elem_defaults) == 2
+        for d in typ.elem_defaults:
+            assert d is not None
+            assert d.val == "ONE"
+
     def test_struct_ctor_has_defaults(self):
-        """Struct type constructors should have FpyValue defaults for each member."""
+        """Type ctor args should reflect the member defaults."""
         from fpy.state import TypeCtorSymbol
         ctor = self._lookup_callable("Ref.SignalPair")
         assert isinstance(ctor, TypeCtorSymbol)
-        # Ref.SignalPair has members: time (F32), value (F32)
-        # default: {"time": 0.0, "value": 0.0}
         for arg_name, arg_type, arg_default in ctor.args:
             assert arg_default is not None, f"Struct member '{arg_name}' should have a default"
             assert isinstance(arg_default, FpyValue), f"Default for '{arg_name}' should be FpyValue"
 
     def test_struct_ctor_default_values_correct(self):
         ctor = self._lookup_callable("Ref.SignalPair")
-        # Both members have default 0.0
         time_default = ctor.args[0][2]
         value_default = ctor.args[1][2]
         assert time_default.val == 0.0
@@ -1185,7 +1247,6 @@ class TestTypeCtorDefaults:
     def test_struct_ctor_with_enum_member_default(self):
         """Struct with an enum member should have enum FpyValue default."""
         ctor = self._lookup_callable("Ref.PacketStat")
-        # Members (sorted by index): BuffRecv (U32), BuffErr (U32), PacketStatus (enum)
         args_dict = {arg[0]: arg for arg in ctor.args}
         assert args_dict["BuffRecv"][2] is not None
         assert args_dict["BuffRecv"][2].val == 0
@@ -1199,14 +1260,12 @@ class TestTypeCtorDefaults:
         from fpy.state import TypeCtorSymbol
         ctor = self._lookup_callable("Svc.BuffQueueDepth")
         assert isinstance(ctor, TypeCtorSymbol)
-        # Svc.BuffQueueDepth is an array of 1 U32, default [0]
         assert len(ctor.args) == 1
         assert ctor.args[0][2] is not None
         assert ctor.args[0][2].val == 0
 
     def test_array_ctor_multi_element_defaults(self):
         ctor = self._lookup_callable("Svc.ComQueueDepth")
-        # Array of 2 U32s, default [0, 0]
         assert len(ctor.args) == 2
         for _, _, default in ctor.args:
             assert default is not None
@@ -1214,7 +1273,6 @@ class TestTypeCtorDefaults:
 
     def test_array_of_enums_ctor_defaults(self):
         ctor = self._lookup_callable("Ref.ManyChoices")
-        # Array of 2 Ref.Choice enums, default ["Ref.Choice.ONE", "Ref.Choice.ONE"]
         assert len(ctor.args) == 2
         for _, _, default in ctor.args:
             assert default is not None
@@ -1222,9 +1280,7 @@ class TestTypeCtorDefaults:
 
     def test_struct_without_default_has_none_args(self):
         """Structs without defaults should still have None for each member's default."""
-        # Find a type that has no default
         scope = self._get_callable_scope()
-        # $CheckState is an internal struct with no default
         parts = "$CheckState".split(".")
         current = scope
         for part in parts:

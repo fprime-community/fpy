@@ -324,7 +324,7 @@ class DesugarDefaultArgs(Transformer):
         # Get the resolved arguments from semantic analysis.
         # This list is already in positional order with defaults filled in.
         # FpyValue entries are kept as-is; codegen handles them directly.
-        resolved_args = state.resolved_func_args.get(node)
+        resolved_args = state.resolved_args.get(node)
         assert resolved_args is not None, (
             f"No resolved args for function call {node}. "
             f"This should have been set by PickTypesAndResolveAttrsAndItems."

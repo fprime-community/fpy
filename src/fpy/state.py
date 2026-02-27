@@ -154,17 +154,6 @@ class SymbolTable(dict):
             return self.parent.lookup(key)
         return None
 
-    def lookup_qualified(self, qualified_name: str) -> Symbol | None:
-        """Look up a dotted name like 'Fw.TimeIntervalValue' by traversing child namespaces."""
-        parts = qualified_name.split(".")
-        scope = self
-        for part in parts[:-1]:
-            child = scope.get(part) if isinstance(scope, dict) else None
-            if not isinstance(child, dict):
-                return None
-            scope = child
-        return scope.get(parts[-1]) if isinstance(scope, dict) else None
-
     def __hash__(self):
         return hash(self.id)
 
@@ -336,7 +325,7 @@ class CompileState:
     """expr to the fprime value it will end up being on the stack after type conversions.
     None if unsure at compile time.  NOTHING_VALUE for void expressions."""
 
-    resolved_func_args: dict[Ast, list[AstExpr]] = field(default_factory=dict)
+    resolved_args: dict[Ast, list[AstExpr]] = field(default_factory=dict)
     """Maps function calls, anon structs, and anon arrays to resolved arguments
     in positional order. Default values are filled in for arguments not provided
     at the call site (or struct members / array elements with defaults)."""

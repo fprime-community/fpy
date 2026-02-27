@@ -804,13 +804,7 @@ class PickTypesAndResolveFields(Visitor):
 
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
-        Anonymous types are optimistically coercible to their matching concrete
-        kind; actual member/element validation happens in _coerce_anon_*.
         """
-        if source.kind == TypeKind.ANON_STRUCT and target.kind == TypeKind.STRUCT:
-            return True
-        if source.kind == TypeKind.ANON_ARRAY and target.kind == TypeKind.ARRAY:
-            return True
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -823,138 +817,63 @@ class PickTypesAndResolveFields(Visitor):
             state.contextual_types[node],
         )
 
-        # Special handling for anonymous struct coercion
+        if not self.can_coerce_type(unconverted_type, type):
+            state.err(
+                f"Expected {type.display_name}, found {unconverted_type.display_name}", node
+            )
+            return False
+
+        # For anon structs/arrays, recursively coerce children and build resolved_args
         if unconverted_type.kind == TypeKind.ANON_STRUCT:
             return self._coerce_anon_struct(node, type, state)
-
-        # Special handling for anonymous array coercion
         if unconverted_type.kind == TypeKind.ANON_ARRAY:
             return self._coerce_anon_array(node, type, state)
 
-        if self.can_coerce_type(unconverted_type, type):
-            state.contextual_types[node] = type
-            return True
-        state.err(
-            f"Expected {type.display_name}, found {unconverted_type.display_name}", node
-        )
-        return False
+        state.contextual_types[node] = type
+        return True
 
     def _coerce_anon_struct(
         self, node: AstAnonStruct, target: FpyType, state: CompileState
     ) -> bool:
-        """Coerce an anonymous struct expression to a concrete struct type."""
-        if target.kind != TypeKind.STRUCT:
-            state.err(
-                f"Expected {target.display_name}, found anonymous struct", node
-            )
-            return False
+        """Recursively coerce each provided member and build resolved_args.
 
-        if not is_type_constant_size(target):
-            state.err(
-                f"Type {target.display_name} is not constant-sized (contains strings)",
-                node,
-            )
-            return False
+        Called after can_coerce_type has already confirmed structural compatibility.
+        """
+        provided_members = {name: value_expr for name, value_expr in node.members}
 
-        # Build a map of provided member names to their value expressions
-        provided_members: dict[str, AstExpr] = {}
-        for name, value_expr in node.members:
-            if name in provided_members:
-                state.err(f"Duplicate member '{name}' in anonymous struct", node)
-                return False
-            provided_members[name] = value_expr
-
-        # Check that all provided members exist in the target type
-        target_member_names = {m.name for m in target.members}
-        for name in provided_members:
-            if name not in target_member_names:
-                state.err(
-                    f"Member '{name}' does not exist in {target.display_name}", node
-                )
-                return False
-
-        # Look up the TypeCtorSymbol for defaults
-        ctor = state.global_callable_scope.lookup_qualified(target.name)
-        ctor_defaults: dict[str, object] = {}
-        if is_instance_compat(ctor, TypeCtorSymbol):
-            for arg_name, _, default_val in ctor.args:
-                if default_val is not None:
-                    ctor_defaults[arg_name] = default_val
-
-        # Build the resolved member list in target struct order
+        # Build resolved list in target member order: coerce provided, fill defaults
         resolved_members = []
         for member in target.members:
             if member.name in provided_members:
                 value_expr = provided_members[member.name]
-                # Coerce the member value to the target member type
                 if not self.coerce_expr_type(value_expr, member.type, state):
                     return False
                 resolved_members.append(value_expr)
-            elif member.name in ctor_defaults:
-                resolved_members.append(ctor_defaults[member.name])
             else:
-                state.err(
-                    f"Missing member '{member.name}' in anonymous struct "
-                    f"(no default available for {target.display_name}.{member.name})",
-                    node,
-                )
-                return False
+                resolved_members.append(target.member_defaults[member.name])
 
-        state.resolved_func_args[node] = resolved_members
+        state.resolved_args[node] = resolved_members
         state.contextual_types[node] = target
         return True
 
     def _coerce_anon_array(
         self, node: AstAnonArray, target: FpyType, state: CompileState
     ) -> bool:
-        """Coerce an anonymous array expression to a concrete array type."""
-        if target.kind != TypeKind.ARRAY:
-            state.err(
-                f"Expected {target.display_name}, found anonymous array", node
-            )
-            return False
+        """Recursively coerce each provided element and build resolved_args.
 
-        if not is_type_constant_size(target):
-            state.err(
-                f"Type {target.display_name} is not constant-sized (contains strings)",
-                node,
-            )
-            return False
-
-        if len(node.elements) > target.length:
-            state.err(
-                f"Anonymous array has {len(node.elements)} elements, "
-                f"but {target.display_name} expects {target.length}",
-                node,
-            )
-            return False
-
+        Called after can_coerce_type has already confirmed structural compatibility.
+        """
         # Coerce each provided element to the target element type
         for elem_expr in node.elements:
             if not self.coerce_expr_type(elem_expr, target.elem_type, state):
                 return False
 
-        # Fill remaining positions with defaults from the TypeCtorSymbol
+        # Build resolved list: provided elements + defaults for missing positions
         resolved = list(node.elements)
-        if len(node.elements) < target.length:
-            ctor = state.global_callable_scope.lookup_qualified(target.name)
-            ctor_defaults: list[object] = []
-            if is_instance_compat(ctor, TypeCtorSymbol):
-                ctor_defaults = [default_val for _, _, default_val in ctor.args]
+        for i in range(len(node.elements), target.length):
+            resolved.append(target.elem_defaults[i])
 
-            for i in range(len(node.elements), target.length):
-                if i < len(ctor_defaults) and ctor_defaults[i] is not None:
-                    resolved.append(ctor_defaults[i])
-                else:
-                    state.err(
-                        f"Anonymous array has {len(node.elements)} elements, "
-                        f"but {target.display_name} expects {target.length} "
-                        f"(no default available for element {i})",
-                        node,
-                    )
-                    return False
-
-        state.resolved_func_args[node] = resolved
+        state.resolved_args[node] = resolved
         state.contextual_types[node] = target
         return True
 
@@ -971,6 +890,14 @@ class PickTypesAndResolveFields(Visitor):
         if first_type == second_type:
             # no coercion necessary
             return second_type
+
+        # Anonymous struct adapts to a compatible concrete struct.
+        if first_type.kind == TypeKind.ANON_STRUCT or second_type.kind == TypeKind.ANON_STRUCT:
+            return self._find_common_type_anon_struct(first_type, second_type)
+
+        # Anonymous array adapts to a compatible concrete array.
+        if first_type.kind == TypeKind.ANON_ARRAY or second_type.kind == TypeKind.ANON_ARRAY:
+            return self._find_common_type_anon_array(first_type, second_type)
 
         # literal strings adapt to specific strings
         if first_type.is_string and second_type == INTERNAL_STRING:
@@ -1052,6 +979,60 @@ class PickTypesAndResolveFields(Visitor):
                 return I32
             else:
                 return I64
+
+    def _find_common_type_anon_struct(
+        self, a: FpyType, b: FpyType
+    ) -> FpyType | None:
+        """Return the concrete struct type if one side is an anonymous struct
+        that is structurally compatible with the other, otherwise None."""
+        if a.kind == TypeKind.ANON_STRUCT and b.kind == TypeKind.STRUCT:
+            anon, concrete = a, b
+        elif b.kind == TypeKind.ANON_STRUCT and a.kind == TypeKind.STRUCT:
+            anon, concrete = b, a
+        else:
+            return None
+
+        if not is_type_constant_size(concrete):
+            return None
+
+        target_members = {m.name: m for m in concrete.members}
+        seen: set[str] = set()
+        for member in anon.members:
+            if member.name in seen:
+                return None
+            seen.add(member.name)
+            if member.name not in target_members:
+                return None
+            if not self.can_coerce_type(member.type, target_members[member.name].type):
+                return None
+        # Every concrete member not provided must have a default
+        for m in concrete.members:
+            if m.name not in seen and m.name not in concrete.member_defaults:
+                return None
+        return concrete
+
+    def _find_common_type_anon_array(
+        self, a: FpyType, b: FpyType
+    ) -> FpyType | None:
+        """Return the concrete array type if one side is an anonymous array
+        that is structurally compatible with the other, otherwise None."""
+        if a.kind == TypeKind.ANON_ARRAY and b.kind == TypeKind.ARRAY:
+            anon, concrete = a, b
+        elif b.kind == TypeKind.ANON_ARRAY and a.kind == TypeKind.ARRAY:
+            anon, concrete = b, a
+        else:
+            return None
+
+        if not is_type_constant_size(concrete):
+            return None
+        if anon.length > concrete.length:
+            return None
+        # Every element position beyond what the anon provides must have a default
+        if anon.length < concrete.length:
+            for i in range(anon.length, concrete.length):
+                if concrete.elem_defaults[i] is None:
+                    return None
+        return concrete
 
     def get_type_of_symbol(self, sym: Symbol) -> FpyType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
@@ -1358,6 +1339,14 @@ class PickTypesAndResolveFields(Visitor):
         state.contextual_types[node] = BOOL
 
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        # Check for duplicate member names
+        seen_names: set[str] = set()
+        for name, _ in node.members:
+            if name in seen_names:
+                state.err(f"Duplicate member '{name}' in anonymous struct", node)
+                return
+            seen_names.add(name)
+
         # Synthesize an anonymous struct type from the member expressions
         members = tuple(
             StructMember(name, state.synthesized_types[value_expr])
@@ -1546,8 +1535,7 @@ class PickTypesAndResolveFields(Visitor):
             state.errors.append(resolved_args)
             return
 
-        # Store the resolved args for use in desugaring and codegen
-        state.resolved_func_args[node] = resolved_args
+        state.resolved_args[node] = resolved_args
 
         error_or_none = self.check_arg_types_compatible_with_func(
             node, func, resolved_args, state
@@ -2060,7 +2048,7 @@ class CalculateConstExprValues(Visitor):
         # Use resolved args from semantic analysis (already in positional order,
         # with defaults filled in)
         # This is guaranteed to be set by PickTypesAndResolveAttrsAndItems
-        resolved_args = state.resolved_func_args[node]
+        resolved_args = state.resolved_args[node]
 
         # Gather arg values. Since defaults are already filled in, we just need
         # to look up each arg's const value. For FpyValue defaults from builtins,
@@ -2314,7 +2302,7 @@ class CalculateConstExprValues(Visitor):
         converted_type = state.contextual_types[node]
         assert converted_type.kind == TypeKind.STRUCT, converted_type
 
-        resolved_members = state.resolved_func_args[node]
+        resolved_members = state.resolved_args[node]
 
         # Gather member values
         member_values = []
@@ -2338,7 +2326,7 @@ class CalculateConstExprValues(Visitor):
         converted_type = state.contextual_types[node]
         assert converted_type.kind == TypeKind.ARRAY, converted_type
 
-        resolved_elements = state.resolved_func_args[node]
+        resolved_elements = state.resolved_args[node]
 
         # Gather element values
         elem_values = []

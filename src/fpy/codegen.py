@@ -1010,7 +1010,7 @@ class GenerateFunctionBody(Emitter):
 
         # Emit each resolved member value in target struct order
         dirs = []
-        resolved_members = state.resolved_func_args[node]
+        resolved_members = state.resolved_args[node]
         for member_expr in resolved_members:
             dirs.extend(self._emit_func_arg(member_expr, state))
         return dirs
@@ -1023,7 +1023,7 @@ class GenerateFunctionBody(Emitter):
 
         # Emit each element value
         dirs = []
-        resolved_elements = state.resolved_func_args[node]
+        resolved_elements = state.resolved_args[node]
         for elem_expr in resolved_elements:
             dirs.extend(self._emit_func_arg(elem_expr, state))
         return dirs

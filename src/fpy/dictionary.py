@@ -178,7 +178,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
             name,
             enum_dict=enum_dict,
             rep_type=PRIMITIVE_TYPE_MAP[rep_type_name],
-            default=default,
+            json_default=default,
         )
 
     # Phase 2: Parse aliases (may reference primitives or already-parsed types)
@@ -218,7 +218,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                         name,
                         elem_type=elem_type,
                         length=length,
-                        default=default,
+                        json_default=default,
                     )
                 else:  # struct
                     members_json = td["members"]
@@ -247,7 +247,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                         TypeKind.STRUCT,
                         name,
                         members=tuple(member_list),
-                        default=default,
+                        json_default=default,
                     )
             except (AssertionError, KeyError):
                 still_remaining.append((kind, td))

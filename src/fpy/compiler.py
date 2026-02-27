@@ -198,40 +198,60 @@ def _validate_and_replace_type(
                 f"expected {canonical.length}"
             )
     type_dict[name] = canonical
-    # Preserve defaults from the dictionary definition on the canonical type
-    if dict_type.default is not None and canonical.default is None:
-        canonical.default = dict_type.default
+    # Preserve raw JSON defaults from the dictionary definition on the canonical type
+    if dict_type.json_default is not None and canonical.json_default is None:
+        canonical.json_default = dict_type.json_default
+
+
+def _populate_type_defaults(typ: FpyType) -> None:
+    """Populate per-member/per-element defaults on an FpyType from its json_default.
+
+    Sets FpyType.member_defaults for structs and FpyType.elem_defaults for arrays.
+    """
+    if typ.kind == TypeKind.STRUCT:
+        struct_defaults: dict[str, FpyValue] = {}
+        if typ.json_default is not None:
+            for m in typ.members:
+                raw_val = typ.json_default.get(m.name)
+                if raw_val is None:
+                    continue
+                if m.type.kind == TypeKind.ARRAY and not (
+                    isinstance(raw_val, list) and len(raw_val) == m.type.length
+                ):
+                    # Struct member arrays (members with a "size" key in the JSON)
+                    # get wrapped in a synthetic array type, but the dictionary's
+                    # raw default is a single element value rather than an
+                    # array-shaped value.  Per FPP's spec
+                    # (see https://github.com/nasa/fpp/issues/925), this single
+                    # value initializes every element of the member array.
+                    # We replicate it to build the full array-shaped FpyValue.
+                    elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
+                    struct_defaults[m.name] = FpyValue(
+                        m.type, [elem_val] * m.type.length
+                    )
+                else:
+                    struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
+        typ.member_defaults = struct_defaults
+    elif typ.kind == TypeKind.ARRAY:
+        array_defaults: list[FpyValue | None] = []
+        if typ.json_default is not None:
+            default_val = json_default_to_fpy_value(typ.json_default, typ)
+            array_defaults = default_val.val  # list of FpyValue
+            assert len(array_defaults) == typ.length, (
+                f"Dictionary array type {typ.name} has default with "
+                f"{len(array_defaults)} elements but declared length {typ.length}"
+            )
+        typ.elem_defaults = tuple(array_defaults) if array_defaults else (None,) * typ.length
 
 
 def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
     """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor.
-
-    For structs, inline member arrays (members with a "size" key in the JSON)
-    get wrapped in a synthetic array type, but the dictionary's raw default is
-    shaped for the *inner* element type, not the wrapper.  This is an FPP bug —
-    the default should be nested to match the wrapper shape.  We detect the
-    shape mismatch and skip those members' defaults until FPP is fixed.
     """
     if typ.kind == TypeKind.STRUCT:
-        struct_defaults: dict[str, FpyValue] = {}
-        if typ.default is not None:
-            for m in typ.members:
-                raw_val = typ.default.get(m.name)
-                if raw_val is None:
-                    continue
-                if m.type.kind == TypeKind.ARRAY and (
-                    not isinstance(raw_val, list) or len(raw_val) != m.type.length
-                ):
-                    continue
-                struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
-        args = [(m.name, m.type, struct_defaults.get(m.name)) for m in typ.members]
+        args = [(m.name, m.type, typ.member_defaults.get(m.name)) for m in typ.members]
     elif typ.kind == TypeKind.ARRAY:
-        array_defaults: list[FpyValue] = []
-        if typ.default is not None:
-            default_val = json_default_to_fpy_value(typ.default, typ)
-            array_defaults = default_val.val  # list of FpyValue
         args = [
-            ("e" + str(i), typ.elem_type, array_defaults[i] if i < len(array_defaults) else None)
+            ("e" + str(i), typ.elem_type, typ.elem_defaults[i])
             for i in range(typ.length)
         ]
     else:
@@ -277,6 +297,10 @@ def _build_global_scopes(dictionary: str) -> tuple:
                 enum_const_name_dict[name + "." + enum_const_name] = FpyValue(
                     typ, enum_const_name
                 )
+
+    # Populate per-member/per-element defaults on types before building ctors
+    for typ in type_name_dict.values():
+        _populate_type_defaults(typ)
 
     # Build callable dict: commands, numeric casts, type constructors, macros
     callable_name_dict: dict[str, CallableSymbol] = {}

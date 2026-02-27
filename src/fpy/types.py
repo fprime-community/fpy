@@ -164,7 +164,9 @@ class FpyType:
         "members",
         "elem_type",
         "length",
-        "default",
+        "json_default",
+        "member_defaults",
+        "elem_defaults",
     )
 
     def __init__(
@@ -178,7 +180,9 @@ class FpyType:
         members: tuple[StructMember, ...] | None = None,
         elem_type: FpyType | None = None,
         length: int | None = None,
-        default: object | None = None,
+        json_default: object | None = None,
+        member_defaults: dict[str, FpyValue] | None = None,
+        elem_defaults: tuple[FpyValue | None, ...] | None = None,
     ):
         self.kind = kind
         self.name = name
@@ -188,7 +192,9 @@ class FpyType:
         self.members = members
         self.elem_type = elem_type
         self.length = length
-        self.default = default
+        self.json_default = json_default
+        self.member_defaults = member_defaults
+        self.elem_defaults = elem_defaults
 
     # -- identity ----------------------------------------------------------
 
