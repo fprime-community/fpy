@@ -1,11 +1,58 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator, List, Literal as TypingLiteral, Union
 from lark import Token, Transformer, v_args
 from lark.tree import Meta
 from lark.lark import PostLex
 from lark.indenter import DedentError
 from decimal import Decimal
+
+
+class UnaryStackOp(str, Enum):
+    NOT = "not"
+    IDENTITY = "+"
+    NEGATE = "-"
+
+
+class BinaryStackOp(str, Enum):
+    EXPONENT = "**"
+    MODULUS = "%"
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+    FLOOR_DIVIDE = "//"
+    GREATER_THAN = ">"
+    GREATER_THAN_OR_EQUAL = ">="
+    LESS_THAN_OR_EQUAL = "<="
+    LESS_THAN = "<"
+    EQUAL = "=="
+    NOT_EQUAL = "!="
+    OR = "or"
+    AND = "and"
+
+
+NUMERIC_OPERATORS = {
+    UnaryStackOp.IDENTITY,
+    UnaryStackOp.NEGATE,
+    BinaryStackOp.ADD,
+    BinaryStackOp.SUBTRACT,
+    BinaryStackOp.MULTIPLY,
+    BinaryStackOp.DIVIDE,
+    BinaryStackOp.MODULUS,
+    BinaryStackOp.EXPONENT,
+    BinaryStackOp.FLOOR_DIVIDE,
+}
+BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 
 class PythonIndenter(PostLex):
@@ -181,10 +228,20 @@ class AstRange(Ast):
     upper_bound: AstExpr
 
 
+@dataclass
+class AstAnonStruct(Ast):
+    members: list[tuple[str, "AstExpr"]]
+
+
+@dataclass
+class AstAnonArray(Ast):
+    elements: list["AstExpr"]
+
+
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
 AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
-AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
+AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray]
 
 
 @dataclass
@@ -483,6 +540,28 @@ class FpyTransformer(Transformer):
     get_attr = AstGetAttr
     index_expr = AstIndexExpr
     range = AstRange
+
+    @v_args(meta=True, inline=False)
+    def anon_struct(self, meta, children):
+        # children is either [] (empty struct) or [members_list]
+        # Lark passes None for absent optional rules
+        members = children[0] if children and children[0] is not None else []
+        return AstAnonStruct(meta, members)
+
+    anon_struct_members = no_inline_or_meta(list)
+
+    @v_args(meta=False, inline=True)
+    def anon_struct_member(self, name, value):
+        return (name, value)
+
+    @v_args(meta=True, inline=False)
+    def anon_array(self, meta, children):
+        # children is either [] (empty array) or [elements_list]
+        # Lark passes None for absent optional rules
+        elements = children[0] if children and children[0] is not None else []
+        return AstAnonArray(meta, elements)
+
+    anon_array_elements = no_inline_or_meta(list)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)

@@ -1,6 +1,6 @@
 import pytest
 
-from fprime_gds.common.models.serialize.numerical_types import U32Type as U32Value
+from fpy.types import FpyValue, U32
 
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
@@ -381,7 +381,7 @@ exit(1)
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(1).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 1).serialize()},
     )
 
 
@@ -404,7 +404,7 @@ else:
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(4).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 4).serialize()},
     )
 
 
@@ -451,7 +451,7 @@ exit(1)
         fprime_test_api,
         seq,
         {
-            "Ref.typeDemo.ChoicePairCh": lookup_type(fprime_test_api, "Ref.ChoicePair")(
+            "Ref.typeDemo.ChoicePairCh": FpyValue(lookup_type(fprime_test_api, "Ref.ChoicePair"),
                 {"firstChoice": "ONE", "secondChoice": "ONE"}
             ).serialize()
         },
@@ -1634,6 +1634,7 @@ def test_too_many_dirs(fprime_test_api):
     assert_compile_failure(fprime_test_api, seq)
 
 
+
 def test_dir_too_large(fprime_test_api):
     # TODO this doesn't actually crash cuz the dir is too large... not sure at the moment how to trigger this
     from fpy.types import MAX_DIRECTIVE_SIZE
@@ -1800,7 +1801,7 @@ assert (end - start).seconds == 5
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
         timeout_s=20
     )
 
@@ -1997,6 +1998,18 @@ if val[-1] == 456:
 exit(1)
 """
     # TODO in the future this should work, should be the last element
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_const_array_oob(fprime_test_api):
+    """Out-of-bounds on a const array expression (not a variable).
+    The parent is a type constructor call, so CalculateConstExprValues
+    has a non-None parent_value. Without the bounds guard there,
+    this would crash with a Python IndexError instead of a compile error.
+    """
+    seq = """
+val: U32 = Svc.ComQueueDepth(10, 20)[2]
+"""
     assert_compile_failure(fprime_test_api, seq)
 
 
@@ -5160,3 +5173,81 @@ set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
     assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+
+
+# ---------------------------------------------------------------------------
+# Type constructor default values
+# ---------------------------------------------------------------------------
+def test_struct_ctor_all_defaults(fprime_test_api):
+    """Struct constructor with no args should use all defaults from dictionary."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair()
+assert pair.time == 0.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_partial_defaults(fprime_test_api):
+    """Struct constructor with some args should use defaults for the rest."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(time=1.0)
+assert pair.time == 1.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_override_all_defaults(fprime_test_api):
+    """Struct constructor with all args should ignore defaults."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)
+assert pair.time == 3.0
+assert pair.value == 4.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_all_defaults(fprime_test_api):
+    """Array constructor with no args should use all defaults from dictionary."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth()
+assert depths[0] == 0
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_partial_defaults(fprime_test_api):
+    """Array constructor with some args should use defaults for the rest."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth(e0=42)
+assert depths[0] == 42
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_enum_member_default(fprime_test_api):
+    """Struct with an enum member should be constructable with defaults."""
+    seq = """
+stat: Ref.PacketStat = Ref.PacketStat()
+assert stat.BuffRecv == 0
+assert stat.BuffErr == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_elem_non_first_struct_member(fprime_test_api):
+    """Accessing a non-first struct member on an array element must not crash.
+    """
+    seq = """
+val: Ref.SignalPairSet = Ref.SignalPairSet( \
+    Ref.SignalPair(1.0, 2.0), \
+    Ref.SignalPair(3.0, 4.0), \
+    Ref.SignalPair(5.0, 6.0), \
+    Ref.SignalPair(7.0, 8.0))
+assert val[0].value == 2.0
+assert val[1].value == 4.0
+"""
+    assert_run_success(fprime_test_api, seq)

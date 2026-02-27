@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, COMPARISON_OPS, Directive, LoopVarType
+from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
@@ -22,18 +22,21 @@ from fpy.syntax import (
     AstWhile,
 )
 from fpy.types import (
+    FpyType,
+    FpyValue,
+    INTEGER,
+    TIME_OPS,
+    BOOL,
+    I8,
+    I64,
+)
+from fpy.state import (
     CompileState,
     FieldAccess,
     ForLoopAnalysis,
-    FppType,
     Symbol,
-    FpyIntegerValue,
-    TIME_OPS,
-    Transformer,
 )
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.numerical_types import IntegerType as IntegerValue
+from fpy.visitors import Transformer
 
 
 class DesugarForLoops(Transformer):
@@ -45,9 +48,9 @@ class DesugarForLoops(Transformer):
         self,
         state: CompileState,
         node: Ast,
-        contextual_type: FppType | None,
-        synthesized_type: FppType | None,
-        contextual_value: FppValue | None,
+        contextual_type: FpyType | None,
+        synthesized_type: FpyType | None,
+        contextual_value: FpyValue | None,
         op_intermediate_type: type[Directive] | None,
         resolved_symbol: Symbol | None,
     ) -> Ast:
@@ -65,7 +68,7 @@ class DesugarForLoops(Transformer):
     ) -> Ast:
         # <node.loop_var>: LoopVarType = <node.range.lower_bound>
 
-        loop_var_type_name = LoopVarType.get_canonical_name()
+        loop_var_type_name = LoopVarType.name
         loop_var_type_var = self.new(
             state,
             AstIdent(None, loop_var_type_name),
@@ -106,7 +109,7 @@ class DesugarForLoops(Transformer):
             resolved_symbol=loop_info.upper_bound_var,
         )
 
-        loop_var_type_name = LoopVarType.get_canonical_name()
+        loop_var_type_name = LoopVarType.name
         # create a new node for the type_ann
         loop_var_type_var = self.new(
             state,
@@ -152,8 +155,8 @@ class DesugarForLoops(Transformer):
             state,
             AstNumber(None, 1),
             contextual_type=LoopVarType,
-            synthesized_type=FpyIntegerValue,
-            contextual_value=LoopVarType(1),
+            synthesized_type=INTEGER,
+            contextual_value=FpyValue(LoopVarType, 1),
             op_intermediate_type=None,
             resolved_symbol=None,
         )
@@ -223,8 +226,8 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstBinaryOp(None, lhs, BinaryStackOp.LESS_THAN, rhs),
-            contextual_type=BoolValue,
-            synthesized_type=BoolValue,
+            contextual_type=BOOL,
+            synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
             resolved_symbol=None,
@@ -299,7 +302,9 @@ class DesugarDefaultArgs(Transformer):
     Desugars function calls with named or missing arguments by:
     1. Reordering named arguments to positional order
     2. Filling in default values for missing arguments
-    3. Converting FppValue defaults (from builtins) to AstNumber/AstBoolean nodes
+
+    FpyValue defaults (from builtins or dictionary type constructors) are left
+    as-is and serialized directly in codegen via ``emit_arg``.
 
     For example, if we have:
         def foo(a: U8, b: U8 = 5, c: U8 = 10):
@@ -315,40 +320,18 @@ class DesugarDefaultArgs(Transformer):
     value expressions.
     """
 
-    def _fpp_value_to_ast(self, value: FppValue, meta: Meta, state: CompileState) -> Ast:
-        """Convert an FppValue (from builtin default) to an AST literal node."""
-        if isinstance(value, BoolValue):
-            node = AstBoolean(meta=meta, value=value.val)
-        elif isinstance(value, IntegerValue):
-            node = AstNumber(meta=meta, value=value.val)
-        else:
-            assert False, f"Unsupported FppValue type for default arg: {type(value)}"
-
-        # Register the new node in state so codegen can find its type/value
-        state.synthesized_types[node] = type(value)
-        state.contextual_types[node] = type(value)
-        state.const_expr_values[node] = value
-        return node
-
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         # Get the resolved arguments from semantic analysis.
         # This list is already in positional order with defaults filled in.
-        resolved_args = state.resolved_func_args.get(node)
+        # FpyValue entries are kept as-is; codegen handles them directly.
+        resolved_args = state.resolved_args.get(node)
         assert resolved_args is not None, (
             f"No resolved args for function call {node}. "
             f"This should have been set by PickTypesAndResolveAttrsAndItems."
         )
 
-        # Convert any FppValue defaults to AST nodes
-        desugared_args = []
-        for arg in resolved_args:
-            if isinstance(arg, FppValue):
-                desugared_args.append(self._fpp_value_to_ast(arg, node.meta, state))
-            else:
-                desugared_args.append(arg)
-
-        # Update the node's args with the desugared arguments
-        node.args = desugared_args
+        # Update the node's args with the resolved arguments
+        node.args = resolved_args
 
         return node
 
@@ -672,10 +655,10 @@ class DesugarTimeOperators(Transformer):
         self,
         state: CompileState,
         node: Ast,
-        contextual_type: FppType | None,
-        synthesized_type: FppType | None,
-        contextual_value: FppValue | None,
-        op_intermediate_type: FppType | None = None,
+        contextual_type: FpyType | None,
+        synthesized_type: FpyType | None,
+        contextual_value: FpyValue | None,
+        op_intermediate_type: FpyType | None = None,
         resolved_symbol: Symbol | None = None,
     ) -> Ast:
         """Create a new node with proper state setup."""
@@ -695,7 +678,7 @@ class DesugarTimeOperators(Transformer):
                 sym.parent_expr = new_node
 
     def _make_func_call(
-        self, node: AstBinaryOp, func_name: str, result_type: FppType, state: CompileState
+        self, node: AstBinaryOp, func_name: str, result_type: FpyType, state: CompileState
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
         func_symbol = state.global_callable_scope.get(func_name)
@@ -734,12 +717,10 @@ class DesugarTimeOperators(Transformer):
         For == : cmp(lhs, rhs) == 0
         For != : cmp(lhs, rhs) != 0
         """
-        from fprime_gds.common.models.serialize.numerical_types import I8Type as I8Value, I64Type as I64Value
-
         # Create the cmp function call - returns I8, but we'll use I64 as the intermediate type
-        cmp_call = self._make_func_call(node, cmp_func, I8Value, state)
+        cmp_call = self._make_func_call(node, cmp_func, I8, state)
         # Set the contextual type to I64 so codegen will insert sign-extension
-        state.contextual_types[cmp_call] = I64Value
+        state.contextual_types[cmp_call] = I64
         
         op = node.op
         if op == BinaryStackOp.LESS_THAN:
@@ -767,19 +748,19 @@ class DesugarTimeOperators(Transformer):
         num_node = self.new(
             state,
             AstNumber(node.meta, cmp_val),
-            contextual_type=I64Value,
-            synthesized_type=FpyIntegerValue,
-            contextual_value=I64Value(cmp_val),
+            contextual_type=I64,
+            synthesized_type=INTEGER,
+            contextual_value=FpyValue(I64, cmp_val),
         )
 
         # Create the comparison expression
         result_node = self.new(
             state,
             AstBinaryOp(node.meta, cmp_call, new_op, num_node),
-            contextual_type=BoolValue,
-            synthesized_type=BoolValue,
+            contextual_type=BOOL,
+            synthesized_type=BOOL,
             contextual_value=None,
-            op_intermediate_type=I64Value,
+            op_intermediate_type=I64,
         )
         self._update_field_access_refs(node, result_node, state)
         return result_node

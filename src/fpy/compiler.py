@@ -1,23 +1,8 @@
 from __future__ import annotations
-import json
 import sys
 from functools import lru_cache
 from pathlib import Path
-from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.enum_type import EnumType as EnumValue
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    NumericalType as NumericalValue,
-)
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from lark import Lark
+from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
     CalculateFrameSizes,
@@ -30,6 +15,7 @@ from fpy.codegen import (
     ResolveLabels,
 )
 from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
+from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
@@ -52,25 +38,28 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
-    FlagIdValue,
-    TimeIntervalValue,
-    CompileState,
+    CHECK_STATE,
+    CMD_RESPONSE,
+    FLAG_ID,
+    TIME_COMPARISON,
+    TIME_INTERVAL,
+    FpyType,
+    FpyValue,
+    TypeKind,
+    TIME,
+    BOOL,
+    I64,
+)
+from fpy.state import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    CompileState,
     TypeCtorSymbol,
-    Visitor,
     create_symbol_table,
     merge_symbol_tables,
 )
-from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
-from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
-from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
-from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
-from fprime_gds.common.templates.cmd_template import CmdTemplate
-from pathlib import Path
-from lark import Lark, LarkError
+from fpy.visitors import Visitor
 
 from fpy.error import BackendError, CompileError, handle_lark_error
 import fpy.error
@@ -165,175 +154,173 @@ def text_to_ast(text: str):
     return transformed
 
 
-@lru_cache(maxsize=4)
-def _load_sequence_config(dictionary: str) -> dict:
+
+def _validate_and_replace_type(
+    type_dict: dict[str, FpyType],
+    name: str,
+    canonical: FpyType,
+) -> None:
+    """Validate that a required type exists in the dictionary and matches the
+    canonical definition, then replace it with the canonical version."""
+    if name not in type_dict:
+        raise ValueError(f"Dictionary must contain {name} type")
+    dict_type = type_dict[name]
+    if dict_type.kind != canonical.kind:
+        raise ValueError(
+            f"Dictionary {name} has kind {dict_type.kind}, expected {canonical.kind}"
+        )
+    if canonical.kind == TypeKind.STRUCT:
+        if dict_type.members != canonical.members:
+            raise ValueError(
+                f"Dictionary {name} has members {dict_type.members}, "
+                f"expected {canonical.members}"
+            )
+    elif canonical.kind == TypeKind.ENUM:
+        if dict_type.enum_dict != canonical.enum_dict:
+            raise ValueError(
+                f"Dictionary {name} has enum dict {dict_type.enum_dict}, "
+                f"expected {canonical.enum_dict}"
+            )
+        if dict_type.rep_type != canonical.rep_type:
+            raise ValueError(
+                f"Dictionary {name} has rep type {dict_type.rep_type}, "
+                f"expected {canonical.rep_type}"
+            )
+    elif canonical.kind == TypeKind.ARRAY:
+        if dict_type.elem_type != canonical.elem_type:
+            raise ValueError(
+                f"Dictionary {name} has elem type {dict_type.elem_type}, "
+                f"expected {canonical.elem_type}"
+            )
+        if dict_type.length != canonical.length:
+            raise ValueError(
+                f"Dictionary {name} has length {dict_type.length}, "
+                f"expected {canonical.length}"
+            )
+    type_dict[name] = canonical
+    # Preserve raw JSON defaults from the dictionary definition on the canonical type
+    if dict_type.json_default is not None and canonical.json_default is None:
+        canonical.json_default = dict_type.json_default
+
+
+def _populate_type_defaults(typ: FpyType) -> None:
+    """Populate per-member/per-element defaults on an FpyType from its json_default.
+
+    Sets FpyType.member_defaults for structs and FpyType.elem_defaults for arrays.
     """
-    Load sequence configuration from the dictionary constants section.
-    Returns a dict with max_directives_count and max_directive_size.
+    if typ.kind == TypeKind.STRUCT:
+        struct_defaults: dict[str, FpyValue] = {}
+        if typ.json_default is not None:
+            for m in typ.members:
+                raw_val = typ.json_default.get(m.name)
+                if raw_val is None:
+                    continue
+                if m.type.kind == TypeKind.ARRAY and not (
+                    isinstance(raw_val, list) and len(raw_val) == m.type.length
+                ):
+                    # Struct member arrays (members with a "size" key in the JSON)
+                    # get wrapped in a synthetic array type, but the dictionary's
+                    # raw default is a single element value rather than an
+                    # array-shaped value.  Per FPP's spec
+                    # (see https://github.com/nasa/fpp/issues/925), this single
+                    # value initializes every element of the member array.
+                    # We replicate it to build the full array-shaped FpyValue.
+                    elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
+                    struct_defaults[m.name] = FpyValue(
+                        m.type, [elem_val] * m.type.length
+                    )
+                else:
+                    struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
+        typ.member_defaults = struct_defaults
+    elif typ.kind == TypeKind.ARRAY:
+        array_defaults: list[FpyValue | None] = []
+        if typ.json_default is not None:
+            default_val = json_default_to_fpy_value(typ.json_default, typ)
+            array_defaults = default_val.val  # list of FpyValue
+            assert len(array_defaults) == typ.length, (
+                f"Dictionary array type {typ.name} has default with "
+                f"{len(array_defaults)} elements but declared length {typ.length}"
+            )
+        typ.elem_defaults = tuple(array_defaults) if array_defaults else (None,) * typ.length
+
+
+def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
+    """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor.
     """
-    with open(dictionary, "r") as f:
-        dict_json = json.load(f)
-    
-    constants = dict_json.get("constants", [])
-    
-    # Build a lookup dict for constants by qualified name
-    constants_by_name = {c["qualifiedName"]: c["value"] for c in constants if "qualifiedName" in c and "value" in c}
-    
-    return {
-        "max_directives_count": constants_by_name.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
-        "max_directive_size": constants_by_name.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
-    }
-
-
-@lru_cache(maxsize=4)
-def _load_dictionary(dictionary: str) -> tuple:
-    """
-    Load and parse the dictionary file once, caching the results.
-    Returns a tuple of (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict).
-    """
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
-
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(dictionary)
-    prm_json_dict_loader = PrmJsonLoader(dictionary)
-    (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
-
-    # Load all types from typeDefinitions - this includes types not referenced
-    # by any command, channel, parameter, or event (e.g. Fw.TimeComparison)
-    type_json_dict_loader = TypeJsonLoader(dictionary)
-    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
-
-    return (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict)
+    if typ.kind == TypeKind.STRUCT:
+        args = [(m.name, m.type, typ.member_defaults.get(m.name)) for m in typ.members]
+    elif typ.kind == TypeKind.ARRAY:
+        args = [
+            ("e" + str(i), typ.elem_type, typ.elem_defaults[i])
+            for i in range(typ.length)
+        ]
+    else:
+        return None
+    return TypeCtorSymbol(name, typ, args, typ)
 
 
 @lru_cache(maxsize=4)
 def _build_global_scopes(dictionary: str) -> tuple:
     """
     Build and cache the 3 global scopes for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope).
+    Returns tuple of (type_scope, callable_scope, values_scope, sequence_config).
     """
-    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(
-        dictionary
-    )
+    d = load_dictionary(dictionary)
+    cmd_name_dict = d["cmd_name_dict"]
+    ch_name_dict = d["ch_name_dict"]
+    prm_name_dict = d["prm_name_dict"]
+    dict_type_name_dict = d["type_defs"]
 
-    # Make a copy of type_name_dict since we'll mutate it
-    type_name_dict = dict(type_name_dict)
+    # Validate required dictionary types
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
+    _validate_and_replace_type(dict_type_name_dict, "Svc.Fpy.FlagId", FLAG_ID)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
 
-    # enum const dict is a dict of fully qualified enum const name (like Ref.Choice.ONE) to its fprime value
-    enum_const_name_dict: dict[str, FppValue] = {}
+    # Build the full type dict: start from (now-validated) dictionary types,
+    # then layer on builtins and internal types.  Later entries win, so
+    # canonical replacements from _validate_and_replace_type are preserved.
+    type_name_dict: dict[str, FpyType] = {
+        **dict_type_name_dict,
+        "Fw.Time": TIME,
+        **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
+        "bool": BOOL,
+        "$CheckState": CHECK_STATE,
+    }
 
-    # find each enum type, and put each of its values in the enum const dict
+    # Collect enum constants from the final type dict (after builtins and
+    # canonical replacements are in place).
+    enum_const_name_dict: dict[str, FpyValue] = {}
     for name, typ in type_name_dict.items():
-        if issubclass(typ, EnumValue):
-            for enum_const_name, val in typ.ENUM_DICT.items():
-                enum_const_name_dict[name + "." + enum_const_name] = typ(
-                    enum_const_name
+        if typ.kind == TypeKind.ENUM:
+            for enum_const_name in typ.enum_dict:
+                enum_const_name_dict[name + "." + enum_const_name] = FpyValue(
+                    typ, enum_const_name
                 )
 
-    # insert the builtin types into the dict
-    type_name_dict["Fw.Time"] = TimeValue
-    for typ in SPECIFIC_NUMERIC_TYPES:
-        type_name_dict[typ.get_canonical_name()] = typ
-    type_name_dict["bool"] = BoolValue
-    # note no string type at the moment
+    # Populate per-member/per-element defaults on types before building ctors
+    for typ in type_name_dict.values():
+        _populate_type_defaults(typ)
 
-    # Require Fw.TimeIntervalValue and Fw.TimeComparison from the dictionary
-    if "Fw.TimeIntervalValue" not in type_name_dict:
-        raise ValueError("Dictionary must contain Fw.TimeIntervalValue type")
-    dict_time_interval_type = type_name_dict["Fw.TimeIntervalValue"]
-    # Verify the dictionary's type matches our expected structure
-    expected_members = list(TimeIntervalValue.MEMBER_LIST)
-    dict_members = list(dict_time_interval_type.MEMBER_LIST)
-    if expected_members != dict_members:
-        raise ValueError(
-            f"Dictionary Fw.TimeIntervalValue has members {dict_members}, "
-            f"expected {expected_members}"
-        )
-    # Use our canonical type (which has the same structure)
-    type_name_dict["Fw.TimeIntervalValue"] = TimeIntervalValue
-
-    # Require Svc.Fpy.FlagId from the dictionary
-    if "Svc.Fpy.FlagId" not in type_name_dict:
-        raise ValueError("Dictionary must contain Svc.Fpy.FlagId enum")
-    dict_flag_id_type = type_name_dict["Svc.Fpy.FlagId"]
-    if dict_flag_id_type.ENUM_DICT != FlagIdValue.ENUM_DICT:
-        raise ValueError(
-            f"Dictionary Svc.Fpy.FlagId has enum dict {dict_flag_id_type.ENUM_DICT}, "
-            f"expected {FlagIdValue.ENUM_DICT}"
-        )
-    if dict_flag_id_type.REP_TYPE != FlagIdValue.REP_TYPE:
-        raise ValueError(
-            f"Dictionary Svc.Fpy.FlagId has rep type {dict_flag_id_type.REP_TYPE}, "
-            f"expected {FlagIdValue.REP_TYPE}"
-        )
-    type_name_dict["Svc.Fpy.FlagId"] = FlagIdValue
-
-    if "Fw.TimeComparison" not in type_name_dict:
-        raise ValueError("Dictionary must contain Fw.TimeComparison enum")
-
-    # once we have timeintervalvalue, make the checkstate struct
-    # This is an internal type (prefixed with $) not directly accessible to users,
-    # used for desugaring check statements
-    CheckStateValue = StructValue.construct_type(
-        "$CheckState",
-        [
-            ("persist", TimeIntervalValue, "", ""),
-            ("timeout", TimeValue, "", ""),
-            ("freq", TimeIntervalValue, "", ""),
-            ("result", BoolValue, "", ""),
-            ("last_was_true", BoolValue, "", ""),
-            ("last_time_true", TimeValue, "", ""),
-            ("time_started", TimeValue, "", ""),
-        ],
-    )
-    # Add to type dict so it can be used internally
-    type_name_dict["$CheckState"] = CheckStateValue
-
-    cmd_response_type = type_name_dict["Fw.CmdResponse"]
+    # Build callable dict: commands, numeric casts, type constructors, macros
     callable_name_dict: dict[str, CallableSymbol] = {}
-    # add all cmds to the callable dict
+
     for name, cmd in cmd_name_dict.items():
-        cmd: CmdTemplate
-        args = []
-        for arg_name, _, arg_type in cmd.arguments:
-            args.append((arg_name, arg_type, None))  # No default values for cmds
-        # cmds are thought of as callables with a Fw.CmdResponse return value
+        args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
         callable_name_dict[name] = CommandSymbol(
-            cmd.get_full_name(), cmd_response_type, args, cmd
+            cmd.name, CMD_RESPONSE, args, cmd
         )
 
-    # add numeric type casts to callable dict
     for typ in SPECIFIC_NUMERIC_TYPES:
-        callable_name_dict[typ.get_canonical_name()] = CastSymbol(
-            typ.get_canonical_name(), typ, [("value", NumericalValue, None)], typ
+        callable_name_dict[typ.name] = CastSymbol(
+            typ.name, typ, [("value", I64, None)], typ
         )
 
-    # for each type in the dict, if it has a constructor, create an TypeCtorSymbol
-    # object to track the constructor and put it in the callable name dict
     for name, typ in type_name_dict.items():
-        args = []
-        if issubclass(typ, StructValue):
-            for arg_name, arg_type, _, _ in typ.MEMBER_LIST:
-                args.append(
-                    (arg_name, arg_type, None)
-                )  # No default values for struct ctors
-        elif issubclass(typ, ArrayValue):
-            for i in range(0, typ.LENGTH):
-                args.append(("e" + str(i), typ.MEMBER_TYPE, None))
-        elif issubclass(typ, TimeValue):
-            args.append(("time_base", U16Value, None))
-            args.append(("time_context", U8Value, None))
-            args.append(("seconds", U32Value, None))
-            args.append(("useconds", U32Value, None))
-        else:
-            # bool, enum, string or numeric type
-            # none of these have callable ctors
-            continue
+        ctor = _make_type_ctor(name, typ)
+        if ctor is not None:
+            callable_name_dict[name] = ctor
 
-        callable_name_dict[name] = TypeCtorSymbol(name, typ, args, typ)
-
-    # for each macro function, add it to the callable dict
     for macro_name, macro in MACROS.items():
         callable_name_dict[macro_name] = macro
 
@@ -343,7 +330,6 @@ def _build_global_scopes(dictionary: str) -> tuple:
     # 2. global callable scope - leaf nodes are callables
     callable_scope = create_symbol_table(callable_name_dict)
     # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
-    #    Merge all value sources into one scope
     values_scope = merge_symbol_tables(
         create_symbol_table(ch_name_dict),
         merge_symbol_tables(
@@ -358,7 +344,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
 def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
-    sequence_config = _load_sequence_config(dictionary)
+    constants = load_dictionary(dictionary)["constants"]
 
     # Make copies of the scopes since we'll mutate them during compilation
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
@@ -369,8 +355,8 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
         compile_args=compile_args or dict(),
-        max_directives_count=sequence_config["max_directives_count"],
-        max_directive_size=sequence_config["max_directive_size"],
+        max_directives_count=constants.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
+        max_directive_size=constants.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
     return state
 

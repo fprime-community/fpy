@@ -14,30 +14,48 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     TIME_OPS,
     UNSIGNED_INTEGER_TYPES,
+    FpyType,
+    FpyValue,
+    StructMember,
+    TypeKind,
+    INTEGER,
+    FLOAT,
+    INTERNAL_STRING,
+    RANGE,
+    NOTHING,
+    BOOL,
+    TIME,
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+    is_instance_compat,
+)
+from fpy.state import (
     BuiltinFuncSymbol,
+    CallableSymbol,
+    CastSymbol,
     CompileState,
     FieldAccess,
     ForLoopAnalysis,
-    FppType,
-    CallableSymbol,
-    CastSymbol,
-    FpyFloatValue,
     FunctionSymbol,
     NameGroup,
     Symbol,
     SymbolTable,
     TypeCtorSymbol,
     VariableSymbol,
-    FpyIntegerValue,
-    FpyStringValue,
-    NothingValue,
-    RangeValue,
+    is_symbol_an_expr,
+)
+from fpy.visitors import (
     STOP_DESCENT,
     TopDownVisitor,
     Visitor,
-    is_instance_compat,
-    is_symbol_an_expr,
-    typename,
 )
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
@@ -58,34 +76,11 @@ from fpy.bytecode.directives import (
     BinaryStackOp,
     UnaryStackOp,
 )
-from fprime_gds.common.templates.ch_template import ChTemplate
-from fprime_gds.common.templates.prm_template import PrmTemplate
-from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fprime_gds.common.models.serialize.type_base import ValueType
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.models.serialize.type_exceptions import TypeException
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    U64Type as U64Value,
-    I8Type as I8Value,
-    I16Type as I16Value,
-    I32Type as I32Value,
-    I64Type as I64Value,
-    F32Type as F32Value,
-    F64Type as F64Value,
-    FloatType as FloatValue,
-    IntegerType as IntegerValue,
-    NumericalType as NumericalValue,
-)
-from fprime_gds.common.models.serialize.string_type import StringType as StringValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
+from fpy.state import ChDef, PrmDef
 from fpy.syntax import (
     AstAssert,
+    AstAnonStruct,
+    AstAnonArray,
     AstBinaryOp,
     AstBoolean,
     AstBreak,
@@ -116,7 +111,6 @@ from fpy.syntax import (
     AstIdent,
     AstWhile,
 )
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
 
 
 class AssignIds(TopDownVisitor):
@@ -616,6 +610,16 @@ class ResolveQualifiedNames(TopDownVisitor):
         # resolved
         pass
 
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        for _name, value_expr in node.members:
+            if not self.try_resolve_name(value_expr, NameGroup.VALUE, state):
+                return
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        for elem_expr in node.elements:
+            if not self.try_resolve_name(elem_expr, NameGroup.VALUE, state):
+                return
+
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node in state.resolved_symbols:
             # it exists in a context where we can resolve it
@@ -630,21 +634,21 @@ class ResolveQualifiedNames(TopDownVisitor):
         assert not is_instance_compat(node, AstStmtWithExpr), node
 
 
-def is_type_constant_size(type: FppType) -> bool:
+def is_type_constant_size(type: FpyType) -> bool:
     """Return true if the type has a statically known size.
 
     Types with strings (directly or nested) don't have constant size because
     strings can vary in length.
     """
-    if issubclass(type, StringValue):
+    if type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
         return False
 
-    if issubclass(type, ArrayValue):
-        return is_type_constant_size(type.MEMBER_TYPE)
+    if type.kind == TypeKind.ARRAY:
+        return is_type_constant_size(type.elem_type)
 
-    if issubclass(type, StructValue):
-        for _, arg_type, _, _ in type.MEMBER_LIST:
-            if not is_type_constant_size(arg_type):
+    if type.kind == TypeKind.STRUCT:
+        for m in type.members:
+            if not is_type_constant_size(m.type):
                 return False
         return True
 
@@ -660,12 +664,12 @@ class UpdateTypesAndFuncs(Visitor):
 
         # Resolve return type
         if node.return_type is None:
-            func.return_type = NothingValue
+            func.return_type = NOTHING
         else:
             return_type = state.resolved_symbols[node.return_type]
             if not is_type_constant_size(return_type):
                 state.err(
-                    f"Type {typename(return_type)} is not constant-sized (contains strings)",
+                    f"Type {return_type.display_name} is not constant-sized (contains strings)",
                     node.return_type,
                 )
                 return
@@ -678,7 +682,7 @@ class UpdateTypesAndFuncs(Visitor):
                 arg_type = state.resolved_symbols[arg_type_name]
                 if not is_type_constant_size(arg_type):
                     state.err(
-                        f"Type {typename(arg_type)} is not constant-sized (contains strings)",
+                        f"Type {arg_type.display_name} is not constant-sized (contains strings)",
                         arg_type_name,
                     )
                     return
@@ -698,7 +702,7 @@ class UpdateTypesAndFuncs(Visitor):
 
         if not is_type_constant_size(var_type):
             state.err(
-                f"Type {typename(var_type)} is not constant-sized (contains strings)",
+                f"Type {var_type.display_name} is not constant-sized (contains strings)",
                 node.type_ann,
             )
             return
@@ -795,7 +799,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
 
 class PickTypesAndResolveFields(Visitor):
 
-    def can_coerce_type(self, source: FppType, target: FppType) -> bool:
+    def can_coerce_type(self, source: FpyType, target: FpyType) -> bool:
         """Returns True if source can be implicitly coerced to target.
 
         Coercion is allowed when the common type of source and target IS target,
@@ -804,7 +808,7 @@ class PickTypesAndResolveFields(Visitor):
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
-        self, node: AstExpr, type: FppType, state: CompileState
+        self, node: AstExpr, type: FpyType, state: CompileState
     ) -> bool:
         unconverted_type = state.synthesized_types[node]
         # make sure it isn't already being coerced
@@ -812,15 +816,68 @@ class PickTypesAndResolveFields(Visitor):
             unconverted_type,
             state.contextual_types[node],
         )
-        if self.can_coerce_type(unconverted_type, type):
-            state.contextual_types[node] = type
-            return True
-        state.err(
-            f"Expected {typename(type)}, found {typename(unconverted_type)}", node
-        )
-        return False
 
-    def find_common_type(self, first_type: FppType, second_type: FppType) -> FppType | None:
+        if not self.can_coerce_type(unconverted_type, type):
+            state.err(
+                f"Expected {type.display_name}, found {unconverted_type.display_name}", node
+            )
+            return False
+
+        # For anon structs/arrays, recursively coerce children and build resolved_args
+        if unconverted_type.kind == TypeKind.ANON_STRUCT:
+            return self._coerce_anon_struct(node, type, state)
+        if unconverted_type.kind == TypeKind.ANON_ARRAY:
+            return self._coerce_anon_array(node, type, state)
+
+        state.contextual_types[node] = type
+        return True
+
+    def _coerce_anon_struct(
+        self, node: AstAnonStruct, target: FpyType, state: CompileState
+    ) -> bool:
+        """Recursively coerce each provided member and build resolved_args.
+
+        Called after can_coerce_type has already confirmed structural compatibility.
+        """
+        provided_members = {name: value_expr for name, value_expr in node.members}
+
+        # Build resolved list in target member order: coerce provided, fill defaults
+        resolved_members = []
+        for member in target.members:
+            if member.name in provided_members:
+                value_expr = provided_members[member.name]
+                if not self.coerce_expr_type(value_expr, member.type, state):
+                    return False
+                resolved_members.append(value_expr)
+            else:
+                resolved_members.append(target.member_defaults[member.name])
+
+        state.resolved_args[node] = resolved_members
+        state.contextual_types[node] = target
+        return True
+
+    def _coerce_anon_array(
+        self, node: AstAnonArray, target: FpyType, state: CompileState
+    ) -> bool:
+        """Recursively coerce each provided element and build resolved_args.
+
+        Called after can_coerce_type has already confirmed structural compatibility.
+        """
+        # Coerce each provided element to the target element type
+        for elem_expr in node.elements:
+            if not self.coerce_expr_type(elem_expr, target.elem_type, state):
+                return False
+
+        # Build resolved list: provided elements + defaults for missing positions
+        resolved = list(node.elements)
+        for i in range(len(node.elements), target.length):
+            resolved.append(target.elem_defaults[i])
+
+        state.resolved_args[node] = resolved
+        state.contextual_types[node] = target
+        return True
+
+    def find_common_type(self, first_type: FpyType, second_type: FpyType) -> FpyType | None:
 
         # important principles to reduce surprise:
 
@@ -834,31 +891,37 @@ class PickTypesAndResolveFields(Visitor):
             # no coercion necessary
             return second_type
 
+        # Anonymous struct adapts to a compatible concrete struct.
+        if first_type.kind == TypeKind.ANON_STRUCT or second_type.kind == TypeKind.ANON_STRUCT:
+            return self._find_common_type_anon_struct(first_type, second_type)
+
+        # Anonymous array adapts to a compatible concrete array.
+        if first_type.kind == TypeKind.ANON_ARRAY or second_type.kind == TypeKind.ANON_ARRAY:
+            return self._find_common_type_anon_array(first_type, second_type)
+
         # literal strings adapt to specific strings
-        if issubclass(first_type, StringValue) and second_type == FpyStringValue:
+        if first_type.is_string and second_type == INTERNAL_STRING:
             return first_type
-        if issubclass(second_type, StringValue) and first_type == FpyStringValue:
+        if second_type.is_string and first_type == INTERNAL_STRING:
             return second_type
 
-        if not issubclass(first_type, NumericalValue) or not issubclass(
-            second_type, NumericalValue
-        ):
+        if not first_type.is_numerical or not second_type.is_numerical:
             # there are no other non numeric types which have a common type
             return None
 
-        second_float = issubclass(second_type, FloatValue)
-        first_float = issubclass(first_type, FloatValue)
+        second_float = second_type.is_float
+        first_float = first_type.is_float
 
         # common type of int and float is float
         # but arb-precision adapts to specific: if one side is a specific int
         # and the other is an arb-precision float, the result is F64 (not arb float)
         if second_float and not first_float:
-            if second_type == FpyFloatValue and first_type not in ARBITRARY_PRECISION_TYPES:
-                return F64Value
+            if second_type == FLOAT and first_type not in ARBITRARY_PRECISION_TYPES:
+                return F64
             return second_type
         if not second_float and first_float:
-            if first_type == FpyFloatValue and second_type not in ARBITRARY_PRECISION_TYPES:
-                return F64Value
+            if first_type == FLOAT and second_type not in ARBITRARY_PRECISION_TYPES:
+                return F64
             return first_type
 
         # only case left is that we have both floats, or both ints
@@ -868,25 +931,25 @@ class PickTypesAndResolveFields(Visitor):
         return self.find_common_integer_type(first_type, second_type)
 
     def find_common_float_type(
-        self, first_type: FppType, second_type: FppType
-    ) -> FppType | None:
+        self, first_type: FpyType, second_type: FpyType
+    ) -> FpyType | None:
         # arb precision adapts to specific
-        if first_type == FpyFloatValue:
+        if first_type == FLOAT:
             return second_type
-        if second_type == FpyFloatValue:
+        if second_type == FLOAT:
             return first_type
         # both specific: wider wins
-        if max(first_type.get_bits(), second_type.get_bits()) > 32:
-            return F64Value
-        return F32Value
+        if max(first_type.bits, second_type.bits) > 32:
+            return F64
+        return F32
 
     def find_common_integer_type(
-        self, first_type: FppType, second_type: FppType
-    ) -> FppType | None:
+        self, first_type: FpyType, second_type: FpyType
+    ) -> FpyType | None:
         # arb precision adapts to specific
-        if first_type == FpyIntegerValue:
+        if first_type == INTEGER:
             return second_type
-        if second_type == FpyIntegerValue:
+        if second_type == INTEGER:
             return first_type
 
         # both specific: must have matching signedness
@@ -897,35 +960,89 @@ class PickTypesAndResolveFields(Visitor):
             return None
 
         # same signedness: wider wins
-        bits = max(first_type.get_bits(), second_type.get_bits())
+        bits = max(first_type.bits, second_type.bits)
         if first_unsigned:
             if bits <= 8:
-                return U8Value
+                return U8
             elif bits <= 16:
-                return U16Value
+                return U16
             elif bits <= 32:
-                return U32Value
+                return U32
             else:
-                return U64Value
+                return U64
         else:
             if bits <= 8:
-                return I8Value
+                return I8
             elif bits <= 16:
-                return I16Value
+                return I16
             elif bits <= 32:
-                return I32Value
+                return I32
             else:
-                return I64Value
+                return I64
 
-    def get_type_of_symbol(self, sym: Symbol) -> FppType:
+    def _find_common_type_anon_struct(
+        self, a: FpyType, b: FpyType
+    ) -> FpyType | None:
+        """Return the concrete struct type if one side is an anonymous struct
+        that is structurally compatible with the other, otherwise None."""
+        if a.kind == TypeKind.ANON_STRUCT and b.kind == TypeKind.STRUCT:
+            anon, concrete = a, b
+        elif b.kind == TypeKind.ANON_STRUCT and a.kind == TypeKind.STRUCT:
+            anon, concrete = b, a
+        else:
+            return None
+
+        if not is_type_constant_size(concrete):
+            return None
+
+        target_members = {m.name: m for m in concrete.members}
+        seen: set[str] = set()
+        for member in anon.members:
+            if member.name in seen:
+                return None
+            seen.add(member.name)
+            if member.name not in target_members:
+                return None
+            if not self.can_coerce_type(member.type, target_members[member.name].type):
+                return None
+        # Every concrete member not provided must have a default
+        for m in concrete.members:
+            if m.name not in seen and m.name not in concrete.member_defaults:
+                return None
+        return concrete
+
+    def _find_common_type_anon_array(
+        self, a: FpyType, b: FpyType
+    ) -> FpyType | None:
+        """Return the concrete array type if one side is an anonymous array
+        that is structurally compatible with the other, otherwise None."""
+        if a.kind == TypeKind.ANON_ARRAY and b.kind == TypeKind.ARRAY:
+            anon, concrete = a, b
+        elif b.kind == TypeKind.ANON_ARRAY and a.kind == TypeKind.ARRAY:
+            anon, concrete = b, a
+        else:
+            return None
+
+        if not is_type_constant_size(concrete):
+            return None
+        if anon.length > concrete.length:
+            return None
+        # Every element position beyond what the anon provides must have a default
+        if anon.length < concrete.length:
+            for i in range(anon.length, concrete.length):
+                if concrete.elem_defaults[i] is None:
+                    return None
+        return concrete
+
+    def get_type_of_symbol(self, sym: Symbol) -> FpyType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
-        if isinstance(sym, ChTemplate):
-            result_type = sym.ch_type_obj
-        elif isinstance(sym, PrmTemplate):
-            result_type = sym.prm_type_obj
-        elif isinstance(sym, FppValue):
+        if isinstance(sym, ChDef):
+            result_type = sym.ch_type
+        elif isinstance(sym, PrmDef):
+            result_type = sym.prm_type
+        elif isinstance(sym, FpyValue):
             # constant value
-            result_type = type(sym)
+            result_type = sym.type
         elif isinstance(sym, VariableSymbol):
             result_type = sym.type
         elif isinstance(sym, FieldAccess):
@@ -956,66 +1073,78 @@ class PickTypesAndResolveFields(Visitor):
             # it may or may not have a compile time value, but it definitely has a type
             parent_type = state.synthesized_types[node.parent]
 
-            if not issubclass(parent_type, (StructValue, TimeValue)):
-                state.err(
-                    f"{typename(parent_type)} is not a struct, cannot access members",
-                    node,
-                )
-                return
-
-            if not is_type_constant_size(parent_type):
-                state.err(
-                    f"{typename(parent_type)} is not constant-sized (contains strings), cannot access members",
-                    node,
-                )
-                return
-
-            # field symbols store their "base symbol", which is the first non-field-symbol parent of
-            # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
-            # you're talking about a field of
-            base_sym = (
-                parent_sym
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_sym
-            )
-            # we also calculate a "base offset" wrt. the start of the base_sym type, so you
-            # can easily pick out this field from a value of the base sym type
-            base_offset = (
-                0
-                if not is_instance_compat(parent_sym, FieldAccess)
-                else parent_sym.base_offset
-            )
-
-            member_list: list[tuple[str, FppType]] = None
-            if issubclass(parent_type, StructValue):
-                member_list = [t[0:2] for t in parent_type.MEMBER_LIST]
-            else:
-                # if it is a time type, there are some "implied" members
-                member_list = []
-                member_list.append(("time_base", U16Value))
-                member_list.append(("time_context", U8Value))
-                member_list.append(("seconds", U32Value))
-                member_list.append(("useconds", U32Value))
-
-            offset = 0
-            for arg_name, arg_type in member_list:
-                if arg_name == node.attr:
-                    this_sym = FieldAccess(
-                        is_struct_member=True,
-                        parent_expr=node.parent,
-                        type=arg_type,
-                        base_sym=base_sym,
-                        local_offset=offset,
-                        base_offset=base_offset,
-                        name=arg_name,
+            if parent_type.kind == TypeKind.ANON_STRUCT:
+                # Direct member access on anonymous struct literal
+                member_type = None
+                for m in parent_type.members:
+                    if m.name == node.attr:
+                        member_type = m.type
+                        break
+                if member_type is None:
+                    state.err(
+                        f"Anonymous struct has no member named '{node.attr}'",
+                        node,
                     )
-                    break
-                offset += arg_type.getMaxSize()
-                base_offset += arg_type.getMaxSize()
+                    return
+                this_sym = FieldAccess(
+                    is_struct_member=True,
+                    parent_expr=node.parent,
+                    type=member_type,
+                    base_sym=None,
+                    name=node.attr,
+                )
+            elif parent_type.kind == TypeKind.STRUCT:
+                if not is_type_constant_size(parent_type):
+                    state.err(
+                        f"{parent_type.display_name} is not constant-sized (contains strings), cannot access members",
+                        node,
+                    )
+                    return
 
-            if this_sym is None:
+                # field symbols store their "base symbol", which is the first non-field-symbol parent of
+                # the field symbol. this lets you easily check what actual underlying thing (tlm chan, variable, prm)
+                # you're talking about a field of
+                base_sym = (
+                    parent_sym
+                    if not is_instance_compat(parent_sym, FieldAccess)
+                    else parent_sym.base_sym
+                )
+                # we also calculate a "base offset" wrt. the start of the base_sym type, so you
+                # can easily pick out this field from a value of the base sym type
+                base_offset = (
+                    0
+                    if not is_instance_compat(parent_sym, FieldAccess)
+                    else parent_sym.base_offset
+                )
+
+                member_list = [(m.name, m.type) for m in parent_type.members]
+
+                offset = 0
+                for arg_name, arg_type in member_list:
+                    if arg_name == node.attr:
+                        this_sym = FieldAccess(
+                            is_struct_member=True,
+                            parent_expr=node.parent,
+                            type=arg_type,
+                            base_sym=base_sym,
+                            local_offset=offset,
+                            base_offset=base_offset,
+                            name=arg_name,
+                        )
+                        break
+                    offset += arg_type.max_size
+                    if base_offset is not None:
+                        base_offset += arg_type.max_size
+
+                if this_sym is None:
+                    state.err(
+                        f"{parent_type.display_name} has no member named {node.attr}",
+                        node,
+                    )
+                    return
+            else:
                 state.err(
-                    f"{typename(parent_type)} has no member named {node.attr}",
+                    f"{parent_type.display_name} is not a struct, cannot access members",
                     node,
                 )
                 return
@@ -1037,15 +1166,38 @@ class PickTypesAndResolveFields(Visitor):
 
         parent_type = state.synthesized_types[node.parent]
 
+        if parent_type.kind == TypeKind.ANON_ARRAY:
+            # Index access on anonymous array literal
+            if parent_type.length == 0:
+                state.err("Cannot index into an empty anonymous array", node)
+                return
+
+            # coerce the index expression to array index type
+            if not self.coerce_expr_type(node.item, ArrayIndexType, state):
+                return
+
+            sym = FieldAccess(
+                is_array_element=True,
+                parent_expr=node.parent,
+                type=parent_type.elem_type,
+                base_sym=None,
+                idx_expr=node.item,
+            )
+
+            state.resolved_symbols[node] = sym
+            state.synthesized_types[node] = parent_type.elem_type
+            state.contextual_types[node] = parent_type.elem_type
+            return
+
         if not is_type_constant_size(parent_type):
             state.err(
-                f"{typename(parent_type)} is not constant-sized (contains strings), cannot access items",
+                f"{parent_type.display_name} is not constant-sized (contains strings), cannot access items",
                 node,
             )
             return
 
-        if not issubclass(parent_type, ArrayValue):
-            state.err(f"{typename(parent_type)} is not an array", node)
+        if parent_type.kind != TypeKind.ARRAY:
+            state.err(f"{parent_type.display_name} is not an array", node)
             return
 
         # coerce the index expression to array index type
@@ -1061,14 +1213,14 @@ class PickTypesAndResolveFields(Visitor):
         sym = FieldAccess(
             is_array_element=True,
             parent_expr=node.parent,
-            type=parent_type.MEMBER_TYPE,
+            type=parent_type.elem_type,
             base_sym=base_sym,
             idx_expr=node.item,
         )
 
         state.resolved_symbols[node] = sym
-        state.synthesized_types[node] = parent_type.MEMBER_TYPE
-        state.contextual_types[node] = parent_type.MEMBER_TYPE
+        state.synthesized_types[node] = parent_type.elem_type
+        state.contextual_types[node] = parent_type.elem_type
 
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         # already been resolved
@@ -1087,32 +1239,32 @@ class PickTypesAndResolveFields(Visitor):
         # give a best guess as to the final type of this node. we don't actually know
         # its bitwidth or signedness yet
         if is_instance_compat(node.value, Decimal):
-            result_type = FpyFloatValue
+            result_type = FLOAT
         else:
-            result_type = FpyIntegerValue
+            result_type = INTEGER
 
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
-    def widen_to_64(self, common_type: FppType) -> FppType:
+    def widen_to_64(self, common_type: FpyType) -> FpyType:
         """Widen a specific numeric type to its 64-bit counterpart for VM execution.
         Returns the type unchanged if it's already 64-bit or arb precision.
         """
         if common_type in ARBITRARY_PRECISION_TYPES:
             return common_type
-        if issubclass(common_type, FloatValue):
-            return F64Value
+        if common_type.is_float:
+            return F64
         if common_type in UNSIGNED_INTEGER_TYPES:
-            return U64Value
+            return U64
         if common_type in SIGNED_INTEGER_TYPES:
-            return I64Value
+            return I64
         assert False, common_type
 
     def pick_intermediate_type(
         self,
-        arg_types: list[FppType],
+        arg_types: list[FpyType],
         op: BinaryStackOp | UnaryStackOp,
-    ) -> FppType | None:
+    ) -> FpyType | None:
         """Determine the intermediate type for an operator.
 
         Uses find_common_type as the base, then applies op-specific
@@ -1121,24 +1273,24 @@ class PickTypesAndResolveFields(Visitor):
         Returns None if the operation is invalid for the given types.
         """
         if op in BOOLEAN_OPERATORS:
-            return BoolValue
+            return BOOL
 
         # for == and !=, non-numeric same-type comparisons are valid
         if op in (BinaryStackOp.EQUAL, BinaryStackOp.NOT_EQUAL):
             if len(arg_types) == 2 and arg_types[0] == arg_types[1]:
-                if not issubclass(arg_types[0], NumericalValue):
+                if not arg_types[0].is_numerical:
                     # non-numeric equality (struct, array, enum, time)
                     return arg_types[0]
 
         # from here, all args must be numeric
-        if not all(issubclass(t, NumericalValue) for t in arg_types):
+        if not all(t.is_numerical for t in arg_types):
             return None
 
         # division and exponentiation always operate over floats
         if op in (BinaryStackOp.DIVIDE, BinaryStackOp.EXPONENT):
             if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):
-                return FpyFloatValue
-            return F64Value
+                return FLOAT
+            return F64
 
         # for everything else, find the common type then widen to 64-bit
         common = self.find_common_type(*arg_types) if len(arg_types) == 2 else arg_types[0]
@@ -1149,9 +1301,9 @@ class PickTypesAndResolveFields(Visitor):
 
     def pick_result_type(
         self,
-        intermediate_type: FppType,
+        intermediate_type: FpyType,
         op: BinaryStackOp | UnaryStackOp,
-    ) -> FppType:
+    ) -> FpyType:
         """Derive the result type from the intermediate type (excluding time ops).
 
         For comparisons and boolean ops, the result is always bool.
@@ -1160,7 +1312,7 @@ class PickTypesAndResolveFields(Visitor):
         (e.g. U32 * literal computes in U64 and stays U64).
         """
         if op in BOOLEAN_OPERATORS or op in COMPARISON_OPS:
-            return BoolValue
+            return BOOL
 
         # all other cases, result is a number
         assert op in NUMERIC_OPERATORS
@@ -1186,7 +1338,7 @@ class PickTypesAndResolveFields(Visitor):
         intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
             state.err(
-                f"Op {node.op} undefined for {typename(lhs_type)}, {typename(rhs_type)}",
+                f"Op {node.op} undefined for {lhs_type.display_name}, {rhs_type.display_name}",
                 node,
             )
             return
@@ -1209,7 +1361,7 @@ class PickTypesAndResolveFields(Visitor):
 
         intermediate_type = self.pick_intermediate_type(arg_types, node.op)
         if intermediate_type is None:
-            state.err(f"Op {node.op} undefined for {typename(val_type)}", node)
+            state.err(f"Op {node.op} undefined for {val_type.display_name}", node)
             return
 
         if not self.coerce_expr_type(node.val, intermediate_type, state):
@@ -1222,12 +1374,54 @@ class PickTypesAndResolveFields(Visitor):
         state.contextual_types[node] = result_type
 
     def visit_AstString(self, node: AstString, state: CompileState):
-        state.synthesized_types[node] = FpyStringValue
-        state.contextual_types[node] = FpyStringValue
+        state.synthesized_types[node] = INTERNAL_STRING
+        state.contextual_types[node] = INTERNAL_STRING
 
     def visit_AstBoolean(self, node: AstBoolean, state: CompileState):
-        state.synthesized_types[node] = BoolValue
-        state.contextual_types[node] = BoolValue
+        state.synthesized_types[node] = BOOL
+        state.contextual_types[node] = BOOL
+
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        # Check for duplicate member names
+        seen_names: set[str] = set()
+        for name, _ in node.members:
+            if name in seen_names:
+                state.err(f"Duplicate member '{name}' in anonymous struct", node)
+                return
+            seen_names.add(name)
+
+        # Synthesize an anonymous struct type from the member expressions
+        members = tuple(
+            StructMember(name, state.synthesized_types[value_expr])
+            for name, value_expr in node.members
+        )
+        anon_type = FpyType(
+            TypeKind.ANON_STRUCT,
+            f"$AnonStruct({', '.join(m.name for m in members)})",
+            members=members,
+        )
+        state.synthesized_types[node] = anon_type
+        state.contextual_types[node] = anon_type
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        # Synthesize an anonymous array type from the element expressions
+        elem_types = [state.synthesized_types[elem] for elem in node.elements]
+        # Compute common element type (needed for index access on anon arrays)
+        common_elem_type = None
+        if len(elem_types) > 0:
+            common_elem_type = elem_types[0]
+            for et in elem_types[1:]:
+                common_elem_type = self.find_common_type(common_elem_type, et)
+                if common_elem_type is None:
+                    break
+        anon_type = FpyType(
+            TypeKind.ANON_ARRAY,
+            f"$AnonArray[{len(elem_types)}]",
+            length=len(node.elements),
+            elem_type=common_elem_type,
+        )
+        state.synthesized_types[node] = anon_type
+        state.contextual_types[node] = anon_type
 
     def build_resolved_call_args(
         self,
@@ -1332,10 +1526,10 @@ class PickTypesAndResolveFields(Visitor):
             output_type = func.to_type
             # right now we only have casting to numbers
             assert output_type in SPECIFIC_NUMERIC_TYPES
-            if not issubclass(input_type, NumericalValue):
+            if not input_type.is_numerical:
                 # cannot convert a non-numeric type to a numeric type
                 return CompileError(
-                    f"Expected a number, found {typename(input_type)}", node_arg
+                    f"Expected a number, found {input_type.display_name}", node_arg
                 )
             # no error! looks good to me
             return
@@ -1344,10 +1538,11 @@ class PickTypesAndResolveFields(Visitor):
         for value_expr, arg in zip(resolved_args, func_args):
             arg_type = arg[1]
 
-            # Skip type check for default values that are FppValue instances
-            # this can only happen if the value is hardcoded into Fpy from a builtin func
+            # Skip type check for default values that are FpyValue instances
+            # this can happen if the value is hardcoded from a builtin func
+            # or from dictionary defaults for type constructors
             if not is_instance_compat(value_expr, Ast):
-                assert is_instance_compat(func, BuiltinFuncSymbol), func
+                assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                 continue
 
             # Skip type check for default values from forward-called functions.
@@ -1360,7 +1555,7 @@ class PickTypesAndResolveFields(Visitor):
             unconverted_type = state.synthesized_types[value_expr]
             if not self.can_coerce_type(unconverted_type, arg_type):
                 return CompileError(
-                    f"Expected {typename(arg_type)}, found {typename(unconverted_type)}",
+                    f"Expected {arg_type.display_name}, found {unconverted_type.display_name}",
                     value_expr if is_instance_compat(value_expr, Ast) else node,
                 )
         # all args r good
@@ -1379,7 +1574,7 @@ class PickTypesAndResolveFields(Visitor):
         if is_instance_compat(func, TypeCtorSymbol):
             if not is_type_constant_size(func.type):
                 state.err(
-                    f"Type {typename(func.type)} is not constant-sized (contains strings)",
+                    f"Type {func.type.display_name} is not constant-sized (contains strings)",
                     node.func,
                 )
                 return
@@ -1392,8 +1587,7 @@ class PickTypesAndResolveFields(Visitor):
             state.errors.append(resolved_args)
             return
 
-        # Store the resolved args for use in desugaring and codegen
-        state.resolved_func_args[node] = resolved_args
+        state.resolved_args[node] = resolved_args
 
         error_or_none = self.check_arg_types_compatible_with_func(
             node, func, resolved_args, state
@@ -1419,17 +1613,22 @@ class PickTypesAndResolveFields(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
-                # Skip coercion for FppValue defaults from builtins
+                # Skip coercion for FpyValue defaults from builtins or type constructors
                 if not is_instance_compat(value_expr, Ast):
-                    assert is_instance_compat(func, BuiltinFuncSymbol), func
+                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                     continue
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
+                # Skip default values already coerced by visit_AstDef.
+                # When a function's default value AST node is reused in resolved_args,
+                # it may already have been coerced during the function definition visit.
+                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
+                    continue
                 arg_type = arg[1]
-                # should be good 2 go based on the check func above
-                state.contextual_types[value_expr] = arg_type
+                if not self.coerce_expr_type(value_expr, arg_type, state):
+                    return
 
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
@@ -1440,8 +1639,8 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.upper_bound, LoopVarType, state):
             return
 
-        state.synthesized_types[node] = RangeValue
-        state.contextual_types[node] = RangeValue
+        state.synthesized_types[node] = RANGE
+        state.contextual_types[node] = RANGE
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         # should be present in resolved refs because we only let it through if
@@ -1469,23 +1668,23 @@ class PickTypesAndResolveFields(Visitor):
             return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.coerce_expr_type(node.condition, BoolValue, state):
+        if not self.coerce_expr_type(node.condition, BOOL, state):
             return
         if node.exit_code is not None:
-            if not self.coerce_expr_type(node.exit_code, U8Value, state):
+            if not self.coerce_expr_type(node.exit_code, U8, state):
                 return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # range must coerce to a range!
-        if not self.coerce_expr_type(node.range, RangeValue, state):
+        if not self.coerce_expr_type(node.range, RANGE, state):
             return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.coerce_expr_type(node.condition, BoolValue, state):
+        if not self.coerce_expr_type(node.condition, BOOL, state):
             return
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.coerce_expr_type(node.condition, BoolValue, state):
+        if not self.coerce_expr_type(node.condition, BOOL, state):
             return
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -1508,12 +1707,12 @@ class PickTypesAndResolveFields(Visitor):
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         func = state.enclosing_funcs[node]
         func = state.resolved_symbols[func.name]
-        if func.return_type is NothingValue and node.value is not None:
+        if func.return_type is NOTHING and node.value is not None:
             state.err("Expected no return value", node.value)
             return
-        if func.return_type is not NothingValue and node.value is None:
+        if func.return_type is not NOTHING and node.value is None:
             state.err(
-                f"Expected a return value of type {typename(func.return_type)}",
+                f"Expected a return value of type {func.return_type.display_name}",
                 node.value,
             )
             return
@@ -1564,8 +1763,9 @@ class CalculateConstExprValues(Visitor):
     calculated at compile time, and NothingType if the expr had no value"""
 
     @staticmethod
-    def _round_float_to_type(value: float, to_type: type[FloatValue]) -> float | None:
-        fmt = to_type.get_serialize_format()
+    def _round_float_to_type(value: float, to_type: FpyType) -> float | None:
+        from fpy.types import _PRIMITIVE_FORMATS
+        fmt = _PRIMITIVE_FORMATS.get(to_type.kind)
         assert fmt is not None, to_type
         try:
             packed = struct.pack(fmt, value)
@@ -1577,14 +1777,14 @@ class CalculateConstExprValues(Visitor):
     @staticmethod
     def _parse_time_string(
         time_str: str, time_base: int, time_context: int, node: Ast, state: CompileState
-    ) -> TimeValue | None:
-        """Parse an ISO 8601 timestamp string into a TimeValue.
+    ) -> FpyValue | None:
+        """Parse an ISO 8601 timestamp string into an FpyValue(TIME, ...).
 
         Accepts formats like:
         - "2025-12-19T14:30:00Z"
         - "2025-12-19T14:30:00.123456Z"
 
-        Returns TimeValue with the provided time_base and time_context, and the parsed
+        Returns FpyValue(TIME, ...) with the provided time_base and time_context, and the parsed
         seconds/microseconds since Unix epoch.
         """
         try:
@@ -1618,12 +1818,12 @@ class CalculateConstExprValues(Visitor):
                 )
                 return None
 
-            return TimeValue(
-                time_base=time_base,
-                time_context=time_context,
-                seconds=seconds,
-                useconds=useconds,
-            )
+            return FpyValue(TIME, {
+                "time_base": FpyValue(U16, time_base),
+                "time_context": FpyValue(U8, time_context),
+                "seconds": FpyValue(U32, seconds),
+                "useconds": FpyValue(U32, useconds),
+            })
 
         except ValueError as e:
             state.err(
@@ -1635,38 +1835,47 @@ class CalculateConstExprValues(Visitor):
 
     @staticmethod
     def const_convert_type(
-        from_val: FppValue,
-        to_type: FppType,
+        from_val: FpyValue,
+        to_type: FpyType,
         node: Ast,
         state: CompileState,
         skip_range_check: bool = False,
-    ) -> FppValue | None:
+    ) -> FpyValue | None:
         try:
-            from_type = type(from_val)
+            from_type = from_val.type
 
             if from_type == to_type:
                 # no conversion necessary
                 return from_val
 
-            if issubclass(to_type, StringValue):
-                assert from_type == FpyStringValue, from_type
-                return to_type(from_val.val)
+            if to_type.is_string:
+                assert from_type == INTERNAL_STRING, from_type
+                if to_type.max_length is not None:
+                    encoded = from_val.val.encode("utf-8")
+                    if len(encoded) > to_type.max_length:
+                        state.err(
+                            f"String literal is too long for type {to_type.display_name}: "
+                            f"{len(encoded)} bytes exceeds max length {to_type.max_length}",
+                            node,
+                        )
+                        return None
+                return FpyValue(to_type, from_val.val)
 
-            if issubclass(to_type, FloatValue):
-                assert issubclass(from_type, NumericalValue), from_type
-                from_val = from_val.val
+            if to_type.is_float:
+                assert from_type.is_numerical, from_type
+                raw_val = from_val.val
 
-                if to_type == FpyFloatValue:
+                if to_type == FLOAT:
                     # arbitrary precision
                     # decimal constructor should handle all cases: int, float, or other Decimal
-                    return FpyFloatValue(Decimal(from_val))
+                    return FpyValue(FLOAT, Decimal(raw_val))
 
                 # otherwise, we're going to a finite bitwidth float type
                 try:
-                    coerced_value = float(from_val)
+                    coerced_value = float(raw_val)
                 except OverflowError:
                     state.err(
-                        f"{from_val} is out of range for type {typename(to_type)}",
+                        f"{raw_val} is out of range for type {to_type.display_name}",
                         node,
                     )
                     return None
@@ -1676,81 +1885,81 @@ class CalculateConstExprValues(Visitor):
                 )
                 if rounded_value is None:
                     state.err(
-                        f"{from_val} is out of range for type {typename(to_type)}",
+                        f"{raw_val} is out of range for type {to_type.display_name}",
                         node,
                     )
                     return None
 
-                converted = to_type(rounded_value)
+                converted = FpyValue(to_type, rounded_value)
                 try:
                     # catch if we would crash the struct packing lib
                     converted.serialize()
                 except OverflowError:
                     state.err(
-                        f"{from_val} is out of range for type {typename(to_type)}",
+                        f"{raw_val} is out of range for type {to_type.display_name}",
                         node,
                     )
                     return None
                 return converted
-            if issubclass(to_type, IntegerValue):
-                assert issubclass(from_type, NumericalValue), from_type
-                from_val = from_val.val
+            if to_type.is_integer:
+                assert from_type.is_numerical, from_type
+                raw_val = from_val.val
 
-                if to_type == FpyIntegerValue:
+                if to_type == INTEGER:
                     # arbitrary precision
                     # int constructor should handle all cases: int, float, or Decimal
-                    return FpyIntegerValue(int(from_val))
+                    return FpyValue(INTEGER, int(raw_val))
 
                 # otherwise going to a finite bitwidth integer type
 
                 if not skip_range_check:
                     # does it fit within bounds?
                     # check that the value can fit in the dest type
-                    dest_min, dest_max = to_type.range()
-                    if from_val < dest_min or from_val > dest_max:
+                    dest_min, dest_max = to_type.value_range()
+                    if raw_val < dest_min or raw_val > dest_max:
                         state.err(
-                            f"{from_val} is out of range for type {typename(to_type)}",
+                            f"{raw_val} is out of range for type {to_type.display_name}",
                             node,
                         )
                         return None
 
                     # just convert it
-                    from_val = int(from_val)
+                    raw_val = int(raw_val)
                 else:
                     # we skipped the range check, but it's still gotta fit. cut it down
 
                     # handle narrowing, if necessary
-                    from_val = int(from_val)
+                    raw_val = int(raw_val)
                     # if signed, convert to unsigned (bit representation should be the same)
                     # first cut down to bitwidth. performed in two's complement
-                    mask = (1 << to_type.get_bits()) - 1
+                    mask = (1 << to_type.bits) - 1
                     # this also implicitly converts value to an unsigned number
-                    from_val &= mask
+                    raw_val &= mask
                     if to_type in SIGNED_INTEGER_TYPES:
                         # now if the target was signed:
-                        sign_bit = 1 << (to_type.get_bits() - 1)
-                        if from_val & sign_bit:
+                        sign_bit = 1 << (to_type.bits - 1)
+                        if raw_val & sign_bit:
                             # the sign bit is set, the result should be negative
                             # subtract the max value as this is how two's complement works
-                            from_val -= 1 << to_type.get_bits()
+                            raw_val -= 1 << to_type.bits
 
                 # okay, we either checked that the value fits in the dest, or we've skipped
                 # the check and changed the value to fit
-                return to_type(from_val)
+                return FpyValue(to_type, raw_val)
 
             assert False, (from_val, from_type, to_type)
-        except TypeException as e:
-            state.err(f"For type {typename(from_type)}: {e}", node)
+        except (ValueError, struct.error) as e:
+            state.err(f"For type {from_type.display_name}: {e}", node)
             return None
 
     def visit_AstLiteral(self, node: AstLiteral, state: CompileState):
         unconverted_type = state.synthesized_types[node]
 
         try:
-            expr_value = unconverted_type(node.value)
-        except TypeException as e:
+            expr_value = FpyValue(unconverted_type, node.value)
+        except (ValueError, struct.error) as e:
             # TODO can this be reached any more? maybe for string types
-            state.err(f"For type {typename(unconverted_type)}: {e}", node)
+            state.err(f"For type {unconverted_type.display_name}: {e}", node)
             return
 
         skip_range_check = node in state.expr_explicit_casts
@@ -1771,40 +1980,38 @@ class CalculateConstExprValues(Visitor):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         expr_value = None
-        if is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
+        if is_instance_compat(sym, (ChDef, PrmDef, VariableSymbol)):
             # has a value but won't try to calc at compile time
             state.const_expr_values[node] = None
             return
-        elif is_instance_compat(sym, FppValue):
+        elif is_instance_compat(sym, FpyValue):
             expr_value = sym
         elif is_instance_compat(sym, FieldAccess):
             parent_value = state.const_expr_values[node.parent]
             if parent_value is None:
-                # no compile time constant value for our parent here
-                state.const_expr_values[node] = None
-                return
-
-            # we are accessing an attribute of something with an fprime value at compile time
-            # we must be getting a member
-            if is_instance_compat(parent_value, StructValue):
-                expr_value = parent_value._val[node.attr]
-            elif is_instance_compat(parent_value, TimeValue):
-                if node.attr == "seconds":
-                    expr_value = U32Value(parent_value.seconds)
-                elif node.attr == "useconds":
-                    expr_value = U32Value(parent_value.useconds)
-                elif node.attr == "time_base":
-                    expr_value = U16Value(parent_value.timeBase)
-                elif node.attr == "time_context":
-                    expr_value = U8Value(parent_value.timeContext)
-                else:
-                    assert False, node.attr
+                # Parent is not const. For anon struct, try getting the member
+                # expression's const value directly.
+                if is_instance_compat(node.parent, AstAnonStruct):
+                    for name, value_expr in node.parent.members:
+                        if name == node.attr:
+                            member_val = state.const_expr_values.get(value_expr)
+                            if member_val is not None:
+                                expr_value = member_val
+                            break
+                if expr_value is None:
+                    state.const_expr_values[node] = None
+                    return
             else:
-                assert False, parent_value
+                # we are accessing an attribute of something with an fprime value at compile time
+                # we must be getting a member
+                if isinstance(parent_value, FpyValue) and parent_value.type.kind in (TypeKind.STRUCT, TypeKind.ANON_STRUCT):
+                    expr_value = parent_value.val[node.attr]
+                else:
+                    assert False, parent_value
 
         assert expr_value is not None
 
-        assert is_instance_compat(expr_value, unconverted_type), (
+        assert isinstance(expr_value, FpyValue) and expr_value.type == unconverted_type, (
             expr_value,
             unconverted_type,
         )
@@ -1826,11 +2033,10 @@ class CalculateConstExprValues(Visitor):
         parent_value = state.const_expr_values[node.parent]
 
         if parent_value is None:
-            # no compile time constant value for our parent here
             state.const_expr_values[node] = None
             return
 
-        assert is_instance_compat(parent_value, ArrayValue), parent_value
+        assert isinstance(parent_value, FpyValue) and parent_value.type.kind in (TypeKind.ARRAY, TypeKind.ANON_ARRAY), parent_value
 
         idx = state.const_expr_values.get(node.item)
         if idx is None:
@@ -1838,12 +2044,17 @@ class CalculateConstExprValues(Visitor):
             state.const_expr_values[node] = None
             return
 
-        assert is_instance_compat(idx, ArrayIndexType)
+        assert isinstance(idx, FpyValue)
 
-        expr_value = parent_value._val[idx._val]
+        if idx.val < 0 or idx.val >= len(parent_value.val):
+            # Out of bounds — CheckConstArrayAccesses will report the error
+            state.const_expr_values[node] = None
+            return
+
+        expr_value = parent_value.val[idx.val]
 
         unconverted_type = state.synthesized_types[node]
-        assert is_instance_compat(expr_value, unconverted_type), (
+        assert isinstance(expr_value, FpyValue) and expr_value.type == unconverted_type, (
             expr_value,
             unconverted_type,
         )
@@ -1865,7 +2076,7 @@ class CalculateConstExprValues(Visitor):
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
         expr_value = None
-        if is_instance_compat(sym, (ChTemplate, PrmTemplate, VariableSymbol)):
+        if is_instance_compat(sym, (ChDef, PrmDef, VariableSymbol)):
             # Has a value but we don't try to calculate it at compile time.
             # NOTE: If you ever add const-folding for VariableSymbol here, you must also
             # update CalculateDefaultArgConstValues. That pass runs CalculateConstExprValues
@@ -1874,14 +2085,14 @@ class CalculateConstExprValues(Visitor):
             # be available yet, and the default value will incorrectly be rejected as non-const.
             state.const_expr_values[node] = None
             return
-        elif is_instance_compat(sym, FppValue):
+        elif is_instance_compat(sym, FpyValue):
             expr_value = sym
         else:
             assert False, sym
 
         assert expr_value is not None
 
-        assert is_instance_compat(expr_value, unconverted_type), (
+        assert isinstance(expr_value, FpyValue) and expr_value.type == unconverted_type, (
             expr_value,
             unconverted_type,
         )
@@ -1902,17 +2113,17 @@ class CalculateConstExprValues(Visitor):
         # Use resolved args from semantic analysis (already in positional order,
         # with defaults filled in)
         # This is guaranteed to be set by PickTypesAndResolveAttrsAndItems
-        resolved_args = state.resolved_func_args[node]
+        resolved_args = state.resolved_args[node]
 
         # Gather arg values. Since defaults are already filled in, we just need
-        # to look up each arg's const value. For FppValue defaults from builtins,
+        # to look up each arg's const value. For FpyValue defaults from builtins,
         # use the value directly.
         arg_values = []
         for arg_expr in resolved_args:
             if is_instance_compat(arg_expr, Ast):
                 arg_values.append(state.const_expr_values.get(arg_expr))
             else:
-                # It's a raw FppValue default from a builtin
+                # It's a raw FpyValue default from a builtin
                 arg_values.append(arg_expr)
 
         unknown_value = any(v is None for v in arg_values)
@@ -1938,24 +2149,16 @@ class CalculateConstExprValues(Visitor):
         # whether the conversion that will happen is due to an explicit cast
         if is_instance_compat(func, TypeCtorSymbol):
             # actually construct the type
-            if issubclass(func.type, StructValue):
-                instance = func.type()
+            if func.type.kind == TypeKind.STRUCT:
                 # pass in args as a dict
-                # t[0] is the arg name
-                arg_dict = {t[0]: v for t, v in zip(func.type.MEMBER_LIST, arg_values)}
-                instance._val = arg_dict
-                expr_value = instance
+                arg_dict = {m.name: v for m, v in zip(func.type.members, arg_values)}
+                expr_value = FpyValue(func.type, arg_dict)
 
-            elif issubclass(func.type, ArrayValue):
-                instance = func.type()
-                instance._val = arg_values
-                expr_value = instance
-
-            elif func.type == TimeValue:
-                expr_value = TimeValue(*[val.val for val in arg_values])
+            elif func.type.kind == TypeKind.ARRAY:
+                expr_value = FpyValue(func.type, arg_values)
 
             else:
-                # no other FppTypees have ctors
+                # no other FpyTypes have ctors
                 assert False, func.return_type
         elif is_instance_compat(func, CastSymbol):
             # should only be one value. it should be of some numeric type
@@ -1978,7 +2181,7 @@ class CalculateConstExprValues(Visitor):
             return
 
         unconverted_type = state.synthesized_types[node]
-        assert is_instance_compat(expr_value, unconverted_type), (
+        assert isinstance(expr_value, FpyValue) and expr_value.type == unconverted_type, (
             expr_value,
             unconverted_type,
         )
@@ -1996,8 +2199,8 @@ class CalculateConstExprValues(Visitor):
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
-        lhs_value: FppValue = state.const_expr_values.get(node.lhs)
-        rhs_value: FppValue = state.const_expr_values.get(node.rhs)
+        lhs_value: FpyValue = state.const_expr_values.get(node.lhs)
+        rhs_value: FpyValue = state.const_expr_values.get(node.rhs)
 
         if lhs_value is None or rhs_value is None:
             state.const_expr_values[node] = None
@@ -2005,18 +2208,11 @@ class CalculateConstExprValues(Visitor):
 
         # Both sides are constants, evaluate the operation if the operator is supported
 
-        if not is_instance_compat(lhs_value, ValueType) or not is_instance_compat(
-            rhs_value, ValueType
-        ):
-            # if one of them isn't a ValueType, assume it must be TimeValue
-            assert type(lhs_value) == type(rhs_value) and is_instance_compat(
-                lhs_value, TimeValue
-            ), (
-                lhs_value,
-                rhs_value,
-            )
+        if lhs_value.type == TIME:
+            # Time values don't have simple .val primitives; use as-is
+            assert rhs_value.type == TIME, (lhs_value, rhs_value)
         else:
-            # get the actual pythonic value from the fpp type
+            # get the actual pythonic value from the fpy type
             lhs_value = lhs_value.val
             rhs_value = rhs_value.val
 
@@ -2075,16 +2271,16 @@ class CalculateConstExprValues(Visitor):
         assert folded_value is not None
 
         if type(folded_value) == int:
-            folded_value = FpyIntegerValue(folded_value)
+            folded_value = FpyValue(INTEGER, folded_value)
         elif type(folded_value) == float:
             # can happen when operands were previously const-converted to
-            # specific float types (F32Value/F64Value) whose .val is a
+            # specific float types (F32/F64) whose .val is a
             # Python float, or from int / int (true division) in Python
-            folded_value = FpyFloatValue(Decimal(folded_value))
+            folded_value = FpyValue(FLOAT, Decimal(folded_value))
         elif type(folded_value) == Decimal:
-            folded_value = FpyFloatValue(folded_value)
+            folded_value = FpyValue(FLOAT, folded_value)
         elif type(folded_value) == bool:
-            folded_value = BoolValue(folded_value)
+            folded_value = FpyValue(BOOL, folded_value)
         else:
             assert False, folded_value
 
@@ -2109,16 +2305,15 @@ class CalculateConstExprValues(Visitor):
         state.const_expr_values[node] = folded_value
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        value: FppValue = state.const_expr_values.get(node.val)
+        value: FpyValue = state.const_expr_values.get(node.val)
 
         if value is None:
             state.const_expr_values[node] = None
             return
 
         # input is constant, evaluate the operation if the operator is supported
-        assert is_instance_compat(value, ValueType), value
 
-        # get the actual pythonic value from the fpp type
+        # get the actual pythonic value from the fpy type
         value = value.val
         folded_value = None
 
@@ -2135,13 +2330,13 @@ class CalculateConstExprValues(Visitor):
         assert folded_value is not None
 
         if type(folded_value) == int:
-            folded_value = FpyIntegerValue(folded_value)
+            folded_value = FpyValue(INTEGER, folded_value)
         elif type(folded_value) == float:
-            folded_value = FpyFloatValue(Decimal(folded_value))
+            folded_value = FpyValue(FLOAT, Decimal(folded_value))
         elif type(folded_value) == Decimal:
-            folded_value = FpyFloatValue(folded_value)
+            folded_value = FpyValue(FLOAT, folded_value)
         elif type(folded_value) == bool:
-            folded_value = BoolValue(folded_value)
+            folded_value = FpyValue(BOOL, folded_value)
         else:
             assert False, folded_value
 
@@ -2167,6 +2362,59 @@ class CalculateConstExprValues(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # ranges don't really end up having a value, they kinda just exist as a type
         state.const_expr_values[node] = None
+
+    def _collect_const_values(
+        self, exprs: list, state: CompileState
+    ) -> list[FpyValue] | None:
+        """Collect const values for a list of expressions.
+        Returns None if any expression is not a compile-time constant.
+        Handles both Ast nodes (looked up in const_expr_values) and
+        raw FpyValue defaults (used as-is).
+        """
+        values = []
+        for expr in exprs:
+            if is_instance_compat(expr, Ast):
+                val = state.const_expr_values.get(expr)
+                if val is None:
+                    return None
+                values.append(val)
+            else:
+                values.append(expr)
+        return values
+
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        converted_type = state.contextual_types[node]
+
+        if converted_type.kind == TypeKind.ANON_STRUCT:
+            exprs = [value_expr for _, value_expr in node.members]
+            names = [name for name, _ in node.members]
+        else:
+            assert converted_type.kind == TypeKind.STRUCT, converted_type
+            exprs = state.resolved_args[node]
+            names = [m.name for m in converted_type.members]
+
+        values = self._collect_const_values(exprs, state)
+        if values is None:
+            state.const_expr_values[node] = None
+            return
+
+        state.const_expr_values[node] = FpyValue(converted_type, dict(zip(names, values)))
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        converted_type = state.contextual_types[node]
+
+        if converted_type.kind == TypeKind.ANON_ARRAY:
+            exprs = list(node.elements)
+        else:
+            assert converted_type.kind == TypeKind.ARRAY, converted_type
+            exprs = state.resolved_args[node]
+
+        values = self._collect_const_values(exprs, state)
+        if values is None:
+            state.const_expr_values[node] = None
+            return
+
+        state.const_expr_values[node] = FpyValue(converted_type, values)
 
     def visit_default(self, node, state):
         # coding error, missed an expr
@@ -2248,16 +2496,22 @@ class CheckConstArrayAccesses(Visitor):
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
         idx_value = state.const_expr_values.get(node.item)
-        if idx_value is None:
-            # can't check at compile time
-            return
 
         parent_type = state.contextual_types[node.parent]
-        assert issubclass(parent_type, ArrayValue), parent_type
+        assert parent_type.kind in (TypeKind.ARRAY, TypeKind.ANON_ARRAY), parent_type
 
-        if idx_value.val < 0 or idx_value.val >= parent_type.LENGTH:
+        if idx_value is None:
+            # can't check at compile time
+            if parent_type.kind == TypeKind.ANON_ARRAY:
+                state.err(
+                    "Index on anonymous array must be a compile-time constant",
+                    node.item,
+                )
+            return
+
+        if idx_value.val < 0 or idx_value.val >= parent_type.length:
             state.err(
-                f"Index {idx_value.val} out of bounds for array type {typename(parent_type)} with length {parent_type.LENGTH}",
+                f"Index {idx_value.val} out of bounds for array type {parent_type.display_name} with length {parent_type.length}",
                 node.item,
             )
             return
@@ -2266,8 +2520,8 @@ class CheckConstArrayAccesses(Visitor):
 class WarnRangesAreNotEmpty(Visitor):
     def visit_AstRange(self, node: AstRange, state: CompileState):
         # if the index is a const, we should be able to check if it's in bounds
-        lower_value: LoopVarType = state.const_expr_values.get(node.lower_bound)
-        upper_value: LoopVarType = state.const_expr_values.get(node.upper_bound)
+        lower_value: FpyValue = state.const_expr_values.get(node.lower_bound)
+        upper_value: FpyValue = state.const_expr_values.get(node.upper_bound)
         if lower_value is None or upper_value is None:
             # cannot check at compile time
             return

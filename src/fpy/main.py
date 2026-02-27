@@ -6,19 +6,17 @@ from pathlib import Path
 import sys
 
 from fpy.bytecode.assembler import (
-    assemble,
-    directives_to_fpybc,
-    parse as fpybc_parse,
-)
-import fpy.error
-from fpy.types import (
     MAJOR_VERSION,
     MINOR_VERSION,
     PATCH_VERSION,
     SCHEMA_VERSION,
+    assemble,
     deserialize_directives,
+    directives_to_fpybc,
+    parse as fpybc_parse,
     serialize_directives,
 )
+import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives
