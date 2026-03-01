@@ -1,20 +1,3 @@
-"""
-Tests for the fpy.dictionary module — FPP JSON dictionary parser.
-
-Covers every section of https://fprime.jpl.nasa.gov/latest/docs/reference/fpp-json-dict/:
-  - Type Descriptors (integer, float, bool, string, qualifiedIdentifier)
-  - Constants
-  - Type Definitions (array, enum, struct, alias)
-  - Values (primitive, float, bool, string, array, enum, struct, nested)
-  - Commands (commandKind variants, formalParams, opcode)
-  - Telemetry Channels (type, id, limits, telemetryUpdate)
-  - Parameters (type, id, default)
-  - Dictionary Metadata & Content structure
-  - Serialization round-trips
-  - Type max_size and classification
-  - Integration tests against RefTopologyDictionary.json
-  - Compiler integration (type constructors via _build_global_scopes)
-"""
 
 import json
 import os
@@ -1821,6 +1804,286 @@ class TestStructInlineMemberArrays:
         st = result["M.TwoArrays"]
         # Both should reference the same array type object
         assert st.members[0].type is st.members[1].type
+
+
+# ===================================================================
+# Section: Single-value initialization of arrays and member arrays
+# ===================================================================
+
+
+class TestSingleValueArrayInit:
+    """When _populate_type_defaults encounters a struct member array whose
+    raw JSON default is a single element value (not an array), it must
+    replicate that value to fill every element.  See FPP spec / nasa/fpp#925."""
+
+    def test_member_array_single_value_u8(self):
+        """A struct member array [2] U8 with default 0 → [FpyValue(U8,0), FpyValue(U8,0)]."""
+        from fpy.compiler import _populate_type_defaults
+
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "M.WithSingleInit",
+                "members": {
+                    "data": {
+                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "index": 0,
+                        "size": 3,
+                    },
+                    "flag": {
+                        "type": {"name": "bool", "kind": "bool"},
+                        "index": 1,
+                    },
+                },
+                "default": {"data": 0, "flag": True},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["M.WithSingleInit"]
+        _populate_type_defaults(typ)
+
+        data_default = typ.member_defaults["data"]
+        assert data_default.type.kind == TypeKind.ARRAY
+        assert len(data_default.val) == 3
+        for elem in data_default.val:
+            assert elem == FpyValue(U8, 0)
+
+    def test_member_array_single_value_f32(self):
+        """A struct member array [4] F32 with default 1.5 → four copies of FpyValue(F32,1.5)."""
+        from fpy.compiler import _populate_type_defaults
+
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "M.FloatArr",
+                "members": {
+                    "vals": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 0,
+                        "size": 4,
+                    },
+                },
+                "default": {"vals": 1.5},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["M.FloatArr"]
+        _populate_type_defaults(typ)
+
+        vals_default = typ.member_defaults["vals"]
+        assert vals_default.type.kind == TypeKind.ARRAY
+        assert len(vals_default.val) == 4
+        for elem in vals_default.val:
+            assert elem == FpyValue(F32, 1.5)
+
+    def test_member_array_single_value_enum(self):
+        """A member array of enums with a single enum string default."""
+        from fpy.compiler import _populate_type_defaults
+
+        raw = [
+            {
+                "kind": "enum",
+                "qualifiedName": "M.Dir",
+                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "enumeratedConstants": [{"name": "UP", "value": 0}, {"name": "DOWN", "value": 1}],
+            },
+            {
+                "kind": "struct",
+                "qualifiedName": "M.Moves",
+                "members": {
+                    "dirs": {
+                        "type": {"name": "M.Dir", "kind": "qualifiedIdentifier"},
+                        "index": 0,
+                        "size": 3,
+                    },
+                },
+                "default": {"dirs": "M.Dir.UP"},
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["M.Moves"]
+        _populate_type_defaults(typ)
+
+        dirs_default = typ.member_defaults["dirs"]
+        assert dirs_default.type.kind == TypeKind.ARRAY
+        assert len(dirs_default.val) == 3
+        for elem in dirs_default.val:
+            assert elem.val == "UP"
+
+    def test_member_array_list_default_NOT_replicated(self):
+        """When the default is already a properly-sized list, it's used as-is."""
+        from fpy.compiler import _populate_type_defaults
+
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "M.Normal",
+                "members": {
+                    "data": {
+                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "index": 0,
+                        "size": 3,
+                    },
+                },
+                "default": {"data": [10, 20, 30]},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["M.Normal"]
+        _populate_type_defaults(typ)
+
+        data_default = typ.member_defaults["data"]
+        assert data_default.type.kind == TypeKind.ARRAY
+        assert len(data_default.val) == 3
+        assert data_default.val[0] == FpyValue(U32, 10)
+        assert data_default.val[1] == FpyValue(U32, 20)
+        assert data_default.val[2] == FpyValue(U32, 30)
+
+    def test_member_array_scalar_alongside_normal_members(self):
+        """Struct mixing single-value member array and normal scalar members."""
+        from fpy.compiler import _populate_type_defaults
+
+        raw = [
+            {
+                "kind": "struct",
+                "qualifiedName": "M.Mixed",
+                "members": {
+                    "arr": {
+                        "type": {"name": "I32", "kind": "integer", "size": 32, "signed": True},
+                        "index": 0,
+                        "size": 2,
+                    },
+                    "x": {
+                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "index": 1,
+                    },
+                    "y": {
+                        "type": {"name": "F64", "kind": "float", "size": 64},
+                        "index": 2,
+                    },
+                },
+                "default": {"arr": -1, "x": 42, "y": 3.14},
+            }
+        ]
+        result = _parse_type_definitions(raw)
+        typ = result["M.Mixed"]
+        _populate_type_defaults(typ)
+
+        # member array replicated
+        arr_default = typ.member_defaults["arr"]
+        assert arr_default.type.kind == TypeKind.ARRAY
+        assert len(arr_default.val) == 2
+        for elem in arr_default.val:
+            assert elem == FpyValue(I32, -1)
+
+        # normal scalar members
+        assert typ.member_defaults["x"] == FpyValue(U32, 42)
+        assert typ.member_defaults["y"] == FpyValue(F64, 3.14)
+
+    def test_regular_array_elem_defaults(self):
+        """Regular (non-member) array _populate_type_defaults sets elem_defaults from list."""
+        from fpy.compiler import _populate_type_defaults
+
+        arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U32, length=3)
+        arr.json_default = [10, 20, 30]
+        _populate_type_defaults(arr)
+
+        assert arr.elem_defaults is not None
+        assert len(arr.elem_defaults) == 3
+        assert arr.elem_defaults[0] == FpyValue(U32, 10)
+        assert arr.elem_defaults[1] == FpyValue(U32, 20)
+        assert arr.elem_defaults[2] == FpyValue(U32, 30)
+
+    def test_regular_array_no_default_gives_none_tuple(self):
+        """Array without json_default gets elem_defaults of all None."""
+        from fpy.compiler import _populate_type_defaults
+
+        arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U8, length=4)
+        _populate_type_defaults(arr)
+
+        assert arr.elem_defaults is not None
+        assert len(arr.elem_defaults) == 4
+        assert all(d is None for d in arr.elem_defaults)
+
+    def test_struct_no_default_gives_empty_member_defaults(self):
+        """Struct without json_default gets empty member_defaults dict."""
+        from fpy.compiler import _populate_type_defaults
+
+        typ = FpyType(TypeKind.STRUCT, "M.S", members=(StructMember("a", U8),))
+        _populate_type_defaults(typ)
+
+        assert typ.member_defaults == {}
+
+
+class TestSingleValueArrayInitIntegration:
+    """Integration tests for single-value member array init via _build_global_scopes."""
+
+    @pytest.fixture(autouse=True)
+    def clear_caches(self):
+        load_dictionary.cache_clear()
+        from fpy.compiler import _build_global_scopes
+        _build_global_scopes.cache_clear()
+        yield
+        load_dictionary.cache_clear()
+        _build_global_scopes.cache_clear()
+
+    def _get_type_scope(self):
+        from fpy.compiler import _build_global_scopes
+        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        return type_scope
+
+    def _get_callable_scope(self):
+        from fpy.compiler import _build_global_scopes
+        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        return callable_scope
+
+    def _lookup_type(self, name: str) -> FpyType:
+        scope = self._get_type_scope()
+        for part in name.split("."):
+            assert part in scope, f"'{part}' not found in scope while looking up '{name}'"
+            scope = scope[part]
+        return scope
+
+    def _lookup_callable(self, name: str):
+        scope = self._get_callable_scope()
+        for part in name.split("."):
+            assert part in scope, f"'{part}' not found in scope while looking up '{name}'"
+            scope = scope[part]
+        return scope
+
+    def test_choice_slurry_member_array_replicated(self):
+        """Ref.ChoiceSlurry.choiceAsMemberArray has size=2, default=0.
+        _populate_type_defaults should replicate 0 → [FpyValue(U8,0), FpyValue(U8,0)]."""
+        typ = self._lookup_type("Ref.ChoiceSlurry")
+        assert typ.kind == TypeKind.STRUCT
+
+        default = typ.member_defaults["choiceAsMemberArray"]
+        assert default is not None
+        assert default.type.kind == TypeKind.ARRAY
+        assert len(default.val) == 2
+        for elem in default.val:
+            assert elem == FpyValue(U8, 0)
+
+    def test_choice_slurry_ctor_member_array_default(self):
+        """The TypeCtorSymbol for Ref.ChoiceSlurry should have a replicated
+        array default for the choiceAsMemberArray arg."""
+        ctor = self._lookup_callable("Ref.ChoiceSlurry")
+        args_dict = {arg[0]: arg for arg in ctor.args}
+        _, arg_type, arg_default = args_dict["choiceAsMemberArray"]
+        assert arg_type.kind == TypeKind.ARRAY
+        assert arg_type.length == 2
+        assert arg_default is not None
+        assert len(arg_default.val) == 2
+        for elem in arg_default.val:
+            assert elem == FpyValue(U8, 0)
+
+    def test_choice_slurry_normal_members_still_correct(self):
+        """Non-member-array members should have their normal defaults."""
+        typ = self._lookup_type("Ref.ChoiceSlurry")
+        # separateChoice is a plain enum default
+        sep = typ.member_defaults["separateChoice"]
+        assert sep is not None
+        assert sep.val == "ONE"
 
 
 # ===================================================================
