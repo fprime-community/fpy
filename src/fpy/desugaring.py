@@ -766,8 +766,8 @@ class DesugarTimeOperators(Transformer):
         return result_node
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        lhs_type = state.synthesized_types.get(node.lhs)
-        rhs_type = state.synthesized_types.get(node.rhs)
+        lhs_type = state.contextual_types.get(node.lhs)
+        rhs_type = state.contextual_types.get(node.rhs)
         
         time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
         if time_op is None:

@@ -71,6 +71,9 @@ class PythonIndenter(PostLex):
     INDENT_type = "_INDENT"
     DEDENT_type = "_DEDENT"
     tab_len = 8
+    # Tell the contextual lexer to always accept _NEWLINE so we can
+    # suppress it inside parentheses/brackets/braces (paren_level > 0).
+    always_accept = ("_NEWLINE",)
 
     def __init__(self) -> None:
         self.paren_level = 0

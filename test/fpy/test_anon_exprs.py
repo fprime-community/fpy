@@ -287,3 +287,138 @@ i: I64 = 1
 x: U32 = [10, 20, 30][i]
 """
         assert_compile_failure(fprime_test_api, seq)
+
+
+# ── Anonymous expressions in check statements ───────────────────────────
+
+class TestAnonExprInCheck:
+    """Check statements accept Fw.TimeIntervalValue for persist/freq/timeout.
+    Verify that anonymous struct syntax works in each position."""
+
+    def test_check_anon_persist(self, fprime_test_api):
+        """Anon struct for the persist clause."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {seconds: 0, useconds: 0} freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_anon_freq(self, fprime_test_api):
+        """Anon struct for the freq clause."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq {seconds: 0, useconds: 100000}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_anon_timeout(self, fprime_test_api):
+        """Anon struct for the timeout clause (as TimeIntervalValue added to now())."""
+        seq = """
+timed_out: bool = False
+check False timeout now() + {seconds: 0, useconds: 100000} persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timed_out = True
+assert timed_out
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_all_anon(self, fprime_test_api):
+        """All three clauses use anon struct syntax simultaneously."""
+        seq = """
+check_passed: bool = False
+check True timeout now() + {seconds: 1, useconds: 0} persist {seconds: 0, useconds: 0} freq {seconds: 0, useconds: 100000}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_anon_persist_with_defaults(self, fprime_test_api):
+        """Anon struct with defaults for persist (empty → {seconds:0, useconds:0})."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {} freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_anon_freq_partial(self, fprime_test_api):
+        """Anon struct with partial members for freq (useconds only, seconds defaults to 0)."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq {useconds: 100000}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+
+# ── Time arithmetic with anonymous structs ──────────────────────────────
+
+class TestTimeArithmeticWithAnonStruct:
+    """The + operator should work between Fw.Time and anonymous structs
+    that are coercible to Fw.TimeIntervalValue."""
+
+    def test_time_plus_anon_struct(self, fprime_test_api):
+        """now() + {seconds, useconds} should compile and produce Fw.Time."""
+        seq = """
+t: Fw.Time = now() + {seconds: 1, useconds: 0}
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_plus_anon_struct_partial(self, fprime_test_api):
+        """now() + {useconds} (seconds defaults to 0) should compile."""
+        seq = """
+t: Fw.Time = now() + {useconds: 500000}
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_plus_anon_struct_empty(self, fprime_test_api):
+        """now() + {} (both default to 0) should compile."""
+        seq = """
+t: Fw.Time = now() + {}
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_plus_anon_struct(self, fprime_test_api):
+        """TimeIntervalValue + anon struct should compile."""
+        seq = """
+interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0) + {seconds: 2, useconds: 0}
+assert interval.seconds == 3
+assert interval.useconds == 0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_interval_minus_anon_struct(self, fprime_test_api):
+        """TimeIntervalValue - anon struct should compile."""
+        seq = """
+interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0) - {seconds: 2, useconds: 0}
+assert interval.seconds == 3
+assert interval.useconds == 0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_plus_anon_struct_interval(self, fprime_test_api):
+        """Two anon structs that are both coercible to TimeIntervalValue should add."""
+        seq = """
+interval: Fw.TimeIntervalValue = {seconds: 1, useconds: 0} + {seconds: 2, useconds: 0}
+assert interval.seconds == 3
+assert interval.useconds == 0
+"""
+        assert_run_success(fprime_test_api, seq)

@@ -5251,3 +5251,149 @@ assert val[0].value == 2.0
 assert val[1].value == 4.0
 """
     assert_run_success(fprime_test_api, seq)
+
+
+# ── Multi-line and trailing comma tests ─────────────────────────────────
+
+class TestMultilineAndTrailingComma:
+    """Expressions inside brackets/braces/parens can span multiple lines,
+    and trailing commas are allowed in struct/array/function-call/parameter lists."""
+
+    def test_multiline_anon_struct(self, fprime_test_api):
+        """Anon struct split over multiple lines."""
+        seq = """
+val: Fw.TimeIntervalValue = {
+    seconds: 10,
+    useconds: 500
+}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_struct_trailing_comma(self, fprime_test_api):
+        """Anon struct split over multiple lines with trailing comma."""
+        seq = """
+val: Fw.TimeIntervalValue = {
+    seconds: 10,
+    useconds: 500,
+}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_anon_struct_single_line(self, fprime_test_api):
+        """Trailing comma on a single-line anon struct."""
+        seq = """
+val: Fw.TimeIntervalValue = {seconds: 10, useconds: 500,}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_array(self, fprime_test_api):
+        """Anon array split over multiple lines."""
+        seq = """
+x: U32 = [
+    10,
+    20,
+    30
+][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_array_trailing_comma(self, fprime_test_api):
+        """Anon array split over multiple lines with trailing comma."""
+        seq = """
+x: U32 = [
+    10,
+    20,
+    30,
+][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_anon_array_single_line(self, fprime_test_api):
+        """Trailing comma on a single-line anon array."""
+        seq = """
+x: U32 = [10, 20, 30,][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_call(self, fprime_test_api):
+        """Function call arguments split over multiple lines."""
+        seq = """
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    500
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_call_trailing_comma(self, fprime_test_api):
+        """Function call arguments split over multiple lines with trailing comma."""
+        seq = """
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_parenthesized_expr(self, fprime_test_api):
+        """Parenthesized expression split over multiple lines."""
+        seq = """
+x: U32 = (
+    10
+    + 20
+)
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_nested_braces_and_parens(self, fprime_test_api):
+        """Nested multi-line expressions with braces inside parens."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(
+    now(),
+    {
+        seconds: 1,
+        useconds: 0,
+    },
+) persist {seconds: 0, useconds: 0} freq {seconds: 0, useconds: 100000}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_check_clauses_with_anon_struct(self, fprime_test_api):
+        """Check statement with multi-line anon struct in timeout position."""
+        seq = """
+check_passed: bool = False
+check True timeout now() + {
+    seconds: 1,
+    useconds: 0,
+} persist {
+    seconds: 0,
+    useconds: 0,
+} freq {
+    seconds: 0,
+    useconds: 100000,
+}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)

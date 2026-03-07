@@ -40,7 +40,7 @@ assign_stmt: expr [":" expr] "=" expr
 # optional return type annotation. They are followed by an indented, scoped code block
 def_stmt: "def" name "(" [parameters] ")" ["->" expr] ":" block
 # -> AstDef(name, parameters, return_type, body)
-parameters: parameter ("," parameter)*
+parameters: parameter ("," parameter)* ","?
 # -> list[tuple[arg_name, arg_type, arg_default_value]]
 # each parameter has a type, and an optional default value expression
 parameter: name ":" expr ["=" expr]
@@ -160,16 +160,16 @@ _test: or_test
 
 # anonymous struct expression: {} or {member1: value1, member2: value2, ...}
 anon_struct: "{" [anon_struct_members] "}"
-anon_struct_members: anon_struct_member ("," anon_struct_member)*
+anon_struct_members: anon_struct_member ("," anon_struct_member)* ","?
 anon_struct_member: NAME ":" expr
 # -> AstAnonStruct(members)
 
 # anonymous array expression: [] or [expr, expr, ...]
 anon_array: "[" [anon_array_elements] "]"
-anon_array_elements: expr ("," expr)*
+anon_array_elements: expr ("," expr)* ","?
 # -> AstAnonArray(elements)
 
-arguments: argument ("," argument)*
+arguments: argument ("," argument)* ","?
 argument: NAME "=" expr -> named_argument
         | expr -> positional_argument
 # named_argument -> AstNamedArgument(name, value)

@@ -1319,15 +1319,43 @@ class PickTypesAndResolveFields(Visitor):
 
         return intermediate_type
 
+    def _resolve_time_op(
+        self,
+        lhs_type: FpyType,
+        rhs_type: FpyType,
+        op: BinaryStackOp,
+    ) -> tuple[FpyType, FpyType, FpyType, FpyType, str, bool] | None:
+        """Look up a TIME_OPS entry, resolving anonymous structs if needed.
+
+        Returns (resolved_lhs, resolved_rhs, common_type, result_type, func_name, is_cmp)
+        or None if no match.
+        """
+        match = None
+        for (l, r, o), (common_type, result_type, func_name, is_cmp) in TIME_OPS.items():
+            if o != op:
+                continue
+            if self.can_coerce_type(lhs_type, l) and self.can_coerce_type(rhs_type, r):
+                # ambiguity should be impossible given the lack of default values
+                # for the time type
+                assert match is None, (
+                    f"Ambiguous time op: {lhs_type} {op} {rhs_type} "
+                    f"matches both {match[0]},{match[1]} and {l},{r}"
+                )
+                match = (l, r, common_type, result_type, func_name, is_cmp)
+        return match
+
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]
         rhs_type = state.synthesized_types[node.rhs]
         arg_types = [lhs_type, rhs_type]
 
-        # Check for time/interval operator overloads
-        time_op = TIME_OPS.get((lhs_type, rhs_type, node.op))
-        if time_op is not None:
-            common_type, result_type, _, _ = time_op
+        # Check for time/interval operator overloads (with anon struct resolution)
+        resolved = self._resolve_time_op(lhs_type, rhs_type, node.op)
+        if resolved is not None:
+            resolved_lhs, resolved_rhs, common_type, result_type, _, _ = resolved
+            # _resolve_time_op already confirmed coercibility
+            assert self.coerce_expr_type(node.lhs, resolved_lhs, state)
+            assert self.coerce_expr_type(node.rhs, resolved_rhs, state)
             state.op_intermediate_types[node] = common_type
             state.synthesized_types[node] = result_type
             state.contextual_types[node] = result_type
@@ -2206,15 +2234,17 @@ class CalculateConstExprValues(Visitor):
             state.const_expr_values[node] = None
             return
 
-        # Both sides are constants, evaluate the operation if the operator is supported
+        # Time operations are desugared to function calls; skip constant folding.
+        lhs_type = state.contextual_types[node.lhs]
+        rhs_type = state.contextual_types[node.rhs]
+        if (lhs_type, rhs_type, node.op) in TIME_OPS:
+            state.const_expr_values[node] = None
+            return
 
-        if lhs_value.type == TIME:
-            # Time values don't have simple .val primitives; use as-is
-            assert rhs_value.type == TIME, (lhs_value, rhs_value)
-        else:
-            # get the actual pythonic value from the fpy type
-            lhs_value = lhs_value.val
-            rhs_value = rhs_value.val
+        # Both sides are constants, evaluate the operation if the operator is supported
+        # get the actual pythonic value from the fpy type
+        lhs_value = lhs_value.val
+        rhs_value = rhs_value.val
 
         folded_value = None
         # Arithmetic operations
