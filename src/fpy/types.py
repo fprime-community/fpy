@@ -5,7 +5,7 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Iterable, Union, get_args, get_origin
 from fpy.syntax import (
     BinaryStackOp,
     COMPARISON_OPS,
@@ -443,6 +443,7 @@ class FpyValue:
 
         if kind == TypeKind.ARRAY:
             output = b""
+            assert isinstance(self.val, Iterable)
             for elem in self.val:
                 if isinstance(elem, FpyValue):
                     output += elem.serialize()
