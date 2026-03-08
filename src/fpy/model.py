@@ -945,7 +945,14 @@ class FpySequencerModel:
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
         if rhs == 0.0:
-            return DirectiveErrorCode.DOMAIN_ERROR
+            # IEEE 754: division by zero produces inf, -inf, or nan
+            if lhs == 0.0:
+                self.push(float('nan'))
+            elif lhs > 0:
+                self.push(float('inf'))
+            else:
+                self.push(float('-inf'))
+            return None
         self.push(lhs / rhs)
         return None
 

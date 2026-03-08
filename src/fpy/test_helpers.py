@@ -75,12 +75,18 @@ def run_seq(
     d = load_dictionary(default_dictionary)
     ch_name_dict = d["ch_name_dict"]
     cmd_id_dict = d["cmd_id_dict"]
+    cmd_name_dict = d["cmd_name_dict"]
+    # Ref.cmdSeq.RUN always fails when called from within a running sequence
+    seq_run_opcode = cmd_name_dict["Ref.cmdSeq.RUN"].opcode
+    always_failing = {seq_run_opcode}
+    if failing_opcodes:
+        always_failing |= failing_opcodes
     model = FpySequencerModel(
         cmd_dict=cmd_id_dict,
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
-        failing_opcodes=failing_opcodes,
+        failing_opcodes=always_failing,
     )
     tlm_db = {}
     for chan_name, val in tlm.items():

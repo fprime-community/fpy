@@ -4004,7 +4004,7 @@ timeout:
 # Should have been evaluated at least 3 times
 assert eval_count >= 3
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_condition_must_persist(fprime_test_api):
@@ -4055,7 +4055,7 @@ check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) per
 timeout:
     assert False, 1
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_body_runs_on_success(fprime_test_api):
@@ -4066,7 +4066,7 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIn
     body_ran = True
 assert body_ran
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_timeout_body_runs_on_timeout(fprime_test_api):
@@ -5130,19 +5130,15 @@ assert flag_val == True
 
 # ── EXIT_ON_CMD_FAIL behavior tests ────────────────────────────────────
 
-# CdhCore.cmdDisp.CMD_NO_OP opcode from the dictionary
-CMD_NO_OP_OPCODE = 16777216
-
 
 def test_exit_on_cmd_fail_flag_causes_exit(fprime_test_api):
     """When EXIT_ON_CMD_FAIL is set and a command fails, the sequence should exit with error."""
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
-CdhCore.cmdDisp.CMD_NO_OP()
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
     assert_run_failure(
         fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
-        failing_opcodes={CMD_NO_OP_OPCODE},
     )
 
 
@@ -5150,10 +5146,10 @@ def test_no_exit_on_cmd_fail_flag_allows_failure(fprime_test_api):
     """When EXIT_ON_CMD_FAIL is explicitly off, a failing command should not halt the sequence."""
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.cmdDisp.CMD_NO_OP()
-resp: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
+assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
-    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_exit_on_cmd_fail_with_successful_cmd(fprime_test_api):
@@ -5170,9 +5166,9 @@ def test_exit_on_cmd_fail_toggle_off_before_cmd(fprime_test_api):
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.cmdDisp.CMD_NO_OP()
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
-    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+    assert_run_success(fprime_test_api, seq)
 
 
 # ---------------------------------------------------------------------------

@@ -423,10 +423,7 @@ class FpyValue:
                     raise ValueError(
                         f"String too long: {len(encoded)} > {self.type.max_length}"
                     )
-                padding = b"\x00" * (self.type.max_length - len(encoded))
-                return struct.pack(">H", len(encoded)) + encoded + padding
-            else:
-                return struct.pack(">H", len(encoded)) + encoded
+            return struct.pack(">H", len(encoded)) + encoded
 
         if kind == TypeKind.ENUM:
             val = self.val
@@ -473,10 +470,7 @@ class FpyValue:
             str_len = struct.unpack_from(">H", data, offset)[0]
             offset += 2
             s = data[offset : offset + str_len].decode("utf-8")
-            if typ.max_length is not None:
-                offset += typ.max_length  # skip padding
-            else:
-                offset += str_len
+            offset += str_len
             return FpyValue(typ, s), offset
 
         if kind == TypeKind.ENUM:

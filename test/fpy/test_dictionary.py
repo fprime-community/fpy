@@ -2273,8 +2273,8 @@ class TestLoadDictionary:
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["cmd_id_dict"]) == 109
-        assert len(d["cmd_name_dict"]) == 109
+        assert len(d["cmd_id_dict"]) == 108
+        assert len(d["cmd_name_dict"]) == 108
 
     def test_channel_counts(self):
         d = load_dictionary(REF_DICT_PATH)
