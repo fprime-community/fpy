@@ -944,6 +944,8 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
+        if rhs == 0.0:
+            return DirectiveErrorCode.DOMAIN_ERROR
         self.push(lhs / rhs)
         return None
 
@@ -952,6 +954,8 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop(signed=True)
         lhs = self.pop(signed=True)
+        if rhs == 0:
+            return DirectiveErrorCode.DOMAIN_ERROR
         self.push(lhs % rhs, signed=True)
         return None
 
@@ -960,6 +964,8 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop(signed=False)
         lhs = self.pop(signed=False)
+        if rhs == 0:
+            return DirectiveErrorCode.DOMAIN_ERROR
         self.push(lhs % rhs, signed=False)
         return None
 
@@ -968,6 +974,8 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
+        if rhs == 0.0:
+            return DirectiveErrorCode.DOMAIN_ERROR
         self.push(lhs % rhs)
         return None
 

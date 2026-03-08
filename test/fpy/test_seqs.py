@@ -5397,3 +5397,334 @@ timeout:
 assert check_passed
 """
         assert_run_success(fprime_test_api, seq)
+
+
+# ── Python-inspired multiline / continuation / trailing-comma tests ─────
+# Test cases adapted from CPython's Lib/test/test_grammar.py to verify
+# that fpy's implicit line continuation and trailing commas behave like
+# Python's.  Only tests that exercise patterns NOT already covered in
+# TestMultilineAndTrailingComma above.
+
+class TestPythonLikeContinuation:
+    """Tests inspired by CPython test_grammar.py – backslash continuation,
+    implicit continuation inside brackets/parens/braces, trailing commas,
+    comments inside multiline expressions, and edge cases."""
+
+    # ── Backslash continuation (CPython test_backslash) ──────────────
+
+    def test_backslash_continuation(self, fprime_test_api):
+        """Backslash at end of line continues to the next (CPython test_backslash)."""
+        seq = """\
+x: U32 = 1 \\
++ 1
+assert x == 2
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_backslash_continuation_in_assignment(self, fprime_test_api):
+        """Backslash continuation across an assignment expression."""
+        seq = """\
+x: U32 = \\
+    42
+assert x == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_backslash_continuation_multiple_lines(self, fprime_test_api):
+        """Multiple successive backslash continuations."""
+        seq = """\
+x: U32 = 1 \\
+    + 2 \\
+    + 3
+assert x == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Trailing commas in function definitions (CPython test_funcdef) ──
+
+    def test_trailing_comma_one_param(self, fprime_test_api):
+        """def f(a,): pass  — Python allows trailing comma in single param."""
+        seq = """\
+def f(
+    a: U32,
+) -> U32:
+    return a
+assert f(1) == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_two_params(self, fprime_test_api):
+        """def f(a, b,): pass  — trailing comma with two params."""
+        seq = """\
+def f(
+    a: U64,
+    b: U64,
+) -> U64:
+    return a + b
+assert f(1, 2) == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Trailing commas in function calls (CPython test_funcdef) ──────
+
+    def test_trailing_comma_call_one_arg(self, fprime_test_api):
+        """f(1,) — Python allows trailing comma in single-arg call."""
+        seq = """\
+def f(a: U32) -> U32:
+    return a
+assert f(1,) == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_call_two_args(self, fprime_test_api):
+        """f(1, 2,) — trailing comma with two args."""
+        seq = """\
+def f(a: U64, b: U64) -> U64:
+    return a + b
+assert f(1, 2,) == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_call_many_args(self, fprime_test_api):
+        """f(1, 2, 3,) — trailing comma with three args (cf. CPython v0/v1/v2)."""
+        seq = """\
+def f(a: U64, b: U64, c: U64) -> U64:
+    return a + b + c
+assert f(1, 2, 3,) == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multi-term arithmetic inside parens (CPython test_additive_ops) ─
+
+    def test_paren_continuation_complex(self, fprime_test_api):
+        """Deeply nested arithmetic inside parens across lines."""
+        seq = """\
+x: U32 = (
+    1
+    + 2
+    + 3
+    + 4
+)
+assert x == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_paren_continuation_with_operators(self, fprime_test_api):
+        """Mixed operators inside parens across lines."""
+        seq = """\
+x: U32 = (
+    2 * 3
+    + 4
+)
+assert x == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Comments inside continued expressions (CPython test_suite) ────
+
+    def test_comment_inside_paren(self, fprime_test_api):
+        """Comments inside parenthesized continuation (like Python)."""
+        seq = """\
+x: U32 = (
+    # first term
+    1
+    # second term
+    + 2
+)
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_comment_inside_braces(self, fprime_test_api):
+        """Comments inside struct literal."""
+        seq = """\
+val: Fw.TimeIntervalValue = {
+    # the seconds field
+    seconds: 10,
+    # the useconds field
+    useconds: 500,
+}
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_comment_inside_func_call(self, fprime_test_api):
+        """Comments inside a multiline function call."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    # seconds
+    10,
+    # useconds
+    500,
+)
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Nested continuation (CPython test_with_statement pattern) ─────
+
+    def test_deeply_nested_continuation(self, fprime_test_api):
+        """Three levels of nesting: parens > call > struct."""
+        seq = """\
+x: U64 = (
+    Fw.TimeIntervalValue(
+        10,
+        500,
+    ).seconds
+    + 1
+)
+assert x == 11
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Empty lines inside continued expressions ──────────────────────
+
+    def test_empty_line_inside_parens(self, fprime_test_api):
+        """Empty lines inside parenthesized expression (Python allows this)."""
+        seq = """\
+x: U32 = (
+
+    1
+
+    + 2
+
+)
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_empty_line_inside_braces(self, fprime_test_api):
+        """Empty lines inside struct literal."""
+        seq = """\
+val: Fw.TimeIntervalValue = {
+
+    seconds: 10,
+
+    useconds: 500,
+
+}
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multiline function definition (CPython test_funcdef pattern) ──
+
+    def test_multiline_func_def_params(self, fprime_test_api):
+        """Parameters each on their own line with trailing comma."""
+        seq = """\
+def add(
+    a: U64,
+    b: U64,
+    c: U64,
+) -> U64:
+    return a + b + c
+assert add(1, 2, 3) == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_def_and_call(self, fprime_test_api):
+        """Both definition params and call args multiline (CPython common pattern)."""
+        seq = """\
+def add(
+    a: U64,
+    b: U64,
+) -> U64:
+    return a + b
+
+x: U64 = add(
+    10,
+    20,
+)
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Named arguments multiline (CPython keyword arg patterns) ──────
+
+    def test_multiline_named_args(self, fprime_test_api):
+        """Named arguments across lines — cf. CPython d11(1, **{'b':2})."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    seconds=10,
+    useconds=500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_mixed_positional_and_named_multiline(self, fprime_test_api):
+        """Mix of positional and named args across lines."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    useconds=500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Continuation with comparison / boolean operators ──────────────
+
+    def test_multiline_comparison_in_parens(self, fprime_test_api):
+        """Comparison across lines inside parens (CPython test_comparison)."""
+        seq = """\
+x: bool = (
+    1
+    == 1
+)
+assert x
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_boolean_in_parens(self, fprime_test_api):
+        """Boolean operators across lines (CPython test_test)."""
+        seq = """\
+x: bool = (
+    True
+    and True
+    or False
+)
+assert x
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multiline in control flow expressions ─────────────────────────
+
+    def test_multiline_if_condition(self, fprime_test_api):
+        """Parenthesized multiline condition in if (common Python pattern)."""
+        seq = """\
+x: U32 = 0
+if (
+    True
+    and True
+):
+    x = 1
+assert x == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_while_condition(self, fprime_test_api):
+        """Parenthesized multiline condition in while."""
+        seq = """\
+x: U64 = 0
+while (
+    x
+    < 3
+):
+    x = x + 1
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_assert(self, fprime_test_api):
+        """Multiline expression in assert (parenthesized)."""
+        seq = """\
+assert (
+    1
+    + 1
+    == 2
+)
+"""
+        assert_run_success(fprime_test_api, seq)
