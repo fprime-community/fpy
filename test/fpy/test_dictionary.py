@@ -439,7 +439,7 @@ class TestTypeDefStruct:
             {
                 "kind": "struct",
                 "qualifiedName": "M1.S",
-                "annotation": "Struct for wxy values",
+                "annotation": "Struct",
                 "members": {
                     "w": {
                         "type": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
@@ -1780,7 +1780,7 @@ class TestStructInlineMemberArrays:
         # "count" should be plain U32
         assert st.members[1].type is U32
 
-    def test_inline_array_dedup(self):
+    def test_inline_array_deduplicate(self):
         """Two members with same element type and size should share the array type def."""
         raw = [
             {

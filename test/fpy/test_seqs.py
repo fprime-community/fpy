@@ -5436,7 +5436,7 @@ assert x == 6
 """
         assert_run_success(fprime_test_api, seq)
 
-    # ── Trailing commas in function definitions (CPython test_funcdef) ──
+    # ── Trailing commas in function definitions
 
     def test_trailing_comma_one_param(self, fprime_test_api):
         """def f(a,): pass  — Python allows trailing comma in single param."""
@@ -5461,7 +5461,7 @@ assert f(1, 2) == 3
 """
         assert_run_success(fprime_test_api, seq)
 
-    # ── Trailing commas in function calls (CPython test_funcdef) ──────
+    # ── Trailing commas in function calls
 
     def test_trailing_comma_call_one_arg(self, fprime_test_api):
         """f(1,) — Python allows trailing comma in single-arg call."""
@@ -5603,7 +5603,7 @@ assert val.seconds == 10
 """
         assert_run_success(fprime_test_api, seq)
 
-    # ── Multiline function definition (CPython test_funcdef pattern) ──
+    # ── Multiline function definition
 
     def test_multiline_func_def_params(self, fprime_test_api):
         """Parameters each on their own line with trailing comma."""
