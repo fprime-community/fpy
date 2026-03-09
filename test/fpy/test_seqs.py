@@ -580,6 +580,30 @@ exit(1)
     assert_run_success(fprime_test_api, seq)
 
 
+def test_time_aliases(fprime_test_api):
+    """Fw.Time is an alias for Fw.TimeValue, Fw.TimeInterval for Fw.TimeIntervalValue."""
+    seq = """
+# Fw.Time and Fw.TimeValue are interchangeable
+t1: Fw.Time = Fw.TimeValue(TimeBase.TB_NONE, 0, 100, 500000)
+t2: Fw.TimeValue = Fw.Time(TimeBase.TB_NONE, 0, 50, 0)
+assert t1.seconds == 100
+assert t2.seconds == 50
+
+# Fw.TimeInterval and Fw.TimeIntervalValue are interchangeable
+i1: Fw.TimeInterval = Fw.TimeIntervalValue(10, 500000)
+i2: Fw.TimeIntervalValue = Fw.TimeInterval(5, 0)
+assert i1.seconds == 10
+assert i2.seconds == 5
+
+# Cross-alias operations work
+result: Fw.Time = t2 + i1
+assert result.seconds == 60
+diff: Fw.TimeInterval = t1 - t2
+assert diff.seconds == 50
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
 def test_struct_ctor_var_arg(fprime_test_api):
     seq = """
 id: U32 = 111
@@ -1693,7 +1717,7 @@ elif random_value > 0 and random_value <= 6:
 else:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
 
-time_interval: Fw.TimeIntervalValue = {seconds: 15, useconds: 1000}
+time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
 
 array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 
@@ -1792,12 +1816,12 @@ sleep(seconds=1)
 t2: Fw.Time = now()
 
 assert t1 <= t2
-interval1: Fw.TimeIntervalValue = {seconds: 5}
-interval2: Fw.TimeIntervalValue = {seconds: 10}
+interval1: Fw.TimeInterval = {seconds: 5}
+interval2: Fw.TimeInterval = {seconds: 10}
 
 assert interval1 < interval2
 current: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 500000}
-offset: Fw.TimeIntervalValue = {seconds: 60}
+offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
 start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
 end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}

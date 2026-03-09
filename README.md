@@ -268,7 +268,7 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
 
 You can construct structs/arrays with a simple syntax:
 ```py
-time_interval: Fw.TimeIntervalValue = {seconds: 15, useconds: 1000}
+time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
 
 array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 ```
@@ -493,8 +493,9 @@ t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=2, timeContext=1)
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## Time Functions
-Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
+## Working with Time
+
+Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeInterval` types (aliases for `Fw.TimeValue` and `Fw.TimeIntervalValue` respectively).
 
 You can get the current time with `now()`:
 ```py
@@ -514,22 +515,22 @@ assert t1 <= t2
 
 If the times are incomparable due to having different time bases, the sequence will assert. To safely compare times which may have different time bases, use the `time_cmp` function, in `time.fpy`.
 
-You can also compare two `Fw.TimeIntervalValue` values:
+You can also compare two `Fw.TimeInterval` values:
 ```py
-interval1: Fw.TimeIntervalValue = {seconds: 5}
-interval2: Fw.TimeIntervalValue = {seconds: 10}
+interval1: Fw.TimeInterval = {seconds: 5}
+interval2: Fw.TimeInterval = {seconds: 10}
 
 assert interval1 < interval2
 ```
 
-You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
+You can add a `Fw.TimeInterval` to a `Fw.Time`:
 ```py
 current: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 500000}
-offset: Fw.TimeIntervalValue = {seconds: 60}
+offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
-You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
+You can subtract two `Fw.Time` values to get a `Fw.TimeInterval`:
 ```py
 start: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 0}
 end: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 105, useconds: 500000}
