@@ -1,2 +1,2 @@
-check True timeout Fw.Time(0, 0, 1, 0) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+check True timeout Fw.Time(TimeBase.TB_NONE, 0, 1, 0) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     pass

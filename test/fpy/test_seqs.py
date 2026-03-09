@@ -494,7 +494,7 @@ exit(1)
 
 def test_get_time_member(fprime_test_api):
     seq = """
-if Fw.Time(0, 1, 2, 3).useconds == 3:
+if Fw.Time(TimeBase.TB_NONE, 1, 2, 3).useconds == 3:
     exit(0)
 exit(1)
 """
@@ -542,7 +542,7 @@ sleep()
 
 def test_wait_abs(fprime_test_api):
     seq = """
-sleep_until(Fw.Time(2, 0, 123, 123))
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -550,14 +550,14 @@ sleep_until(Fw.Time(2, 0, 123, 123))
 def test_wait_abs_var_arg(fprime_test_api):
     seq = """
 x: U32 = 123
-sleep_until(Fw.Time(2, 0, x, 123))
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_wait_abs_var_arg_2(fprime_test_api):
     seq = """
-x: Fw.Time = Fw.Time(2, 1, 2, 3)
+x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
 sleep_until(x)
 """
     assert_run_success(fprime_test_api, seq)
@@ -572,8 +572,8 @@ sleep_until(2, 1, 2, 3)
 
 def test_time_type_ctor(fprime_test_api):
     seq = """
-var: Fw.Time = Fw.Time(0, 1, 2, 3)
-if var.time_base == 0 and var.time_context == 1:# and var.seconds == 2 and var.useconds == 3:
+var: Fw.Time = Fw.Time(TimeBase.TB_NONE, 1, 2, 3)
+if var.time_base == TimeBase.TB_NONE and var.time_context == 1:# and var.seconds == 2 and var.useconds == 3:
     exit(0)
 exit(1)
 """
@@ -1796,11 +1796,11 @@ interval1: Fw.TimeIntervalValue = {seconds: 5}
 interval2: Fw.TimeIntervalValue = {seconds: 10}
 
 assert interval1 < interval2
-current: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 500000}
+current: Fw.Time = {time_base: TimeBase.TB_PROC_TIME, time_context: 0, seconds: 100, useconds: 500000}
 offset: Fw.TimeIntervalValue = {seconds: 60}
 assert (current + offset).seconds == 160
-start: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 0}
-end: Fw.Time = {time_base: 1, time_context: 0, seconds: 105, useconds: 500000}
+start: Fw.Time = {time_base: TimeBase.TB_PROC_TIME, time_context: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {time_base: TimeBase.TB_PROC_TIME, time_context: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 """
     assert_run_success(
@@ -2848,8 +2848,8 @@ var: Svc = 0
 
 def test_const_folding_time_eq(fprime_test_api):
     seq = """
-assert Fw.Time(0, 0, 0, 0) == Fw.Time(0, 0, 0, 0)
-assert Fw.Time(0, 0, 1, 0) != Fw.Time(0, 0, 0, 0)
+assert Fw.Time(TimeBase.TB_NONE, 0, 0, 0) == Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
+assert Fw.Time(TimeBase.TB_NONE, 0, 1, 0) != Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
 """
 
     assert_run_success(fprime_test_api, seq)
@@ -3855,7 +3855,7 @@ CdhCore.cmdDisp.CMD_TEST_CMD_1(arg3=1, arg1=1, arg2=1.0)
 def test_named_arg_type_ctor(fprime_test_api):
     """Named arguments work with type constructors."""
     seq = """
-time: Fw.Time = Fw.Time(seconds=123, useconds=456, time_base=0, time_context=0)
+time: Fw.Time = Fw.Time(seconds=123, useconds=456, time_base=TimeBase.TB_NONE, time_context=0)
 assert time.seconds == 123
 assert time.useconds == 456
 """
@@ -4654,8 +4654,8 @@ class TestSimulatedTime:
         seq = """
 t: Fw.Time = now()
 # Initial time of 5 seconds = 5,000,000 microseconds
-# time_base=0, time_context=0
-assert t.time_base == 0
+# time_base=TimeBase.TB_NONE, time_context=0
+assert t.time_base == TimeBase.TB_NONE
 assert t.time_context == 0
 assert t.seconds == 5
 assert t.useconds == 0
@@ -4666,8 +4666,8 @@ assert t.useconds == 0
         """Test that now() returns the configured time_base."""
         seq = """
 t: Fw.Time = now()
-# Configured time_base=2
-assert t.time_base == 2
+# Configured time_base=TimeBase.TB_WORKSTATION_TIME
+assert t.time_base == TimeBase.TB_WORKSTATION_TIME
 assert t.time_context == 0
 """
         assert_run_success(fprime_test_api, seq, time_base=2)
@@ -4744,9 +4744,9 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
         """
         seq = """
 # Construct a timeout with a different time_base than what now() returns
-# now() returns time_base=0 by default
-# Set timeout with time_base=1
-bad_timeout: Fw.Time = Fw.Time(1, 0, 100, 0)
+# now() returns time_base=TimeBase.TB_NONE by default
+# Set timeout with time_base=TimeBase.TB_PROC_TIME
+bad_timeout: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)
 
 check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     pass
@@ -4835,8 +4835,8 @@ time_base_ok: bool = True
 def check_time_base() -> bool:
     check_count = check_count + 1
     t: Fw.Time = now()
-    # Should always have time_base=3
-    if t.time_base != 3:
+    # Should always have time_base=TimeBase.TB_SC_TIME
+    if t.time_base != TimeBase.TB_SC_TIME:
         time_base_ok = False
     return check_count >= 3
 
@@ -4878,7 +4878,7 @@ assert t.useconds == 123456
 def test_time_function_sleep_until(fprime_test_api):
     """time() can be passed directly to sleep_until()."""
     seq = """
-sleep_until(time("2000-01-01T00:00:00Z", time_base=2))
+sleep_until(time("2000-01-01T00:00:00Z", time_base=TimeBase.TB_WORKSTATION_TIME))
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -4903,7 +4903,7 @@ def test_time_function_default_time_base(fprime_test_api):
     """time() defaults to time_base=0 and time_context=0."""
     seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
-assert t.time_base == 0
+assert t.time_base == TimeBase.TB_NONE
 assert t.time_context == 0
 """
     assert_run_success(fprime_test_api, seq)
@@ -4912,8 +4912,8 @@ assert t.time_context == 0
 def test_time_function_custom_time_base(fprime_test_api):
     """time() accepts custom time_base parameter."""
     seq = """
-t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=2)
-assert t.time_base == 2
+t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=TimeBase.TB_WORKSTATION_TIME)
+assert t.time_base == TimeBase.TB_WORKSTATION_TIME
 assert t.time_context == 0
 """
     assert_run_success(fprime_test_api, seq)
@@ -4923,7 +4923,7 @@ def test_time_function_custom_time_context(fprime_test_api):
     """time() accepts custom time_context parameter."""
     seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", time_context=5)
-assert t.time_base == 0
+assert t.time_base == TimeBase.TB_NONE
 assert t.time_context == 5
 """
     assert_run_success(fprime_test_api, seq)
@@ -4932,8 +4932,8 @@ assert t.time_context == 5
 def test_time_function_all_params(fprime_test_api):
     """time() accepts all parameters."""
     seq = """
-t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=3, time_context=7)
-assert t.time_base == 3
+t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=TimeBase.TB_SC_TIME, time_context=7)
+assert t.time_base == TimeBase.TB_SC_TIME
 assert t.time_context == 7
 assert t.seconds == 946684800
 """
@@ -4943,8 +4943,8 @@ assert t.seconds == 946684800
 def test_time_function_named_args(fprime_test_api):
     """time() works with named arguments."""
     seq = """
-t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", time_base=1)
-assert t.time_base == 1
+t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", time_base=TimeBase.TB_PROC_TIME)
+assert t.time_base == TimeBase.TB_PROC_TIME
 """
     assert_run_success(fprime_test_api, seq)
 

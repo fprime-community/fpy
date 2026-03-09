@@ -43,6 +43,7 @@ from fpy.types import (
     FLAG_ID,
     TIME_COMPARISON,
     TIME_INTERVAL,
+    TIME_BASE,
     FpyType,
     FpyValue,
     TypeKind,
@@ -203,6 +204,51 @@ def _validate_and_replace_type(
         canonical.json_default = dict_type.json_default
 
 
+def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
+    """Update the canonical TIME_BASE singleton from the dictionary's TimeBase.
+
+    The dictionary's TimeBase enum supercedes the hardcoded placeholder.
+    We only require that TB_NONE exists with value 0.  The full set of enum
+    constants and the representation type (FwTimeBaseStoreType) come from the
+    dictionary.
+    """
+    if "TimeBase" not in dict_type_name_dict:
+        raise ValueError("Dictionary must contain TimeBase enum type")
+    dict_tb = dict_type_name_dict["TimeBase"]
+    if dict_tb.kind != TypeKind.ENUM:
+        raise ValueError(
+            f"Dictionary TimeBase has kind {dict_tb.kind}, expected enum"
+        )
+    if "TB_NONE" not in dict_tb.enum_dict:
+        raise ValueError("Dictionary TimeBase enum must contain TB_NONE constant")
+    if dict_tb.enum_dict["TB_NONE"] != 0:
+        raise ValueError(
+            f"TimeBase.TB_NONE must have value 0, got {dict_tb.enum_dict['TB_NONE']}"
+        )
+
+    # Adopt the dictionary's enum constants and representation type
+    TIME_BASE.enum_dict = dict_tb.enum_dict
+    TIME_BASE.rep_type = dict_tb.rep_type
+    if dict_tb.json_default is not None:
+        TIME_BASE.json_default = dict_tb.json_default
+
+    # Replace the dict entry with the canonical singleton
+    dict_type_name_dict["TimeBase"] = TIME_BASE
+
+
+def _update_time_context_type_from_dict(
+    dict_type_name_dict: dict[str, FpyType],
+) -> None:
+    """Update TIME's time_context member type from FwTimeContextStoreType."""
+    if "FwTimeContextStoreType" not in dict_type_name_dict:
+        return  # Keep the default U8
+    ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
+    assert ctx_type.is_primitive, (
+        f"FwTimeContextStoreType must resolve to a primitive type, got {ctx_type}"
+    )
+    TIME.members[1].type = ctx_type
+
+
 def _populate_type_defaults(typ: FpyType) -> None:
     """Populate per-member/per-element defaults on an FpyType from its json_default.
 
@@ -281,6 +327,8 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     # Validate required dictionary types
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
+    _update_time_base_from_dict(dict_type_name_dict)
+    _update_time_context_type_from_dict(dict_type_name_dict)
     _validate_and_replace_type(dict_type_name_dict, "Svc.Fpy.FlagId", FLAG_ID)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)

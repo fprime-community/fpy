@@ -339,11 +339,22 @@ I64 = FpyType(TypeKind.I64, "I64")
 F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
+
+# The canonical TimeBase enum type — default placeholder.
+# The full set of enum constants and representation type are loaded from the
+# dictionary at compile time.  Only TB_NONE is required to exist.
+TIME_BASE = FpyType(
+    TypeKind.ENUM,
+    "TimeBase",
+    enum_dict={"TB_NONE": 0},
+    rep_type=U16,
+)
+
 TIME = FpyType(
     TypeKind.STRUCT,
     "Fw.Time",
     members=(
-        StructMember("time_base", U16),
+        StructMember("time_base", TIME_BASE),
         StructMember("time_context", U8),
         StructMember("seconds", U32),
         StructMember("useconds", U32),

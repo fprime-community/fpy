@@ -493,7 +493,7 @@ class DesugarCheckStatements(Transformer):
             # Dummy timeout value - won't be used since we skip timeout checks
             timeout_expr_to_use = self.call_parts(
                 ["Fw", "Time"],
-                self.number(0), self.number(0), self.number(0), self.number(0)
+                self.qualified_name("TimeBase", "TB_NONE"), self.number(0), self.number(0), self.number(0)
             )
         
         check_state_init = self.call_expr(
@@ -503,9 +503,9 @@ class DesugarCheckStatements(Transformer):
             freq_expr,                                      # freq
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true
-            self.call_parts(                                # last_time_true = Fw.Time(0,0,0,0)
+            self.call_parts(                                # last_time_true = Fw.Time(TimeBase.TB_NONE,0,0,0)
                 ["Fw", "Time"],
-                self.number(0), self.number(0), self.number(0), self.number(0)
+                self.qualified_name("TimeBase", "TB_NONE"), self.number(0), self.number(0), self.number(0)
             ),
             self.call("now"),                               # time_started
         )

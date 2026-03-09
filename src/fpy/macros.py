@@ -11,7 +11,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import FLAG_ID, INTERNAL_STRING, NOTHING, TIME, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.types import FLAG_ID, INTERNAL_STRING, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
@@ -153,7 +153,7 @@ TIME_MACRO = BuiltinFuncSymbol(
         TIME,
         [
             ("timestamp", INTERNAL_STRING, None),
-            ("time_base", U16, FpyValue(U16, 0)),
+            ("time_base", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
             ("time_context", U8, FpyValue(U8, 0)),
         ],
         lambda n, c: [],  # placeholder - const eval handles this

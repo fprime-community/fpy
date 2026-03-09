@@ -25,6 +25,7 @@ from fpy.types import (
     NOTHING,
     BOOL,
     TIME,
+    TIME_BASE,
     U8,
     U16,
     U32,
@@ -1813,7 +1814,7 @@ class CalculateConstExprValues(Visitor):
 
     @staticmethod
     def _parse_time_string(
-        time_str: str, time_base: int, time_context: int, node: Ast, state: CompileState
+        time_str: str, time_base: str, time_context: int, node: Ast, state: CompileState
     ) -> FpyValue | None:
         """Parse an ISO 8601 timestamp string into an FpyValue(TIME, ...).
 
@@ -1821,8 +1822,8 @@ class CalculateConstExprValues(Visitor):
         - "2025-12-19T14:30:00Z"
         - "2025-12-19T14:30:00.123456Z"
 
-        Returns FpyValue(TIME, ...) with the provided time_base and time_context, and the parsed
-        seconds/microseconds since Unix epoch.
+        Returns FpyValue(TIME, ...) with the provided time_base (a TimeBase enum constant name)
+        and time_context, and the parsed seconds/microseconds since Unix epoch.
         """
         try:
             # Try parsing with microseconds first
@@ -1856,7 +1857,7 @@ class CalculateConstExprValues(Visitor):
                 return None
 
             return FpyValue(TIME, {
-                "time_base": FpyValue(U16, time_base),
+                "time_base": FpyValue(TIME_BASE, time_base),
                 "time_context": FpyValue(U8, time_context),
                 "seconds": FpyValue(U32, seconds),
                 "useconds": FpyValue(U32, useconds),
