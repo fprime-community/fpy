@@ -241,7 +241,15 @@ def _populate_type_defaults(typ: FpyType) -> None:
                 f"Dictionary array type {typ.name} has default with "
                 f"{len(array_defaults)} elements but declared length {typ.length}"
             )
-        typ.elem_defaults = tuple(array_defaults) if array_defaults else (None,) * typ.length
+        # Array defaults are all-or-nothing: either every element has a
+        # default (from the dictionary JSON) or none do.  Partial defaults
+        # are not supported.
+        if array_defaults:
+            assert len(array_defaults) == typ.length
+            assert all(d is not None for d in array_defaults)
+            typ.elem_defaults = tuple(array_defaults)
+        else:
+            typ.elem_defaults = (None,) * typ.length
 
 
 def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:

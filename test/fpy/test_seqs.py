@@ -1692,6 +1692,11 @@ elif random_value > 0 and random_value <= 6:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen!")
 else:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
+
+time_interval: Fw.TimeIntervalValue = {seconds: 15, useconds: 1000}
+
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
+
 counter: U64 = 0
 while counter < 100:
     counter = counter + 1
@@ -1762,20 +1767,20 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 
 
-check CdhCore.cmdDisp.CommandsDispatched > 1 persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 1 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 freq {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
-    timeout now() + Fw.TimeIntervalValue(60, 0)
-    persist Fw.TimeIntervalValue(1, 0)
-    freq Fw.TimeIntervalValue(1, 0):
+    timeout now() + {seconds: 60}
+    persist {seconds: 1}
+    freq {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -1783,19 +1788,19 @@ timeout:
 # Time functions examples
 current_time: Fw.Time = now()
 t1: Fw.Time = now()
-sleep(1, 0)
+sleep(seconds=1)
 t2: Fw.Time = now()
 
 assert t1 <= t2
-interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
-interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+interval1: Fw.TimeIntervalValue = {seconds: 5}
+interval2: Fw.TimeIntervalValue = {seconds: 10}
 
 assert interval1 < interval2
-current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
-offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+current: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 500000}
+offset: Fw.TimeIntervalValue = {seconds: 60}
 assert (current + offset).seconds == 160
-start: Fw.Time = Fw.Time(1, 0, 100, 0)
-end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+start: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {time_base: 1, time_context: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 """
     assert_run_success(

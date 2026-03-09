@@ -868,10 +868,17 @@ class PickTypesAndResolveFields(Visitor):
             if not self.coerce_expr_type(elem_expr, target.elem_type, state):
                 return False
 
-        # Build resolved list: provided elements + defaults for missing positions
+        # Build resolved list: provided elements + defaults for missing positions.
+        # Array defaults are all-or-nothing, so if any position needs a
+        # default, every position must have one.
         resolved = list(node.elements)
         for i in range(len(node.elements), target.length):
-            resolved.append(target.elem_defaults[i])
+            default = target.elem_defaults[i]
+            assert default is not None, (
+                f"Missing default for element {i} of {target.name}; "
+                f"array defaults must be all-or-nothing"
+            )
+            resolved.append(default)
 
         state.resolved_args[node] = resolved
         state.contextual_types[node] = target
@@ -1027,11 +1034,13 @@ class PickTypesAndResolveFields(Visitor):
             return None
         if anon.length > concrete.length:
             return None
-        # Every element position beyond what the anon provides must have a default
+        # Array defaults are all-or-nothing: either every element has a
+        # default or none do.  We only need to check one sentinel position
+        # to know whether defaults exist.
         if anon.length < concrete.length:
-            for i in range(anon.length, concrete.length):
-                if concrete.elem_defaults[i] is None:
-                    return None
+            has_defaults = concrete.elem_defaults[0] is not None
+            if not has_defaults:
+                return None
         return concrete
 
     def get_type_of_symbol(self, sym: Symbol) -> FpyType:

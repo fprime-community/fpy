@@ -17,8 +17,6 @@ Fpy has a few principles:
 * Be pragmatic
 * Be a joy to work with
 
-That's really all there is to it. It's gotta work for all users and missions, and people have to love it. The rest will follow.
-
 >*The art of making a good language is to restrict the user in a good way* 
 >
 > – Andrey Breslav, creator of Kotlin
@@ -186,7 +184,7 @@ array_var: Ref.DpDemo.U32Array = Ref.DpDemo.U32Array(0, 1, 2, 3, 4)
 struct_var: Ref.SignalPair = Ref.SignalPair(0.0, 1.0)
 ```
 
-In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`.
+In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`. Trailing commas are allowed.
 
 ## Math
 You can do basic math and store the result in variables in Fpy:
@@ -265,11 +263,24 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
+## Struct/array expressions
+
+You can instantiate structs/arrays with a simple syntax:
+```py
+time_interval: Fw.TimeIntervalValue = {seconds: 15, useconds: 1000}
+
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
+```
+
+If a struct or array has a default value for a member/element, you do not have to specify it 
+
+Trailing commas are allowed in these expressions.
+
 ## Check statement
 
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
 ```
 
@@ -277,13 +288,13 @@ If you don't specify a value for `persist`, the condition only has to be true on
 
 You can specify an absolute time at which the `check` should time out:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -291,7 +302,7 @@ timeout:
 
 Finally, you can specify a `freq` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 ```
 
@@ -300,9 +311,9 @@ If you don't specify a value for `freq`, the default frequency is 1 Hertz.
 The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30
-    timeout now() + Fw.TimeIntervalValue(60, 0)
-    persist Fw.TimeIntervalValue(2, 0)
-    freq Fw.TimeIntervalValue(1, 0):
+    timeout now() + {seconds: 60}
+    persist {seconds: 2}
+    freq {seconds: 1}
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -406,6 +417,8 @@ def add_vals(a: U64, b: U64) -> U64:
 assert add_vals(1, 2) == 3
 ```
 
+Trailing commas are allowed in the argument list.
+
 Functions can have default argument values:
 ```py
 def greet(times: I64 = 3):
@@ -460,7 +473,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
 # time base of 0, time context of 1
-sleep_until(Fw.Time(0, 1, 1234567890, 0))
+sleep_until({time_base: 0, time_context: 1, seconds=1234567890, useconds=0})
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
@@ -492,7 +505,7 @@ The underlying implementation of `now()` just calls the `getTime` port on the `F
 You can compare two `Fw.Time` values with comparison operators:
 ```py
 t1: Fw.Time = now()
-sleep(1, 0)
+sleep(seconds=1)
 t2: Fw.Time = now()
 
 assert t1 <= t2
@@ -502,23 +515,23 @@ If the times are incomparable due to having different time bases, the sequence w
 
 You can also compare two `Fw.TimeIntervalValue` values:
 ```py
-interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
-interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+interval1: Fw.TimeIntervalValue = {seconds: 5}
+interval2: Fw.TimeIntervalValue = {seconds: 10}
 
 assert interval1 < interval2
 ```
 
 You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
 ```py
-current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
-offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+current: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 500000}
+offset: Fw.TimeIntervalValue = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
 You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
 ```py
-start: Fw.Time = Fw.Time(1, 0, 100, 0)
-end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+start: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {time_base: 1, time_context: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 ```
 
@@ -553,7 +566,7 @@ assert 1 > 2, 123
 ```
 
 ## Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
 
 # Developer's Guide
