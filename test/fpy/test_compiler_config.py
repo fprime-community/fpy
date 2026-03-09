@@ -5,6 +5,8 @@ These tests verify that MAX_DIRECTIVE_SIZE and MAX_SEQUENCE_STATEMENT_COUNT
 are correctly read from the dictionary's constants section.
 """
 
+from __future__ import annotations
+
 import json
 import tempfile
 from pathlib import Path

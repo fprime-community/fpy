@@ -282,10 +282,10 @@ class TestConstants:
         ]
         result = _parse_constants(raw, type_defs)
         assert "Ref.DEFAULT_CHOICE" in result
-        fpv = result["Ref.DEFAULT_CHOICE"]
-        assert isinstance(fpv, FpyValue)
-        assert fpv.type is my_enum
-        assert fpv.val == "B"
+        val = result["Ref.DEFAULT_CHOICE"]
+        assert isinstance(val, FpyValue)
+        assert val.type is my_enum
+        assert val.val == "B"
 
     def test_enum_valued_constant_short_name(self):
         """Enum constant value with only the short constant name."""

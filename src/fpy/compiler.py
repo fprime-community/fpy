@@ -430,13 +430,13 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
 
     def _const_int(key: str, default: int) -> int:
         """Extract an integer constant value, falling back to *default*."""
-        fpv = constants.get(key)
-        if fpv is None:
+        val = constants.get(key)
+        if val is None:
             return default
-        assert isinstance(fpv.val, int), (
-            f"Expected int for constant {key}, got {type(fpv.val)}"
+        assert isinstance(val.val, int), (
+            f"Expected int for constant {key}, got {type(val.val)}"
         )
-        return fpv.val
+        return val.val
 
     # Make copies of the scopes since we'll mutate them during compilation
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
