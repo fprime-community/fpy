@@ -544,27 +544,9 @@ class FpyTransformer(Transformer):
     index_expr = AstIndexExpr
     range = AstRange
 
-    @v_args(meta=True, inline=False)
-    def anon_struct(self, meta, children):
-        # children is either [] (empty struct) or [members_list]
-        # Lark passes None for absent optional rules
-        members = children[0] if children and children[0] is not None else []
-        return AstAnonStruct(meta, members)
-
-    anon_struct_members = no_inline_or_meta(list)
-
-    @v_args(meta=False, inline=True)
-    def anon_struct_member(self, name, value):
-        return (name, value)
-
-    @v_args(meta=True, inline=False)
-    def anon_array(self, meta, children):
-        # children is either [] (empty array) or [elements_list]
-        # Lark passes None for absent optional rules
-        elements = children[0] if children and children[0] is not None else []
-        return AstAnonArray(meta, elements)
-
-    anon_array_elements = no_inline_or_meta(list)
+    anon_struct = no_inline(AstAnonStruct)
+    anon_struct_member = no_inline_or_meta(tuple)
+    anon_array = no_inline(AstAnonArray)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)

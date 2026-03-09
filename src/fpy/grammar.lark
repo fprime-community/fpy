@@ -159,14 +159,14 @@ _test: or_test
 # get_attr -> AstGetAttr(parent, attr)
 
 # anonymous struct expression: {} or {member1: value1, member2: value2, ...}
-anon_struct: "{" [anon_struct_members] "}"
-anon_struct_members: anon_struct_member ("," anon_struct_member)* ","?
+anon_struct: "{" [_anon_struct_members] "}"
+_anon_struct_members: anon_struct_member ("," anon_struct_member)* ","?
 anon_struct_member: NAME ":" expr
 # -> AstAnonStruct(members)
 
 # anonymous array expression: [] or [expr, expr, ...]
-anon_array: "[" [anon_array_elements] "]"
-anon_array_elements: expr ("," expr)* ","?
+anon_array: "[" [_anon_array_elements] "]"
+_anon_array_elements: expr ("," expr)* ","?
 # -> AstAnonArray(elements)
 
 arguments: argument ("," argument)* ","?
