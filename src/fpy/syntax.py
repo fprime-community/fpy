@@ -1,11 +1,58 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator, List, Literal as TypingLiteral, Union
 from lark import Token, Transformer, v_args
 from lark.tree import Meta
 from lark.lark import PostLex
 from lark.indenter import DedentError
 from decimal import Decimal
+
+
+class UnaryStackOp(str, Enum):
+    NOT = "not"
+    IDENTITY = "+"
+    NEGATE = "-"
+
+
+class BinaryStackOp(str, Enum):
+    EXPONENT = "**"
+    MODULUS = "%"
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+    FLOOR_DIVIDE = "//"
+    GREATER_THAN = ">"
+    GREATER_THAN_OR_EQUAL = ">="
+    LESS_THAN_OR_EQUAL = "<="
+    LESS_THAN = "<"
+    EQUAL = "=="
+    NOT_EQUAL = "!="
+    OR = "or"
+    AND = "and"
+
+
+NUMERIC_OPERATORS = {
+    UnaryStackOp.IDENTITY,
+    UnaryStackOp.NEGATE,
+    BinaryStackOp.ADD,
+    BinaryStackOp.SUBTRACT,
+    BinaryStackOp.MULTIPLY,
+    BinaryStackOp.DIVIDE,
+    BinaryStackOp.MODULUS,
+    BinaryStackOp.EXPONENT,
+    BinaryStackOp.FLOOR_DIVIDE,
+}
+BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 
 class PythonIndenter(PostLex):
@@ -24,6 +71,9 @@ class PythonIndenter(PostLex):
     INDENT_type = "_INDENT"
     DEDENT_type = "_DEDENT"
     tab_len = 8
+    # Tell the contextual lexer to always accept _NEWLINE so we can
+    # suppress it inside parentheses/brackets/braces (paren_level > 0).
+    always_accept = ("_NEWLINE",)
 
     def __init__(self) -> None:
         self.paren_level = 0
@@ -181,10 +231,20 @@ class AstRange(Ast):
     upper_bound: AstExpr
 
 
+@dataclass
+class AstAnonStruct(Ast):
+    members: list[tuple[str, "AstExpr"]]
+
+
+@dataclass
+class AstAnonArray(Ast):
+    elements: list["AstExpr"]
+
+
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
 AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
-AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
+AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray]
 
 
 @dataclass
@@ -483,6 +543,10 @@ class FpyTransformer(Transformer):
     get_attr = AstGetAttr
     index_expr = AstIndexExpr
     range = AstRange
+
+    anon_struct = no_inline(AstAnonStruct)
+    anon_struct_member = no_inline_or_meta(tuple)
+    anon_array = no_inline(AstAnonArray)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)

@@ -1,6 +1,6 @@
 import pytest
 
-from fprime_gds.common.models.serialize.numerical_types import U32Type as U32Value
+from fpy.types import FpyValue, U32
 
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
@@ -381,7 +381,7 @@ exit(1)
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(1).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 1).serialize()},
     )
 
 
@@ -404,7 +404,7 @@ else:
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(4).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 4).serialize()},
     )
 
 
@@ -451,7 +451,7 @@ exit(1)
         fprime_test_api,
         seq,
         {
-            "Ref.typeDemo.ChoicePairCh": lookup_type(fprime_test_api, "Ref.ChoicePair")(
+            "Ref.typeDemo.ChoicePairCh": FpyValue(lookup_type(fprime_test_api, "Ref.ChoicePair"),
                 {"firstChoice": "ONE", "secondChoice": "ONE"}
             ).serialize()
         },
@@ -494,7 +494,7 @@ exit(1)
 
 def test_get_time_member(fprime_test_api):
     seq = """
-if Fw.Time(0, 1, 2, 3).useconds == 3:
+if Fw.Time(TimeBase.TB_NONE, 1, 2, 3).useconds == 3:
     exit(0)
 exit(1)
 """
@@ -542,7 +542,7 @@ sleep()
 
 def test_wait_abs(fprime_test_api):
     seq = """
-sleep_until(Fw.Time(2, 0, 123, 123))
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -550,14 +550,14 @@ sleep_until(Fw.Time(2, 0, 123, 123))
 def test_wait_abs_var_arg(fprime_test_api):
     seq = """
 x: U32 = 123
-sleep_until(Fw.Time(2, 0, x, 123))
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_wait_abs_var_arg_2(fprime_test_api):
     seq = """
-x: Fw.Time = Fw.Time(2, 1, 2, 3)
+x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
 sleep_until(x)
 """
     assert_run_success(fprime_test_api, seq)
@@ -572,10 +572,34 @@ sleep_until(2, 1, 2, 3)
 
 def test_time_type_ctor(fprime_test_api):
     seq = """
-var: Fw.Time = Fw.Time(0, 1, 2, 3)
-if var.time_base == 0 and var.time_context == 1:# and var.seconds == 2 and var.useconds == 3:
+var: Fw.Time = Fw.Time(TimeBase.TB_NONE, 1, 2, 3)
+if var.timeBase == TimeBase.TB_NONE and var.timeContext == 1:# and var.seconds == 2 and var.useconds == 3:
     exit(0)
 exit(1)
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_time_aliases(fprime_test_api):
+    """Fw.Time is an alias for Fw.TimeValue, Fw.TimeInterval for Fw.TimeIntervalValue."""
+    seq = """
+# Fw.Time and Fw.TimeValue are interchangeable
+t1: Fw.Time = Fw.TimeValue(TimeBase.TB_NONE, 0, 100, 500000)
+t2: Fw.TimeValue = Fw.Time(TimeBase.TB_NONE, 0, 50, 0)
+assert t1.seconds == 100
+assert t2.seconds == 50
+
+# Fw.TimeInterval and Fw.TimeIntervalValue are interchangeable
+i1: Fw.TimeInterval = Fw.TimeIntervalValue(10, 500000)
+i2: Fw.TimeIntervalValue = Fw.TimeInterval(5, 0)
+assert i1.seconds == 10
+assert i2.seconds == 5
+
+# Cross-alias operations work
+result: Fw.Time = t2 + i1
+assert result.seconds == 60
+diff: Fw.TimeInterval = t1 - t2
+assert diff.seconds == 50
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -1634,6 +1658,7 @@ def test_too_many_dirs(fprime_test_api):
     assert_compile_failure(fprime_test_api, seq)
 
 
+
 def test_dir_too_large(fprime_test_api):
     # TODO this doesn't actually crash cuz the dir is too large... not sure at the moment how to trigger this
     from fpy.types import MAX_DIRECTIVE_SIZE
@@ -1691,6 +1716,11 @@ elif random_value > 0 and random_value <= 6:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen!")
 else:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
+
+time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
+
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
+
 counter: U64 = 0
 while counter < 100:
     counter = counter + 1
@@ -1761,20 +1791,20 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 
 
-check CdhCore.cmdDisp.CommandsDispatched > 1 persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
-check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(1, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 1 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 freq {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
-    timeout now() + Fw.TimeIntervalValue(60, 0)
-    persist Fw.TimeIntervalValue(1, 0)
-    freq Fw.TimeIntervalValue(1, 0):
+    timeout now() + {seconds: 60}
+    persist {seconds: 1}
+    freq {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -1782,25 +1812,25 @@ timeout:
 # Time functions examples
 current_time: Fw.Time = now()
 t1: Fw.Time = now()
-sleep(1, 0)
+sleep(seconds=1)
 t2: Fw.Time = now()
 
 assert t1 <= t2
-interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
-interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+interval1: Fw.TimeInterval = {seconds: 5}
+interval2: Fw.TimeInterval = {seconds: 10}
 
 assert interval1 < interval2
-current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
-offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+current: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 500000}
+offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
-start: Fw.Time = Fw.Time(1, 0, 100, 0)
-end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 """
     assert_run_success(
         fprime_test_api,
         seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": U32Value(45).serialize()},
+        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
         timeout_s=20
     )
 
@@ -1997,6 +2027,18 @@ if val[-1] == 456:
 exit(1)
 """
     # TODO in the future this should work, should be the last element
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_const_array_oob(fprime_test_api):
+    """Out-of-bounds on a const array expression (not a variable).
+    The parent is a type constructor call, so CalculateConstExprValues
+    has a non-None parent_value. Without the bounds guard there,
+    this would crash with a Python IndexError instead of a compile error.
+    """
+    seq = """
+val: U32 = Svc.ComQueueDepth(10, 20)[2]
+"""
     assert_compile_failure(fprime_test_api, seq)
 
 
@@ -2830,8 +2872,8 @@ var: Svc = 0
 
 def test_const_folding_time_eq(fprime_test_api):
     seq = """
-assert Fw.Time(0, 0, 0, 0) == Fw.Time(0, 0, 0, 0)
-assert Fw.Time(0, 0, 1, 0) != Fw.Time(0, 0, 0, 0)
+assert Fw.Time(TimeBase.TB_NONE, 0, 0, 0) == Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
+assert Fw.Time(TimeBase.TB_NONE, 0, 1, 0) != Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
 """
 
     assert_run_success(fprime_test_api, seq)
@@ -3837,7 +3879,7 @@ CdhCore.cmdDisp.CMD_TEST_CMD_1(arg3=1, arg1=1, arg2=1.0)
 def test_named_arg_type_ctor(fprime_test_api):
     """Named arguments work with type constructors."""
     seq = """
-time: Fw.Time = Fw.Time(seconds=123, useconds=456, time_base=0, time_context=0)
+time: Fw.Time = Fw.Time(seconds=123, useconds=456, timeBase=TimeBase.TB_NONE, timeContext=0)
 assert time.seconds == 123
 assert time.useconds == 456
 """
@@ -3991,7 +4033,7 @@ timeout:
 # Should have been evaluated at least 3 times
 assert eval_count >= 3
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_condition_must_persist(fprime_test_api):
@@ -4042,7 +4084,7 @@ check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) per
 timeout:
     assert False, 1
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_body_runs_on_success(fprime_test_api):
@@ -4053,7 +4095,7 @@ check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIn
     body_ran = True
 assert body_ran
 """
-    assert_run_success(fprime_test_api, seq)
+    assert_run_success(fprime_test_api, seq, timeout_s=6)
 
 
 def test_check_timeout_body_runs_on_timeout(fprime_test_api):
@@ -4624,8 +4666,8 @@ class TestSimulatedTime:
     These tests verify that the sequencer model properly:
     - Tracks simulated time
     - Advances time when sleep() is called
-    - Returns the configured time_base from now()
-    - Correctly handles time_base incompatibility
+    - Returns the configured timeBase from now()
+    - Correctly handles timeBase incompatibility
 
     These tests are skipped when --use-gds is passed because they rely on the
     Python model's simulated time, which cannot be configured on a live GDS.
@@ -4636,30 +4678,30 @@ class TestSimulatedTime:
         seq = """
 t: Fw.Time = now()
 # Initial time of 5 seconds = 5,000,000 microseconds
-# time_base=0, time_context=0
-assert t.time_base == 0
-assert t.time_context == 0
+# timeBase=TimeBase.TB_NONE, timeContext=0
+assert t.timeBase == TimeBase.TB_NONE
+assert t.timeContext == 0
 assert t.seconds == 5
 assert t.useconds == 0
 """
         assert_run_success(fprime_test_api, seq, initial_time_us=5_000_000)
 
     def test_now_returns_configured_time_base(self, fprime_test_api):
-        """Test that now() returns the configured time_base."""
+        """Test that now() returns the configured timeBase."""
         seq = """
 t: Fw.Time = now()
-# Configured time_base=2
-assert t.time_base == 2
-assert t.time_context == 0
+# Configured timeBase=TimeBase.TB_WORKSTATION_TIME
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
+assert t.timeContext == 0
 """
         assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_now_returns_configured_time_context(self, fprime_test_api):
-        """Test that now() returns the configured time_context."""
+        """Test that now() returns the configured timeContext."""
         seq = """
 t: Fw.Time = now()
-# Configured time_context=4
-assert t.time_context == 42
+# Configured timeContext=4
+assert t.timeContext == 42
 """
         assert_run_success(fprime_test_api, seq, time_context=42)
 
@@ -4706,7 +4748,7 @@ assert elapsed.useconds == 750000
         assert_run_success(fprime_test_api, seq)
 
     def test_time_cmp_same_time_base_works(self, fprime_test_api):
-        """Test that time_cmp works when both times have the same time_base."""
+        """Test that time_cmp works when both times have the same timeBase."""
         seq = """
 t1: Fw.Time = now()
 sleep(1, 0)
@@ -4725,17 +4767,17 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
         time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
         """
         seq = """
-# Construct a timeout with a different time_base than what now() returns
-# now() returns time_base=0 by default
-# Set timeout with time_base=1
-bad_timeout: Fw.Time = Fw.Time(1, 0, 100, 0)
+# Construct a timeout with a different timeBase than what now() returns
+# now() returns timeBase=TimeBase.TB_NONE by default
+# Set timeout with timeBase=TimeBase.TB_PROC_TIME
+bad_timeout: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)
 
 check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     pass
 timeout:
     pass
 """
-        # Now run with default time_base=0, but the timeout uses time_base=1
+        # Now run with default timeBase=0, but the timeout uses timeBase=1
         assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
     def test_check_with_simulated_time_timeout(self, fprime_test_api):
@@ -4808,17 +4850,17 @@ assert elapsed.useconds == 500000
         assert_run_success(fprime_test_api, seq)
 
     def test_now_time_base_preserved_through_check(self, fprime_test_api):
-        """Test that now() consistently returns the configured time_base throughout check."""
+        """Test that now() consistently returns the configured timeBase throughout check."""
         seq = """
-# Verify time_base is consistent inside check
+# Verify timeBase is consistent inside check
 check_count: I64 = 0
 time_base_ok: bool = True
 
 def check_time_base() -> bool:
     check_count = check_count + 1
     t: Fw.Time = now()
-    # Should always have time_base=3
-    if t.time_base != 3:
+    # Should always have timeBase=TimeBase.TB_SC_TIME
+    if t.timeBase != TimeBase.TB_SC_TIME:
         time_base_ok = False
     return check_count >= 3
 
@@ -4860,7 +4902,7 @@ assert t.useconds == 123456
 def test_time_function_sleep_until(fprime_test_api):
     """time() can be passed directly to sleep_until()."""
     seq = """
-sleep_until(time("2000-01-01T00:00:00Z", time_base=2))
+sleep_until(time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME))
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -4882,31 +4924,31 @@ t: Fw.Time = time("2000-01-01T00:00:00")
 
 
 def test_time_function_default_time_base(fprime_test_api):
-    """time() defaults to time_base=0 and time_context=0."""
+    """time() defaults to timeBase=0 and timeContext=0."""
     seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
-assert t.time_base == 0
-assert t.time_context == 0
+assert t.timeBase == TimeBase.TB_NONE
+assert t.timeContext == 0
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_time_function_custom_time_base(fprime_test_api):
-    """time() accepts custom time_base parameter."""
+    """time() accepts custom timeBase parameter."""
     seq = """
-t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=2)
-assert t.time_base == 2
-assert t.time_context == 0
+t: Fw.Time = time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME)
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
+assert t.timeContext == 0
 """
     assert_run_success(fprime_test_api, seq)
 
 
 def test_time_function_custom_time_context(fprime_test_api):
-    """time() accepts custom time_context parameter."""
+    """time() accepts custom timeContext parameter."""
     seq = """
-t: Fw.Time = time("2000-01-01T00:00:00Z", time_context=5)
-assert t.time_base == 0
-assert t.time_context == 5
+t: Fw.Time = time("2000-01-01T00:00:00Z", timeContext=5)
+assert t.timeBase == TimeBase.TB_NONE
+assert t.timeContext == 5
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -4914,9 +4956,9 @@ assert t.time_context == 5
 def test_time_function_all_params(fprime_test_api):
     """time() accepts all parameters."""
     seq = """
-t: Fw.Time = time("2000-01-01T00:00:00Z", time_base=3, time_context=7)
-assert t.time_base == 3
-assert t.time_context == 7
+t: Fw.Time = time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_SC_TIME, timeContext=7)
+assert t.timeBase == TimeBase.TB_SC_TIME
+assert t.timeContext == 7
 assert t.seconds == 946684800
 """
     assert_run_success(fprime_test_api, seq)
@@ -4925,8 +4967,8 @@ assert t.seconds == 946684800
 def test_time_function_named_args(fprime_test_api):
     """time() works with named arguments."""
     seq = """
-t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", time_base=1)
-assert t.time_base == 1
+t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", timeBase=TimeBase.TB_PROC_TIME)
+assert t.timeBase == TimeBase.TB_PROC_TIME
 """
     assert_run_success(fprime_test_api, seq)
 
@@ -5117,19 +5159,15 @@ assert flag_val == True
 
 # ── EXIT_ON_CMD_FAIL behavior tests ────────────────────────────────────
 
-# CdhCore.cmdDisp.CMD_NO_OP opcode from the dictionary
-CMD_NO_OP_OPCODE = 16777216
-
 
 def test_exit_on_cmd_fail_flag_causes_exit(fprime_test_api):
     """When EXIT_ON_CMD_FAIL is set and a command fails, the sequence should exit with error."""
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
-CdhCore.cmdDisp.CMD_NO_OP()
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
     assert_run_failure(
         fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
-        failing_opcodes={CMD_NO_OP_OPCODE},
     )
 
 
@@ -5137,10 +5175,10 @@ def test_no_exit_on_cmd_fail_flag_allows_failure(fprime_test_api):
     """When EXIT_ON_CMD_FAIL is explicitly off, a failing command should not halt the sequence."""
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.cmdDisp.CMD_NO_OP()
-resp: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
+assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
-    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_exit_on_cmd_fail_with_successful_cmd(fprime_test_api):
@@ -5157,6 +5195,561 @@ def test_exit_on_cmd_fail_toggle_off_before_cmd(fprime_test_api):
     seq = """
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.cmdDisp.CMD_NO_OP()
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
-    assert_run_success(fprime_test_api, seq, failing_opcodes={CMD_NO_OP_OPCODE})
+    assert_run_success(fprime_test_api, seq)
+
+
+# ---------------------------------------------------------------------------
+# Type constructor default values
+# ---------------------------------------------------------------------------
+def test_struct_ctor_all_defaults(fprime_test_api):
+    """Struct constructor with no args should use all defaults from dictionary."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair()
+assert pair.time == 0.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_partial_defaults(fprime_test_api):
+    """Struct constructor with some args should use defaults for the rest."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(time=1.0)
+assert pair.time == 1.0
+assert pair.value == 0.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_override_all_defaults(fprime_test_api):
+    """Struct constructor with all args should ignore defaults."""
+    seq = """
+pair: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)
+assert pair.time == 3.0
+assert pair.value == 4.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_all_defaults(fprime_test_api):
+    """Array constructor with no args should use all defaults from dictionary."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth()
+assert depths[0] == 0
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_ctor_partial_defaults(fprime_test_api):
+    """Array constructor with some args should use defaults for the rest."""
+    seq = """
+depths: Svc.ComQueueDepth = Svc.ComQueueDepth(e0=42)
+assert depths[0] == 42
+assert depths[1] == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_struct_ctor_enum_member_default(fprime_test_api):
+    """Struct with an enum member should be constructable with defaults."""
+    seq = """
+stat: Ref.PacketStat = Ref.PacketStat()
+assert stat.BuffRecv == 0
+assert stat.BuffErr == 0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_array_elem_non_first_struct_member(fprime_test_api):
+    """Accessing a non-first struct member on an array element must not crash.
+    """
+    seq = """
+val: Ref.SignalPairSet = Ref.SignalPairSet( \
+    Ref.SignalPair(1.0, 2.0), \
+    Ref.SignalPair(3.0, 4.0), \
+    Ref.SignalPair(5.0, 6.0), \
+    Ref.SignalPair(7.0, 8.0))
+assert val[0].value == 2.0
+assert val[1].value == 4.0
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+# ── Multi-line and trailing comma tests ─────────────────────────────────
+
+class TestMultilineAndTrailingComma:
+    """Expressions inside brackets/braces/parens can span multiple lines,
+    and trailing commas are allowed in struct/array/function-call/parameter lists."""
+
+    def test_multiline_anon_struct(self, fprime_test_api):
+        """Anon struct split over multiple lines."""
+        seq = """
+val: Fw.TimeIntervalValue = {
+    seconds: 10,
+    useconds: 500
+}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_struct_trailing_comma(self, fprime_test_api):
+        """Anon struct split over multiple lines with trailing comma."""
+        seq = """
+val: Fw.TimeIntervalValue = {
+    seconds: 10,
+    useconds: 500,
+}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_anon_struct_single_line(self, fprime_test_api):
+        """Trailing comma on a single-line anon struct."""
+        seq = """
+val: Fw.TimeIntervalValue = {seconds: 10, useconds: 500,}
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_array(self, fprime_test_api):
+        """Anon array split over multiple lines."""
+        seq = """
+x: U32 = [
+    10,
+    20,
+    30
+][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_anon_array_trailing_comma(self, fprime_test_api):
+        """Anon array split over multiple lines with trailing comma."""
+        seq = """
+x: U32 = [
+    10,
+    20,
+    30,
+][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_anon_array_single_line(self, fprime_test_api):
+        """Trailing comma on a single-line anon array."""
+        seq = """
+x: U32 = [10, 20, 30,][1]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_call(self, fprime_test_api):
+        """Function call arguments split over multiple lines."""
+        seq = """
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    500
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_call_trailing_comma(self, fprime_test_api):
+        """Function call arguments split over multiple lines with trailing comma."""
+        seq = """
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_parenthesized_expr(self, fprime_test_api):
+        """Parenthesized expression split over multiple lines."""
+        seq = """
+x: U32 = (
+    10
+    + 20
+)
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_nested_braces_and_parens(self, fprime_test_api):
+        """Nested multi-line expressions with braces inside parens."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(
+    now(),
+    {
+        seconds: 1,
+        useconds: 0,
+    },
+) persist {seconds: 0, useconds: 0} freq {seconds: 0, useconds: 100000}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_check_clauses_with_anon_struct(self, fprime_test_api):
+        """Check statement with multi-line anon struct in timeout position."""
+        seq = """
+check_passed: bool = False
+check True timeout now() + {
+    seconds: 1,
+    useconds: 0,
+} persist {
+    seconds: 0,
+    useconds: 0,
+} freq {
+    seconds: 0,
+    useconds: 100000,
+}:
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+
+# ── Python-inspired multiline / continuation / trailing-comma tests ─────
+# Test cases adapted from CPython's Lib/test/test_grammar.py to verify
+# that fpy's implicit line continuation and trailing commas behave like
+# Python's.  Only tests that exercise patterns NOT already covered in
+# TestMultilineAndTrailingComma above.
+
+class TestPythonLikeContinuation:
+    """Tests inspired by CPython test_grammar.py – backslash continuation,
+    implicit continuation inside brackets/parens/braces, trailing commas,
+    comments inside multiline expressions, and edge cases."""
+
+    # ── Backslash continuation (CPython test_backslash) ──────────────
+
+    def test_backslash_continuation(self, fprime_test_api):
+        """Backslash at end of line continues to the next (CPython test_backslash)."""
+        seq = """\
+x: U32 = 1 \\
++ 1
+assert x == 2
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_backslash_continuation_in_assignment(self, fprime_test_api):
+        """Backslash continuation across an assignment expression."""
+        seq = """\
+x: U32 = \\
+    42
+assert x == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_backslash_continuation_multiple_lines(self, fprime_test_api):
+        """Multiple successive backslash continuations."""
+        seq = """\
+x: U32 = 1 \\
+    + 2 \\
+    + 3
+assert x == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Trailing commas in function definitions
+
+    def test_trailing_comma_one_param(self, fprime_test_api):
+        """def f(a,): pass  — Python allows trailing comma in single param."""
+        seq = """\
+def f(
+    a: U32,
+) -> U32:
+    return a
+assert f(1) == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_two_params(self, fprime_test_api):
+        """def f(a, b,): pass  — trailing comma with two params."""
+        seq = """\
+def f(
+    a: U64,
+    b: U64,
+) -> U64:
+    return a + b
+assert f(1, 2) == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Trailing commas in function calls
+
+    def test_trailing_comma_call_one_arg(self, fprime_test_api):
+        """f(1,) — Python allows trailing comma in single-arg call."""
+        seq = """\
+def f(a: U32) -> U32:
+    return a
+assert f(1,) == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_call_two_args(self, fprime_test_api):
+        """f(1, 2,) — trailing comma with two args."""
+        seq = """\
+def f(a: U64, b: U64) -> U64:
+    return a + b
+assert f(1, 2,) == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_trailing_comma_call_many_args(self, fprime_test_api):
+        """f(1, 2, 3,) — trailing comma with three args (cf. CPython v0/v1/v2)."""
+        seq = """\
+def f(a: U64, b: U64, c: U64) -> U64:
+    return a + b + c
+assert f(1, 2, 3,) == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multi-term arithmetic inside parens (CPython test_additive_ops) ─
+
+    def test_paren_continuation_complex(self, fprime_test_api):
+        """Deeply nested arithmetic inside parens across lines."""
+        seq = """\
+x: U32 = (
+    1
+    + 2
+    + 3
+    + 4
+)
+assert x == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_paren_continuation_with_operators(self, fprime_test_api):
+        """Mixed operators inside parens across lines."""
+        seq = """\
+x: U32 = (
+    2 * 3
+    + 4
+)
+assert x == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Comments inside continued expressions (CPython test_suite) ────
+
+    def test_comment_inside_paren(self, fprime_test_api):
+        """Comments inside parenthesized continuation (like Python)."""
+        seq = """\
+x: U32 = (
+    # first term
+    1
+    # second term
+    + 2
+)
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_comment_inside_braces(self, fprime_test_api):
+        """Comments inside struct literal."""
+        seq = """\
+val: Fw.TimeIntervalValue = {
+    # the seconds field
+    seconds: 10,
+    # the useconds field
+    useconds: 500,
+}
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_comment_inside_func_call(self, fprime_test_api):
+        """Comments inside a multiline function call."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    # seconds
+    10,
+    # useconds
+    500,
+)
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Nested continuation (CPython test_with_statement pattern) ─────
+
+    def test_deeply_nested_continuation(self, fprime_test_api):
+        """Three levels of nesting: parens > call > struct."""
+        seq = """\
+x: U64 = (
+    Fw.TimeIntervalValue(
+        10,
+        500,
+    ).seconds
+    + 1
+)
+assert x == 11
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Empty lines inside continued expressions ──────────────────────
+
+    def test_empty_line_inside_parens(self, fprime_test_api):
+        """Empty lines inside parenthesized expression (Python allows this)."""
+        seq = """\
+x: U32 = (
+
+    1
+
+    + 2
+
+)
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_empty_line_inside_braces(self, fprime_test_api):
+        """Empty lines inside struct literal."""
+        seq = """\
+val: Fw.TimeIntervalValue = {
+
+    seconds: 10,
+
+    useconds: 500,
+
+}
+assert val.seconds == 10
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multiline function definition
+
+    def test_multiline_func_def_params(self, fprime_test_api):
+        """Parameters each on their own line with trailing comma."""
+        seq = """\
+def add(
+    a: U64,
+    b: U64,
+    c: U64,
+) -> U64:
+    return a + b + c
+assert add(1, 2, 3) == 6
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_func_def_and_call(self, fprime_test_api):
+        """Both definition params and call args multiline (CPython common pattern)."""
+        seq = """\
+def add(
+    a: U64,
+    b: U64,
+) -> U64:
+    return a + b
+
+x: U64 = add(
+    10,
+    20,
+)
+assert x == 30
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Named arguments multiline (CPython keyword arg patterns) ──────
+
+    def test_multiline_named_args(self, fprime_test_api):
+        """Named arguments across lines — cf. CPython d11(1, **{'b':2})."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    seconds=10,
+    useconds=500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_mixed_positional_and_named_multiline(self, fprime_test_api):
+        """Mix of positional and named args across lines."""
+        seq = """\
+val: Fw.TimeIntervalValue = Fw.TimeIntervalValue(
+    10,
+    useconds=500,
+)
+assert val.seconds == 10
+assert val.useconds == 500
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Continuation with comparison / boolean operators ──────────────
+
+    def test_multiline_comparison_in_parens(self, fprime_test_api):
+        """Comparison across lines inside parens (CPython test_comparison)."""
+        seq = """\
+x: bool = (
+    1
+    == 1
+)
+assert x
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_boolean_in_parens(self, fprime_test_api):
+        """Boolean operators across lines (CPython test_test)."""
+        seq = """\
+x: bool = (
+    True
+    and True
+    or False
+)
+assert x
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # ── Multiline in control flow expressions ─────────────────────────
+
+    def test_multiline_if_condition(self, fprime_test_api):
+        """Parenthesized multiline condition in if (common Python pattern)."""
+        seq = """\
+x: U32 = 0
+if (
+    True
+    and True
+):
+    x = 1
+assert x == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_while_condition(self, fprime_test_api):
+        """Parenthesized multiline condition in while."""
+        seq = """\
+x: U64 = 0
+while (
+    x
+    < 3
+):
+    x = x + 1
+assert x == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_multiline_assert(self, fprime_test_api):
+        """Multiline expression in assert (parenthesized)."""
+        seq = """\
+assert (
+    1
+    + 1
+    == 2
+)
+"""
+        assert_run_success(fprime_test_api, seq)

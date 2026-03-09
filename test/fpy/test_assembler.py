@@ -94,7 +94,7 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     ReturnDirective,
 )
-from fpy.types import serialize_directives, deserialize_directives
+from fpy.bytecode.assembler import serialize_directives, deserialize_directives
 
 
 class TestDirectiveSerializationRoundTrip:

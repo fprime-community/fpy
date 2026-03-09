@@ -1,8 +1,5 @@
 from __future__ import annotations
-import inspect
-from dataclasses import fields
-from typing import Callable, Union, get_args, get_origin
-import typing
+from typing import Union
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
@@ -19,25 +16,39 @@ from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
-    STOP_DESCENT,
     UNSIGNED_INTEGER_TYPES,
-    CompileState,
-    Emitter,
-    FieldAccess,
-    FppType,
+    FpyType,
+    FpyValue,
+    INTEGER,
+    FLOAT,
+    INTERNAL_STRING,
+    TypeKind,
+    NOTHING,
+    NOTHING_VALUE,
+    BOOL,
+    U8,
+    U64,
+    I64,
+    F32,
+    F64,
+    is_instance_compat,
+)
+from fpy.state import (
+    BuiltinFuncSymbol,
     CastSymbol,
     CommandSymbol,
-    FpyFloatValue,
+    CompileState,
+    FieldAccess,
     FunctionSymbol,
-    BuiltinFuncSymbol,
-    TopDownVisitor,
     TypeCtorSymbol,
     VariableSymbol,
-    FpyIntegerValue,
-    FpyStringValue,
-    NothingValue,
+)
+from fpy.state import ChDef, PrmDef
+from fpy.visitors import (
+    STOP_DESCENT,
+    Emitter,
+    TopDownVisitor,
     Visitor,
-    is_instance_compat,
 )
 
 from fpy.bytecode.directives import (
@@ -96,20 +107,10 @@ from fpy.bytecode.directives import (
     UnaryStackOp,
     UnsignedIntToFloatDirective,
 )
-from fprime_gds.common.templates.ch_template import ChTemplate
-from fprime_gds.common.templates.prm_template import PrmTemplate
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U64Type as U64Value,
-    I64Type as I64Value,
-    F32Type as F32Value,
-    F64Type as F64Value,
-    IntegerType as IntegerValue,
-)
 from fpy.syntax import (
     Ast,
+    AstAnonStruct,
+    AstAnonArray,
     AstAssert,
     AstBinaryOp,
     AstBreak,
@@ -174,7 +175,7 @@ class CalculateFrameSizes(TopDownVisitor):
         for _name, sym in scope.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
-                self.offset += sym.type.getMaxSize()
+                self.offset += sym.type.max_size
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Assign argument offsets (negative offsets before frame start)
@@ -184,7 +185,7 @@ class CalculateFrameSizes(TopDownVisitor):
             for arg in reversed(func.args):
                 arg_name, arg_type, _ = arg
                 arg_var = state.enclosing_value_scope[node.body][arg_name]
-                arg_offset -= arg_type.getMaxSize()
+                arg_offset -= arg_type.max_size
                 arg_var.frame_offset = arg_offset
         # Assign body variable offsets in a fresh frame
         CalculateFrameSizes().run(node.body, state)
@@ -215,9 +216,9 @@ class GenerateFunctions(Visitor):
         
         code.extend(GenerateFunctionBody().emit(node.body, state))
         func = state.resolved_symbols[node.name]
-        if func.return_type is NothingValue and not state.does_return[node.body]:
+        if func.return_type is NOTHING and not state.does_return[node.body]:
             # implicit empty return
-            arg_bytes = sum(arg[1].getMaxSize() for arg in (func.args or []))
+            arg_bytes = sum(arg[1].max_size for arg in (func.args or []))
             code.append(ReturnDirective(0, arg_bytes))
         state.generated_funcs[node] = code
 
@@ -226,6 +227,16 @@ class GenerateFunctionBody(Emitter):
     # Flag indicating we're generating code inside a function body
     # This affects how we access global variables (need GLOBAL directives)
     in_function = True
+
+    def _emit_func_arg(self, arg, state: CompileState) -> list[Directive | Ir]:
+        """Emit code to push a function argument onto the stack.
+
+        If *arg* is an FpyValue (a default value from a builtin or dictionary
+        type constructor), serialize it directly.  Otherwise delegate to the
+        normal AST emitter."""
+        if isinstance(arg, FpyValue):
+            return [PushValDirective(arg.serialize())]
+        return self.emit(arg, state)
 
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
@@ -237,11 +248,11 @@ class GenerateFunctionBody(Emitter):
             # no const value
             return None
 
-        assert not is_instance_compat(
-            expr_value, (FpyIntegerValue, FpyStringValue, FpyFloatValue)
+        assert isinstance(expr_value, FpyValue) and expr_value.type not in (
+            INTEGER, INTERNAL_STRING, FLOAT
         ), expr_value
 
-        if is_instance_compat(expr_value, NothingValue):
+        if expr_value is NOTHING_VALUE:
             # nothing type has no value
             return []
 
@@ -258,23 +269,23 @@ class GenerateFunctionBody(Emitter):
             return []
 
         result_type = state.contextual_types[node]
-        if result_type == NothingValue:
+        if result_type == NOTHING:
             return []
-        if result_type.getMaxSize() > 0:
-            return [DiscardDirective(result_type.getMaxSize())]
+        if result_type.max_size > 0:
+            return [DiscardDirective(result_type.max_size)]
         return []
 
-    def get_64_bit_numeric_type(self, type: FppType) -> FppType:
+    def get_64_bit_numeric_type(self, type: FpyType) -> FpyType:
         """return the 64 bit version of the input numeric type"""
         assert type in SPECIFIC_NUMERIC_TYPES, type
         return (
-            I64Value
+            I64
             if type in SIGNED_INTEGER_TYPES
-            else U64Value if type in UNSIGNED_INTEGER_TYPES else F64Value
+            else U64 if type in UNSIGNED_INTEGER_TYPES else F64
         )
 
     def convert_numeric_type(
-        self, from_type: FppType, to_type: FppType
+        self, from_type: FpyType, to_type: FpyType
     ) -> list[Directive]:
         """
         return a list of dirs needed to convert a numeric stack value of from_type to a stack value of to_type
@@ -297,49 +308,49 @@ class GenerateFunctionBody(Emitter):
         to_64_bit = self.get_64_bit_numeric_type(to_type)
 
         # now convert between int and float if necessary
-        if from_64_bit == U64Value and to_64_bit == F64Value:
+        if from_64_bit == U64 and to_64_bit == F64:
             dirs.append(UnsignedIntToFloatDirective())
-            from_64_bit = F64Value
-        elif from_64_bit == I64Value and to_64_bit == F64Value:
+            from_64_bit = F64
+        elif from_64_bit == I64 and to_64_bit == F64:
             dirs.append(SignedIntToFloatDirective())
-            from_64_bit = F64Value
-        elif from_64_bit == U64Value or from_64_bit == I64Value:
-            assert to_64_bit == U64Value or to_64_bit == I64Value
+            from_64_bit = F64
+        elif from_64_bit == U64 or from_64_bit == I64:
+            assert to_64_bit == U64 or to_64_bit == I64
             # conversion from signed to unsigned int is implicit, doesn't need code gen
             from_64_bit = to_64_bit
-        elif from_64_bit == F64Value and to_64_bit == I64Value:
+        elif from_64_bit == F64 and to_64_bit == I64:
             dirs.append(FloatToSignedIntDirective())
-            from_64_bit = I64Value
-        elif from_64_bit == F64Value and to_64_bit == U64Value:
+            from_64_bit = I64
+        elif from_64_bit == F64 and to_64_bit == U64:
             dirs.append(FloatToUnsignedIntDirective())
-            from_64_bit = U64Value
+            from_64_bit = U64
 
         assert from_64_bit == to_64_bit, (from_64_bit, to_64_bit)
 
         # now truncate back down to desired size
         dirs.extend(
-            self.truncate_numeric_type_from_64_bits(to_64_bit, to_type.getMaxSize())
+            self.truncate_numeric_type_from_64_bits(to_64_bit, to_type.max_size)
         )
         return dirs
 
     def truncate_numeric_type_from_64_bits(
-        self, from_type: FppType, new_size: int
+        self, from_type: FpyType, new_size: int
     ) -> list[Directive]:
 
         assert new_size in (1, 2, 4, 8), new_size
-        assert from_type.getMaxSize() == 8, from_type.getMaxSize()
+        assert from_type.max_size == 8, from_type.max_size
 
         if new_size == 8:
             # already correct size
             return []
 
-        if from_type == F64Value:
+        if from_type == F64:
             # only one option for float trunc
             assert new_size == 4, new_size
             return [FloatTruncateDirective()]
 
         # must be an int
-        assert issubclass(from_type, IntegerValue), from_type
+        assert from_type.is_integer, from_type
 
         if new_size == 1:
             return [IntegerTruncate64To8Directive()]
@@ -348,17 +359,17 @@ class GenerateFunctionBody(Emitter):
 
         return [IntegerTruncate64To32Directive()]
 
-    def extend_numeric_type_to_64_bits(self, type: FppType) -> list[Directive]:
-        if type.getMaxSize() == 8:
+    def extend_numeric_type_to_64_bits(self, type: FpyType) -> list[Directive]:
+        if type.max_size == 8:
             # already 8 bytes
             return []
-        if type == F32Value:
+        if type == F32:
             return [FloatExtendDirective()]
 
         # must be an int
-        assert issubclass(type, IntegerValue), type
+        assert type.is_integer, type
 
-        from_size = type.getMaxSize()
+        from_size = type.max_size
         assert from_size in (1, 2, 4, 8), from_size
 
         if type in SIGNED_INTEGER_TYPES:
@@ -377,7 +388,7 @@ class GenerateFunctionBody(Emitter):
                 return [IntegerZeroExtend32To64Directive()]
 
     def calc_lvar_offset_of_array_element(
-        self, node: Ast, idx_expr: AstExpr, array_type: FppType, state: CompileState
+        self, node: Ast, idx_expr: AstExpr, array_type: FpyType, state: CompileState
     ) -> list[Directive | Ir]:
         """generates code to push to stack the U64 byte offset in the array for an array access, while performing an array oob
         check. idx_expr is the expression to calculate the index, and dest is the FieldSymbol containing info about the
@@ -392,30 +403,30 @@ class GenerateFunctionBody(Emitter):
         # we want to peek the index so we can consume it for the oob check
         # byte count
         dirs.append(
-            PushValDirective(StackSizeType(ArrayIndexType.getMaxSize()).serialize())
+            PushValDirective(FpyValue(StackSizeType, ArrayIndexType.max_size).serialize())
         )
         # offset
-        dirs.append(PushValDirective(StackSizeType(0).serialize()))
+        dirs.append(PushValDirective(FpyValue(StackSizeType, 0).serialize()))
         dirs.append(PeekDirective())  # duplicate the index
         # convert idx to i64
-        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64Value))
+        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64))
         dirs.append(
-            PushValDirective(I64Value(array_type.LENGTH).serialize())
+            PushValDirective(FpyValue(I64, array_type.length).serialize())
         )  # push the length as I64
         # check if idx >= length
         dirs.append(SignedGreaterThanOrEqualDirective())
         # okay now dupe index again to check < 0
         # byte count
         dirs.append(
-            PushValDirective(StackSizeType(ArrayIndexType.getMaxSize()).serialize())
+            PushValDirective(FpyValue(StackSizeType, ArrayIndexType.max_size).serialize())
         )
         # offset is 1 because we currently have the result of the last check on stack
-        dirs.append(PushValDirective(StackSizeType(1).serialize()))
+        dirs.append(PushValDirective(FpyValue(StackSizeType, 1).serialize()))
         dirs.append(PeekDirective())  # duplicate the index
         # convert idx to i64
-        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64Value))
+        dirs.extend(self.convert_numeric_type(ArrayIndexType, I64))
         dirs.append(
-            PushValDirective(I64Value(0).serialize())
+            PushValDirective(FpyValue(I64, 0).serialize())
         )  # push 0 as i64
         # check if idx < 0
         dirs.append(SignedLessThanDirective())
@@ -427,7 +438,7 @@ class GenerateFunctionBody(Emitter):
         # push the error code we should fail with if false
         dirs.append(
             PushValDirective(
-                U8Value(DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
+                FpyValue(U8, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
             )
         )
         dirs.append(ExitDirective())
@@ -435,7 +446,7 @@ class GenerateFunctionBody(Emitter):
         # okay we're good. should still have the idx on the stack
 
         # multiply the index by the member type size
-        dirs.append(PushValDirective(U64Value(array_type.MEMBER_TYPE.getMaxSize()).serialize()))
+        dirs.append(PushValDirective(FpyValue(U64, array_type.elem_type.max_size).serialize()))
         dirs.append(IntMultiplyDirective())
         return dirs
 
@@ -553,11 +564,11 @@ class GenerateFunctionBody(Emitter):
     def emit_AstReturn(self, node: AstReturn, state: CompileState):
         enclosing_func = state.enclosing_funcs[node]
         enclosing_func = state.resolved_symbols[enclosing_func.name]
-        func_args_size = sum(arg[1].getMaxSize() for arg in enclosing_func.args)
+        func_args_size = sum(arg[1].max_size for arg in enclosing_func.args)
 
         if node.value is not None:
             dirs = self.emit(node.value, state)
-            value_size = state.contextual_types[node.value].getMaxSize()
+            value_size = state.contextual_types[node.value].max_size
         else:
             dirs = []
             value_size = 0
@@ -579,12 +590,26 @@ class GenerateFunctionBody(Emitter):
 
         # use the unconverted for this expr for now, because we haven't run conversion
         unconverted_type = state.synthesized_types[node]
+
+        if is_instance_compat(node.parent, AstAnonArray):
+            # Direct index access on anonymous array literal.
+            # The index must be a compile-time constant.
+            idx_value = state.const_expr_values.get(node.item)
+            assert idx_value is not None, "Dynamic indexing on anonymous array literals is not supported"
+            idx = idx_value.val
+            assert 0 <= idx < len(node.parent.elements), f"Index {idx} out of bounds"
+            dirs = self.emit(node.parent.elements[idx], state)
+            converted_type = state.contextual_types[node]
+            if unconverted_type != converted_type:
+                dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
+            return dirs
+
         # however, for parent, use converted because conversion has been run
         parent_type = state.contextual_types[node.parent]
 
-        assert issubclass(parent_type, ArrayValue)
-        assert unconverted_type == parent_type.MEMBER_TYPE, (
-            parent_type.MEMBER_TYPE,
+        assert parent_type.kind == TypeKind.ARRAY
+        assert unconverted_type == parent_type.elem_type, (
+            parent_type.elem_type,
             unconverted_type,
         )
 
@@ -599,13 +624,13 @@ class GenerateFunctionBody(Emitter):
             self.calc_lvar_offset_of_array_element(node, node.item, parent_type, state)
         )
         # truncate back to StackSizeType which is what get field uses
-        dirs.extend(self.convert_numeric_type(U64Value, StackSizeType))
+        dirs.extend(self.convert_numeric_type(U64, StackSizeType))
 
         # get the member from the stack at this offset, discard the rest of
         # the parent
         dirs.append(
             GetFieldDirective(
-                parent_type.getMaxSize(), parent_type.MEMBER_TYPE.getMaxSize()
+                parent_type.max_size, parent_type.elem_type.max_size
             )
         )
 
@@ -629,9 +654,9 @@ class GenerateFunctionBody(Emitter):
         # At top level, stack_frame_start = 0, so local and global offsets are the same
         use_global = self.in_function and sym.is_global
         if use_global:
-            dirs = [LoadAbsDirective(sym.frame_offset, sym.type.getMaxSize())]
+            dirs = [LoadAbsDirective(sym.frame_offset, sym.type.max_size)]
         else:
-            dirs = [LoadRelDirective(sym.frame_offset, sym.type.getMaxSize())]
+            dirs = [LoadRelDirective(sym.frame_offset, sym.type.max_size)]
 
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
@@ -657,32 +682,42 @@ class GenerateFunctionBody(Emitter):
 
         dirs = []
 
-        if is_instance_compat(sym, ChTemplate):
-            dirs.append(PushTlmValDirective(sym.get_id()))
-        elif is_instance_compat(sym, PrmTemplate):
-            dirs.append(PushPrmDirective(sym.get_id()))
+        if is_instance_compat(sym, ChDef):
+            dirs.append(PushTlmValDirective(sym.ch_id))
+        elif is_instance_compat(sym, PrmDef):
+            dirs.append(PushPrmDirective(sym.prm_id))
         elif is_instance_compat(sym, VariableSymbol):
             # Use global directives only when inside a function AND accessing a global variable
             use_global = self.in_function and sym.is_global
             if use_global:
                 dirs.append(
-                    LoadAbsDirective(sym.frame_offset, sym.type.getMaxSize())
+                    LoadAbsDirective(sym.frame_offset, sym.type.max_size)
                 )
             else:
-                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.getMaxSize()))
+                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.max_size))
         elif is_instance_compat(sym, FieldAccess):
-            # okay, put parent dirs in first
-            dirs.extend(self.emit(sym.parent_expr, state))
-            assert sym.local_offset is not None
-            # use the converted type of parent
-            parent_type = state.contextual_types[sym.parent_expr]
-            # push the offset to the stack
-            dirs.append(PushValDirective(StackSizeType(sym.local_offset).serialize()))
-            dirs.append(
-                GetFieldDirective(
-                    parent_type.getMaxSize(), unconverted_type.getMaxSize()
+            if is_instance_compat(sym.parent_expr, AstAnonStruct):
+                # Direct member access on anonymous struct literal.
+                # Emit just the accessed member expression (skip the struct build).
+                for name, value_expr in sym.parent_expr.members:
+                    if name == node.attr:
+                        dirs.extend(self.emit(value_expr, state))
+                        break
+                else:
+                    assert False, f"Member {node.attr} not found in anon struct"
+            else:
+                # okay, put parent dirs in first
+                dirs.extend(self.emit(sym.parent_expr, state))
+                assert sym.local_offset is not None
+                # use the converted type of parent
+                parent_type = state.contextual_types[sym.parent_expr]
+                # push the offset to the stack
+                dirs.append(PushValDirective(FpyValue(StackSizeType, sym.local_offset).serialize()))
+                dirs.append(
+                    GetFieldDirective(
+                        parent_type.max_size, unconverted_type.max_size
+                    )
                 )
-            )
         else:
             assert (
                 False
@@ -714,11 +749,11 @@ class GenerateFunctionBody(Emitter):
                 lhs_type = state.contextual_types[node.lhs]
                 rhs_type = state.contextual_types[node.rhs]
                 assert lhs_type == rhs_type, (lhs_type, rhs_type)
-                dirs.append(MemCompareDirective(lhs_type.getMaxSize()))
+                dirs.append(MemCompareDirective(lhs_type.max_size))
                 if node.op == BinaryStackOp.NOT_EQUAL:
                     dirs.append(NotDirective())
             elif (
-                node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64Value
+                node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64
             ):
                 # for float floor division, do float division, then convert to int, then
                 # back to float
@@ -760,13 +795,13 @@ class GenerateFunctionBody(Emitter):
             dirs.extend(self.emit(node.rhs, state))
             dirs.append(IrGoto(end_label))
             dirs.append(short_label)
-            dirs.append(PushValDirective(BoolValue(False).serialize()))
+            dirs.append(PushValDirective(FpyValue(BOOL, False).serialize()))
         else:
             rhs_label = IrLabel(node, "or_rhs")
             dirs.extend(self.emit(node.lhs, state))
             # only evaluate rhs if lhs is false
             dirs.append(IrIf(rhs_label))
-            dirs.append(PushValDirective(BoolValue(True).serialize()))
+            dirs.append(PushValDirective(FpyValue(BOOL, True).serialize()))
             dirs.append(IrGoto(end_label))
             dirs.append(rhs_label)
             dirs.extend(self.emit(node.rhs, state))
@@ -790,9 +825,9 @@ class GenerateFunctionBody(Emitter):
         if node.op == UnaryStackOp.NEGATE:
             # in this case, we also need to push -1
             if dir == FloatMultiplyDirective:
-                dirs.append(PushValDirective(F64Value(-1).serialize()))
+                dirs.append(PushValDirective(FpyValue(F64, -1).serialize()))
             elif dir == IntMultiplyDirective:
-                dirs.append(PushValDirective(I64Value(-1).serialize()))
+                dirs.append(PushValDirective(FpyValue(I64, -1).serialize()))
 
         dirs.append(dir())
 
@@ -819,49 +854,52 @@ class GenerateFunctionBody(Emitter):
         func = state.resolved_symbols[node.func]
         dirs = []
         if is_instance_compat(func, CommandSymbol):
-            const_args = not any(
-                state.const_expr_values[arg_node] is None for arg_node in node_args
+            const_args = all(
+                isinstance(arg_node, FpyValue) or 
+                (state.const_expr_values[arg_node] is not None)
+                for arg_node in node_args
             )
             if const_args:
                 # can just hardcode this cmd
                 arg_bytes = bytes()
                 for arg_node in node_args:
-                    arg_value = state.const_expr_values[arg_node]
+                    arg_value = arg_node if isinstance(arg_node, FpyValue) else state.const_expr_values[arg_node]
                     arg_bytes += arg_value.serialize()
-                dirs.append(ConstCmdDirective(func.cmd.get_op_code(), arg_bytes))
+                dirs.append(ConstCmdDirective(func.cmd.opcode, arg_bytes))
             else:
                 arg_byte_count = 0
                 # push all args to the stack
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
-                    dirs.extend(self.emit(arg_node, state))
-                    arg_converted_type = state.contextual_types[arg_node]
-                    arg_byte_count += arg_converted_type.getMaxSize()
+                    dirs.extend(self._emit_func_arg(arg_node, state))
+                    arg_converted_type = arg_node.type if isinstance(arg_node, FpyValue) else state.contextual_types[arg_node]
+                    arg_byte_count += arg_converted_type.max_size
                 # then push cmd opcode to stack as u32
                 dirs.append(
-                    PushValDirective(FwOpcodeType(func.cmd.get_op_code()).serialize())
+                    PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
                 )
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
                 dirs.append(StackCmdDirective(arg_byte_count))
         elif is_instance_compat(func, BuiltinFuncSymbol):
             # collect compile-time constant args (not pushed to stack)
-            const_arg_values: dict[int, FppValue] = {}
+            const_arg_values: dict[int, FpyValue] = {}
             for i in func.const_arg_indices:
-                const_val = state.const_expr_values.get(node_args[i])
+                arg = node_args[i]
+                const_val = arg if isinstance(arg, FpyValue) else state.const_expr_values.get(arg)
                 assert const_val is not None, f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
             # put non-const arg values on stack
             for i, arg_node in enumerate(node_args):
                 if i not in func.const_arg_indices:
-                    dirs.extend(self.emit(arg_node, state))
+                    dirs.extend(self._emit_func_arg(arg_node, state))
 
             dirs.extend(func.generate(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
-                dirs.extend(self.emit(arg_node, state))
+                dirs.extend(self._emit_func_arg(arg_node, state))
         elif is_instance_compat(func, CastSymbol):
             # just putting the arg value on the stack should be good enough, the
             # conversion will happen below
@@ -870,7 +908,7 @@ class GenerateFunctionBody(Emitter):
             # script-defined function
             # okay.. calling convention says we're going to put the args on the stack
             for arg_node in node_args:
-                dirs.extend(self.emit(arg_node, state))
+                dirs.extend(self._emit_func_arg(arg_node, state))
             # okay, args are on the stack. now we're going to generate CALL
             func_entry_label = state.func_entry_labels[func.definition]
             # push the offset of the func
@@ -918,13 +956,13 @@ class GenerateFunctionBody(Emitter):
                 # check if we have a value for it
                 const_idx_expr_value = state.const_expr_values.get(lhs.idx_expr)
                 if const_idx_expr_value is not None:
-                    assert is_instance_compat(const_idx_expr_value, ArrayIndexType)
+                    assert isinstance(const_idx_expr_value, FpyValue) and const_idx_expr_value.type == ArrayIndexType
                     # okay, so we have a constant value index
                     lhs_parent_type = state.contextual_types[lhs.parent_expr]
                     const_frame_offset = (
                         lhs.base_sym.frame_offset
                         + const_idx_expr_value.val
-                        * lhs_parent_type.MEMBER_TYPE.getMaxSize()
+                        * lhs_parent_type.elem_type.max_size
                     )
                 # otherwise, the array idx is unknown at compile time. we will have to calculate it
 
@@ -939,13 +977,13 @@ class GenerateFunctionBody(Emitter):
             if use_global:
                 dirs.append(
                     StoreAbsConstOffsetDirective(
-                        const_frame_offset, lhs.type.getMaxSize()
+                        const_frame_offset, lhs.type.max_size
                     )
                 )
             else:
                 dirs.append(
                     StoreRelConstOffsetDirective(
-                        const_frame_offset, lhs.type.getMaxSize()
+                        const_frame_offset, lhs.type.max_size
                     )
                 )
         else:
@@ -966,20 +1004,20 @@ class GenerateFunctionBody(Emitter):
 
             # parent offset:
             dirs.append(
-                PushValDirective(U64Value(lhs.base_sym.frame_offset).serialize())
+                PushValDirective(FpyValue(U64, lhs.base_sym.frame_offset).serialize())
             )
 
             # add them
             dirs.append(IntAddDirective())
 
             # and now convert the u64 back into the SignedStackSizeType that store expects
-            dirs.extend(self.convert_numeric_type(U64Value, SignedStackSizeType))
+            dirs.extend(self.convert_numeric_type(U64, SignedStackSizeType))
 
             # now that lvar array offset is pushed, use it to store in lvar array
             if use_global:
-                dirs.append(StoreAbsDirective(lhs.type.getMaxSize()))
+                dirs.append(StoreAbsDirective(lhs.type.max_size))
             else:
-                dirs.append(StoreRelDirective(lhs.type.getMaxSize()))
+                dirs.append(StoreRelDirective(lhs.type.max_size))
 
         return dirs
 
@@ -987,6 +1025,32 @@ class GenerateFunctionBody(Emitter):
         const_dirs = self.try_emit_expr_as_const(node, state)
         assert const_dirs is not None
         return const_dirs
+
+    def emit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        # Try to emit as a constant first
+        const_dirs = self.try_emit_expr_as_const(node, state)
+        if const_dirs is not None:
+            return const_dirs
+
+        # Emit each resolved member value in target struct order
+        dirs = []
+        resolved_members = state.resolved_args[node]
+        for member_expr in resolved_members:
+            dirs.extend(self._emit_func_arg(member_expr, state))
+        return dirs
+
+    def emit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        # Try to emit as a constant first
+        const_dirs = self.try_emit_expr_as_const(node, state)
+        if const_dirs is not None:
+            return const_dirs
+
+        # Emit each element value
+        dirs = []
+        resolved_elements = state.resolved_args[node]
+        for elem_expr in resolved_elements:
+            dirs.extend(self._emit_func_arg(elem_expr, state))
+        return dirs
 
     def emit_AstAssert(self, node: AstAssert, state: CompileState):
         dirs = self.emit(node.condition, state)
@@ -1001,7 +1065,7 @@ class GenerateFunctionBody(Emitter):
             # otherwise just use the default EXIT_WITH_ERROR error code
             dirs.append(
                 PushValDirective(
-                    U8Value(DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
+                    FpyValue(U8, DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
                 )
             )
         dirs.append(ExitDirective())
@@ -1086,7 +1150,7 @@ class ResolveLabels(IrPass):
                 label = dir.label.name
                 if label not in labels:
                     return BackendError(f"Unknown label {label}")
-                dirs.append(PushValDirective(StackSizeType(labels[label]).serialize()))
+                dirs.append(PushValDirective(FpyValue(StackSizeType, labels[label]).serialize()))
             else:
                 dirs.append(dir)
 
