@@ -2,7 +2,7 @@
   "metadata" : {
     "deploymentName" : "Ref.Ref",
     "projectVersion" : "bd12edb-dirty",
-    "frameworkVersion" : "v4.1.1-59-gd4dba25d9-dirty",
+    "frameworkVersion" : "v4.1.1-62-gf81a33ee1",
     "libraryVersions" : [
     ],
     "dictionarySpecVersion" : "1.0.0"
@@ -3415,42 +3415,6 @@
       "annotation" : "Flush all queues. This will discard all queued data removing it from eventual downlink. Buffers requiring\nownership return will be returned via the bufferReturnOut port."
     },
     {
-      "name" : "ComCcsds.comQueue.SET_QUEUE_PRIORITY",
-      "commandKind" : "async",
-      "opcode" : 33554434,
-      "formalParams" : [
-        {
-          "name" : "queueType",
-          "type" : {
-            "name" : "Svc.QueueType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "The Queue data type"
-        },
-        {
-          "name" : "indexType",
-          "type" : {
-            "name" : "FwIndexType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "The index of the queue (within the supplied type) to modify"
-        },
-        {
-          "name" : "newPriority",
-          "type" : {
-            "name" : "FwIndexType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "New priority value for the queue"
-        }
-      ],
-      "queueFullBehavior" : "assert",
-      "annotation" : "Set the priority of a specific queue at runtime"
-    },
-    {
       "name" : "DataProducts.dpCat.BUILD_CATALOG",
       "commandKind" : "async",
       "opcode" : 67108864,
@@ -6715,8 +6679,10 @@
         {
           "name" : "index",
           "type" : {
-            "name" : "FwIndexType",
-            "kind" : "qualifiedIdentifier"
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
           },
           "ref" : false,
           "annotation" : "index of overflowed queue"
@@ -6725,42 +6691,6 @@
       "id" : 33554432,
       "format" : "The {} queue at index {} overflowed",
       "annotation" : "Queue overflow event"
-    },
-    {
-      "name" : "ComCcsds.comQueue.QueuePriorityChanged",
-      "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-        {
-          "name" : "queueType",
-          "type" : {
-            "name" : "Svc.QueueType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "The Queue data type"
-        },
-        {
-          "name" : "indexType",
-          "type" : {
-            "name" : "FwIndexType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "The index of the queue (within the supplied type) that was modified"
-        },
-        {
-          "name" : "newPriority",
-          "type" : {
-            "name" : "FwIndexType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false,
-          "annotation" : "New priority value"
-        }
-      ],
-      "id" : 33554433,
-      "format" : "{} {} priority changed to {}",
-      "annotation" : "Queue priority changed event"
     },
     {
       "name" : "ComCcsds.frameAccumulator.NoBufferAvailable",

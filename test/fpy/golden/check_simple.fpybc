@@ -1,18 +1,17 @@
-goto 163
+goto 160
 allocate 16
 load_rel -30 11
 push_val 0 0 0 0
 get_field 11 2
-ziext_16_64
 load_rel -19 11
 push_val 0 0 0 0
 get_field 11 2
-ziext_16_64
-ine
-if 15
+memcmp 2
+not
+if 14
 push_val 0 0 0 2
 return 4 22
-goto 15
+goto 14
 load_rel -30 11
 push_val 0 0 0 3
 get_field 11 4
@@ -40,17 +39,17 @@ store_rel_const_offset 8 8
 load_rel 0 8
 load_rel 8 8
 ult
-if 46
+if 45
 push_val 255 255 255 255
 return 4 22
-goto 53
+goto 52
 load_rel 0 8
 load_rel 8 8
 ieq
-if 53
+if 52
 push_val 0 0 0 0
 return 4 22
-goto 53
+goto 52
 push_val 0 0 0 1
 return 4 22
 allocate 16
@@ -81,31 +80,29 @@ store_rel_const_offset 8 8
 load_rel 0 8
 load_rel 8 8
 ult
-if 87
+if 86
 push_val 255 255 255 255
 return 4 16
-goto 94
+goto 93
 load_rel 0 8
 load_rel 8 8
 ieq
-if 94
+if 93
 push_val 0 0 0 0
 return 4 16
-goto 94
+goto 93
 push_val 0 0 0 1
 return 4 16
 allocate 32
 load_rel -30 11
 push_val 0 0 0 0
 get_field 11 2
-ziext_16_64
 load_rel -19 11
 push_val 0 0 0 0
 get_field 11 2
-ziext_16_64
-ieq
+memcmp 2
 not
-if 110
+if 107
 push_val 1
 exit
 load_rel -30 11
@@ -136,7 +133,7 @@ load_rel 0 8
 load_rel 8 8
 uge
 not
-if 141
+if 138
 push_val 1
 exit
 load_rel 0 8
@@ -151,7 +148,7 @@ load_rel 24 8
 push_val 0 0 0 0 255 255 255 255
 ule
 not
-if 156
+if 153
 push_val 1
 exit
 load_rel 24 8
@@ -171,7 +168,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 0 51
 push_val 255
-if 250
+if 247
 push_time
 store_rel_const_offset 51 11
 load_rel 51 11
@@ -186,54 +183,54 @@ push_val 0 0 0 2
 memcmp 4
 not
 not
-if 191
+if 188
 push_val 1
 exit
 load_rel 62 4
 push_val 0 0 0 1
 memcmp 4
-if 197
-goto 250
-goto 197
+if 194
+goto 247
+goto 194
 push_val 255
-if 236
+if 233
 load_rel 0 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 209
+if 206
 load_rel 51 11
 store_rel_const_offset 29 11
 push_val 255
 store_rel_const_offset 28 1
-goto 209
+goto 206
 load_rel 51 11
 load_rel 0 51
 push_val 0 0 0 29
 get_field 51 11
-push_val 0 0 0 96
+push_val 0 0 0 95
 call
 load_rel 0 51
 push_val 0 0 0 0
 get_field 51 8
-push_val 0 0 0 55
+push_val 0 0 0 54
 call
 store_rel_const_offset 66 4
 load_rel 66 4
 push_val 0 0 0 1
 memcmp 4
-if 227
+if 224
 push_val 255
-goto 230
+goto 227
 load_rel 66 4
 push_val 0 0 0 0
 memcmp 4
-if 235
+if 232
 push_val 255
 store_rel_const_offset 27 1
-goto 250
+goto 247
+goto 232
 goto 235
-goto 238
 push_val 0
 store_rel_const_offset 28 1
 load_rel 0 51
@@ -247,9 +244,9 @@ get_field 51 8
 push_val 0 0 0 4
 get_field 8 4
 wait_rel
-goto 172
+goto 169
 load_rel 0 51
 push_val 0 0 0 27
 get_field 51 1
-if 255
-goto 255
+if 252
+goto 252

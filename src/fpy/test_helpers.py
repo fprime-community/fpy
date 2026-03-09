@@ -1,17 +1,11 @@
 from pathlib import Path
 import tempfile
-import traceback
 import fpy.error
-import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
-from fpy.types import serialize_directives
-from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
-from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
-from fprime_gds.common.loaders.type_json_loader import TypeJsonLoader
-from fprime_gds.common.testing_fw.api import IntegrationTestAPI
+from fpy.bytecode.assembler import serialize_directives
+from fpy.dictionary import load_dictionary
 
 
 default_dictionary = str(
@@ -48,15 +42,12 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
 
 
 def lookup_type(fprime_test_api, type_name: str):
-    dictionary = default_dictionary  # fprime_test_api.pipeline.dictionary_path
-    type_json_dict_loader = TypeJsonLoader(dictionary)
-    (_, type_name_dict, _) = type_json_dict_loader.construct_dicts(dictionary)
-
-    return type_name_dict[type_name]
+    d = load_dictionary(default_dictionary)
+    return d["type_defs"][type_name]
 
 
 def run_seq(
-    fprime_test_api: IntegrationTestAPI,
+    fprime_test_api,
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
     time_base: int = 0,
@@ -81,27 +72,26 @@ def run_seq(
         fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=timeout_s)
         return
 
-    dictionary = default_dictionary
-
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (ch_id_dict, ch_name_dict, versions) = ch_json_dict_loader.construct_dicts(
-        dictionary
-    )
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (cmd_id_dict, cmd_name_dict, versions) = cmd_json_dict_loader.construct_dicts(
-        dictionary
-    )
+    d = load_dictionary(default_dictionary)
+    ch_name_dict = d["ch_name_dict"]
+    cmd_id_dict = d["cmd_id_dict"]
+    cmd_name_dict = d["cmd_name_dict"]
+    # Ref.cmdSeq.RUN always fails when called from within a running sequence
+    seq_run_opcode = cmd_name_dict["Ref.cmdSeq.RUN"].opcode
+    always_failing = {seq_run_opcode}
+    if failing_opcodes:
+        always_failing |= failing_opcodes
     model = FpySequencerModel(
         cmd_dict=cmd_id_dict,
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
-        failing_opcodes=failing_opcodes,
+        failing_opcodes=always_failing,
     )
     tlm_db = {}
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
-        tlm_db[ch_template.get_id()] = val
+        tlm_db[ch_template.ch_id] = val
     ret = model.run(directives, tlm_db)
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)
@@ -146,14 +136,14 @@ def assert_run_failure(
     seq: str,
     error_code: DirectiveErrorCode,
     flags: list[str] = None,
-    time_base: int = 0,
-    time_context: int = 0,
+    timeBase: int = 0,
+    timeContext: int = 0,
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
 ):
     directives = compile_seq(fprime_test_api, seq, flags)
     try:
-        run_seq(fprime_test_api, directives, time_base=time_base, time_context=time_context, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
+        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
     except (RuntimeError, AssertionError) as e:
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)

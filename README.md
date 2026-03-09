@@ -1,6 +1,13 @@
-# Fpy
+![The letters 'fpy' in monospaced font, under a red planet illuminated by the light of a four pointed star.](fpy_logo.png)
 
-Fpy is a user-friendly spacecraft scripting language for the F-Prime flight software framework.
+[![Tests](https://github.com/fprime-community/fpy/actions/workflows/fprime-gds-tests.yml/badge.svg)](https://github.com/fprime-community/fpy/actions/workflows/fprime-gds-tests.yml)
+[![Python](https://img.shields.io/pypi/pyversions/fprime-fpy)](https://pypi.org/project/fprime-fpy/)
+[![License](https://img.shields.io/github/license/fprime-community/fpy)](LICENSE)
+
+
+Fpy is a user-friendly spacecraft scripting language for the [F-Prime](https://nasa.github.io/fprime/) flight software framework.
+
+---
 
 ## Principles
 
@@ -9,8 +16,6 @@ Fpy has a few principles:
 * Be safe
 * Be pragmatic
 * Be a joy to work with
-
-That's really all there is to it. It's gotta work for all users and missions, and people have to love it. The rest will follow.
 
 >*The art of making a good language is to restrict the user in a good way* 
 >
@@ -26,7 +31,11 @@ This guide is a quick overview of the most important features of Fpy. It should 
 
 ## Compiling and Running a Sequence
 
-First, make sure `fprime-fpy` is installed.
+First, make sure `fprime-fpy` is installed:
+
+```
+$ pip install fprime-fpy
+```
 
 Fpy sequences are suffixed with `.fpy`. Let's make a test sequence that dispatches a no-op:
 ```py
@@ -175,7 +184,7 @@ array_var: Ref.DpDemo.U32Array = Ref.DpDemo.U32Array(0, 1, 2, 3, 4)
 struct_var: Ref.SignalPair = Ref.SignalPair(0.0, 1.0)
 ```
 
-In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`.
+In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`. Trailing commas are allowed.
 
 ## Math
 You can do basic math and store the result in variables in Fpy:
@@ -213,6 +222,7 @@ prm_3: U8 = Ref.sendBuffComp.parameter3
 A significant limitation of this is that it will only return the value most recently saved to the parameter database. This means you must command `_PRM_SAVE` before the sequence will see the new value.
 
 > Note:  If a telemetry channel and parameter have the same fully-qualified name, the fully-qualified name will get the value of the telemetry channel
+
 ## Conditionals
 Fpy supports comparison operators:
 ```py
@@ -225,7 +235,7 @@ value: bool = 1 > 2 and (3 + 4) != 5
 Boolean `and` and `or` short-circuit just like Python: the right-hand expression only evaluates when the result is still undecided.
 
 
-The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two of the same complex type:
+The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two values of the same type:
 ```py
 record1: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 record2: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
@@ -254,11 +264,24 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
+## Anonymous struct/array expressions
+
+You can construct structs/arrays with a simple syntax:
+```py
+time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
+
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
+```
+
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
+
+Trailing commas are allowed in these expressions.
+
 ## Check statement
 
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist Fw.TimeIntervalValue(15, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
 ```
 
@@ -266,13 +289,13 @@ If you don't specify a value for `persist`, the condition only has to be true on
 
 You can specify an absolute time at which the `check` should time out:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + Fw.TimeIntervalValue(60, 0) persist Fw.TimeIntervalValue(2, 0):
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -280,7 +303,7 @@ timeout:
 
 Finally, you can specify a `freq` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 freq Fw.TimeIntervalValue(1, 0): # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 freq {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 ```
 
@@ -289,9 +312,9 @@ If you don't specify a value for `freq`, the default frequency is 1 Hertz.
 The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30
-    timeout now() + Fw.TimeIntervalValue(60, 0)
-    persist Fw.TimeIntervalValue(2, 0)
-    freq Fw.TimeIntervalValue(1, 0):
+    timeout now() + {seconds: 60}
+    persist {seconds: 2}
+    freq {seconds: 1}
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
@@ -395,6 +418,8 @@ def add_vals(a: U64, b: U64) -> U64:
 assert add_vals(1, 2) == 3
 ```
 
+Trailing commas are allowed in the argument list.
+
 Functions can have default argument values:
 ```py
 def greet(times: I64 = 3):
@@ -449,7 +474,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
 # time base of 0, time context of 1
-sleep_until(Fw.Time(0, 1, 1234567890, 0))
+sleep_until({timeBase: 0, timeContext: 1, seconds=1234567890, useconds=0})
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
@@ -462,14 +487,15 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize time_base and time_context (defaults are 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
+# Customize timeBase and timeContext (defaults are 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=2, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
 
-## Time Functions
-Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeIntervalValue` types.
+## Working with Time
+
+Fpy provides built-in functions and operators for working with `Fw.Time` and `Fw.TimeInterval` types (aliases for `Fw.TimeValue` and `Fw.TimeIntervalValue` respectively).
 
 You can get the current time with `now()`:
 ```py
@@ -481,7 +507,7 @@ The underlying implementation of `now()` just calls the `getTime` port on the `F
 You can compare two `Fw.Time` values with comparison operators:
 ```py
 t1: Fw.Time = now()
-sleep(1, 0)
+sleep(seconds=1)
 t2: Fw.Time = now()
 
 assert t1 <= t2
@@ -489,25 +515,25 @@ assert t1 <= t2
 
 If the times are incomparable due to having different time bases, the sequence will assert. To safely compare times which may have different time bases, use the `time_cmp` function, in `time.fpy`.
 
-You can also compare two `Fw.TimeIntervalValue` values:
+You can also compare two `Fw.TimeInterval` values:
 ```py
-interval1: Fw.TimeIntervalValue = Fw.TimeIntervalValue(5, 0)
-interval2: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
+interval1: Fw.TimeInterval = {seconds: 5}
+interval2: Fw.TimeInterval = {seconds: 10}
 
 assert interval1 < interval2
 ```
 
-You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
+You can add a `Fw.TimeInterval` to a `Fw.Time`:
 ```py
-current: Fw.Time = Fw.Time(1, 0, 100, 500000) # time base 1, context 0, 100.5 seconds
-offset: Fw.TimeIntervalValue = Fw.TimeIntervalValue(60, 0) # 60 seconds
+current: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 500000}
+offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
-You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
+You can subtract two `Fw.Time` values to get a `Fw.TimeInterval`:
 ```py
-start: Fw.Time = Fw.Time(1, 0, 100, 0)
-end: Fw.Time = Fw.Time(1, 0, 105, 500000)
+start: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 ```
 
@@ -542,7 +568,7 @@ assert 1 > 2, 123
 ```
 
 ## Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings using a dynamic amount of memory. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
 
 # Developer's Guide
