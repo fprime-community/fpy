@@ -136,14 +136,14 @@ def assert_run_failure(
     seq: str,
     error_code: DirectiveErrorCode,
     flags: list[str] = None,
-    time_base: int = 0,
-    time_context: int = 0,
+    timeBase: int = 0,
+    timeContext: int = 0,
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
 ):
     directives = compile_seq(fprime_test_api, seq, flags)
     try:
-        run_seq(fprime_test_api, directives, time_base=time_base, time_context=time_context, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
+        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
     except (RuntimeError, AssertionError) as e:
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)

@@ -239,7 +239,7 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
 def _update_time_context_type_from_dict(
     dict_type_name_dict: dict[str, FpyType],
 ) -> None:
-    """Update TIME's time_context member type from FwTimeContextStoreType."""
+    """Update TIME's timeContext member type from FwTimeContextStoreType."""
     if "FwTimeContextStoreType" not in dict_type_name_dict:
         return  # Keep the default U8
     ctx_type = dict_type_name_dict["FwTimeContextStoreType"]

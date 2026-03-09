@@ -1822,8 +1822,8 @@ class CalculateConstExprValues(Visitor):
         - "2025-12-19T14:30:00Z"
         - "2025-12-19T14:30:00.123456Z"
 
-        Returns FpyValue(TIME, ...) with the provided time_base (a TimeBase enum constant name)
-        and time_context, and the parsed seconds/microseconds since Unix epoch.
+        Returns FpyValue(TIME, ...) with the provided timeBase (a TimeBase enum constant name)
+        and timeContext, and the parsed seconds/microseconds since Unix epoch.
         """
         try:
             # Try parsing with microseconds first
@@ -1857,8 +1857,8 @@ class CalculateConstExprValues(Visitor):
                 return None
 
             return FpyValue(TIME, {
-                "time_base": FpyValue(TIME_BASE, time_base),
-                "time_context": FpyValue(U8, time_context),
+                "timeBase": FpyValue(TIME_BASE, time_base),
+                "timeContext": FpyValue(U8, time_context),
                 "seconds": FpyValue(U32, seconds),
                 "useconds": FpyValue(U32, useconds),
             })
@@ -2205,10 +2205,10 @@ class CalculateConstExprValues(Visitor):
         elif func is TIME_MACRO:
             # time() builtin parses ISO 8601 timestamps at compile time
             timestamp_str = arg_values[0].val
-            time_base = arg_values[1].val
-            time_context = arg_values[2].val
+            timeBase = arg_values[1].val
+            timeContext = arg_values[2].val
             expr_value = self._parse_time_string(
-                timestamp_str, time_base, time_context, node, state
+                timestamp_str, timeBase, timeContext, node, state
             )
             if expr_value is None:
                 return

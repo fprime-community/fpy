@@ -222,6 +222,7 @@ prm_3: U8 = Ref.sendBuffComp.parameter3
 A significant limitation of this is that it will only return the value most recently saved to the parameter database. This means you must command `_PRM_SAVE` before the sequence will see the new value.
 
 > Note:  If a telemetry channel and parameter have the same fully-qualified name, the fully-qualified name will get the value of the telemetry channel
+
 ## Conditionals
 Fpy supports comparison operators:
 ```py
@@ -473,7 +474,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
 # time base of 0, time context of 1
-sleep_until({time_base: 0, time_context: 1, seconds=1234567890, useconds=0})
+sleep_until({timeBase: 0, timeContext: 1, seconds=1234567890, useconds=0})
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
@@ -486,8 +487,8 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize time_base and time_context (defaults are 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", time_base=2, time_context=1)
+# Customize timeBase and timeContext (defaults are 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=2, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
@@ -523,15 +524,15 @@ assert interval1 < interval2
 
 You can add a `Fw.TimeIntervalValue` to a `Fw.Time`:
 ```py
-current: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 500000}
+current: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 500000}
 offset: Fw.TimeIntervalValue = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
 You can subtract two `Fw.Time` values to get a `Fw.TimeIntervalValue`:
 ```py
-start: Fw.Time = {time_base: 1, time_context: 0, seconds: 100, useconds: 0}
-end: Fw.Time = {time_base: 1, time_context: 0, seconds: 105, useconds: 500000}
+start: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 ```
 

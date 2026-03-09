@@ -153,8 +153,8 @@ TIME_MACRO = BuiltinFuncSymbol(
         TIME,
         [
             ("timestamp", INTERNAL_STRING, None),
-            ("time_base", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
-            ("time_context", U8, FpyValue(U8, 0)),
+            ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
+            ("timeContext", U8, FpyValue(U8, 0)),
         ],
         lambda n, c: [],  # placeholder - const eval handles this
     )

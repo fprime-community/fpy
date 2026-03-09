@@ -83,8 +83,8 @@ assert result == Fw.TimeComparison.GT
     def test_time_cmp_incomparable_different_time_base(self, fprime_test_api):
         """Test time_cmp returns INCOMPARABLE for different time bases."""
         seq = """
-t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)  # time_base = 0
-t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)  # time_base = 1
+t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)  # timeBase = 0
+t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)  # timeBase = 1
 result: Fw.TimeComparison = time_cmp(t1, t2)
 assert result == Fw.TimeComparison.INCOMPARABLE
 """
@@ -254,7 +254,7 @@ result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
         """Test that subtracting times with different time bases asserts."""
         seq = """
 t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)
-t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 50, 0)  # Different time_base
+t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 50, 0)  # Different timeBase
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
         assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
@@ -315,9 +315,9 @@ class TestTimeAdd:
 t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 5, 100, 200000)
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(50, 300000)
 result: Fw.Time = time_add(t, interval)
-# Expected: 150 seconds and 500000 useconds, same time_base and context
-assert result.time_base == TimeBase.TB_NONE
-assert result.time_context == 5
+# Expected: 150 seconds and 500000 useconds, same timeBase and context
+assert result.timeBase == TimeBase.TB_NONE
+assert result.timeContext == 5
 assert result.seconds == 150
 assert result.useconds == 500000
 """
@@ -329,8 +329,8 @@ assert result.useconds == 500000
 t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 500000)
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(0, 0)
 result: Fw.Time = time_add(t, interval)
-assert result.time_base == TimeBase.TB_NONE
-assert result.time_context == 0
+assert result.timeBase == TimeBase.TB_NONE
+assert result.timeContext == 0
 assert result.seconds == 100
 assert result.useconds == 500000
 """
@@ -351,20 +351,20 @@ assert result.useconds == 200000
     def test_time_add_preserves_time_base(self, fprime_test_api):
         """Test that time_add preserves the time base."""
         seq = """
-t: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)  # time_base = 1
+t: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)  # timeBase = 1
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
 result: Fw.Time = time_add(t, interval)
-assert result.time_base == TimeBase.TB_PROC_TIME
+assert result.timeBase == TimeBase.TB_PROC_TIME
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_time_add_preserves_time_context(self, fprime_test_api):
         """Test that time_add preserves the time context."""
         seq = """
-t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 42, 100, 0)  # time_context = 42
+t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 42, 100, 0)  # timeContext = 42
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
 result: Fw.Time = time_add(t, interval)
-assert result.time_context == 42
+assert result.timeContext == 42
 """
         assert_run_success(fprime_test_api, seq)
 

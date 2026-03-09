@@ -1064,8 +1064,8 @@ class FpySequencerModel:
         seconds = self.simulated_time_us // 1000000
         useconds = self.simulated_time_us % 1000000
         time_val = FpyValue(TIME, {
-            "time_base": self.time_base,
-            "time_context": self.time_context,
+            "timeBase": self.time_base,
+            "timeContext": self.time_context,
             "seconds": seconds,
             "useconds": useconds,
         })

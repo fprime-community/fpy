@@ -23,8 +23,8 @@ Sleeps until an absolute time.
 |---------------|----------|--------|-------------|
 | useconds     | U32      | stack  | Microseconds |
 | seconds      | U32      | stack  | Seconds |
-| time_context | FwTimeContextStoreType       | stack  | Time context (user defined value, unused by Fpy) |
-| time_base    | U16      | stack  | Time base |
+| timeContext | FwTimeContextStoreType       | stack  | Time context (user defined value, unused by Fpy) |
+| timeBase    | U16      | stack  | Time base |
 
 | Stack Result Type | Description |
 | ------------------|-------------|

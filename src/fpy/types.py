@@ -354,8 +354,8 @@ TIME = FpyType(
     TypeKind.STRUCT,
     "Fw.Time",
     members=(
-        StructMember("time_base", TIME_BASE),
-        StructMember("time_context", U8),
+        StructMember("timeBase", TIME_BASE),
+        StructMember("timeContext", U8),
         StructMember("seconds", U32),
         StructMember("useconds", U32),
     ),
