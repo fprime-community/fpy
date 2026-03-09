@@ -2403,25 +2403,6 @@ class CalculateConstExprValues(Visitor):
         # ranges don't really end up having a value, they kinda just exist as a type
         state.const_expr_values[node] = None
 
-    def _collect_const_values(
-        self, exprs: list, state: CompileState
-    ) -> list[FpyValue] | None:
-        """Collect const values for a list of expressions.
-        Returns None if any expression is not a compile-time constant.
-        Handles both Ast nodes (looked up in const_expr_values) and
-        raw FpyValue defaults (used as-is).
-        """
-        values = []
-        for expr in exprs:
-            if is_instance_compat(expr, Ast):
-                val = state.const_expr_values.get(expr)
-                if val is None:
-                    return None
-                values.append(val)
-            else:
-                values.append(expr)
-        return values
-
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
         converted_type = state.contextual_types[node]
 
@@ -2433,10 +2414,16 @@ class CalculateConstExprValues(Visitor):
             exprs = state.resolved_args[node]
             names = [m.name for m in converted_type.members]
 
-        values = self._collect_const_values(exprs, state)
-        if values is None:
-            state.const_expr_values[node] = None
-            return
+        values = []
+        for expr in exprs:
+            if is_instance_compat(expr, Ast):
+                val = state.const_expr_values.get(expr)
+                if val is None:
+                    state.const_expr_values[node] = None
+                    return
+                values.append(val)
+            else:
+                values.append(expr)
 
         state.const_expr_values[node] = FpyValue(converted_type, dict(zip(names, values)))
 
@@ -2449,10 +2436,16 @@ class CalculateConstExprValues(Visitor):
             assert converted_type.kind == TypeKind.ARRAY, converted_type
             exprs = state.resolved_args[node]
 
-        values = self._collect_const_values(exprs, state)
-        if values is None:
-            state.const_expr_values[node] = None
-            return
+        values = []
+        for expr in exprs:
+            if is_instance_compat(expr, Ast):
+                val = state.const_expr_values.get(expr)
+                if val is None:
+                    state.const_expr_values[node] = None
+                    return
+                values.append(val)
+            else:
+                values.append(expr)
 
         state.const_expr_values[node] = FpyValue(converted_type, values)
 
