@@ -38,8 +38,9 @@ class CallableSymbol:
     name: str
     return_type: FpyType
     # args is a list of (name, type, default_value) tuples
-    # default_value is an AstExpr or None if no default is provided
-    args: list[tuple[str, FpyType, AstExpr | None]]
+    # default_value is AstExpr for user-defined functions, FpyValue for builtin funcs
+    # including constructors, or None if no default is provided.
+    args: list[tuple[str, FpyType, AstExpr | FpyValue | None]]
 
 
 @dataclass

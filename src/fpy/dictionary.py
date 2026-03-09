@@ -41,8 +41,16 @@ def json_default_to_fpy_value(raw: object, typ: FpyType) -> FpyValue:
         assert isinstance(raw, bool), f"Expected bool default, got {type(raw)}"
         return FpyValue(typ, raw)
 
-    if kind in (TypeKind.U8, TypeKind.U16, TypeKind.U32, TypeKind.U64,
-                TypeKind.I8, TypeKind.I16, TypeKind.I32, TypeKind.I64):
+    if kind in (
+        TypeKind.U8,
+        TypeKind.U16,
+        TypeKind.U32,
+        TypeKind.U64,
+        TypeKind.I8,
+        TypeKind.I16,
+        TypeKind.I32,
+        TypeKind.I64,
+    ):
         assert isinstance(raw, int), f"Expected int default, got {type(raw)}"
         return FpyValue(typ, raw)
 
@@ -56,43 +64,40 @@ def json_default_to_fpy_value(raw: object, typ: FpyType) -> FpyValue:
 
     if kind == TypeKind.ENUM:
         assert isinstance(raw, str), f"Expected str default for enum, got {type(raw)}"
-        # raw is a qualified name like "Ref.Choice.ONE"
-        # Extract just the constant name (the part after the enum type name)
-        prefix = typ.name + "."
-        if raw.startswith(prefix):
-            const_name = raw[len(prefix):]
-        else:
-            # Fallback: take the last dotted component
-            const_name = raw.rsplit(".", 1)[-1]
-        assert const_name in typ.enum_dict, (
-            f"Unknown enum constant '{const_name}' for {typ.name}"
-        )
+        # raw is a qualified name like "Ref.Choice.ONE" or "Choice.ONE"
+        # Extract just the constant name (last dotted component)
+        const_name = raw.rsplit(".", 1)[-1]
+        assert (
+            const_name in typ.enum_dict
+        ), f"Unknown enum constant '{const_name}' for {typ.name}"
         return FpyValue(typ, const_name)
 
     if kind == TypeKind.ARRAY:
-        assert isinstance(raw, list), f"Expected list default for array, got {type(raw)}"
-        assert len(raw) == typ.length, (
-            f"Array default length {len(raw)} != expected {typ.length}"
-        )
+        assert isinstance(
+            raw, list
+        ), f"Expected list default for array, got {type(raw)}"
+        assert (
+            len(raw) == typ.length
+        ), f"Array default length {len(raw)} != expected {typ.length}"
         elements = [json_default_to_fpy_value(elem, typ.elem_type) for elem in raw]
         return FpyValue(typ, elements)
 
     if kind == TypeKind.STRUCT:
-        assert isinstance(raw, dict), f"Expected dict default for struct, got {type(raw)}"
+        assert isinstance(
+            raw, dict
+        ), f"Expected dict default for struct, got {type(raw)}"
         members_dict = {}
         for m in typ.members:
-            assert m.name in raw, (
-                f"Struct default missing member '{m.name}' for {typ.name}"
-            )
+            assert (
+                m.name in raw
+            ), f"Struct default missing member '{m.name}' for {typ.name}"
             members_dict[m.name] = json_default_to_fpy_value(raw[m.name], m.type)
         return FpyValue(typ, members_dict)
 
     assert False, f"Cannot convert default for type {typ}"
 
 
-def _resolve_type(
-    type_desc: dict, type_defs: dict[str, FpyType]
-) -> FpyType:
+def _resolve_type(type_desc: dict, type_defs: dict[str, FpyType]) -> FpyType:
     """Resolve a Type Descriptor JSON object to an FpyType.
 
     Args:
@@ -166,13 +171,13 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
         name = td["qualifiedName"]
         rep_type_desc = td["representationType"]
         rep_type_name = rep_type_desc["name"]
-        assert rep_type_name in ENUM_REP_TYPES, (
-            f"Enum {name} has unsupported representation type: {rep_type_name}"
-        )
+        assert (
+            rep_type_name in ENUM_REP_TYPES
+        ), f"Enum {name} has unsupported representation type: {rep_type_name}"
         enum_dict = {}
         for const in td["enumeratedConstants"]:
             enum_dict[const["name"]] = const["value"]
-        default = td.get("default")
+        default = td["default"]
         type_defs[name] = FpyType(
             TypeKind.ENUM,
             name,
@@ -212,7 +217,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                 if kind == "array":
                     elem_type = _resolve_type(td["elementType"], type_defs)
                     length = td["size"]
-                    default = td.get("default")
+                    default = td["default"]
                     type_defs[name] = FpyType(
                         TypeKind.ARRAY,
                         name,
@@ -228,7 +233,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                     member_list = []
                     for member_name, member_desc in sorted_members:
                         member_type = _resolve_type(member_desc["type"], type_defs)
-                        # Handle inline member arrays (member has "size" key)
+                        # Handle struct member arrays (member has "size" key)
                         if "size" in member_desc:
                             array_size = member_desc["size"]
                             array_name = f"Array_{member_type.name}_{array_size}"
@@ -242,7 +247,7 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                                 )
                             member_type = type_defs[array_name]
                         member_list.append(StructMember(member_name, member_type))
-                    default = td.get("default")
+                    default = td["default"]
                     type_defs[name] = FpyType(
                         TypeKind.STRUCT,
                         name,
@@ -344,16 +349,27 @@ def _parse_parameters(
 
 def _parse_constants(
     raw_constants: list[dict], type_defs: dict[str, FpyType]
-) -> dict[str, object]:
+) -> dict[str, FpyValue]:
     """Parse constants from the dictionary.
 
+    Resolves the type descriptor for each constant if present and converts the raw JSON
+    value into an ``FpyValue``.
+
     Returns:
-        dict mapping qualifiedName -> value (Python primitive).
+        dict mapping qualifiedName -> FpyValue.
     """
-    constants = {}
+    constants: dict[str, FpyValue] = {}
     for const in raw_constants:
         name = const["qualifiedName"]
-        constants[name] = const["value"]
+        value = const["value"]
+        type_desc = const.get("type")
+        if type_desc is not None:
+            typ = _resolve_type(type_desc, type_defs)
+            constants[name] = json_default_to_fpy_value(value, typ)
+        else:
+            # Fallback for entries without a type descriptor (shouldn't
+            # happen in well-formed dictionaries, but be defensive).
+            constants[name] = FpyValue(FpyType(TypeKind.I64, "I64"), value)
     return constants
 
 
@@ -380,9 +396,7 @@ def load_dictionary(dictionary_path: str) -> dict:
     ch_id_dict, ch_name_dict = _parse_channels(
         raw.get("telemetryChannels", []), type_defs
     )
-    prm_id_dict, prm_name_dict = _parse_parameters(
-        raw.get("parameters", []), type_defs
-    )
+    prm_id_dict, prm_name_dict = _parse_parameters(raw.get("parameters", []), type_defs)
     constants = _parse_constants(raw.get("constants", []), type_defs)
 
     return {

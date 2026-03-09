@@ -200,8 +200,7 @@ def _validate_and_replace_type(
             )
     type_dict[name] = canonical
     # Preserve raw JSON defaults from the dictionary definition on the canonical type
-    if dict_type.json_default is not None and canonical.json_default is None:
-        canonical.json_default = dict_type.json_default
+    canonical.json_default = dict_type.json_default
 
 
 def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
@@ -229,8 +228,7 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
     # Adopt the dictionary's enum constants and representation type
     TIME_BASE.enum_dict = dict_tb.enum_dict
     TIME_BASE.rep_type = dict_tb.rep_type
-    if dict_tb.json_default is not None:
-        TIME_BASE.json_default = dict_tb.json_default
+    TIME_BASE.json_default = dict_tb.json_default
 
     # Replace the dict entry with the canonical singleton
     dict_type_name_dict["TimeBase"] = TIME_BASE
@@ -249,37 +247,62 @@ def _update_time_context_type_from_dict(
     TIME.members[1].type = ctx_type
 
 
+def _get_elem_type_default(elem_type: FpyType) -> FpyValue:
+    """Return the zero/default FpyValue for a primitive, enum, or other element type."""
+    if elem_type.kind == TypeKind.BOOL:
+        return FpyValue(elem_type, False)
+    if elem_type.is_integer:
+        return FpyValue(elem_type, 0)
+    if elem_type.is_float:
+        return FpyValue(elem_type, 0.0)
+    if elem_type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+        return FpyValue(elem_type, "")
+    assert elem_type.json_default is not None, (
+        f"Element type {elem_type.name} must have json_default"
+    )
+    return json_default_to_fpy_value(elem_type.json_default, elem_type)
+
+
+def _derive_elem_defaults(typ: FpyType) -> list[FpyValue]:
+    """Derive elem_defaults for a struct member array type (no json_default)."""
+    elem_default = _get_elem_type_default(typ.elem_type)
+    return [elem_default] * typ.length
+
+
 def _populate_type_defaults(typ: FpyType) -> None:
     """Populate per-member/per-element defaults on an FpyType from its json_default.
 
     Sets FpyType.member_defaults for structs and FpyType.elem_defaults for arrays.
+    Every type is guaranteed to have a default value.
     """
     if typ.kind == TypeKind.STRUCT:
+        assert typ.json_default is not None, (
+            f"Struct {typ.name} must have json_default"
+        )
         struct_defaults: dict[str, FpyValue] = {}
-        if typ.json_default is not None:
-            for m in typ.members:
-                raw_val = typ.json_default.get(m.name)
-                if raw_val is None:
-                    continue
-                if m.type.kind == TypeKind.ARRAY and not (
-                    isinstance(raw_val, list) and len(raw_val) == m.type.length
-                ):
-                    # Struct member arrays (members with a "size" key in the JSON)
-                    # get wrapped in a synthetic array type, but the dictionary's
-                    # raw default is a single element value rather than an
-                    # array-shaped value.  Per FPP's spec
-                    # (see https://github.com/nasa/fpp/issues/925), this single
-                    # value initializes every element of the member array.
-                    # We replicate it to build the full array-shaped FpyValue.
-                    elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
-                    struct_defaults[m.name] = FpyValue(
-                        m.type, [elem_val] * m.type.length
-                    )
-                else:
-                    struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
+        for m in typ.members:
+            raw_val = typ.json_default.get(m.name)
+            assert raw_val is not None, (
+                f"Missing default for member '{m.name}' of struct {typ.name}"
+            )
+            if m.type.kind == TypeKind.ARRAY and not (
+                isinstance(raw_val, list) and len(raw_val) == m.type.length
+            ):
+                # Struct member arrays (members with a "size" key in the JSON)
+                # get wrapped in a struct member array type, but the dictionary's
+                # raw default is a single element value rather than an
+                # array-shaped value.  Per FPP's spec
+                # (see https://github.com/nasa/fpp/issues/925), this single
+                # value initializes every element of the member array.
+                # We replicate it to build the full array-shaped FpyValue.
+                elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
+                struct_defaults[m.name] = FpyValue(
+                    m.type, [elem_val] * m.type.length
+                )
+            else:
+                struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
         typ.member_defaults = struct_defaults
     elif typ.kind == TypeKind.ARRAY:
-        array_defaults: list[FpyValue | None] = []
         if typ.json_default is not None:
             default_val = json_default_to_fpy_value(typ.json_default, typ)
             array_defaults = default_val.val  # list of FpyValue
@@ -287,22 +310,18 @@ def _populate_type_defaults(typ: FpyType) -> None:
                 f"Dictionary array type {typ.name} has default with "
                 f"{len(array_defaults)} elements but declared length {typ.length}"
             )
-        # Array defaults are all-or-nothing: either every element has a
-        # default (from the dictionary JSON) or none do.  Partial defaults
-        # are not supported.
-        if array_defaults:
-            assert len(array_defaults) == typ.length
-            assert all(d is not None for d in array_defaults)
-            typ.elem_defaults = tuple(array_defaults)
         else:
-            typ.elem_defaults = (None,) * typ.length
+            # Struct member array type (no json_default of its own) —
+            # derive element defaults from the element type.
+            array_defaults = _derive_elem_defaults(typ)
+        typ.elem_defaults = tuple(array_defaults)
 
 
 def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
     """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor.
     """
     if typ.kind == TypeKind.STRUCT:
-        args = [(m.name, m.type, typ.member_defaults.get(m.name)) for m in typ.members]
+        args = [(m.name, m.type, typ.member_defaults[m.name]) for m in typ.members]
     elif typ.kind == TypeKind.ARRAY:
         args = [
             ("e" + str(i), typ.elem_type, typ.elem_defaults[i])
@@ -388,12 +407,16 @@ def _build_global_scopes(dictionary: str) -> tuple:
     type_scope = create_symbol_table(type_name_dict)
     # 2. global callable scope - leaf nodes are callables
     callable_scope = create_symbol_table(callable_name_dict)
-    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants)
+    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants, FPP constants)
+    fpp_constants = d["constants"]
     values_scope = merge_symbol_tables(
         create_symbol_table(ch_name_dict),
         merge_symbol_tables(
             create_symbol_table(prm_name_dict),
-            create_symbol_table(enum_const_name_dict),
+            merge_symbol_tables(
+                create_symbol_table(enum_const_name_dict),
+                create_symbol_table(fpp_constants),
+            ),
         ),
     )
 
@@ -405,6 +428,16 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
 
+    def _const_int(key: str, default: int) -> int:
+        """Extract an integer constant value, falling back to *default*."""
+        fpv = constants.get(key)
+        if fpv is None:
+            return default
+        assert isinstance(fpv.val, int), (
+            f"Expected int for constant {key}, got {type(fpv.val)}"
+        )
+        return fpv.val
+
     # Make copies of the scopes since we'll mutate them during compilation
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
     # if we don't make copies, then the lru cache will return the modified versions, causing
@@ -414,8 +447,8 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
         compile_args=compile_args or dict(),
-        max_directives_count=constants.get("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
-        max_directive_size=constants.get("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
+        max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
+        max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
     return state
 

@@ -870,16 +870,9 @@ class PickTypesAndResolveFields(Visitor):
                 return False
 
         # Build resolved list: provided elements + defaults for missing positions.
-        # Array defaults are all-or-nothing, so if any position needs a
-        # default, every position must have one.
         resolved = list(node.elements)
         for i in range(len(node.elements), target.length):
-            default = target.elem_defaults[i]
-            assert default is not None, (
-                f"Missing default for element {i} of {target.name}; "
-                f"array defaults must be all-or-nothing"
-            )
-            resolved.append(default)
+            resolved.append(target.elem_defaults[i])
 
         state.resolved_args[node] = resolved
         state.contextual_types[node] = target
@@ -1013,10 +1006,6 @@ class PickTypesAndResolveFields(Visitor):
                 return None
             if not self.can_coerce_type(member.type, target_members[member.name].type):
                 return None
-        # Every concrete member not provided must have a default
-        for m in concrete.members:
-            if m.name not in seen and m.name not in concrete.member_defaults:
-                return None
         return concrete
 
     def _find_common_type_anon_array(
@@ -1035,13 +1024,6 @@ class PickTypesAndResolveFields(Visitor):
             return None
         if anon.length > concrete.length:
             return None
-        # Array defaults are all-or-nothing: either every element has a
-        # default or none do.  We only need to check one sentinel position
-        # to know whether defaults exist.
-        if anon.length < concrete.length:
-            has_defaults = concrete.elem_defaults[0] is not None
-            if not has_defaults:
-                return None
         return concrete
 
     def get_type_of_symbol(self, sym: Symbol) -> FpyType:
@@ -1339,20 +1321,39 @@ class PickTypesAndResolveFields(Visitor):
 
         Returns (resolved_lhs, resolved_rhs, common_type, result_type, func_name, is_cmp)
         or None if no match.
+
+        When multiple entries match (e.g. an anon struct can coerce to both TIME
+        and TIME_INTERVAL), prefer the entry whose operand types have fewer
+        unmatched members — i.e., the most specific structural match.
         """
-        match = None
+        matches: list[tuple[FpyType, FpyType, FpyType, FpyType, str, bool]] = []
         for (l, r, o), (common_type, result_type, func_name, is_cmp) in TIME_OPS.items():
             if o != op:
                 continue
             if self.can_coerce_type(lhs_type, l) and self.can_coerce_type(rhs_type, r):
-                # ambiguity should be impossible given the lack of default values
-                # for the time type
-                assert match is None, (
-                    f"Ambiguous time op: {lhs_type} {op} {rhs_type} "
-                    f"matches both {match[0]},{match[1]} and {l},{r}"
-                )
-                match = (l, r, common_type, result_type, func_name, is_cmp)
-        return match
+                matches.append((l, r, common_type, result_type, func_name, is_cmp))
+
+        if not matches:
+            return None
+        if len(matches) == 1:
+            return matches[0]
+
+        # Multiple matches — pick the most specific (fewest defaulted members).
+        def _extra_member_count(source: FpyType, target: FpyType) -> int:
+            if source.kind == TypeKind.ANON_STRUCT and target.kind == TypeKind.STRUCT:
+                return len(target.members) - len(source.members)
+            return 0
+
+        def _specificity(m: tuple) -> int:
+            return _extra_member_count(lhs_type, m[0]) + _extra_member_count(rhs_type, m[1])
+
+        matches.sort(key=_specificity)
+        assert _specificity(matches[0]) < _specificity(matches[1]), (
+            f"Ambiguous time op: {lhs_type} {op} {rhs_type} "
+            f"matches {matches[0][0]},{matches[0][1]} and {matches[1][0]},{matches[1][1]} "
+            f"with equal specificity"
+        )
+        return matches[0]
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         lhs_type = state.synthesized_types[node.lhs]

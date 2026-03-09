@@ -221,7 +221,7 @@ class TestConstants:
             }
         ]
         result = _parse_constants(raw, {})
-        assert result["M1.C"] == 1
+        assert result["M1.C"] == FpyValue(U64, 1)
 
     def test_negative_integer_constant(self):
         # Spec: negative constants → I64 type
@@ -233,19 +233,89 @@ class TestConstants:
             }
         ]
         result = _parse_constants(raw, {})
-        assert result["M1.NEG"] == -42
+        assert result["M1.NEG"] == FpyValue(I64, -42)
 
     def test_multiple_constants(self):
         raw = [
-            {"qualifiedName": "A.B", "value": 100},
-            {"qualifiedName": "C.D", "value": 200},
-            {"qualifiedName": "E.F", "value": 300},
+            {
+                "qualifiedName": "A.B",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": 100,
+            },
+            {
+                "qualifiedName": "C.D",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": 200,
+            },
+            {
+                "qualifiedName": "E.F",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": 300,
+            },
         ]
         result = _parse_constants(raw, {})
         assert len(result) == 3
-        assert result["A.B"] == 100
-        assert result["C.D"] == 200
-        assert result["E.F"] == 300
+        assert result["A.B"] == FpyValue(U64, 100)
+        assert result["C.D"] == FpyValue(U64, 200)
+        assert result["E.F"] == FpyValue(U64, 300)
+
+    def test_enum_valued_constant(self):
+        """Constants can have enum values — resolved via type descriptor."""
+        # First, set up the enum type definition
+        my_enum = FpyType(
+            TypeKind.ENUM,
+            "Ref.Choice",
+            enum_dict={"A": 0, "B": 1, "C": 2},
+            rep_type=I32,
+        )
+        type_defs = {"Ref.Choice": my_enum}
+        raw = [
+            {
+                "qualifiedName": "Ref.DEFAULT_CHOICE",
+                "type": {
+                    "kind": "qualifiedIdentifier",
+                    "name": "Ref.Choice",
+                },
+                "value": "Ref.Choice.B",
+                "annotation": "Default choice constant",
+            }
+        ]
+        result = _parse_constants(raw, type_defs)
+        assert "Ref.DEFAULT_CHOICE" in result
+        fpv = result["Ref.DEFAULT_CHOICE"]
+        assert isinstance(fpv, FpyValue)
+        assert fpv.type is my_enum
+        assert fpv.val == "B"
+
+    def test_enum_valued_constant_short_name(self):
+        """Enum constant value with only the short constant name."""
+        my_enum = FpyType(
+            TypeKind.ENUM,
+            "Mod.Status",
+            enum_dict={"OK": 0, "ERR": 1},
+            rep_type=U8,
+        )
+        type_defs = {"Mod.Status": my_enum}
+        raw = [
+            {
+                "qualifiedName": "Mod.DEFAULT_STATUS",
+                "type": {"kind": "qualifiedIdentifier", "name": "Mod.Status"},
+                "value": "ERR",
+            }
+        ]
+        result = _parse_constants(raw, type_defs)
+        assert result["Mod.DEFAULT_STATUS"] == FpyValue(my_enum, "ERR")
+
+    def test_bool_constant(self):
+        raw = [
+            {
+                "qualifiedName": "M.FLAG",
+                "type": {"name": "bool", "kind": "bool"},
+                "value": True,
+            }
+        ]
+        result = _parse_constants(raw, {})
+        assert result["M.FLAG"] == FpyValue(BOOL, True)
 
     def test_empty_constants(self):
         assert _parse_constants([], {}) == {}
@@ -331,19 +401,6 @@ class TestTypeDefArray:
         result = _parse_type_definitions(raw)
         assert result["M.Single"].length == 1
 
-    def test_array_no_default(self):
-        raw = [
-            {
-                "kind": "array",
-                "qualifiedName": "M.NoDef",
-                "size": 2,
-                "elementType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-            }
-        ]
-        result = _parse_type_definitions(raw)
-        assert result["M.NoDef"].json_default is None
-
-
 class TestTypeDefEnum:
     """Spec §Type Definitions / Enumeration Type Definition."""
 
@@ -382,6 +439,7 @@ class TestTypeDefEnum:
                 "qualifiedName": "M.E",
                 "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                 "enumeratedConstants": [{"name": "A", "value": 0}],
+                "default": "M.E.A",
             }
         ]
         result = _parse_type_definitions(raw)
@@ -398,22 +456,11 @@ class TestTypeDefEnum:
                 "qualifiedName": f"M.E_{rep}",
                 "representationType": {"name": rep, "kind": "integer", "size": size, "signed": signed},
                 "enumeratedConstants": [{"name": "X", "value": 0}],
+                "default": f"M.E_{rep}.X",
             }
         ]
         result = _parse_type_definitions(raw)
         assert result[f"M.E_{rep}"].kind == TypeKind.ENUM
-
-    def test_enum_no_default(self):
-        raw = [
-            {
-                "kind": "enum",
-                "qualifiedName": "M.NoDef",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                "enumeratedConstants": [{"name": "A", "value": 0}],
-            }
-        ]
-        result = _parse_type_definitions(raw)
-        assert result["M.NoDef"].json_default is None
 
     def test_enum_many_constants(self):
         consts = [{"name": f"C{i}", "value": i} for i in range(20)]
@@ -423,6 +470,7 @@ class TestTypeDefEnum:
                 "qualifiedName": "M.Big",
                 "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                 "enumeratedConstants": consts,
+                "default": "M.Big.C0",
             }
         ]
         result = _parse_type_definitions(raw)
@@ -434,7 +482,7 @@ class TestTypeDefStruct:
 
     def test_struct_basic(self):
         # Spec example: struct S { w: [3] U32, x: U32, y: F32 }
-        # Note: "w" uses an inline array via the "size" key on the member
+        # Note: "w" uses a struct member array via the "size" key on the member
         raw = [
             {
                 "kind": "struct",
@@ -464,7 +512,7 @@ class TestTypeDefStruct:
         typ = result["M1.S"]
         assert typ.kind == TypeKind.STRUCT
         assert len(typ.members) == 3
-        # "w" should be resolved to an array type (inline member array)
+        # "w" should be resolved to an array type (struct member array)
         assert typ.members[0].name == "w"
         assert typ.members[0].type.kind == TypeKind.ARRAY
         assert typ.members[0].type.length == 3
@@ -485,6 +533,7 @@ class TestTypeDefStruct:
                     "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
                     "m": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 1},
                 },
+                "default": {"z": 0, "a": 0, "m": 0},
             }
         ]
         result = _parse_type_definitions(raw)
@@ -498,6 +547,7 @@ class TestTypeDefStruct:
                 "qualifiedName": "M.Status",
                 "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                 "enumeratedConstants": [{"name": "OK", "value": 0}, {"name": "ERR", "value": 1}],
+                "default": "M.Status.OK",
             },
             {
                 "kind": "struct",
@@ -513,19 +563,6 @@ class TestTypeDefStruct:
         s = result["M.Result"]
         assert s.members[1].type.kind == TypeKind.ENUM
 
-    def test_struct_no_default(self):
-        raw = [
-            {
-                "kind": "struct",
-                "qualifiedName": "M.NoDef",
-                "members": {
-                    "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
-                },
-            }
-        ]
-        result = _parse_type_definitions(raw)
-        assert result["M.NoDef"].json_default is None
-
     def test_struct_single_member(self):
         raw = [
             {
@@ -534,6 +571,7 @@ class TestTypeDefStruct:
                 "members": {
                     "only": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
                 },
+                "default": {"only": 0},
             }
         ]
         result = _parse_type_definitions(raw)
@@ -547,6 +585,7 @@ class TestTypeDefStruct:
                 "qualifiedName": "M.Vec3",
                 "size": 3,
                 "elementType": {"name": "F32", "kind": "float", "size": 32},
+                "default": [0.0, 0.0, 0.0],
             },
             {
                 "kind": "struct",
@@ -555,6 +594,7 @@ class TestTypeDefStruct:
                     "position": {"type": {"name": "M.Vec3", "kind": "qualifiedIdentifier"}, "index": 0},
                     "heading": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
                 },
+                "default": {"position": [0.0, 0.0, 0.0], "heading": 0.0},
             },
         ]
         result = _parse_type_definitions(raw)
@@ -607,6 +647,7 @@ class TestTypeDefAlias:
                 "qualifiedName": "M.E",
                 "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                 "enumeratedConstants": [{"name": "A", "value": 0}],
+                "default": "M.E.A",
             },
             {
                 "kind": "alias",
@@ -664,6 +705,7 @@ class TestTypeDefCrossReferences:
                 "members": {
                     "a": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
                 },
+                "default": {"a": 0},
             },
             {
                 "kind": "struct",
@@ -672,6 +714,7 @@ class TestTypeDefCrossReferences:
                     "inner": {"type": {"name": "M.Inner", "kind": "qualifiedIdentifier"}, "index": 0},
                     "flag": {"type": {"name": "bool", "kind": "bool"}, "index": 1},
                 },
+                "default": {"inner": {"a": 0}, "flag": False},
             },
         ]
         result = _parse_type_definitions(raw)
@@ -688,12 +731,14 @@ class TestTypeDefCrossReferences:
                     {"name": "UP", "value": 0},
                     {"name": "DOWN", "value": 1},
                 ],
+                "default": "M.Dir.UP",
             },
             {
                 "kind": "array",
                 "qualifiedName": "M.Dirs",
                 "size": 4,
                 "elementType": {"name": "M.Dir", "kind": "qualifiedIdentifier"},
+                "default": ["M.Dir.UP", "M.Dir.UP", "M.Dir.UP", "M.Dir.UP"],
             },
         ]
         result = _parse_type_definitions(raw)
@@ -708,12 +753,25 @@ class TestTypeDefCrossReferences:
                     "x": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 0},
                     "y": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
                 },
+                "default": {"x": 0.0, "y": 0.0},
             },
             {
                 "kind": "array",
                 "qualifiedName": "M.Points",
                 "size": 10,
                 "elementType": {"name": "M.Point", "kind": "qualifiedIdentifier"},
+                "default": [
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 0.0, "y": 0.0},
+                ],
             },
         ]
         result = _parse_type_definitions(raw)
@@ -1745,14 +1803,14 @@ class TestSerializationRoundTrips:
 
 
 # ===================================================================
-# Section: Inline member arrays in structs
+# Section: Struct member arrays
 # ===================================================================
 
 
-class TestStructInlineMemberArrays:
-    """Spec: struct members with 'size' key create inline array types."""
+class TestStructMemberArrays:
+    """Spec: struct members with 'size' key create struct member array types."""
 
-    def test_inline_array_member(self):
+    def test_struct_member_array(self):
         raw = [
             {
                 "kind": "struct",
@@ -1768,6 +1826,7 @@ class TestStructInlineMemberArrays:
                         "index": 1,
                     },
                 },
+                "default": {"data": [0, 0, 0, 0, 0], "count": 0},
             }
         ]
         result = _parse_type_definitions(raw)
@@ -1780,7 +1839,7 @@ class TestStructInlineMemberArrays:
         # "count" should be plain U32
         assert st.members[1].type is U32
 
-    def test_inline_array_deduplicate(self):
+    def test_struct_member_array_deduplicate(self):
         """Two members with same element type and size should share the array type def."""
         raw = [
             {
@@ -1798,6 +1857,7 @@ class TestStructInlineMemberArrays:
                         "size": 3,
                     },
                 },
+                "default": {"a": [0, 0, 0], "b": [0, 0, 0]},
             }
         ]
         result = _parse_type_definitions(raw)
@@ -1886,6 +1946,7 @@ class TestSingleValueArrayInit:
                 "qualifiedName": "M.Dir",
                 "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                 "enumeratedConstants": [{"name": "UP", "value": 0}, {"name": "DOWN", "value": 1}],
+                "default": "M.Dir.UP",
             },
             {
                 "kind": "struct",
@@ -1994,8 +2055,8 @@ class TestSingleValueArrayInit:
         assert arr.elem_defaults[1] == FpyValue(U32, 20)
         assert arr.elem_defaults[2] == FpyValue(U32, 30)
 
-    def test_regular_array_no_default_gives_none_tuple(self):
-        """Array without json_default gets elem_defaults of all None."""
+    def test_regular_array_no_json_default_derives_from_elem_type(self):
+        """Array without json_default derives elem_defaults from element type."""
         from fpy.compiler import _populate_type_defaults
 
         arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U8, length=4)
@@ -2003,16 +2064,7 @@ class TestSingleValueArrayInit:
 
         assert arr.elem_defaults is not None
         assert len(arr.elem_defaults) == 4
-        assert all(d is None for d in arr.elem_defaults)
-
-    def test_struct_no_default_gives_empty_member_defaults(self):
-        """Struct without json_default gets empty member_defaults dict."""
-        from fpy.compiler import _populate_type_defaults
-
-        typ = FpyType(TypeKind.STRUCT, "M.S", members=(StructMember("a", U8),))
-        _populate_type_defaults(typ)
-
-        assert typ.member_defaults == {}
+        assert all(d == FpyValue(U8, 0) for d in arr.elem_defaults)
 
 
 class TestSingleValueArrayInitIntegration:
@@ -2364,8 +2416,8 @@ class TestLoadDictionary:
     def test_constants_values(self):
         """Spot-check known constants from the Ref dictionary."""
         d = load_dictionary(REF_DICT_PATH)
-        assert d["constants"]["Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT"] == 2048
-        assert d["constants"]["Svc.Fpy.MAX_DIRECTIVE_SIZE"] == 2048
+        assert d["constants"]["Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT"] == FpyValue(U64, 2048)
+        assert d["constants"]["Svc.Fpy.MAX_DIRECTIVE_SIZE"] == FpyValue(U64, 2048)
 
     def test_metadata_present(self):
         d = load_dictionary(REF_DICT_PATH)
@@ -2458,6 +2510,7 @@ class TestSyntheticDictionary:
                     "qualifiedName": "Synth.Compass",
                     "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
                     "enumeratedConstants": [{"name": "N", "value": 0}, {"name": "S", "value": 1}],
+                    "default": "Synth.Compass.N",
                 },
                 {
                     "kind": "struct",
@@ -2466,6 +2519,7 @@ class TestSyntheticDictionary:
                         "dir": {"type": {"name": "Synth.Compass", "kind": "qualifiedIdentifier"}, "index": 0},
                         "dist": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 1},
                     },
+                    "default": {"dir": "Synth.Compass.N", "dist": 0},
                 },
             ]
         )
@@ -2492,6 +2546,7 @@ class TestSyntheticDictionary:
                         "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
                         "b": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 1},
                     },
+                    "default": {"a": 0, "b": 0},
                 }
             ],
             commands=[
@@ -2757,8 +2812,8 @@ class TestTypeCtorDefaults:
             assert default is not None
             assert default.val == "ONE"
 
-    def test_struct_without_default_has_none_args(self):
-        """Structs without defaults should still have None for each member's default."""
+    def test_internal_struct_has_derived_defaults(self):
+        """Internal structs (like $CheckState) derive defaults from member types."""
         scope = self._get_callable_scope()
         parts = "$CheckState".split(".")
         current = scope
@@ -2766,4 +2821,4 @@ class TestTypeCtorDefaults:
             current = current[part]
         ctor = current
         for _, _, default in ctor.args:
-            assert default is None
+            assert default is not None

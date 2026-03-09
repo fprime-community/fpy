@@ -182,7 +182,7 @@ class FpyType:
         length: int | None = None,
         json_default: object | None = None,
         member_defaults: dict[str, FpyValue] | None = None,
-        elem_defaults: tuple[FpyValue | None, ...] | None = None,
+        elem_defaults: tuple[FpyValue, ...] | None = None,
     ):
         self.kind = kind
         self.name = name
@@ -599,6 +599,9 @@ TIME_INTERVAL = FpyType(
 
 # Internal type (prefixed with $) not directly accessible to users,
 # used for desugaring check statements.
+_TIME_INTERVAL_DEFAULT = {"seconds": 0, "useconds": 0}
+_TIME_DEFAULT = {"timeBase": "TimeBase.TB_NONE", "timeContext": 0, "seconds": 0, "useconds": 0}
+
 CHECK_STATE = FpyType(
     TypeKind.STRUCT,
     "$CheckState",
@@ -611,6 +614,15 @@ CHECK_STATE = FpyType(
         StructMember("last_time_true", TIME),
         StructMember("time_started", TIME),
     ),
+    json_default={
+        "persist": _TIME_INTERVAL_DEFAULT,
+        "timeout": _TIME_DEFAULT,
+        "freq": _TIME_INTERVAL_DEFAULT,
+        "result": False,
+        "last_was_true": False,
+        "last_time_true": _TIME_DEFAULT,
+        "time_started": _TIME_DEFAULT,
+    },
 )
 
 
