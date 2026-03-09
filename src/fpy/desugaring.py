@@ -492,7 +492,7 @@ class DesugarCheckStatements(Transformer):
         else:
             # Dummy timeout value - won't be used since we skip timeout checks
             timeout_expr_to_use = self.call_parts(
-                ["Fw", "Time"],
+                ["Fw", "TimeValue"],
                 self.qualified_name("TimeBase", "TB_NONE"), self.number(0), self.number(0), self.number(0)
             )
         
@@ -503,8 +503,8 @@ class DesugarCheckStatements(Transformer):
             freq_expr,                                      # freq
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true
-            self.call_parts(                                # last_time_true = Fw.Time(TimeBase.TB_NONE,0,0,0)
-                ["Fw", "Time"],
+            self.call_parts(                                # last_time_true = Fw.TimeValue(TimeBase.TB_NONE,0,0,0)
+                ["Fw", "TimeValue"],
                 self.qualified_name("TimeBase", "TB_NONE"), self.number(0), self.number(0), self.number(0)
             ),
             self.call("now"),                               # time_started
@@ -518,11 +518,11 @@ class DesugarCheckStatements(Transformer):
         )
         
         # Build the while loop body
-        # 2. $current_time: Fw.Time = now()
+        # 2. $current_time: Fw.TimeValue = now()
         get_current_time = self.assign(
             self.ident(current_time_name),
             self.call("now"),
-            self.qualified_name("Fw", "Time")
+            self.qualified_name("Fw", "TimeValue")
         )
         
         # Build the while loop body statements

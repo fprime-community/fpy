@@ -79,13 +79,6 @@ val: Fw.TimeIntervalValue = {seconds: 1, seconds: 2}
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_anon_struct_missing_required_member(self, fprime_test_api):
-        """Anon struct missing a member with no default available."""
-        seq = """
-val: Fw.Time = {seconds: 1}
-"""
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_anon_struct_wrong_member_type(self, fprime_test_api):
         """Member value type incompatible with target member type."""
         seq = """

@@ -326,9 +326,10 @@ def _build_global_scopes(dictionary: str) -> tuple:
     dict_type_name_dict = d["type_defs"]
 
     # Validate required dictionary types
-    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _update_time_base_from_dict(dict_type_name_dict)
     _update_time_context_type_from_dict(dict_type_name_dict)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Svc.Fpy.FlagId", FLAG_ID)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
@@ -338,7 +339,9 @@ def _build_global_scopes(dictionary: str) -> tuple:
     # canonical replacements from _validate_and_replace_type are preserved.
     type_name_dict: dict[str, FpyType] = {
         **dict_type_name_dict,
+        # Aliases: Fw.Time -> Fw.TimeValue, Fw.TimeInterval -> Fw.TimeIntervalValue
         "Fw.Time": TIME,
+        "Fw.TimeInterval": TIME_INTERVAL,
         **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
         "bool": BOOL,
         "$CheckState": CHECK_STATE,

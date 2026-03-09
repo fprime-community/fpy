@@ -235,7 +235,7 @@ value: bool = 1 > 2 and (3 + 4) != 5
 Boolean `and` and `or` short-circuit just like Python: the right-hand expression only evaluates when the result is still undecided.
 
 
-The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two of the same complex type:
+The inequality operators can compare two numbers of any type together. The equality operators, in addition to comparing numbers, can check for equality between two values of the same type:
 ```py
 record1: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 record2: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
@@ -264,16 +264,16 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
 
-## Struct/array expressions
+## Anonymous struct/array expressions
 
-You can instantiate structs/arrays with a simple syntax:
+You can construct structs/arrays with a simple syntax:
 ```py
 time_interval: Fw.TimeIntervalValue = {seconds: 15, useconds: 1000}
 
 array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 ```
 
-If a struct or array has a default value for a member/element, you do not have to specify it 
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
 
 Trailing commas are allowed in these expressions.
 

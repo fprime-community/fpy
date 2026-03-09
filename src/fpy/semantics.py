@@ -1844,8 +1844,7 @@ class CalculateConstExprValues(Visitor):
             # Validate ranges for U32
             if seconds < 0:
                 state.err(
-                    f"Time string '{time_str}' results in negative seconds ({seconds}), "
-                    "which cannot be represented in Fw.Time",
+                    f"Time string '{time_str}' results in negative seconds ({seconds})",
                     node,
                 )
                 return None
