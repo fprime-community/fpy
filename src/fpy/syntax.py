@@ -249,6 +249,7 @@ AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonS
 
 @dataclass
 class AstAssign(Ast):
+    tag: str | None
     lhs: AstExpr
     type_ann: AstExpr | None
     rhs: AstExpr
@@ -492,6 +493,10 @@ class FpyTransformer(Transformer):
     pass_stmt = AstPass
 
     assign_stmt = AstAssign
+
+    def var_tag(self, meta):
+        # The var_tag rule matches "arg" literal
+        return "arg"
 
     for_stmt = AstFor
     while_stmt = AstWhile

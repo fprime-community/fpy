@@ -5060,6 +5060,19 @@ def test_set_flag_basic(fprime_test_api):
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 """
     assert_run_success(fprime_test_api, seq)
+def test_arg_valid(fprime_test_api):
+    """Test that arg declarations at the top of a sequence work correctly."""
+    seq = """
+# All arg declarations must be at the top
+arg input_param: U8 = 0
+arg threshold: F32 = 1.5
+arg enable_feature: bool = True
+
+# Now regular code can begin
+result: U32 = 42
+counter: U8 = input_param
+"""
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_set_flag_false(fprime_test_api):
@@ -5114,6 +5127,18 @@ def test_set_flag_wrong_type(fprime_test_api):
     """set_flag with an integer instead of FlagId should fail compilation."""
     seq = """
 set_flag(0, True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+def test_arg_invalid_after_statement(fprime_test_api):
+    """Test that arg declarations after non-arg statements fail to compile."""
+    seq = """
+arg param1: U8 = 0
+
+# This non-arg statement breaks the rule
+regular_var: U32 = 42
+
+# This should cause a compile error
+arg param2: U16 = 100
 """
     assert_compile_failure(fprime_test_api, seq)
 
@@ -5753,3 +5778,30 @@ assert (
 )
 """
         assert_run_success(fprime_test_api, seq)
+def test_arg_invalid_after_command(fprime_test_api):
+    """Test that arg declarations after commands fail to compile."""
+    seq = """
+arg param1: U8 = 0
+
+# Command breaks the arg-only section
+CdhCore.cmdDisp.CMD_NO_OP()
+
+# This should fail
+arg param2: U16 = 100
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_arg_invalid_after_function(fprime_test_api):
+    """Test that arg declarations after function definitions fail to compile."""
+    seq = """
+arg param1: U8 = 0
+
+# Function definition breaks the arg-only section
+def my_func():
+    CdhCore.cmdDisp.CMD_NO_OP()
+
+# This should fail
+arg param2: U16 = 100
+"""
+    assert_compile_failure(fprime_test_api, seq)

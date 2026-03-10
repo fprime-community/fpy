@@ -83,7 +83,7 @@ class DesugarForLoops(Transformer):
         rhs = loop_node.range.lower_bound
         return self.new(
             state,
-            AstAssign(None, lhs, loop_var_type_var, rhs),
+            AstAssign(None, None, lhs, loop_var_type_var, rhs),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,
@@ -126,7 +126,7 @@ class DesugarForLoops(Transformer):
         return self.new(
             state,
             AstAssign(
-                None, upper_bound_var, loop_var_type_var, loop_node.range.upper_bound
+                None, None, upper_bound_var, loop_var_type_var, loop_node.range.upper_bound
             ),
             contextual_type=None,
             synthesized_type=None,
@@ -191,7 +191,7 @@ class DesugarForLoops(Transformer):
 
         return self.new(
             state,
-            AstAssign(None, lhs, None, rhs),
+            AstAssign(None, None, lhs, None, rhs),
             contextual_type=None,
             synthesized_type=None,
             contextual_value=None,

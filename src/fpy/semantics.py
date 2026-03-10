@@ -654,6 +654,53 @@ def is_type_constant_size(type: FpyType) -> bool:
         return True
 
     return True
+class CheckArgDeclarationsAtTop(TopDownVisitor):
+    """
+    Ensures that 'arg' tagged variables only appear at the very top of the main sequence.
+    Once we see any non-arg statement, all subsequent arg declarations are errors.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.seen_non_arg_statement = False
+        self.first_non_arg_location = None
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # Only check the root block (top-level sequence)
+        if node is not state.root:
+            return
+
+        # Walk through statements in order
+        for stmt in node.stmts:
+            self._check_statement(stmt, state)
+
+    def _check_statement(self, stmt: AstStmt, state: CompileState):
+        """Check a single statement."""
+        if isinstance(stmt, AstAssign):
+            # Check if this is an arg declaration
+            tag = stmt.tag
+
+            if tag == "arg":
+                # This is an arg declaration
+                if self.seen_non_arg_statement:
+                    # Error: arg after non-arg statement
+                    state.err(
+                        f"'arg' declarations must appear at the top of the sequence.\n"
+                        f"First non-arg statement was at line {self.first_non_arg_location.line}",
+                        stmt
+                    )
+            else:
+                # This is not an arg declaration (either no tag or different tag)
+                if not self.seen_non_arg_statement:
+                    self.seen_non_arg_statement = True
+                    self.first_non_arg_location = stmt.meta
+        else:
+            # Any non-assignment statement (commands, if, while, def, etc.)
+            if not self.seen_non_arg_statement:
+                self.seen_non_arg_statement = True
+                self.first_non_arg_location = stmt.meta
+
+
 
 
 class UpdateTypesAndFuncs(Visitor):
