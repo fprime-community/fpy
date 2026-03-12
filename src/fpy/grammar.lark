@@ -33,12 +33,8 @@ return_stmt: "return" [expr]
 # -> AstReturn(value)
 assign_stmt: expr [":" expr] "=" expr
 # -> AstAssign(None, lhs, type_ann, rhs)
-arg_stmnt: "arg" expr ":" type_expr ["=" expr]
+arg_stmnt: "arg" expr ":" expr ["=" expr]
 # -> AstAssign("arg", lhs, type_ann, rhs)
-
-arg_decl: 
-assign: expr [":" type_expr] "=" expr
-
 
 # the function definition statement
 # functions may be defined with zero or more comma-separated parameters, and an

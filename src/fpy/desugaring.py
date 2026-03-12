@@ -432,7 +432,7 @@ class DesugarCheckStatements(Transformer):
         return AstUnaryOp(self.meta, op, val)
     
     def assign(self, lhs, rhs, type_ann=None) -> AstAssign:
-        return AstAssign(self.meta, lhs, type_ann, rhs)
+        return AstAssign(self.meta, None, lhs, type_ann, rhs)
     
     def if_stmt(self, cond, body_stmts, else_stmts=None) -> AstIf:
         body = AstBlock(self.meta, list(body_stmts))
