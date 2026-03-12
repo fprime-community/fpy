@@ -5081,6 +5081,18 @@ def test_set_flag_false(fprime_test_api):
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
 """
     assert_run_success(fprime_test_api, seq)
+def test_arg_without_initialization(fprime_test_api):
+    """Test that arg declarations work without initialization values."""
+    seq = """
+# Args without initialization - values provided by caller
+arg param1: U8
+arg param2: F32
+arg param3: bool
+
+# Args can be used in expressions
+result: U8 = param1
+"""
+    assert_run_success(fprime_test_api, seq)
 
 
 def test_set_and_get_flag(fprime_test_api):
@@ -5129,6 +5141,8 @@ def test_set_flag_wrong_type(fprime_test_api):
 set_flag(0, True)
 """
     assert_compile_failure(fprime_test_api, seq)
+
+
 def test_arg_invalid_after_statement(fprime_test_api):
     """Test that arg declarations after non-arg statements fail to compile."""
     seq = """

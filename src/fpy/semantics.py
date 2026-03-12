@@ -274,7 +274,18 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
         if node.type_ann is not None:
             # new variable declaration
-            # make sure it isn't defined in this scope (shadowing parent scopes is ok)
+            # Validate initialization requirements
+            if node.tag != "arg" and node.rhs is None:
+                # Non-arg declarations must have an initialization value
+                state.err(
+                    "Variable declaration must have an initialization value. "
+                    "Only 'arg' declarations can omit initialization.",
+                    node
+                )
+                return
+
+            # make sure it isn't defined in this scope
+            # TODO shadowing check
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
                 # redeclaring an existing variable in the SAME scope
@@ -288,8 +299,12 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # new var. put it in the scope
             scope[node.lhs.name] = var
         else:
-            # otherwise, it's a reference to an existing var
-            # walk up the scope chain to find it
+            # otherwise, it's a reference to an existing var (reassignment)
+            if node.rhs is None:
+                # Assignment without value doesn't make sense
+                state.err("Assignment must have a value", node)
+                return
+
             sym = scope.lookup(node.lhs.name)
             if sym is None:
                 # unable to find this symbol
@@ -805,8 +820,10 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # declaration of this var
             return
 
-        # Before marking as defined, check that the variable isn't used in its own RHS
-        EnsureVariableNotReferenced(var).run(node.rhs, state)
+        # Before marking as declared, check that the variable isn't used in its own RHS
+        # (Only if rhs exists - arg declarations without init have rhs=None)
+        if node.rhs is not None:
+            EnsureVariableNotReferenced(var).run(node.rhs, state)
 
         # Now mark this variable as defined
         self.currently_defined_vars.append(var)
@@ -1750,8 +1767,10 @@ class PickTypesAndResolveFields(Visitor):
             lhs_type = state.contextual_types[node.lhs]
 
         # coerce the rhs into the lhs type
-        if not self.coerce_expr_type(node.rhs, lhs_type, state):
-            return
+        # (Only if rhs exists - arg declarations without init have rhs=None)
+        if node.rhs is not None:
+            if not self.coerce_expr_type(node.rhs, lhs_type, state):
+                return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
         if not self.coerce_expr_type(node.condition, BOOL, state):

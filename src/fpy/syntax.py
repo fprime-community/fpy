@@ -252,7 +252,7 @@ class AstAssign(Ast):
     tag: str | None
     lhs: AstExpr
     type_ann: AstExpr | None
-    rhs: AstExpr
+    rhs: AstExpr | None
 
 
 @dataclass
@@ -492,11 +492,16 @@ class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
     pass_stmt = AstPass
 
-    assign_stmt = AstAssign
+    @v_args(meta=True, inline=True)
+    def assign_stmt(self, meta, lhs, type_ann, rhs):
+        # Regular assignment (no tag): x: U8 = value or x = value
+        return AstAssign(meta, None, lhs, type_ann, rhs)
 
-    def var_tag(self, meta):
-        # The var_tag rule matches "arg" literal
-        return "arg"
+    @v_args(meta=True, inline=True)
+    def arg_stmnt(self, meta, lhs, type_ann, rhs=None):
+        # arg declaration: arg x: U8 [= value]
+        # rhs is optional and defaults to None if not provided
+        return AstAssign(meta, "arg", lhs, type_ann, rhs)
 
     for_stmt = AstFor
     while_stmt = AstWhile
