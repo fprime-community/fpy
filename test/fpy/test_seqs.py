@@ -4645,9 +4645,9 @@ assert counter >= 2
 
 def test_func_modify_param(fprime_test_api):
     seq = """
-def test(arg: U8):
-    arg = 1
-    assert arg == 1
+def test($arg: U8):
+    $arg = 1
+    assert $arg == 1
 
 val: U8 = 123
 test(val)
