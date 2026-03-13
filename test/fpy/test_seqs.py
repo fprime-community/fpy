@@ -5060,6 +5060,8 @@ def test_set_flag_basic(fprime_test_api):
 set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 """
     assert_run_success(fprime_test_api, seq)
+
+
 def test_arg_valid(fprime_test_api):
     """Test that arg declarations at the top of a sequence work correctly."""
     seq = """
@@ -5792,6 +5794,8 @@ assert (
 )
 """
         assert_run_success(fprime_test_api, seq)
+
+
 def test_arg_invalid_after_command(fprime_test_api):
     """Test that arg declarations after commands fail to compile."""
     seq = """
