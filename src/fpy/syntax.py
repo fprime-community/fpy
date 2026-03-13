@@ -498,7 +498,7 @@ class FpyTransformer(Transformer):
         return AstAssign(meta, None, lhs, type_ann, rhs)
 
     @v_args(meta=True, inline=True)
-    def arg_stmnt(self, meta, lhs, type_ann, rhs=None):
+    def arg_stmt(self, meta, lhs, type_ann, rhs=None):
         # arg declaration: arg x: U8 [= value]
         # rhs is optional and defaults to None if not provided
         return AstAssign(meta, "arg", lhs, type_ann, rhs)
