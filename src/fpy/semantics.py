@@ -274,7 +274,18 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
         if node.type_ann is not None:
             # new variable declaration
-            # make sure it isn't defined in this scope (shadowing parent scopes is ok)
+            # Validate initialization requirements
+            if node.tag != "arg" and node.rhs is None:
+                # Non-arg declarations must have an initialization value
+                state.err(
+                    "Variable declaration must have an initialization value. "
+                    "Only 'arg' declarations can omit initialization.",
+                    node
+                )
+                return
+
+            # make sure it isn't defined in this scope
+            # TODO shadowing check
             existing_local = scope.get(node.lhs.name)
             if existing_local is not None:
                 # redeclaring an existing variable in the SAME scope
@@ -288,8 +299,12 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             # new var. put it in the scope
             scope[node.lhs.name] = var
         else:
-            # otherwise, it's a reference to an existing var
-            # walk up the scope chain to find it
+            # otherwise, it's a reference to an existing var (reassignment)
+            if node.rhs is None:
+                # Assignment without value doesn't make sense
+                state.err("Assignment must have a value", node)
+                return
+
             sym = scope.lookup(node.lhs.name)
             if sym is None:
                 # unable to find this symbol
@@ -654,6 +669,57 @@ def is_type_constant_size(type: FpyType) -> bool:
         return True
 
     return True
+class CheckArgDeclarationsAtTop(TopDownVisitor):
+    """
+    Ensures that 'arg' tagged variables only appear at the very top of the main sequence.
+    Once we see any non-arg statement, all subsequent arg declarations are errors.
+
+    Builtin function definitions (prepended by the compiler) are skipped, but user-defined
+    functions count as non-arg statements.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.seen_non_arg_statement = False
+        self.seen_user_code = False  # Track when we transition from builtins to user code
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # Only check the root block (top-level sequence)
+        if node is not state.root:
+            return
+
+        # Walk through statements in order
+        for stmt in node.stmts:
+            self._check_statement(stmt, state)
+
+    def _check_statement(self, stmt: AstStmt, state: CompileState):
+        # Function definitions: skip builtin functions (before any user code),
+        # but treat user-defined functions as non-arg statements
+        if isinstance(stmt, AstDef):
+            if not self.seen_user_code:
+                # Still in builtin function territory, skip it
+                return
+            # This is a user-defined function, treat as non-arg statement
+            self.seen_non_arg_statement = True
+            return
+
+        # Any non-function statement marks the start of user code
+        self.seen_user_code = True
+
+        if isinstance(stmt, AstAssign):
+            # Check if this is an arg declaration
+            if stmt.tag == "arg":
+                # This is an arg declaration
+                if self.seen_non_arg_statement:
+                    # Error: arg after non-arg statement
+                    state.err(
+                        f"'arg' declarations must appear at the top of the sequence.\n",
+                        stmt
+                    )
+                return
+        self.seen_non_arg_statement = True
+
+
 
 
 class UpdateTypesAndFuncs(Visitor):
@@ -758,8 +824,10 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # declaration of this var
             return
 
-        # Before marking as defined, check that the variable isn't used in its own RHS
-        EnsureVariableNotReferenced(var).run(node.rhs, state)
+        # Before marking as declared, check that the variable isn't used in its own RHS
+        # (Only if rhs exists - arg declarations without init have rhs=None)
+        if node.rhs is not None:
+            EnsureVariableNotReferenced(var).run(node.rhs, state)
 
         # Now mark this variable as defined
         self.currently_defined_vars.append(var)
@@ -1703,8 +1771,10 @@ class PickTypesAndResolveFields(Visitor):
             lhs_type = state.contextual_types[node.lhs]
 
         # coerce the rhs into the lhs type
-        if not self.coerce_expr_type(node.rhs, lhs_type, state):
-            return
+        # (Only if rhs exists - arg declarations without init have rhs=None)
+        if node.rhs is not None:
+            if not self.coerce_expr_type(node.rhs, lhs_type, state):
+                return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
         if not self.coerce_expr_type(node.condition, BOOL, state):

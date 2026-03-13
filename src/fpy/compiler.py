@@ -21,6 +21,7 @@ from fpy.semantics import (
     CreateScopes,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
+    CheckArgDeclarationsAtTop,
     CheckBreakAndContinueInLoop,
     CheckConstArrayAccesses,
     CheckFunctionReturns,
@@ -482,6 +483,8 @@ def ast_to_directives(
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
         CreateVariablesAndFuncs(),
+        # check that 'arg' declarations only appear at the top of the sequence
+        CheckArgDeclarationsAtTop(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),

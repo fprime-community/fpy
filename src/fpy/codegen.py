@@ -927,6 +927,12 @@ class GenerateFunctionBody(Emitter):
         return dirs
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState):
+        # Handle arg declarations without initialization (rhs is None)
+        if node.rhs is None:
+            # This is an arg parameter declaration without initialization
+            # Space is already allocated in AssignVariableOffsets, no code generation needed
+            return []
+
         lhs = state.resolved_symbols[node.lhs]
 
         const_frame_offset = -1

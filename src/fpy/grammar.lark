@@ -11,7 +11,7 @@ _toplevel_stmt: def_stmt | _stmt
 # Small statements must be followed by a newline; compound statements end with their block's DEDENT
 _stmt: _small_stmt _NEWLINE | _compound_stmt
 # small statements are those which cannot themselves contain statements
-_small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
+_small_stmt: expr_stmt | assign_stmt | arg_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
 # compound statements may contain other statements
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
@@ -32,8 +32,9 @@ assert_stmt: "assert" expr ["," expr]
 return_stmt: "return" [expr]
 # -> AstReturn(value)
 assign_stmt: expr [":" expr] "=" expr
-# -> AstAssign(lhs, type_ann, rhs)
-
+# -> AstAssign(None, lhs, type_ann, rhs)
+arg_stmt: "arg" expr ":" expr ["=" expr]
+# -> AstAssign("arg", lhs, type_ann, rhs)
 
 # the function definition statement
 # functions may be defined with zero or more comma-separated parameters, and an

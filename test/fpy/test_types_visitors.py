@@ -70,7 +70,7 @@ def test_visitor_depth_first_traversal():
 
     lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=7)
-    assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
+    assign = AstAssign(meta=None, tag=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     visitor.run(assign, state)
 
@@ -96,7 +96,7 @@ def test_top_down_visitor_breadth_first_order():
 
     lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=5)
-    assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
+    assign = AstAssign(meta=None, tag=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     visitor.run(assign, state)
 
@@ -140,7 +140,7 @@ def test_visitor_stops_on_error():
 
     lhs = AstIdent(meta=None, name="x")
     rhs = AstNumber(meta=None, value=9)
-    assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
+    assign = AstAssign(meta=None, tag=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     visitor.run(assign, state)
 
@@ -172,7 +172,7 @@ def test_transformer_replaces_child_nodes():
 
     lhs = AstIdent(meta=None, name="answer")
     rhs = AstNumber(meta=None, value=42)
-    assign = AstAssign(meta=None, lhs=lhs, type_ann=None, rhs=rhs)
+    assign = AstAssign(meta=None, tag=None, lhs=lhs, type_ann=None, rhs=rhs)
 
     transformer.run(assign, state)
 
