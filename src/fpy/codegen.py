@@ -926,45 +926,62 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
+    def _compute_field_access_offset(
+        self, lhs: FieldAccess, state: CompileState
+    ) -> tuple[int, list[tuple[AstExpr, FpyType]]]:
+        """Walk the FieldAccess chain to compute offset components.
+
+        Returns (const_offset, dynamic_components) where:
+        - const_offset is the sum of all constant byte offsets from the base
+          variable (struct member offsets + constant-index array element offsets)
+        - dynamic_components is a list of (idx_expr, array_type) for each
+          array element access whose index is not known at compile time
+
+        The total offset is the sum of these two.
+        """
+        const_offset = 0
+        dynamic_components = []
+
+        current = lhs
+        while is_instance_compat(current, FieldAccess):
+            if current.is_struct_member:
+                assert current.local_offset is not None
+                const_offset += current.local_offset
+            elif current.is_array_element:
+                parent_type = state.contextual_types[current.parent_expr]
+                const_idx = state.const_expr_values.get(current.idx_expr)
+                if const_idx is not None:
+                    assert isinstance(const_idx, FpyValue) and const_idx.type == ArrayIndexType
+                    const_offset += const_idx.val * parent_type.elem_type.max_size
+                else:
+                    dynamic_components.append((current.idx_expr, parent_type))
+            current = state.resolved_symbols.get(current.parent_expr)
+
+        return const_offset, dynamic_components
+
     def emit_AstAssign(self, node: AstAssign, state: CompileState):
         lhs = state.resolved_symbols[node.lhs]
 
-        const_frame_offset = -1
         is_global_var = False
+        # field_const_offset: the constant byte offset within the variable's
+        # storage (from struct member offsets and constant-index array elements).
+        # dynamic_components: variable-index array accesses whose offsets can
+        # only be computed at runtime.
+        field_const_offset = 0
+        dynamic_components = []
+
         if is_instance_compat(lhs, VariableSymbol):
-            const_frame_offset = lhs.frame_offset
+            base_frame_offset = lhs.frame_offset
             is_global_var = lhs.is_global
-            assert const_frame_offset is not None, lhs
+            assert base_frame_offset is not None, lhs
         else:
-            # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
+            base_frame_offset = lhs.base_sym.frame_offset
             is_global_var = lhs.base_sym.is_global
 
-            # is the lvar array offset a constant?
-            # okay, are we assigning to a member or an element?
-            if lhs.is_struct_member:
-                # if it's a struct, then the lvar offset is always constant
-                const_frame_offset = lhs.base_offset + lhs.base_sym.frame_offset
-            else:
-                assert lhs.is_array_element
-                # again, offset is the offset in base type + offset of base lvar
-
-                # however, because array idx can be variable, we might not know at compile time
-                # the offset in base type.
-
-                # check if we have a value for it
-                const_idx_expr_value = state.const_expr_values.get(lhs.idx_expr)
-                if const_idx_expr_value is not None:
-                    assert isinstance(const_idx_expr_value, FpyValue) and const_idx_expr_value.type == ArrayIndexType
-                    # okay, so we have a constant value index
-                    lhs_parent_type = state.contextual_types[lhs.parent_expr]
-                    const_frame_offset = (
-                        lhs.base_sym.frame_offset
-                        + const_idx_expr_value.val
-                        * lhs_parent_type.elem_type.max_size
-                    )
-                # otherwise, the array idx is unknown at compile time. we will have to calculate it
+            # Walk the field access chain to compute the total offset.
+            field_const_offset, dynamic_components = self._compute_field_access_offset(lhs, state)
 
         # Use global directives only when inside a function AND accessing a global variable
         use_global = self.in_function and is_global_var
@@ -972,42 +989,44 @@ class GenerateFunctionBody(Emitter):
         # start with rhs on stack
         dirs = self.emit(node.rhs, state)
 
-        if const_frame_offset != -1:
-            # in this case, we can use StoreConstOffset
+        if not dynamic_components:
+            # The full lvar array offset is known at compile time.
+            frame_offset = base_frame_offset + field_const_offset
             if use_global:
                 dirs.append(
                     StoreAbsConstOffsetDirective(
-                        const_frame_offset, lhs.type.max_size
+                        frame_offset, lhs.type.max_size
                     )
                 )
             else:
                 dirs.append(
                     StoreRelConstOffsetDirective(
-                        const_frame_offset, lhs.type.max_size
+                        frame_offset, lhs.type.max_size
                     )
                 )
         else:
-            # okay we don't know the offset at compile time
-            # only one case where that can be:
-            assert is_instance_compat(lhs, FieldAccess) and lhs.is_array_element, lhs
+            # At least one array index in the access chain is not known at
+            # compile time.  Compute the total offset dynamically.
+            assert is_instance_compat(lhs, FieldAccess), lhs
+            assert dynamic_components, lhs
 
-            # we need to calculate absolute offset in lvar array
-            # == (parent offset) + (offset in parent)
-
-            # offset in parent:
-            lhs_parent_type = state.contextual_types[lhs.parent_expr]
-            dirs.extend(
-                self.calc_lvar_offset_of_array_element(
-                    node, lhs.idx_expr, lhs_parent_type, state
+            # Emit code to compute each dynamic offset component
+            # (idx * elem_size) and sum them together on the stack.
+            for i, (idx_expr, parent_type) in enumerate(dynamic_components):
+                dirs.extend(
+                    self.calc_lvar_offset_of_array_element(
+                        node, idx_expr, parent_type, state
+                    )
                 )
-            )
+                if i > 0:
+                    dirs.append(IntAddDirective())
 
-            # parent offset:
+            # Add the constant part: base variable's frame offset +
+            # accumulated constant field offsets.
+            const_part = base_frame_offset + field_const_offset
             dirs.append(
-                PushValDirective(FpyValue(U64, lhs.base_sym.frame_offset).serialize())
+                PushValDirective(FpyValue(U64, const_part).serialize())
             )
-
-            # add them
             dirs.append(IntAddDirective())
 
             # and now convert the u64 back into the SignedStackSizeType that store expects
