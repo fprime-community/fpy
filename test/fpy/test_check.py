@@ -1,8 +1,11 @@
 from fpy.test_helpers import assert_compile_failure, assert_run_success
 
-def test_check_condition_true_immediately(fprime_test_api):
-    """Test that check succeeds immediately when condition is true with zero persist."""
-    seq = """
+
+class TestCheckBehavior:
+
+    def test_check_condition_true_immediately(self, fprime_test_api):
+        """Test that check succeeds immediately when condition is true with zero persist."""
+        seq = """
 check_passed: bool = False
 check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     check_passed = True
@@ -10,12 +13,11 @@ timeout:
     assert False, 1
 assert check_passed
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_check_timeout_when_always_false(fprime_test_api):
-    """Test that check times out when condition is always false."""
-    seq = """
+    def test_check_timeout_when_always_false(self, fprime_test_api):
+        """Test that check times out when condition is always false."""
+        seq = """
 timed_out: bool = False
 check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     assert False, 1
@@ -23,12 +25,11 @@ timeout:
     timed_out = True
 assert timed_out
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_check_condition_evaluated_multiple_times(fprime_test_api):
-    """Test that check evaluates condition multiple times until it becomes true."""
-    seq = """
+    def test_check_condition_evaluated_multiple_times(self, fprime_test_api):
+        """Test that check evaluates condition multiple times until it becomes true."""
+        seq = """
 # Count how many times condition is evaluated
 eval_count: I64 = 0
 
@@ -45,15 +46,14 @@ timeout:
 # Should have been evaluated at least 3 times
 assert eval_count >= 3
 """
-    assert_run_success(fprime_test_api, seq, timeout_s=6)
+        assert_run_success(fprime_test_api, seq, timeout_s=6)
 
-
-def test_check_condition_must_persist(fprime_test_api):
-    """Test that condition must remain true for the full persist duration.
+    def test_check_condition_must_persist(self, fprime_test_api):
+        """Test that condition must remain true for the full persist duration.
 
     If condition becomes false before persist duration, the timer resets.
     """
-    seq = """
+        seq = """
 # Condition returns true twice, then false, then true forever
 call_count: I64 = 0
 
@@ -76,12 +76,11 @@ timeout:
 # Should have been called more than 3 times since persist timer was reset
 assert call_count > 3
 """
-    assert_run_success(fprime_test_api, seq, timeout_s=20)
+        assert_run_success(fprime_test_api, seq, timeout_s=20)
 
-
-def test_check_zero_persist_true_once_enough(fprime_test_api):
-    """Test that with zero persist, condition being true once is enough."""
-    seq = """
+    def test_check_zero_persist_true_once_enough(self, fprime_test_api):
+        """Test that with zero persist, condition being true once is enough."""
+        seq = """
 # Return true only once, then false forever
 returned_true: bool = False
 
@@ -96,23 +95,23 @@ check return_true_once() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) per
 timeout:
     assert False, 1
 """
-    assert_run_success(fprime_test_api, seq, timeout_s=6)
+        assert_run_success(fprime_test_api, seq, timeout_s=6)
 
+class TestCheckBodies:
 
-def test_check_body_runs_on_success(fprime_test_api):
-    """Test that check body runs when condition succeeds."""
-    seq = """
+    def test_check_body_runs_on_success(self, fprime_test_api):
+        """Test that check body runs when condition succeeds."""
+        seq = """
 body_ran: bool = False
 check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     body_ran = True
 assert body_ran
 """
-    assert_run_success(fprime_test_api, seq, timeout_s=6)
+        assert_run_success(fprime_test_api, seq, timeout_s=6)
 
-
-def test_check_timeout_body_runs_on_timeout(fprime_test_api):
-    """Test that timeout body runs when check times out."""
-    seq = """
+    def test_check_timeout_body_runs_on_timeout(self, fprime_test_api):
+        """Test that timeout body runs when check times out."""
+        seq = """
 timeout_body_ran: bool = False
 check False timeout time_add(now(), Fw.TimeIntervalValue(0, 50000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
     assert False, 1
@@ -120,23 +119,23 @@ timeout:
     timeout_body_ran = True
 assert timeout_body_ran
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_check_optional_timeout_body(fprime_test_api):
-    """Test that check works without timeout body."""
-    seq = """
+    def test_check_optional_timeout_body(self, fprime_test_api):
+        """Test that check works without timeout body."""
+        seq = """
 result: bool = False
 check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
     result = True
 assert result
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
+class TestCheckClauses:
 
-def test_check_no_timeout_clause(fprime_test_api):
-    """Test check without timeout clause (runs indefinitely until success)."""
-    seq = """
+    def test_check_no_timeout_clause(self, fprime_test_api):
+        """Test check without timeout clause (runs indefinitely until success)."""
+        seq = """
 # Without timeout, check runs until condition succeeds
 call_count: I64 = 0
 
@@ -147,52 +146,21 @@ def eventually_true() -> bool:
 check eventually_true():
     exit(0)
 """
-    assert_run_success(fprime_test_api, seq, timeout_s=10)
+        assert_run_success(fprime_test_api, seq, timeout_s=10)
 
-
-def test_check_only_timeout_specified(fprime_test_api):
-    """Test check with only timeout specified (uses default persist=0 and freq=1s)."""
-    seq = """
+    def test_check_only_timeout_specified(self, fprime_test_api):
+        """Test check with only timeout specified (uses default persist=0 and freq=1s)."""
+        seq = """
 check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
     exit(0)
 timeout:
     assert False, 1
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_check_nested_in_function(fprime_test_api):
-    """Test that check statements work inside functions."""
-    seq = """
-def do_check() -> bool:
-    result: bool = False
-    check True timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
-        result = True
-    timeout:
-        pass
-    return result
-
-assert do_check()
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_modifies_outer_scope(fprime_test_api):
-    """Test that check body can modify variables in outer scope."""
-    seq = """
-outer_var: I32 = 0
-
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
-    outer_var = 42
-
-assert outer_var == 42
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_absolute_timeout(fprime_test_api):
-    """Test that check works with absolute Fw.Time timeout."""
-    seq = """
+    def test_check_absolute_timeout(self, fprime_test_api):
+        """Test that check works with absolute Fw.Time timeout."""
+        seq = """
 # Create an absolute timeout 100ms from now
 abs_timeout: Fw.Time = time_add(now(), Fw.TimeIntervalValue(0, 100000))
 result: bool = False
@@ -202,434 +170,11 @@ timeout:
     pass
 assert result
 """
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_timeout_wrong_type(fprime_test_api):
-    """Test that check timeout with wrong type gives compile error."""
-    seq = """
-check True timeout 123 persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_condition_wrong_type(fprime_test_api):
-    """Test that check condition must be bool, not int."""
-    seq = """
-check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_condition_wrong_type_string(fprime_test_api):
-    """Test that check condition must be bool, not string."""
-    seq = """
-check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_persist_wrong_type(fprime_test_api):
-    """Test that check persist must be TimeIntervalValue, not int."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 freq Fw.TimeIntervalValue(0, 10000):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_persist_wrong_type_time(fprime_test_api):
-    """Test that check persist must be TimeIntervalValue, not Fw.Time."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist now() freq Fw.TimeIntervalValue(0, 10000):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_freq_wrong_type(fprime_test_api):
-    """Test that check freq must be TimeIntervalValue, not int."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq 123:
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_freq_wrong_type_time(fprime_test_api):
-    """Test that check freq must be TimeIntervalValue, not Fw.Time."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq now():
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_duplicate_timeout(fprime_test_api):
-    """Test that duplicate timeout clauses cause a compile error."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) timeout time_add(now(), Fw.TimeIntervalValue(2, 0)):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_duplicate_persist(fprime_test_api):
-    """Test that duplicate persist clauses cause a compile error."""
-    seq = """
-check True persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_duplicate_freq(fprime_test_api):
-    """Test that duplicate freq clauses cause a compile error."""
-    seq = """
-check True freq Fw.TimeIntervalValue(1, 0) freq Fw.TimeIntervalValue(2, 0):
-    pass
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_multiline_timeout_only(fprime_test_api):
-    """Test multi-line check with only timeout clause."""
-    seq = """
-check_passed: bool = False
-check True
-    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_multiline_all_clauses(fprime_test_api):
-    """Test multi-line check with all three clauses."""
-    seq = """
-check_passed: bool = False
-check True
-    timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
-    persist Fw.TimeIntervalValue(0, 0)
-    freq Fw.TimeIntervalValue(0, 100000):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_multiline_different_order(fprime_test_api):
-    """Test multi-line check with clauses in different order (freq, persist, timeout)."""
-    seq = """
-check_passed: bool = False
-check True
-    freq Fw.TimeIntervalValue(0, 100000)
-    persist Fw.TimeIntervalValue(0, 0)
-    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_multiline_persist_timeout_order(fprime_test_api):
-    """Test multi-line check with persist before timeout."""
-    seq = """
-check_passed: bool = False
-check True
-    persist Fw.TimeIntervalValue(0, 0)
-    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_singleline_any_order_persist_first(fprime_test_api):
-    """Test single-line check with persist before timeout."""
-    seq = """
-check_passed: bool = False
-check True persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_singleline_any_order_freq_first(fprime_test_api):
-    """Test single-line check with freq before other clauses."""
-    seq = """
-check_passed: bool = False
-check True freq Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_singleline_only_persist(fprime_test_api):
-    """Test single-line check with only persist clause."""
-    seq = """
-check_passed: bool = False
-check True persist Fw.TimeIntervalValue(0, 0):
-    check_passed = True
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_singleline_only_freq(fprime_test_api):
-    """Test single-line check with only freq clause."""
-    seq = """
-check_passed: bool = False
-check True freq Fw.TimeIntervalValue(0, 100000):
-    check_passed = True
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_multiline_timeout_occurs(fprime_test_api):
-    """Test multi-line check that times out."""
-    seq = """
-timed_out: bool = False
-check False
-    timeout time_add(now(), Fw.TimeIntervalValue(0, 100000))
-    freq Fw.TimeIntervalValue(0, 10000):
-    assert False, 1
-timeout:
-    timed_out = True
-assert timed_out
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_mixed_inline_and_multiline(fprime_test_api):
-    """Test check with some clauses inline and some on indented lines."""
-    seq = """
-check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
-    persist Fw.TimeIntervalValue(0, 0)
-    freq Fw.TimeIntervalValue(0, 100000):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_mixed_two_inline_one_multiline(fprime_test_api):
-    """Test check with two clauses inline and one on indented line."""
-    seq = """
-check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0)
-    freq Fw.TimeIntervalValue(0, 100000):
-    check_passed = True
-timeout:
-    assert False, 1
-assert check_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_break_not_allowed(fprime_test_api):
-    """Test that break inside check body is not allowed when check is not in a loop."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    break
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_continue_not_allowed(fprime_test_api):
-    """Test that continue inside check body is not allowed when check is not in a loop."""
-    seq = """
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    continue
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_break_allowed_in_loop(fprime_test_api):
-    """Test that break inside check body IS allowed when check is inside a loop."""
-    seq = """
-loop_ran: bool = False
-while True:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        loop_ran = True
-        break
-assert loop_ran
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_continue_allowed_in_loop(fprime_test_api):
-    """Test that continue inside check body IS allowed when check is inside a loop."""
-    seq = """
-iterations: I64 = 0
-while iterations < 3:
-    iterations = iterations + 1
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        continue
-assert iterations == 3
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_return_in_function(fprime_test_api):
-    """Test that return inside check body works correctly in a function."""
-    seq = """
-def check_and_return() -> I64:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        return 42
-    return 0
-
-result: I64 = check_and_return()
-assert result == 42
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_return_from_timeout_body(fprime_test_api):
-    """Test that return from timeout body works correctly."""
-    seq = """
-def check_timeout_return() -> I64:
-    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
-        return 1
-    timeout:
-        return 42
-    return 0
-
-result: I64 = check_timeout_return()
-assert result == 42
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_both_branches_return(fprime_test_api):
-    """Test that a function with check where both bodies return doesn't need trailing return."""
-    seq = """
-def check_returns() -> I64:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        return 42
-    timeout:
-        return 0
-
-result: I64 = check_returns()
-assert result == 42
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_no_timeout_body_return_required(fprime_test_api):
-    """Test that a function with check but no timeout body still needs trailing return."""
-    seq = """
-def check_needs_return() -> I64:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        return 42
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_no_timeout_clause_still_needs_return(fprime_test_api):
-    """Test that a check with no timeout clause still needs a trailing return
-    because the desugared if/else has an implicit else branch that doesn't return."""
-    seq = """
-def check_no_timeout() -> I64:
-    check True:
-        return 42
-"""
-    # The check desugars to: while True:...; if result: <body> else: <implicit>
-    # The implicit else doesn't return, so we need a trailing return
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_check_nested(fprime_test_api):
-    """Test nested check statements."""
-    seq = """
-outer_passed: bool = False
-inner_passed: bool = False
-
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    outer_passed = True
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        inner_passed = True
-
-assert outer_passed
-assert inner_passed
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_nested_timeout_body(fprime_test_api):
-    """Test nested check with inner check timing out."""
-    seq = """
-outer_passed: bool = False
-inner_timed_out: bool = False
-
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-    outer_passed = True
-    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
-        pass
-    timeout:
-        inner_timed_out = True
-
-assert outer_passed
-assert inner_timed_out
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_inside_while_loop(fprime_test_api):
-    """Test check inside a while loop."""
-    seq = """
-iterations: I64 = 0
-checks_passed: I64 = 0
-
-while iterations < 3:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        checks_passed = checks_passed + 1
-    iterations = iterations + 1
-
-assert iterations == 3
-assert checks_passed == 3
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_inside_for_loop(fprime_test_api):
-    """Test check inside a for loop."""
-    seq = """
-checks_passed: I64 = 0
-
-for i in 0..3:
-    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
-        checks_passed = checks_passed + 1
-
-assert checks_passed == 3
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_check_with_zero_clauses(fprime_test_api):
-    """Test check with absolutely no clauses (all defaults)."""
-    seq = """
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_with_zero_clauses(self, fprime_test_api):
+        """Test check with absolutely no clauses (all defaults)."""
+        seq = """
 counter: I64 = 0
 
 def eventually_true() -> bool:
@@ -643,4 +188,429 @@ check eventually_true():
 assert passed
 assert counter >= 2
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
+
+class TestCheckNesting:
+
+    def test_check_nested_in_function(self, fprime_test_api):
+        """Test that check statements work inside functions."""
+        seq = """
+def do_check() -> bool:
+    result: bool = False
+    check True timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+        result = True
+    timeout:
+        pass
+    return result
+
+assert do_check()
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_modifies_outer_scope(self, fprime_test_api):
+        """Test that check body can modify variables in outer scope."""
+        seq = """
+outer_var: I32 = 0
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    outer_var = 42
+
+assert outer_var == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_nested(self, fprime_test_api):
+        """Test nested check statements."""
+        seq = """
+outer_passed: bool = False
+inner_passed: bool = False
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    outer_passed = True
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        inner_passed = True
+
+assert outer_passed
+assert inner_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_nested_timeout_body(self, fprime_test_api):
+        """Test nested check with inner check timing out."""
+        seq = """
+outer_passed: bool = False
+inner_timed_out: bool = False
+
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    outer_passed = True
+    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
+        pass
+    timeout:
+        inner_timed_out = True
+
+assert outer_passed
+assert inner_timed_out
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_inside_while_loop(self, fprime_test_api):
+        """Test check inside a while loop."""
+        seq = """
+iterations: I64 = 0
+checks_passed: I64 = 0
+
+while iterations < 3:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        checks_passed = checks_passed + 1
+    iterations = iterations + 1
+
+assert iterations == 3
+assert checks_passed == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_inside_for_loop(self, fprime_test_api):
+        """Test check inside a for loop."""
+        seq = """
+checks_passed: I64 = 0
+
+for i in 0..3:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        checks_passed = checks_passed + 1
+
+assert checks_passed == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+class TestCheckTypeErrors:
+
+    def test_check_timeout_wrong_type(self, fprime_test_api):
+        """Test that check timeout with wrong type gives compile error."""
+        seq = """
+check True timeout 123 persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_condition_wrong_type(self, fprime_test_api):
+        """Test that check condition must be bool, not int."""
+        seq = """
+check 123 timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_condition_wrong_type_string(self, fprime_test_api):
+        """Test that check condition must be bool, not string."""
+        seq = """
+check "hello" timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_persist_wrong_type(self, fprime_test_api):
+        """Test that check persist must be TimeIntervalValue, not int."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist 123 freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_persist_wrong_type_time(self, fprime_test_api):
+        """Test that check persist must be TimeIntervalValue, not Fw.Time."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist now() freq Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_freq_wrong_type(self, fprime_test_api):
+        """Test that check freq must be TimeIntervalValue, not int."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq 123:
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_freq_wrong_type_time(self, fprime_test_api):
+        """Test that check freq must be TimeIntervalValue, not Fw.Time."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq now():
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+class TestCheckDuplicateClauses:
+
+    def test_check_duplicate_timeout(self, fprime_test_api):
+        """Test that duplicate timeout clauses cause a compile error."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) timeout time_add(now(), Fw.TimeIntervalValue(2, 0)):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_duplicate_persist(self, fprime_test_api):
+        """Test that duplicate persist clauses cause a compile error."""
+        seq = """
+check True persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_duplicate_freq(self, fprime_test_api):
+        """Test that duplicate freq clauses cause a compile error."""
+        seq = """
+check True freq Fw.TimeIntervalValue(1, 0) freq Fw.TimeIntervalValue(2, 0):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+class TestCheckMultilineSyntax:
+
+    def test_check_multiline_timeout_only(self, fprime_test_api):
+        """Test multi-line check with only timeout clause."""
+        seq = """
+check_passed: bool = False
+check True
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_multiline_all_clauses(self, fprime_test_api):
+        """Test multi-line check with all three clauses."""
+        seq = """
+check_passed: bool = False
+check True
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+    persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_multiline_different_order(self, fprime_test_api):
+        """Test multi-line check with clauses in different order (freq, persist, timeout)."""
+        seq = """
+check_passed: bool = False
+check True
+    freq Fw.TimeIntervalValue(0, 100000)
+    persist Fw.TimeIntervalValue(0, 0)
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_multiline_persist_timeout_order(self, fprime_test_api):
+        """Test multi-line check with persist before timeout."""
+        seq = """
+check_passed: bool = False
+check True
+    persist Fw.TimeIntervalValue(0, 0)
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_singleline_any_order_persist_first(self, fprime_test_api):
+        """Test single-line check with persist before timeout."""
+        seq = """
+check_passed: bool = False
+check True persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_singleline_any_order_freq_first(self, fprime_test_api):
+        """Test single-line check with freq before other clauses."""
+        seq = """
+check_passed: bool = False
+check True freq Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_singleline_only_persist(self, fprime_test_api):
+        """Test single-line check with only persist clause."""
+        seq = """
+check_passed: bool = False
+check True persist Fw.TimeIntervalValue(0, 0):
+    check_passed = True
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_singleline_only_freq(self, fprime_test_api):
+        """Test single-line check with only freq clause."""
+        seq = """
+check_passed: bool = False
+check True freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_multiline_timeout_occurs(self, fprime_test_api):
+        """Test multi-line check that times out."""
+        seq = """
+timed_out: bool = False
+check False
+    timeout time_add(now(), Fw.TimeIntervalValue(0, 100000))
+    freq Fw.TimeIntervalValue(0, 10000):
+    assert False, 1
+timeout:
+    timed_out = True
+assert timed_out
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_mixed_inline_and_multiline(self, fprime_test_api):
+        """Test check with some clauses inline and some on indented lines."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+    persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_mixed_two_inline_one_multiline(self, fprime_test_api):
+        """Test check with two clauses inline and one on indented line."""
+        seq = """
+check_passed: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0)
+    freq Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+timeout:
+    assert False, 1
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+class TestCheckControlFlow:
+
+    def test_check_break_not_allowed(self, fprime_test_api):
+        """Test that break inside check body is not allowed when check is not in a loop."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    break
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_continue_not_allowed(self, fprime_test_api):
+        """Test that continue inside check body is not allowed when check is not in a loop."""
+        seq = """
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+    continue
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_break_allowed_in_loop(self, fprime_test_api):
+        """Test that break inside check body IS allowed when check is inside a loop."""
+        seq = """
+loop_ran: bool = False
+while True:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        loop_ran = True
+        break
+assert loop_ran
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_continue_allowed_in_loop(self, fprime_test_api):
+        """Test that continue inside check body IS allowed when check is inside a loop."""
+        seq = """
+iterations: I64 = 0
+while iterations < 3:
+    iterations = iterations + 1
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        continue
+assert iterations == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_return_in_function(self, fprime_test_api):
+        """Test that return inside check body works correctly in a function."""
+        seq = """
+def check_and_return() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+    return 0
+
+result: I64 = check_and_return()
+assert result == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_return_from_timeout_body(self, fprime_test_api):
+        """Test that return from timeout body works correctly."""
+        seq = """
+def check_timeout_return() -> I64:
+    check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) freq Fw.TimeIntervalValue(0, 10000):
+        return 1
+    timeout:
+        return 42
+    return 0
+
+result: I64 = check_timeout_return()
+assert result == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_both_branches_return(self, fprime_test_api):
+        """Test that a function with check where both bodies return doesn't need trailing return."""
+        seq = """
+def check_returns() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+    timeout:
+        return 0
+
+result: I64 = check_returns()
+assert result == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_no_timeout_body_return_required(self, fprime_test_api):
+        """Test that a function with check but no timeout body still needs trailing return."""
+        seq = """
+def check_needs_return() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)):
+        return 42
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_no_timeout_clause_still_needs_return(self, fprime_test_api):
+        """Test that a check with no timeout clause still needs a trailing return
+    because the desugared if/else has an implicit else branch that doesn't return."""
+        seq = """
+def check_no_timeout() -> I64:
+    check True:
+        return 42
+"""
+        # The check desugars to: while True:...; if result: <body> else: <implicit>
+        # The implicit else doesn't return, so we need a trailing return
+        assert_compile_failure(fprime_test_api, seq)

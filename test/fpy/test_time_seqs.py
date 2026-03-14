@@ -800,87 +800,30 @@ assert count == 5
 # Tests for sleep, sleep_until, now(), time constructors, and simulated time.
 # Migrated from test_seqs.py.
 
-def test_get_time_member(fprime_test_api):
-    seq = """
+
+class TestTimeConstruction:
+
+    def test_get_time_member(self, fprime_test_api):
+        seq = """
 if Fw.Time(TimeBase.TB_NONE, 1, 2, 3).useconds == 3:
     exit(0)
 exit(1)
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_wait_rel(fprime_test_api):
-    seq = """
-sleep(1, 1000)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_rel_default_usec(fprime_test_api):
-    seq = """
-sleep(seconds=1)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_rel_default_sec(fprime_test_api):
-    seq = """
-sleep(useconds=500)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_rel_no_args(fprime_test_api):
-    seq = """
-sleep()
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_abs(fprime_test_api):
-    seq = """
-sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_abs_var_arg(fprime_test_api):
-    seq = """
-x: U32 = 123
-sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_abs_var_arg_2(fprime_test_api):
-    seq = """
-x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
-sleep_until(x)
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_wait_abs_bad_arg(fprime_test_api):
-    seq = """
-sleep_until(2, 1, 2, 3)
-"""
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_time_type_ctor(fprime_test_api):
-    seq = """
+    def test_time_type_ctor(self, fprime_test_api):
+        seq = """
 var: Fw.Time = Fw.Time(TimeBase.TB_NONE, 1, 2, 3)
 if var.timeBase == TimeBase.TB_NONE and var.timeContext == 1:# and var.seconds == 2 and var.useconds == 3:
     exit(0)
 exit(1)
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_aliases(fprime_test_api):
-    """Fw.Time is an alias for Fw.TimeValue, Fw.TimeInterval for Fw.TimeIntervalValue."""
-    seq = """
+    def test_time_aliases(self, fprime_test_api):
+        """Fw.Time is an alias for Fw.TimeValue, Fw.TimeInterval for Fw.TimeIntervalValue."""
+        seq = """
 # Fw.Time and Fw.TimeValue are interchangeable
 t1: Fw.Time = Fw.TimeValue(TimeBase.TB_NONE, 0, 100, 500000)
 t2: Fw.TimeValue = Fw.Time(TimeBase.TB_NONE, 0, 50, 0)
@@ -899,24 +842,74 @@ assert result.seconds == 60
 diff: Fw.TimeInterval = t1 - t2
 assert diff.seconds == 50
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_get_time(fprime_test_api):
-    seq = """
+    def test_get_time(self, fprime_test_api):
+        seq = """
 time: Fw.Time = now()
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_const_folding_time_eq(fprime_test_api):
-    seq = """
+    def test_const_folding_time_eq(self, fprime_test_api):
+        seq = """
 assert Fw.Time(TimeBase.TB_NONE, 0, 0, 0) == Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
 assert Fw.Time(TimeBase.TB_NONE, 0, 1, 0) != Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
+
+class TestWait:
+
+    def test_wait_rel(self, fprime_test_api):
+        seq = """
+sleep(1, 1000)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_rel_default_usec(self, fprime_test_api):
+        seq = """
+sleep(seconds=1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_rel_default_sec(self, fprime_test_api):
+        seq = """
+sleep(useconds=500)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_rel_no_args(self, fprime_test_api):
+        seq = """
+sleep()
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_abs(self, fprime_test_api):
+        seq = """
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_abs_var_arg(self, fprime_test_api):
+        seq = """
+x: U32 = 123
+sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_abs_var_arg_2(self, fprime_test_api):
+        seq = """
+x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
+sleep_until(x)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_wait_abs_bad_arg(self, fprime_test_api):
+        seq = """
+sleep_until(2, 1, 2, 3)
+"""
+        assert_compile_failure(fprime_test_api, seq)
 
 
 @pytest.mark.skipif("config.getoption('--use-gds')", reason="simulated time is only available in the Python model")
@@ -1135,113 +1128,104 @@ assert check_count >= 3
         assert_run_success(fprime_test_api, seq, time_base=3)
 
 
-def test_time_function_basic(fprime_test_api):
-    """time() parses ISO 8601 strings to Fw.Time."""
-    seq = """
+class TestTimeFunction:
+
+    def test_time_function_basic(self, fprime_test_api):
+        """time() parses ISO 8601 strings to Fw.Time."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
 # Unix timestamp for 2000-01-01T00:00:00Z is 946684800
 assert t.seconds == 946684800
 assert t.useconds == 0
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_with_microseconds(fprime_test_api):
-    """time() parses ISO 8601 strings with microseconds."""
-    seq = """
+    def test_time_function_with_microseconds(self, fprime_test_api):
+        """time() parses ISO 8601 strings with microseconds."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00.123456Z")
 assert t.seconds == 946684800
 assert t.useconds == 123456
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_sleep_until(fprime_test_api):
-    """time() can be passed directly to sleep_until()."""
-    seq = """
+    def test_time_function_sleep_until(self, fprime_test_api):
+        """time() can be passed directly to sleep_until()."""
+        seq = """
 sleep_until(time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME))
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_invalid_format(fprime_test_api):
-    """Invalid time string format should fail at compile time."""
-    seq = """
+    def test_time_function_invalid_format(self, fprime_test_api):
+        """Invalid time string format should fail at compile time."""
+        seq = """
 t: Fw.Time = time("not a valid time")
 """
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
-
-def test_time_function_invalid_format_2(fprime_test_api):
-    """Time string without Z suffix should fail."""
-    seq = """
+    def test_time_function_invalid_format_2(self, fprime_test_api):
+        """Time string without Z suffix should fail."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00")
 """
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
-
-def test_time_function_default_time_base(fprime_test_api):
-    """time() defaults to timeBase=0 and timeContext=0."""
-    seq = """
+    def test_time_function_default_time_base(self, fprime_test_api):
+        """time() defaults to timeBase=0 and timeContext=0."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
 assert t.timeBase == TimeBase.TB_NONE
 assert t.timeContext == 0
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_custom_time_base(fprime_test_api):
-    """time() accepts custom timeBase parameter."""
-    seq = """
+    def test_time_function_custom_time_base(self, fprime_test_api):
+        """time() accepts custom timeBase parameter."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME)
 assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
 assert t.timeContext == 0
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_custom_time_context(fprime_test_api):
-    """time() accepts custom timeContext parameter."""
-    seq = """
+    def test_time_function_custom_time_context(self, fprime_test_api):
+        """time() accepts custom timeContext parameter."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", timeContext=5)
 assert t.timeBase == TimeBase.TB_NONE
 assert t.timeContext == 5
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_all_params(fprime_test_api):
-    """time() accepts all parameters."""
-    seq = """
+    def test_time_function_all_params(self, fprime_test_api):
+        """time() accepts all parameters."""
+        seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_SC_TIME, timeContext=7)
 assert t.timeBase == TimeBase.TB_SC_TIME
 assert t.timeContext == 7
 assert t.seconds == 946684800
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_named_args(fprime_test_api):
-    """time() works with named arguments."""
-    seq = """
+    def test_time_function_named_args(self, fprime_test_api):
+        """time() works with named arguments."""
+        seq = """
 t: Fw.Time = time(timestamp="2000-01-01T00:00:00Z", timeBase=TimeBase.TB_PROC_TIME)
 assert t.timeBase == TimeBase.TB_PROC_TIME
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_time_function_negative_seconds(fprime_test_api):
-    """Time before Unix epoch (1970) should fail with negative seconds error."""
-    seq = """
+    def test_time_function_negative_seconds(self, fprime_test_api):
+        """Time before Unix epoch (1970) should fail with negative seconds error."""
+        seq = """
 t: Fw.Time = time("1969-01-01T00:00:00Z")
 """
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
-
-def test_time_function_u32_overflow(fprime_test_api):
-    """Time after year 2106 overflows U32 seconds."""
-    # U32 max is 4,294,967,295 seconds after 1970 = year ~2106
-    seq = """
+    def test_time_function_u32_overflow(self, fprime_test_api):
+        """Time after year 2106 overflows U32 seconds."""
+        # U32 max is 4,294,967,295 seconds after 1970 = year ~2106
+        seq = """
 t: Fw.Time = time("2200-01-01T00:00:00Z")
 """
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)

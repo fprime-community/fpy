@@ -4,69 +4,93 @@ from fpy.types import U32
 
 from fpy.test_helpers import assert_compile_failure, assert_run_success
 
-def test_comment(fprime_test_api):
-    seq = """
+
+class TestSourceStructure:
+
+    def test_comment(self, fprime_test_api):
+        seq = """
 # test
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
+    def test_empty(self, fprime_test_api):
+        seq = """"""
 
-def test_empty(fprime_test_api):
-    seq = """"""
+        assert_run_success(fprime_test_api, seq)
 
-    assert_run_success(fprime_test_api, seq)
+    def test_no_newline(self, fprime_test_api):
+        seq = """# test"""
 
+        assert_run_success(fprime_test_api, seq)
 
-def test_no_newline(fprime_test_api):
-    seq = """# test"""
-
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_last_line_comment(fprime_test_api):
-    seq = """
+    def test_last_line_comment(self, fprime_test_api):
+        seq = """
 # test"""
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_two_stmts_on_same_line(fprime_test_api):
-    # Two statements on the same line should fail to compile
-    seq = """
+    def test_two_stmts_on_same_line(self, fprime_test_api):
+        # Two statements on the same line should fail to compile
+        seq = """
 0value: U8 = 0
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
+    def test_no_trailing_newline(self, fprime_test_api):
+        # Code without a trailing newline should still compile
+        seq = "x: U32 = 1"  # No trailing newline
+        assert_run_success(fprime_test_api, seq)
 
-def test_no_trailing_newline(fprime_test_api):
-    # Code without a trailing newline should still compile
-    seq = "x: U32 = 1"  # No trailing newline
-    assert_run_success(fprime_test_api, seq)
+    @pytest.mark.xfail(reason="Support for non utf-8 characters should be added later")
+    def test_non_utf_8(self, fprime_test_api):
+        seq = """
+val: F64 = 0.0 
 
+CdhCore.cmdDisp.CMD_NO_OP_STRING("в")
+"""
+        assert_run_success(fprime_test_api, seq)
 
-def test_int_literal(fprime_test_api):
-    seq = """
+    def test_var_name_special_chars(self, fprime_test_api):
+        # Variable names with invalid special characters should fail
+        seq = """
+@invalid: U8 = 0
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_newline_in_body(self, fprime_test_api):
+        seq = """
+if True:
+    val: U8 = 0
+
+    pass
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+class TestLiterals:
+
+    def test_int_literal(self, fprime_test_api):
+        seq = """
 var: I64 = 123_456
 var = -123_456
 var = +123_456
 var = 000_00000_0
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_bad_int_literal(fprime_test_api):
-    seq = """
+    def test_bad_int_literal(self, fprime_test_api):
+        seq = """
 var: I64 = 0123_456
 
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
-
-def test_float_literal(fprime_test_api):
-    seq = """
+    def test_float_literal(self, fprime_test_api):
+        seq = """
 var: F32 = 1.000e-5
 var = .1
 var = 2.123
@@ -74,19 +98,17 @@ var = 100.5e+10
 var = -123.456
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_bad_float_literal(fprime_test_api):
-    seq = """
+    def test_bad_float_literal(self, fprime_test_api):
+        seq = """
 var: F32 = 1.
 """
 
-    assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
-
-def test_hex_literal(fprime_test_api):
-    seq = """
+    def test_hex_literal(self, fprime_test_api):
+        seq = """
 var: U32 = 0xFF
 assert var == 255
 var = 0xDEADBEEF
@@ -97,11 +119,10 @@ var = 0X1A2B
 assert var == 6699
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_hex_literal_underscore(fprime_test_api):
-    seq = """
+    def test_hex_literal_underscore(self, fprime_test_api):
+        seq = """
 var: U32 = 0xFF_FF
 assert var == 65535
 var = 0xDEAD_BEEF
@@ -110,68 +131,36 @@ var = 0x00_11_22_33
 assert var == 1122867
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
+class TestExpressionStatements:
 
-def test_int_as_stmt(fprime_test_api):
-    seq = """
+    def test_int_as_stmt(self, fprime_test_api):
+        seq = """
 2
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_expr_as_stmt(fprime_test_api):
-    seq = """
+    def test_expr_as_stmt(self, fprime_test_api):
+        seq = """
 2 + 2
 """
 
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_str_as_stmt(fprime_test_api):
-    seq = """
+    def test_str_as_stmt(self, fprime_test_api):
+        seq = """
 "test"
 """
-    assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq)
 
-
-def test_complex_as_stmt(fprime_test_api):
-    seq = """
+    def test_complex_as_stmt(self, fprime_test_api):
+        seq = """
 CdhCore.cmdDisp.CMD_NO_OP
 """
 
-    assert_compile_failure(fprime_test_api, seq)
-
-
-@pytest.mark.xfail(reason="Support for non utf-8 characters should be added later")
-def test_non_utf_8(fprime_test_api):
-    seq = """
-val: F64 = 0.0 
-
-CdhCore.cmdDisp.CMD_NO_OP_STRING("в")
-"""
-    assert_run_success(fprime_test_api, seq)
-
-
-def test_var_name_special_chars(fprime_test_api):
-    # Variable names with invalid special characters should fail
-    seq = """
-@invalid: U8 = 0
-"""
-
-    assert_compile_failure(fprime_test_api, seq)
-
-
-def test_newline_in_body(fprime_test_api):
-    seq = """
-if True:
-    val: U8 = 0
-
-    pass
-"""
-
-    assert_run_success(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq)
 
 
 class TestMultilineAndTrailingComma:

@@ -2,8 +2,11 @@ from fpy.types import FpyValue, U32
 
 from fpy.test_helpers import assert_run_success
 
-def test_readme_examples(fprime_test_api):
-    seq = """
+
+class TestReadmeExamples:
+
+    def test_readme_examples(self, fprime_test_api):
+        seq = """
 Ref.sendBuffComp.PARAMETER4_PRM_SET(1 - 2 + 3 * 4 + 10 / 5 * 2)
 param4: F32 = 15.0
 Ref.sendBuffComp.PARAMETER4_PRM_SET(param4)
@@ -162,9 +165,9 @@ start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100,
 end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 """
-    assert_run_success(
-        fprime_test_api,
-        seq,
-        {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
-        timeout_s=20
-    )
+        assert_run_success(
+            fprime_test_api,
+            seq,
+            {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
+            timeout_s=20
+        )
