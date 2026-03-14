@@ -315,6 +315,10 @@ def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048, 
         MINOR_VERSION,
         PATCH_VERSION,
         SCHEMA_VERSION,
+        # CLAUDE let's just remove arg count from the binary. it's useless. instead, let's
+        # serialize the argument size, that is much more useful and can be used to sanity check the seq
+        # I think we will also need to serialize the values of the default args. That would be used if we only have
+        # the binary file, and not the fpy file, to run the binary
         argument_count,
         len(dirs),
         len(output_bytes),

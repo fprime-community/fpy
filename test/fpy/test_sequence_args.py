@@ -405,6 +405,7 @@ class TestImportResolution:
 # ──────────────────── Sequence Call Codegen ───────────────
 
 class TestSequenceCallCodegen:
+    # CLAUDE this name is misleading. please go back and check all of the class names to make sure they aren't misleading
     """Tests for calling imported sequences and the generated directives."""
 
     @pytest.fixture
@@ -465,6 +466,7 @@ class TestSequenceCallCodegen:
         """Calling with incompatible arg type should fail."""
         # CLAUDE "bool" is the right type here. I think you'll need to make sure that all
         # cases of corrupted/otherwise bad imported files are gracefully handled
+        # can you also test that dotted name arg types in sequences are resolved properly? i.e. A.B.C instead of just bool
         self._write_seq(import_dir, "helper", "sequence(x: Bool)\n")
         # String can't coerce to Bool
         result = self._compile_with_imports(

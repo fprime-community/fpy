@@ -313,6 +313,8 @@ class AstReturn(Ast):
 
 
 @dataclass
+# CLAUDE can we name this something that people won't confuse with the WHOLE sequence?
+# perhaps AstSequenceInfo
 class AstSequence(Ast):
     """Sequence declaration: sequence(x: U32, y: F64 = 3.14)
     Declares sequence parameters using the same parameter syntax as def.

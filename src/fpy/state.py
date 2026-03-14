@@ -373,6 +373,7 @@ class CompileState:
     sequence_arg_count: int = 0
     """number of sequence arguments declared in the sequence(...) header"""
 
+    # CLAUDE this should just be a cmddef, not cmdsymb
     sequence_run_command: "CommandSymbol | None" = None
     """The command used to invoke sub-sequences at runtime (e.g. FpySequencer.RUN).
     Set during import resolution if any imports are present."""

@@ -169,6 +169,8 @@ class CalculateFrameSizes(TopDownVisitor):
         # If the start node is the root and has a sequence declaration,
         # assign offsets to sequence args first. These are pre-pushed by
         # the VM and must occupy the first stack slots.
+
+        # CLAUDE this could be cleaned up if sequence were a separate stmt
         if isinstance(start, AstBlock) and start.sequence_decl is not None:
             seq_decl = start.sequence_decl
             if seq_decl.parameters:

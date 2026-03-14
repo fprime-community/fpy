@@ -466,6 +466,9 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
     # Find the sequencer RUN command for sequence imports.
     # Look for a command whose name ends with "cmdSeq.RUN" in the callable scope.
     run_cmd_name = (compile_args or {}).get("sequence_run_command")
+    # CLAUDE we need to plan a better way to do this. It's hacky, but we could just
+    # add a sentinel string in the command's description and search for that. Alternative ideas?
+
     if run_cmd_name is None:
         # Auto-detect: search recursively for any command ending with "cmdSeq.RUN"
         def _find_run_cmd(scope):

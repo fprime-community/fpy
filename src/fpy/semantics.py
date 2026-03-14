@@ -253,6 +253,8 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
     def run(self, start: Ast, state: CompileState):
         self._deferred_defs: list[AstDef] = []
+        # CLAUDE I think this would be much less hacky if we just had the sequence declaration count as a statement.
+        # can you look one more time and evaluate the tradeoffs?
         self._sequence_processed = False
 
         # Process sequence declaration first — its parameters become global
@@ -434,6 +436,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             existing_local = scope.get(arg_name_var.name)
             if existing_local is not None:
                 state.err(
+                    # CLAUDE you call it a parameter above but a sequence parameter here
                     f"Sequence parameter '{arg_name_var.name}' has already been defined",
                     arg_name_var,
                 )
@@ -541,6 +544,9 @@ class ResolveImports:
         try:
             imported_ast = text_to_ast(imported_text)
         except SystemExit:
+            # CLAUDE how do other languages handle a failure in another imported file?
+            # i assume they just raise the compile error like normal right? can you plan out
+            # what that might look like?
             state.err(f"Failed to parse imported sequence '{dotted_path}'", node)
             fpy.error.input_text = old_input_text
             fpy.error.input_lines = old_input_lines
@@ -595,6 +601,10 @@ class ResolveImports:
             sym_table = create_symbol_table({alias: seq_sym})
             # Merge into the global callable scope
             from fpy.state import merge_symbol_tables
+            # CLAUDE does this raise an error if there is a conflict?
+            # please add a test case for import xyz as xyz.abc\nimport test as xyz.abc
+            # that should fail ^
+            # ideally we'd just have one block of code that gracefully handles both "dotted paths" and non dotted paths
             state.global_callable_scope = merge_symbol_tables(
                 sym_table, state.global_callable_scope
             )
@@ -617,12 +627,19 @@ class ResolveImports:
         rel_path = Path(*node.path).with_suffix(".fpy")
         
         # Search in configured search paths
+
+        # CLAUDE let's not have this opaque dict for compile args.
+        # maybe just have an "import_search_paths" var in compilestate
         search_paths = state.compile_args.get("search_paths", [])
         if isinstance(search_paths, str):
             search_paths = [search_paths]
         
         # Also search relative to the current file
         import fpy.error
+        # CLAUDE this is a bit hacky. I like the relative import, but let's
+        # not store the file name in the error module. perhaps
+        # the search paths should just by default include the parent dir of
+        # the current file
         if fpy.error.file_name and fpy.error.file_name != "<test>":
             current_dir = Path(fpy.error.file_name).parent
             candidate = current_dir / rel_path
@@ -638,6 +655,11 @@ class ResolveImports:
 
     def _resolve_type_from_expr(self, type_expr, state: CompileState, error_node):
         """Resolve a type annotation expression to an FpyType using the global type scope."""
+        # CLAUDE I see the problem here... normally we'd want the next pass to resolve these types, but
+        # because they aren't in the ast, they won't get resolved. can you come up with some alternatives so we
+        # don't have to have two places where we resolve types? how could we make this code less error prone?
+        # it would be strange, but maybe we could just prepend their "sequence" decl asts in this file?
+
         # Walk the type expression to build a dotted name string
         name_parts = []
         node = type_expr
@@ -759,6 +781,8 @@ class ResolveQualifiedNames(TopDownVisitor):
     def visit_AstSequence(self, node: AstSequence, state: CompileState):
         """Resolve parameter names and type annotations in a sequence declaration."""
         if node.parameters is None:
+            # CLAUDE you don't need to return stop descent here I think. can you make
+            # sure you aren't redundantly returning stop descent anywhere?
             return STOP_DESCENT
         for arg_name_var, arg_type_name, default_value in node.parameters:
             if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
@@ -772,6 +796,7 @@ class ResolveQualifiedNames(TopDownVisitor):
 
     def visit_AstImport(self, node: AstImport, state: CompileState):
         """Imports don't contain resolvable expressions."""
+        # CLAUDE then you don't need to include the visitor here
         return STOP_DESCENT
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -933,6 +958,7 @@ class UpdateTypesAndFuncs(Visitor):
         if node.parameters is None:
             return STOP_DESCENT
         scope = state.enclosing_value_scope[node]
+        # CLAUDE we dont need scope here, nor do we need to return stop descent always
         for arg_name_var, arg_type_name, _default_value in node.parameters:
             arg_type = state.resolved_symbols[arg_type_name]
             if not is_type_constant_size(arg_type):
@@ -1031,6 +1057,8 @@ class CheckUseBeforeDefine(TopDownVisitor):
     def run(self, start: Ast, state: CompileState):
         # Pre-populate defined vars with sequence parameters — they are
         # pre-pushed by the VM and always available before any statement.
+
+        # CLAUDE again this would be better if the sequence stmt were a separate stmt, right?
         if isinstance(start, AstBlock) and start.sequence_decl is not None:
             seq = start.sequence_decl
             if seq.parameters is not None:
@@ -2131,6 +2159,8 @@ class CalculateDefaultArgConstValues(Visitor):
             const_value = state.const_expr_values.get(default_value)
             if const_value is None:
                 state.err(
+                    # CLAUDE sometimes you call it a sequence argument, sometimes you call it a sequence parameter
+                    # please pick one. probably parameter
                     f"Default value for sequence argument '{arg_name_var.name}' must be a constant expression",
                     default_value,
                 )
