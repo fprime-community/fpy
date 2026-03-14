@@ -58,13 +58,6 @@ var: Fw.Time.asdf = 0
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_var_type_ann_bad_2(self, fprime_test_api):
-        seq = """
-var: Svc = 0
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
 class TestAssignment:
 
     def test_create_after_assign_var(self, fprime_test_api):

@@ -1,3 +1,5 @@
+import pytest
+
 from fpy.types import U32
 
 from fpy.test_helpers import assert_compile_failure, assert_run_success
@@ -104,75 +106,20 @@ exit(1)
 
 class TestAllOperatorsByType:
 
-    def test_all_comparison_operators_u8(self, fprime_test_api):
-        seq = """
-val1: U8 = 200
-val2: U8 = 100
-
-if val1 > val2 and val2 < val1:
-    if val1 >= val2 and val2 <= val1:
-        if val1 != val2 and not (val1 == val2):
-            exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_all_comparison_operators_i8(self, fprime_test_api):
-        seq = """
-val1: I8 = 100
-val2: I8 = -100
-
-if val1 > val2 and val2 < val1:
-    if val1 >= val2 and val2 <= val1:
-        if val1 != val2 and not (val1 == val2):
-            exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_all_comparison_operators_u32(self, fprime_test_api):
-        seq = """
-val1: U32 = 4294967295
-val2: U32 = 0
-
-if val1 > val2 and val2 < val1:
-    if val1 >= val2 and val2 <= val1:
-        if val1 != val2 and not (val1 == val2):
-            exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_all_comparison_operators_i32(self, fprime_test_api):
-        seq = """
-val1: I32 = 2147483647
-val2: I32 = -2147483648
-
-if val1 > val2 and val2 < val1:
-    if val1 >= val2 and val2 <= val1:
-        if val1 != val2 and not (val1 == val2):
-            exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_all_comparison_operators_f32(self, fprime_test_api):
-        seq = """
-val1: F32 = 3.14159
-val2: F32 = -3.14159
-
-if val1 > val2 and val2 < val1:
-    if val1 >= val2 and val2 <= val1:
-        if val1 != val2 and not (val1 == val2):
-            exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_all_comparison_operators_f64(self, fprime_test_api):
-        seq = """
-val1: F64 = 3.14159265359
-val2: F64 = -3.14159265359
+    @pytest.mark.parametrize("type_name,big,small", [
+        ("U8", "200", "100"),
+        ("I8", "100", "-100"),
+        ("U32", "4294967295", "0"),
+        ("I32", "2147483647", "-2147483648"),
+        ("U64", "4294967295", "0"),
+        ("I64", "2147483647", "-2147483648"),
+        ("F32", "3.14159", "-3.14159"),
+        ("F64", "3.14159265359", "-3.14159265359"),
+    ])
+    def test_all_comparison_operators(self, fprime_test_api, type_name, big, small):
+        seq = f"""
+val1: {type_name} = {big}
+val2: {type_name} = {small}
 
 if val1 > val2 and val2 < val1:
     if val1 >= val2 and val2 <= val1:

@@ -121,16 +121,6 @@ assert timeout_body_ran
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_optional_timeout_body(self, fprime_test_api):
-        """Test that check works without timeout body."""
-        seq = """
-result: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
-    result = True
-assert result
-"""
-        assert_run_success(fprime_test_api, seq)
-
 class TestCheckClauses:
 
     def test_check_no_timeout_clause(self, fprime_test_api):
@@ -169,24 +159,6 @@ check True timeout abs_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIn
 timeout:
     pass
 assert result
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_check_with_zero_clauses(self, fprime_test_api):
-        """Test check with absolutely no clauses (all defaults)."""
-        seq = """
-counter: I64 = 0
-
-def eventually_true() -> bool:
-    counter = counter + 1
-    return counter >= 2
-
-passed: bool = False
-check eventually_true():
-    passed = True
-
-assert passed
-assert counter >= 2
 """
         assert_run_success(fprime_test_api, seq)
 

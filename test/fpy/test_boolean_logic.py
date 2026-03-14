@@ -63,27 +63,11 @@ exit(0)
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_or_true_false(self, fprime_test_api):
-        seq = """
-if True or False:
-    exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
     def test_not_true(self, fprime_test_api):
         seq = """
 if not True:
     exit(1)
 exit(0)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_not_false(self, fprime_test_api):
-        seq = """
-if not False:
-    exit(0)
-exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 

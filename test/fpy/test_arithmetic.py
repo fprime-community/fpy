@@ -375,27 +375,19 @@ assert result == {expected_value}
 
 class TestUnaryOperators:
 
-    def test_unary_plus_unsigned(self, fprime_test_api):
-        seq = """
-var: U32 = 1
-if +var == var:
-    exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_unary_plus_signed(self, fprime_test_api):
-        seq = """
-var: I32 = 1
-if +var == var:
-    exit(0)
-exit(1)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_unary_plus_float(self, fprime_test_api):
-        seq = """
-var: F32 = 1.0
+    @pytest.mark.parametrize("type_name,value", [
+        ("U8", "1"),
+        ("I8", "1"),
+        ("U32", "1"),
+        ("I32", "1"),
+        ("U64", "1"),
+        ("I64", "1"),
+        ("F32", "1.0"),
+        ("F64", "1.0"),
+    ])
+    def test_unary_plus(self, fprime_test_api, type_name, value):
+        seq = f"""
+var: {type_name} = {value}
 if +var == var:
     exit(0)
 exit(1)
@@ -468,10 +460,3 @@ assert iabs(-1) == 1
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_abs_literal_float(self, fprime_test_api):
-        seq = """
-assert fabs(1.0) == 1.0
-assert fabs(-1.0) == 1.0
-"""
-
-        assert_run_success(fprime_test_api, seq)

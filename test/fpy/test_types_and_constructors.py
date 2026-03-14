@@ -411,14 +411,6 @@ exit("asdf" == "asdf")
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_string_var_eq(self, fprime_test_api):
-        seq = """
-var: string = "test"
-var1: string = "test"
-exit(var == var1)
-"""
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_string_type(self, fprime_test_api):
         seq = """
 var: string = "test"

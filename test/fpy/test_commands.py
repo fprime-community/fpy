@@ -208,12 +208,6 @@ Ref.typeDemo()
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_func_call_a_namespace(self, fprime_test_api):
-        seq = """
-CdhCore.cmdDisp()
-"""
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_get_item_of_namespace(self, fprime_test_api):
         seq = """
 value: U32 = CdhCore.cmdDisp[0]

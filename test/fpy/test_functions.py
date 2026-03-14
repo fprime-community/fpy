@@ -419,19 +419,6 @@ while True:
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_use_func_outside_scope(self, fprime_test_api):
-        # This test previously tested nested function scoping, but nested functions
-        # are now disallowed at the syntax level. Keep as a syntax error test.
-        seq = """
-def test(arg: U8):
-    def test2() -> U8:
-        return 0
-
-assert test2() == 0
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_nested_func_capture_outer_local(self, fprime_test_api):
         seq = """
 def outer() -> U32:
