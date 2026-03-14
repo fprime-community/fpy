@@ -47,6 +47,7 @@ from fpy.state import (
     ForLoopAnalysis,
     FunctionSymbol,
     NameGroup,
+    SequenceSymbol,
     Symbol,
     SymbolTable,
     TypeCtorSymbol,
@@ -91,6 +92,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstGetAttr,
+    AstImport,
     AstIndexExpr,
     AstNamedArgument,
     AstNumber,
@@ -99,6 +101,7 @@ from fpy.syntax import (
     AstReference,
     AstReturn,
     AstBlock,
+    AstSequence,
     AstStmt,
     AstStmtWithExpr,
     AstString,
@@ -211,6 +214,15 @@ class CreateScopes:
             block_scope = SymbolTable(parent=scope)
 
         state.enclosing_value_scope[node] = block_scope
+
+        # Walk sequence declaration parameters (if root block)
+        if node.sequence_decl is not None:
+            self._walk(node.sequence_decl, state, block_scope)
+
+        # Walk import statements
+        for imp in node.imports:
+            self._walk(imp, state, block_scope)
+
         for stmt in node.stmts:
             self._walk(stmt, state, block_scope)
 
@@ -241,6 +253,16 @@ class CreateVariablesAndFuncs(TopDownVisitor):
 
     def run(self, start: Ast, state: CompileState):
         self._deferred_defs: list[AstDef] = []
+        self._sequence_processed = False
+
+        # Process sequence declaration first — its parameters become global
+        # variables that must be visible to all statements in the block.
+        # This is necessary because field traversal order puts stmts before
+        # sequence_decl.
+        if isinstance(start, AstBlock) and start.sequence_decl is not None:
+            self.visit_AstSequence(start.sequence_decl, state)
+            if state.errors:
+                return
 
         # Phase 1: visit everything; visit_AstDef returns STOP_DESCENT so
         # the framework skips function bodies.
@@ -383,6 +405,47 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         self._deferred_defs.append(node)
         return STOP_DESCENT
 
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Register sequence parameters as global variables in the root scope."""
+        if self._sequence_processed:
+            return STOP_DESCENT
+        self._sequence_processed = True
+
+        if node.parameters is None:
+            return STOP_DESCENT
+
+        scope = state.enclosing_value_scope[node]
+
+        # Check that default arguments come after non-default arguments
+        seen_default = False
+        for arg in node.parameters:
+            arg_name_var, arg_type_name, default_value = arg
+            if default_value is not None:
+                seen_default = True
+            elif seen_default:
+                state.err(
+                    f"Non-default parameter '{arg_name_var.name}' follows default parameter",
+                    arg_name_var,
+                )
+                return STOP_DESCENT
+
+        for arg in node.parameters:
+            arg_name_var, arg_type_name, default_value = arg
+            existing_local = scope.get(arg_name_var.name)
+            if existing_local is not None:
+                state.err(
+                    f"Sequence parameter '{arg_name_var.name}' has already been defined",
+                    arg_name_var,
+                )
+                return STOP_DESCENT
+            # Sequence args are global variables
+            var = VariableSymbol(
+                arg_name_var.name, arg_type_name, node, is_global=True
+            )
+            scope[arg_name_var.name] = var
+
+        return STOP_DESCENT
+
 
 class SetEnclosingLoops(Visitor):
     """sets the enclosing_loop of any break/continue it finds"""
@@ -426,6 +489,195 @@ class CheckReturnInFunc(TopDownVisitor):
         if node not in state.enclosing_funcs:
             state.err("Cannot return outside of a function", node)
             return
+
+
+class ResolveImports:
+    """Resolves import statements by parsing imported .fpy files to extract
+    their sequence signatures, then registering SequenceSymbol entries in
+    the callable scope.
+    
+    This pass is not a Visitor — it directly inspects the root AstBlock's
+    imports list and processes each one.
+    """
+
+    def run(self, start: AstBlock, state: CompileState):
+        if not isinstance(start, AstBlock):
+            return
+        for imp in start.imports:
+            self._resolve_import(imp, state)
+
+    def _resolve_import(self, node: AstImport, state: CompileState):
+        from fpy.compiler import text_to_ast
+        
+        dotted_path = ".".join(node.path)
+        alias = node.alias if node.alias else dotted_path
+
+        # Resolve the file path from the search paths in compile state
+        file_path = self._find_sequence_file(node, state)
+        if file_path is None:
+            state.err(
+                f"Cannot find imported sequence '{dotted_path}'",
+                node,
+            )
+            return
+        
+        # Parse the imported file to extract its sequence declaration
+        try:
+            imported_text = file_path.read_text()
+        except OSError as e:
+            state.err(f"Cannot read imported sequence '{dotted_path}': {e}", node)
+            return
+        
+        # Save and restore error state to avoid corrupting the current file context
+        import fpy.error
+        old_input_text = fpy.error.input_text
+        old_input_lines = fpy.error.input_lines
+        old_file_name = fpy.error.file_name
+        
+        fpy.error.file_name = str(file_path)
+        fpy.error.input_text = imported_text
+        fpy.error.input_lines = imported_text.splitlines()
+        
+        try:
+            imported_ast = text_to_ast(imported_text)
+        except SystemExit:
+            state.err(f"Failed to parse imported sequence '{dotted_path}'", node)
+            fpy.error.input_text = old_input_text
+            fpy.error.input_lines = old_input_lines
+            fpy.error.file_name = old_file_name
+            return
+        finally:
+            fpy.error.input_text = old_input_text
+            fpy.error.input_lines = old_input_lines
+            fpy.error.file_name = old_file_name
+        
+        if imported_ast is None:
+            state.err(f"Failed to parse imported sequence '{dotted_path}'", node)
+            return
+
+        # Extract the sequence declaration from the imported AST
+        seq_decl = imported_ast.sequence_decl
+        args = []
+        if seq_decl is not None and seq_decl.parameters is not None:
+            # We need to run minimal semantic analysis on the imported file
+            # to resolve parameter types. For now, we extract the type
+            # annotations as unresolved AstExpr — the caller's semantic 
+            # passes will handle resolution through the SequenceSymbol.
+            #
+            # However, we need the actual FpyType for each parameter.
+            # The simplest approach is to run the full compiler on the 
+            # imported file up through type resolution, but that's expensive
+            # and risks circular imports. Instead, we resolve parameter types
+            # from the type annotation names against the global type scope.
+            for arg_name_var, arg_type_name, default_value in seq_decl.parameters:
+                resolved_type = self._resolve_type_from_expr(
+                    arg_type_name, state, node
+                )
+                if resolved_type is None:
+                    return  # error already reported
+                args.append((arg_name_var.name, resolved_type, default_value))
+
+        # Create the SequenceSymbol
+        from fpy.types import CMD_RESPONSE
+        seq_sym = SequenceSymbol(
+            name=alias,
+            return_type=CMD_RESPONSE,
+            args=args,
+            file_path=str(file_path),
+            dotted_path=dotted_path,
+        )
+
+        # Register in the callable scope under the alias (or dotted path)
+        # Use create_symbol_table to handle dotted paths properly
+        if "." in alias:
+            # Register hierarchically for dotted paths
+            from fpy.state import create_symbol_table
+            sym_table = create_symbol_table({alias: seq_sym})
+            # Merge into the global callable scope
+            from fpy.state import merge_symbol_tables
+            state.global_callable_scope = merge_symbol_tables(
+                sym_table, state.global_callable_scope
+            )
+        else:
+            # Simple alias — register directly
+            existing = state.global_callable_scope.get(alias)
+            if existing is not None:
+                state.err(
+                    f"Import alias '{alias}' conflicts with an existing name",
+                    node,
+                )
+                return
+            state.global_callable_scope[alias] = seq_sym
+
+    def _find_sequence_file(self, node: AstImport, state: CompileState):
+        """Find the .fpy file for an import, searching configured paths."""
+        from pathlib import Path
+        
+        # Convert dotted path to a relative file path
+        rel_path = Path(*node.path).with_suffix(".fpy")
+        
+        # Search in configured search paths
+        search_paths = state.compile_args.get("search_paths", [])
+        if isinstance(search_paths, str):
+            search_paths = [search_paths]
+        
+        # Also search relative to the current file
+        import fpy.error
+        if fpy.error.file_name and fpy.error.file_name != "<test>":
+            current_dir = Path(fpy.error.file_name).parent
+            candidate = current_dir / rel_path
+            if candidate.exists():
+                return candidate
+        
+        for search_path in search_paths:
+            candidate = Path(search_path) / rel_path
+            if candidate.exists():
+                return candidate
+        
+        return None
+
+    def _resolve_type_from_expr(self, type_expr, state: CompileState, error_node):
+        """Resolve a type annotation expression to an FpyType using the global type scope."""
+        # Walk the type expression to build a dotted name string
+        name_parts = []
+        node = type_expr
+        while hasattr(node, 'parent') and hasattr(node, 'attr'):
+            # AstGetAttr
+            name_parts.insert(0, node.attr)
+            node = node.parent
+        if hasattr(node, 'name'):
+            # AstIdent
+            name_parts.insert(0, node.name)
+        
+        if not name_parts:
+            state.err(f"Cannot resolve type annotation for sequence parameter", error_node)
+            return None
+        
+        # Look up in the global type scope
+        scope = state.global_type_scope
+        for i, part in enumerate(name_parts):
+            entry = scope.get(part)
+            if entry is None:
+                full_name = ".".join(name_parts[:i+1])
+                state.err(f"Unknown type '{full_name}' in imported sequence parameter", error_node)
+                return None
+            if i < len(name_parts) - 1:
+                # Intermediate — must be a SymbolTable
+                if not isinstance(entry, dict):
+                    full_name = ".".join(name_parts[:i+1])
+                    state.err(f"'{full_name}' is not a namespace", error_node)
+                    return None
+                scope = entry
+            else:
+                # Leaf — must be an FpyType
+                from fpy.types import FpyType
+                if not isinstance(entry, FpyType):
+                    full_name = ".".join(name_parts)
+                    state.err(f"'{full_name}' is not a type", error_node)
+                    return None
+                return entry
+        
+        return None
 
 
 class ResolveQualifiedNames(TopDownVisitor):
@@ -503,6 +755,24 @@ class ResolveQualifiedNames(TopDownVisitor):
 
         state.resolved_symbols[qualified_name_node] = current_parent_symbol
         return True
+
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Resolve parameter names and type annotations in a sequence declaration."""
+        if node.parameters is None:
+            return STOP_DESCENT
+        for arg_name_var, arg_type_name, default_value in node.parameters:
+            if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+                return STOP_DESCENT
+            if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
+                return STOP_DESCENT
+            if default_value is not None:
+                if not self.try_resolve_name(default_value, NameGroup.VALUE, state):
+                    return STOP_DESCENT
+        return STOP_DESCENT
+
+    def visit_AstImport(self, node: AstImport, state: CompileState):
+        """Imports don't contain resolvable expressions."""
+        return STOP_DESCENT
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # all callables are always resolved in callable scope
@@ -658,6 +928,25 @@ def is_type_constant_size(type: FpyType) -> bool:
 
 class UpdateTypesAndFuncs(Visitor):
 
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Resolve sequence parameter types from AstExpr annotations to FpyType."""
+        if node.parameters is None:
+            return STOP_DESCENT
+        scope = state.enclosing_value_scope[node]
+        for arg_name_var, arg_type_name, _default_value in node.parameters:
+            arg_type = state.resolved_symbols[arg_type_name]
+            if not is_type_constant_size(arg_type):
+                state.err(
+                    f"Type {arg_type.display_name} is not constant-sized (contains strings)",
+                    arg_type_name,
+                )
+                return STOP_DESCENT
+            # Update the VariableSymbol's type
+            arg_var = state.resolved_symbols[arg_name_var]
+            assert is_instance_compat(arg_var, VariableSymbol), arg_var
+            arg_var.type = arg_type
+        return STOP_DESCENT
+
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Get the function that was created in CreateVariablesAndFuncs
         func = state.resolved_symbols[node.name]
@@ -739,6 +1028,22 @@ class CheckUseBeforeDefine(TopDownVisitor):
         super().__init__()
         self.currently_defined_vars: list[VariableSymbol] = []
 
+    def run(self, start: Ast, state: CompileState):
+        # Pre-populate defined vars with sequence parameters — they are
+        # pre-pushed by the VM and always available before any statement.
+        if isinstance(start, AstBlock) and start.sequence_decl is not None:
+            seq = start.sequence_decl
+            if seq.parameters is not None:
+                for arg_name_var, _, _ in seq.parameters:
+                    var = state.resolved_symbols[arg_name_var]
+                    assert is_instance_compat(var, VariableSymbol), var
+                    self.currently_defined_vars.append(var)
+        super().run(start, state)
+
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Sequence parameters are already pre-populated in run()."""
+        return STOP_DESCENT
+
     def visit_AstFor(self, node: AstFor, state: CompileState):
         var = state.resolved_symbols[node.loop_var]
         # Check that the loop var isn't referenced in the range (before it's defined)
@@ -774,6 +1079,9 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # function parameters - no use-before-define check needed
             # this is because if it's in scope, it's defined, as its
             # "declaration" is the start of the scope
+            return
+        if is_instance_compat(sym.declaration, AstSequence):
+            # sequence parameters - pre-pushed by the VM, always defined
             return
         if (
             is_instance_compat(sym.declaration, AstAssign)
@@ -1743,6 +2051,17 @@ class PickTypesAndResolveFields(Visitor):
                 if not self.coerce_expr_type(default_value, arg_type, state):
                     return
 
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Validate that default argument types are compatible with sequence parameter types."""
+        if node.parameters is None:
+            return
+        for arg_name_var, arg_type_name, default_value in node.parameters:
+            if default_value is not None:
+                arg_var = state.resolved_symbols[arg_name_var]
+                assert is_instance_compat(arg_var, VariableSymbol), arg_var
+                if not self.coerce_expr_type(default_value, arg_var.type, state):
+                    return
+
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         func = state.enclosing_funcs[node]
         func = state.resolved_symbols[func.name]
@@ -1792,6 +2111,27 @@ class CalculateDefaultArgConstValues(Visitor):
             if const_value is None:
                 state.err(
                     f"Default value for argument '{arg_name_var.name}' must be a constant expression",
+                    default_value,
+                )
+                return
+
+    def visit_AstSequence(self, node: AstSequence, state: CompileState):
+        """Calculate and validate const values for sequence parameter defaults."""
+        if node.parameters is None:
+            return
+
+        for arg_name_var, _, default_value in node.parameters:
+            if default_value is None:
+                continue
+
+            CalculateConstExprValues().run(default_value, state)
+            if len(state.errors) != 0:
+                return
+
+            const_value = state.const_expr_values.get(default_value)
+            if const_value is None:
+                state.err(
+                    f"Default value for sequence argument '{arg_name_var.name}' must be a constant expression",
                     default_value,
                 )
                 return

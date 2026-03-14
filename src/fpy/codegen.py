@@ -40,6 +40,7 @@ from fpy.state import (
     CompileState,
     FieldAccess,
     FunctionSymbol,
+    SequenceSymbol,
     TypeCtorSymbol,
     VariableSymbol,
 )
@@ -165,6 +166,22 @@ class CalculateFrameSizes(TopDownVisitor):
         self.offset = 0
 
     def run(self, start: Ast, state: CompileState):
+        # If the start node is the root and has a sequence declaration,
+        # assign offsets to sequence args first. These are pre-pushed by
+        # the VM and must occupy the first stack slots.
+        if isinstance(start, AstBlock) and start.sequence_decl is not None:
+            seq_decl = start.sequence_decl
+            if seq_decl.parameters:
+                scope = state.enclosing_value_scope.get(start)
+                if scope is not None:
+                    for arg_name_var, _type_ann, _default in seq_decl.parameters:
+                        sym = scope.get(arg_name_var.name)
+                        if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
+                            sym.frame_offset = self.offset
+                            self.offset += sym.type.max_size
+                state.sequence_arg_size = self.offset
+                state.sequence_arg_count = len(seq_decl.parameters)
+
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
@@ -915,6 +932,38 @@ class GenerateFunctionBody(Emitter):
             dirs.append(IrPushLabelOffset(func_entry_label))
             # pop it off the stack and perform func call
             dirs.append(CallDirective())
+        elif is_instance_compat(func, SequenceSymbol):
+            # imported sequence call — compiled as a CMD directive for the
+            # sequencer's RUN command. The RUN command takes the sequence
+            # path (string) followed by the serialized sequence args.
+            run_cmd = state.sequence_run_command
+            assert run_cmd is not None, (
+                "sequence_run_command must be set when sequence imports are used"
+            )
+            # For now, always use StackCmdDirective since we need to push
+            # the sequence path string and the args
+            arg_byte_count = 0
+            # Push all sequence call args to the stack
+            for arg_node in node_args:
+                dirs.extend(self._emit_func_arg(arg_node, state))
+                arg_converted_type = (
+                    arg_node.type if isinstance(arg_node, FpyValue)
+                    else state.contextual_types[arg_node]
+                )
+                arg_byte_count += arg_converted_type.max_size
+            # Push the sequence path as a string arg
+            path_bytes = func.dotted_path.encode("utf-8")
+            # Serialize as a sized string: [size: U16][data: bytes]
+            import struct
+            path_serialized = struct.pack("!H", len(path_bytes)) + path_bytes
+            dirs.append(PushValDirective(path_serialized))
+            arg_byte_count += len(path_serialized)
+            # Push the RUN command opcode
+            dirs.append(
+                PushValDirective(FpyValue(FwOpcodeType, run_cmd.cmd.opcode).serialize())
+            )
+            # Emit the stack command
+            dirs.append(StackCmdDirective(arg_byte_count))
         else:
             assert False, func
 
@@ -1083,8 +1132,10 @@ class GenerateModule(Emitter):
         # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
         
-        # Allocate space for top-level local variables
-        lvar_array_size_bytes = state.frame_sizes[node]
+        # Allocate space for top-level local variables.
+        # Sequence arguments are pre-pushed by the VM, so only allocate 
+        # space for non-arg globals.
+        lvar_array_size_bytes = state.frame_sizes[node] - state.sequence_arg_size
         if lvar_array_size_bytes > 0:
             main_body.append(AllocateDirective(lvar_array_size_bytes))
         

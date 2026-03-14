@@ -313,6 +313,24 @@ class AstReturn(Ast):
 
 
 @dataclass
+class AstSequence(Ast):
+    """Sequence declaration: sequence(x: U32, y: F64 = 3.14)
+    Declares sequence parameters using the same parameter syntax as def.
+    Must appear at most once, before any other statements."""
+    # parameters is a list of (ident, type, default_value) tuples
+    # same format as AstDef.parameters
+    parameters: Union[list[tuple[AstIdent, AstExpr, AstExpr | None]], None]
+
+
+@dataclass
+class AstImport(Ast):
+    """Import statement: import path.to.seq [as alias]
+    Imports another sequence by dotted path."""
+    path: list[str]
+    alias: Union[str, None]
+
+
+@dataclass
 class AstDef(Ast):
     name: AstIdent
     # parameters is a list of (ident, type, default_value) tuples
@@ -335,7 +353,9 @@ AstStmt = Union[
     AstCheck,
     AstAssert,
     AstDef,
-    AstReturn
+    AstReturn,
+    AstSequence,
+    AstImport,
 ]
 AstStmtWithExpr = Union[
     AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
@@ -359,6 +379,8 @@ AstNodeWithSideEffects = Union[
 @dataclass
 class AstBlock(Ast):
     stmts: list[AstStmt]
+    sequence_decl: Union[AstSequence, None] = field(default=None, repr=True)
+    imports: list[AstImport] = field(default_factory=list, repr=True)
 
 
 for cls in Ast.__subclasses__():
@@ -486,9 +508,61 @@ def handle_parameter(meta, args):
     return (name, type_expr, default_value)
 
 
+def handle_input(meta, children):
+    """Parse top-level input into an AstBlock, extracting sequence_decl and imports."""
+    from fpy.error import SyntaxErrorDuringTransform
+    
+    stmts = list(children)
+    sequence_decl = None
+    imports = []
+    remaining = []
+    
+    # Separate sequence declarations, imports, and regular statements
+    seen_non_meta = False  # have we seen a non-sequence/non-import statement?
+    for stmt in stmts:
+        if isinstance(stmt, AstSequence):
+            if sequence_decl is not None:
+                raise SyntaxErrorDuringTransform(
+                    "Only one 'sequence(...)' declaration is allowed per file", stmt
+                )
+            if seen_non_meta:
+                raise SyntaxErrorDuringTransform(
+                    "'sequence(...)' must appear before all other statements", stmt
+                )
+            sequence_decl = stmt
+        elif isinstance(stmt, AstImport):
+            if seen_non_meta:
+                raise SyntaxErrorDuringTransform(
+                    "'import' must appear before all other statements (except 'sequence(...)')", stmt
+                )
+            imports.append(stmt)
+        else:
+            seen_non_meta = True
+            remaining.append(stmt)
+    
+    block = AstBlock(meta, remaining)
+    block.sequence_decl = sequence_decl
+    block.imports = imports
+    return block
+
+
+def handle_sequence_stmt(meta, children):
+    """Parse sequence declaration: sequence(parameters)"""
+    # children is the parameter list (or empty)
+    params = children[0] if children else None
+    return AstSequence(meta, params)
+
+
+def handle_import_stmt(meta, children):
+    """Parse import statement: import dotted.path [as alias]"""
+    path = children[0]  # list of strings from dotted_name
+    alias = children[1] if len(children) > 1 else None
+    return AstImport(meta, path, alias)
+
+
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
-    input = no_inline(AstBlock)
+    input = no_inline(handle_input)
     pass_stmt = AstPass
 
     assign_stmt = AstAssign
@@ -552,6 +626,14 @@ class FpyTransformer(Transformer):
     parameter = no_inline(handle_parameter)
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
+
+    sequence_stmt = no_inline(handle_sequence_stmt)
+    import_stmt = no_inline(handle_import_stmt)
+
+    @v_args(meta=False, inline=False)
+    def dotted_name(self, children):
+        # children is a list of NAME strings
+        return list(children)
 
     NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int

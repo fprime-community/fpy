@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from fpy import main as fpy_main
+from fpy.compiler import CompileResult
 import fpy.error as fpy_error
 import fpy.model as fpy_model
 
@@ -49,7 +50,7 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
     def fake_ast_to_directives(body, dictionary):
         assert body == "AST"
         assert Path(dictionary) == dict_path
-        return ["directive"]
+        return CompileResult(directives=["directive"])
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
@@ -84,13 +85,13 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "ast_to_directives",
-        lambda body, dictionary: ["directive"],
+        lambda body, dictionary: CompileResult(directives=["directive"]),
     )
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
     monkeypatch.setattr(
         fpy_main,
         "serialize_directives",
-        lambda directives: (b"\x01\x02", 0xABCD),
+        lambda directives, argument_count=0: (b"\x01\x02", 0xABCD),
     )
 
     fpy_main.compile_main(

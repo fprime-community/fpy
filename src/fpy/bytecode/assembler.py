@@ -296,7 +296,7 @@ def deserialize_directives(bytes: bytes) -> list[Directive]:
     return dirs
 
 
-def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048) -> tuple[bytes, int]:
+def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048, argument_count: int = 0) -> tuple[bytes, int]:
     output_bytes = bytes()
 
     for dir in dirs:
@@ -315,7 +315,7 @@ def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048) 
         MINOR_VERSION,
         PATCH_VERSION,
         SCHEMA_VERSION,
-        0,
+        argument_count,
         len(dirs),
         len(output_bytes),
     )

@@ -13,7 +13,7 @@ import pytest
 from pathlib import Path
 
 import fpy.error
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.compiler import text_to_ast, ast_to_directives, CompileResult
 from fpy.bytecode.assembler import directives_to_fpybc
 
 
@@ -38,7 +38,8 @@ def compile_to_fpybc(source: str) -> str:
     assert not isinstance(directives, (fpy.error.CompileError, fpy.error.BackendError)), \
         f"Compilation failed: {directives}"
     
-    return directives_to_fpybc(directives)
+    assert isinstance(directives, CompileResult)
+    return directives_to_fpybc(directives.directives)
 
 
 def get_golden_test_cases():

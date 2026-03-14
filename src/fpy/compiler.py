@@ -1,5 +1,6 @@
 from __future__ import annotations
 import sys
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from lark import Lark, LarkError
@@ -28,6 +29,7 @@ from fpy.semantics import (
     CheckUseBeforeDefine,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
+    ResolveImports,
     ResolveQualifiedNames,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
@@ -50,6 +52,7 @@ from fpy.types import (
     TIME,
     BOOL,
     I64,
+    is_instance_compat,
 )
 from fpy.state import (
     CallableSymbol,
@@ -64,6 +67,15 @@ from fpy.visitors import Visitor
 
 from fpy.error import BackendError, CompileError, handle_lark_error
 import fpy.error
+
+
+@dataclass
+class CompileResult:
+    """Result of a successful compilation."""
+    directives: list[Directive]
+    argument_count: int = 0
+    """Number of sequence arguments declared in sequence(...)"""
+
 
 # Load grammar once at module level
 _fpy_grammar_path = Path(__file__).parent / "grammar.lark"
@@ -450,6 +462,35 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
+
+    # Find the sequencer RUN command for sequence imports.
+    # Look for a command whose name ends with "cmdSeq.RUN" in the callable scope.
+    run_cmd_name = (compile_args or {}).get("sequence_run_command")
+    if run_cmd_name is None:
+        # Auto-detect: search recursively for any command ending with "cmdSeq.RUN"
+        def _find_run_cmd(scope):
+            for _name, sym in scope.items():
+                if isinstance(sym, dict):
+                    result = _find_run_cmd(sym)
+                    if result is not None:
+                        return result
+                elif is_instance_compat(sym, CommandSymbol) and sym.name.endswith("cmdSeq.RUN"):
+                    return sym
+            return None
+        state.sequence_run_command = _find_run_cmd(callable_scope)
+    else:
+        # Explicit command name provided — look up via dotted path
+        parts = run_cmd_name.split(".")
+        current = callable_scope
+        for part in parts[:-1]:
+            current = current.get(part, {})
+            if not isinstance(current, dict):
+                break
+        if isinstance(current, dict):
+            sym = current.get(parts[-1])
+            if sym is not None and is_instance_compat(sym, CommandSymbol):
+                state.sequence_run_command = sym
+
     return state
 
 
@@ -457,7 +498,7 @@ def ast_to_directives(
     body: AstBlock,
     dictionary: str,
     compile_args: dict | None = None,
-) -> list[Directive] | CompileError | BackendError:
+) -> CompileResult | CompileError | BackendError:
     compile_args = compile_args or dict()
     
     # Prepend builtin library functions to user code - always available.
@@ -485,6 +526,8 @@ def ast_to_directives(
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
+        # resolve import statements to SequenceSymbols in the callable scope
+        ResolveImports(),
         ResolveQualifiedNames(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
@@ -558,4 +601,7 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir
+    return CompileResult(
+        directives=ir,
+        argument_count=state.sequence_arg_count,
+    )

@@ -3,9 +3,22 @@
 # input is the top-level rule, consisting of zero or more newlines or top level statements
 input: (_NEWLINE | _toplevel_stmt)*
 
-# Top-level statements: function definitions OR regular statements
+# Top-level statements: function definitions, sequence declaration, imports, OR regular statements
 # Function definitions can ONLY appear here, not nested in any control structure
-_toplevel_stmt: def_stmt | _stmt
+_toplevel_stmt: sequence_stmt | import_stmt | def_stmt | _stmt
+
+# Sequence declaration: declares sequence parameters with optional default values.
+# Uses the same `parameters` rule as function definitions.
+# Must appear at most once, before any other statements.
+sequence_stmt: "sequence" "(" [parameters] ")" _NEWLINE
+# -> AstSequence(parameters)
+
+# Import statement: imports another sequence by dotted path.
+# The dotted path resolves to a .fpy file relative to a search root.
+# Optional `as` clause provides an alias for the imported sequence.
+import_stmt: "import" dotted_name ["as" NAME] _NEWLINE
+# -> AstImport(path, alias)
+dotted_name: NAME ("." NAME)*
 
 # Regular statements (no function definitions allowed)
 # Small statements must be followed by a newline; compound statements end with their block's DEDENT

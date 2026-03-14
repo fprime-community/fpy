@@ -3,7 +3,7 @@ import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.bytecode.directives import AllocateDirective, Directive
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.compiler import text_to_ast, ast_to_directives, CompileResult
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 
@@ -38,7 +38,8 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
     if isinstance(directives, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{directives}")
     
-    return directives
+    assert isinstance(directives, CompileResult)
+    return directives.directives
 
 
 def lookup_type(fprime_test_api, type_name: str):

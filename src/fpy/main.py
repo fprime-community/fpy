@@ -19,7 +19,7 @@ from fpy.bytecode.assembler import (
 import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.compiler import text_to_ast, ast_to_directives, CompileResult
 
 
 def human_readable_size(size_bytes):
@@ -98,19 +98,23 @@ def compile_main(args: list[str] = None):
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
     try:
-        directives = ast_to_directives(body, parsed_args.dictionary)
+        result = ast_to_directives(body, parsed_args.dictionary)
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
     if isinstance(
-        directives,
+        result,
         (
             fpy.error.CompileError,
             fpy.error.BackendError,
         ),
     ):
-        print(directives, file=sys.stderr)
+        print(result, file=sys.stderr)
         sys.exit(1)
+
+    assert isinstance(result, CompileResult)
+    directives = result.directives
+    argument_count = result.argument_count
 
     output = parsed_args.output
     if output is None:
@@ -119,7 +123,7 @@ def compile_main(args: list[str] = None):
         fpybc = directives_to_fpybc(directives)
         print(fpybc)
     else:
-        output_bytes, crc = serialize_directives(directives)
+        output_bytes, crc = serialize_directives(directives, argument_count=argument_count)
         output.write_bytes(output_bytes)
         print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 
