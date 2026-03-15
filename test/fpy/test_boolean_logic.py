@@ -1,4 +1,4 @@
-from fpy.test_helpers import assert_run_success
+from fpy.test_helpers import assert_compile_failure, assert_run_success
 
 
 class TestBooleanOperators:
@@ -146,3 +146,35 @@ exit(1)
 """
 
         assert_run_success(fprime_test_api, seq)
+
+class TestNonBoolOperands:
+
+    def test_and_non_bool_operands(self, fprime_test_api):
+        """Boolean 'and' requires bool operands; integers should be rejected."""
+        seq = """
+val: U32 = 1
+if val and True:
+    exit(0)
+exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_or_non_bool_operands(self, fprime_test_api):
+        """Boolean 'or' requires bool operands; integers should be rejected."""
+        seq = """
+val: U32 = 0
+if val or False:
+    exit(0)
+exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_not_non_bool_operand(self, fprime_test_api):
+        """Boolean 'not' requires a bool operand; integers should be rejected."""
+        seq = """
+val: U32 = 0
+if not val:
+    exit(0)
+exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq)

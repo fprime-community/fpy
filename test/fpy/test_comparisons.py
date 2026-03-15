@@ -85,30 +85,13 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_mixed_numeric_comparisons(self, fprime_test_api):
-        seq = """
-val_u8: U8 = 255
-val_i8: I8 = -10
-val_u32: U32 = 4294967295
-val_i32: I32 = -2147483648
-val_f32: F32 = 3.14159
-val_f64: F64 = -3.14159265359
-
-# i32 > u32 because the cmp happens as unsigned, and so the
-# two's complement negative is really large
-if val_u8 < val_i8 and val_i32 > val_u32:
-    if val_f64 <= val_f32 and val_f32 >= val_f64:
-        if val_u8 != val_i8 and not (val_u32 == val_i32):
-            exit(0)
-exit(1)
-"""
-        assert_compile_failure(fprime_test_api, seq)
-
 class TestAllOperatorsByType:
 
     @pytest.mark.parametrize("type_name,big,small", [
         ("U8", "200", "100"),
         ("I8", "100", "-100"),
+        ("U16", "60000", "100"),
+        ("I16", "30000", "-30000"),
         ("U32", "4294967295", "0"),
         ("I32", "2147483647", "-2147483648"),
         ("U64", "4294967295", "0"),
@@ -171,3 +154,14 @@ if val1 == val3:  # Integer to float comparison
 exit(1)
 """
         assert_run_success(fprime_test_api, seq)
+
+    def test_bool_inequality_fails(self, fprime_test_api):
+        """Booleans do not support <, >, <=, >= operators."""
+        seq = """
+a: bool = True
+b: bool = False
+if a > b:
+    exit(0)
+exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq)

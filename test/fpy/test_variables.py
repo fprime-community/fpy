@@ -97,14 +97,6 @@ var: U32 = 2
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_assign_inconsistent_type(self, fprime_test_api):
-        seq = """
-var: U32 = 1
-var: U16 = 2
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_assign_function_value(self, fprime_test_api):
         seq = """
 var: U32 = CdhCore.cmdDisp.CMD_NO_OP

@@ -388,3 +388,24 @@ assert i == 5
 """
 
         assert_run_success(fprime_test_api, seq)
+
+class TestNonBoolConditions:
+
+    def test_if_non_bool_condition(self, fprime_test_api):
+        """If condition must be bool; an integer should be rejected."""
+        seq = """
+val: U32 = 1
+if val:
+    exit(0)
+exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_while_non_bool_condition(self, fprime_test_api):
+        """While condition must be bool; an integer should be rejected."""
+        seq = """
+val: U32 = 1
+while val:
+    val = 0
+"""
+        assert_compile_failure(fprime_test_api, seq)

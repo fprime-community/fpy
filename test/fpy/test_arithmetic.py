@@ -318,6 +318,14 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_pow_result_is_f64(self, fprime_test_api):
+        """pow() of integers should produce F64 so fractional exponents work."""
+        seq = """
+result: F64 = 2 ** 0.5
+assert result > 1.41 and result < 1.42
+"""
+        assert_run_success(fprime_test_api, seq)
+
     @pytest.mark.parametrize(
         "lhs_type,rhs_type,lhs_value,rhs_value,result_type,expected_value",
         [
@@ -378,6 +386,8 @@ class TestUnaryOperators:
     @pytest.mark.parametrize("type_name,value", [
         ("U8", "1"),
         ("I8", "1"),
+        ("U16", "1"),
+        ("I16", "1"),
         ("U32", "1"),
         ("I32", "1"),
         ("U64", "1"),
@@ -459,4 +469,5 @@ assert iabs(-1) == 1
 """
 
         assert_run_success(fprime_test_api, seq)
+
 

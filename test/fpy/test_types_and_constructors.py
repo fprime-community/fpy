@@ -338,6 +338,28 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_runtime_array_equality(self, fprime_test_api):
+        """Array equality with runtime (non-const) operands."""
+        seq = """
+arr1: Svc.ComQueueDepth = Svc.ComQueueDepth(100, 200)
+arr2: Svc.ComQueueDepth = Svc.ComQueueDepth(100, 200)
+if arr1 == arr2:
+    exit(0)
+exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_runtime_enum_equality(self, fprime_test_api):
+        """Enum equality with runtime (non-const) operands."""
+        seq = """
+e1: Fw.DpState = Fw.DpState.UNTRANSMITTED
+e2: Fw.DpState = Fw.DpState.UNTRANSMITTED
+if e1 == e2:
+    exit(0)
+exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
 class TestTypeErrors:
 
     def test_u8_too_large(self, fprime_test_api):

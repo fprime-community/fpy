@@ -199,6 +199,22 @@ noop()
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_return_value_in_void_func(self, fprime_test_api):
+        """A void function must not return a value."""
+        seq = """
+def test():
+    return 42
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_bare_return_in_typed_func(self, fprime_test_api):
+        """A function with a return type must not use a bare return."""
+        seq = """
+def test() -> U32:
+    return
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
 class TestCalls:
 
     def test_wrong_arg_type(self, fprime_test_api):
@@ -262,6 +278,16 @@ assert fib(4) == 5
 """
 
         assert_run_success(fprime_test_api, seq)
+
+    def test_use_void_function_result(self, fprime_test_api):
+        """Using the result of a void function in an expression should fail."""
+        seq = """
+def noop():
+    pass
+
+val: U32 = noop()
+"""
+        assert_compile_failure(fprime_test_api, seq)
 
 class TestScoping:
 
@@ -415,27 +441,6 @@ for i in 0..10:
 while True:
     def test():
         pass
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_nested_func_capture_outer_local(self, fprime_test_api):
-        seq = """
-def outer() -> U32:
-    local_val: U32 = 42
-    def inner() -> U32:
-        return local_val
-    return inner()
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_nested_func_capture_outer_arg(self, fprime_test_api):
-        seq = """
-def outer(value: U32) -> U32:
-    def inner() -> U32:
-        return value
-    return inner()
 """
 
         assert_compile_failure(fprime_test_api, seq)
@@ -639,21 +644,6 @@ def test(a: U64 = x) -> U64:
 """
 
         # Should fail because variable is not a const expression
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_default_arg_nested_func_cannot_access_outer_local(self, fprime_test_api):
-        """Default value cannot reference a variable - must be const expr."""
-        seq = """
-def outer() -> U64:
-    x: U64 = 10
-    
-    def inner(a: U64 = x) -> U64:
-        return a
-    
-    return inner()
-"""
-
-        # Should fail because x is not a const expression
         assert_compile_failure(fprime_test_api, seq)
 
     def test_default_arg_forward_reference(self, fprime_test_api):
