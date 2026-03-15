@@ -755,8 +755,7 @@ class GenerateFunctionBody(Emitter):
             elif (
                 node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64
             ):
-                # for float floor division, do float division, then convert to int, then
-                # back to float
+                # for float floor division, do fdiv then truncate to int then back to float
                 dirs.append(FloatDivideDirective())
                 dirs.append(FloatToSignedIntDirective())
                 dirs.append(SignedIntToFloatDirective())

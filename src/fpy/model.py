@@ -104,6 +104,12 @@ def overflow_check(val: int) -> int:
     return masked_val
 
 
+def _trunc_div(a: int, b: int) -> int:
+    """C-style integer division: truncate toward zero (not Python's floor)."""
+    sign = -1 if (a < 0) != (b < 0) else 1
+    return sign * (abs(a) // abs(b))
+
+
 class DirectiveErrorCode(Enum):
     NO_ERROR = 0
     STMT_OUT_OF_BOUNDS = 1
@@ -854,7 +860,12 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop()
         lhs = self.pop()
-        self.push(overflow_check(lhs + rhs))
+        # Match C++ overflow/underflow checks from op_add
+        if rhs > 0 and lhs > 0 and (MAX_INT64 - rhs) < lhs:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        if rhs < 0 and lhs < 0 and (MIN_INT64 - rhs) > lhs:
+            return DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+        self.push(lhs + rhs)
         return None
 
     def handle_isub(self, dir: IntSubtractDirective):
@@ -862,7 +873,12 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop()
         lhs = self.pop()
-        self.push(overflow_check(lhs - rhs))
+        # Match C++ overflow/underflow checks from op_sub
+        if rhs < 0 and lhs > 0 and (MAX_INT64 + rhs) < lhs:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        if rhs > 0 and lhs < 0 and (MIN_INT64 + rhs) > lhs:
+            return DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+        self.push(lhs - rhs)
         return None
 
     def handle_imul(self, dir: IntMultiplyDirective):
@@ -870,7 +886,18 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop()
         lhs = self.pop()
-        self.push(overflow_check(lhs * rhs))
+        # Match C++ overflow/underflow checks from op_mul.
+        # C++ uses truncation-toward-zero division for the threshold checks,
+        # so we must use _trunc_div, not Python's // (floor division).
+        if rhs > 0 and lhs > 0 and _trunc_div(MAX_INT64, rhs) < lhs:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        if rhs < 0 and lhs < 0 and _trunc_div(MAX_INT64, -rhs) < (-lhs):
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        if rhs < 0 and lhs > 0 and _trunc_div(MIN_INT64, lhs) > rhs:
+            return DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+        if rhs > 0 and lhs < 0 and _trunc_div(MIN_INT64, rhs) > lhs:
+            return DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+        self.push(lhs * rhs)
         return None
 
     def handle_udiv(self, dir: UnsignedIntDivideDirective):
@@ -879,18 +906,10 @@ class FpySequencerModel:
         rhs = self.pop(signed=False)
         lhs = self.pop(signed=False)
 
-        # credit to gemini
         if rhs == 0:
-            # C++ behavior for division by zero is undefined.
             return DirectiveErrorCode.DOMAIN_ERROR
 
-        # Perform division, truncating towards zero
-        # This is different from Python's // which floors.
-        python_quotient = int(lhs / rhs)
-
-        # For division, overflow detection isn't typically done with the mask on the result
-        # because the quotient itself is within range
-        self.push(python_quotient)
+        self.push(lhs // rhs)
         return None
 
     def handle_sdiv(self, dir: SignedIntDivideDirective):
@@ -899,20 +918,14 @@ class FpySequencerModel:
         rhs = self.pop(signed=True)
         lhs = self.pop(signed=True)
 
-        # credit to gemini
         if rhs == 0:
-            # C++ behavior for division by zero is undefined.
             return DirectiveErrorCode.DOMAIN_ERROR
 
-        # Special overflow case: MIN_INT64 / -1
-        # This results in MAX_INT64 + 1, which overflows to MIN_INT64 in C++.
-        if lhs == MIN_INT64 and rhs == -1:
-            self.push(MIN_INT64)  # C++ specific overflow behavior
-            return
+        # C++-style truncation toward zero (can't use int(lhs/rhs) because
+        # float conversion loses precision for large I64 values)
+        result = _trunc_div(lhs, rhs)
 
-        python_quotient = int(lhs / rhs)
-
-        self.push(python_quotient)
+        self.push(result)
         return None
 
     def handle_fadd(self, dir: FloatAddDirective):
@@ -945,13 +958,13 @@ class FpySequencerModel:
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
         if rhs == 0.0:
-            # IEEE 754: division by zero produces inf, -inf, or nan
+            # IEEE 754: division by zero produces inf, -inf, or nan.
+            # The sign of the result depends on the signs of BOTH operands.
             if lhs == 0.0:
                 self.push(float('nan'))
-            elif lhs > 0:
-                self.push(float('inf'))
             else:
-                self.push(float('-inf'))
+                result_sign = math.copysign(1.0, lhs) * math.copysign(1.0, rhs)
+                self.push(math.copysign(float('inf'), result_sign))
             return None
         self.push(lhs / rhs)
         return None
@@ -991,13 +1004,26 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
-        self.push(lhs**rhs)
+        try:
+            result = lhs**rhs
+        except (ValueError, OverflowError):
+            # C++ pow() returns NaN for domain errors
+            self.push(float('nan'))
+            return None
+        # Python can return complex for e.g. (-1.0)**0.5; C++ pow() returns NaN
+        if isinstance(result, complex):
+            self.push(float('nan'))
+            return None
+        self.push(result)
         return None
 
     def handle_log(self, dir: FloatLogDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
         operand = self.pop(type=float)
+        # Match C++ op_flog: check val <= 0.0 and return DOMAIN_ERROR
+        if operand <= 0.0:
+            return DirectiveErrorCode.DOMAIN_ERROR
         self.push(math.log(operand))
         return None
 
