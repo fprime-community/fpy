@@ -1,16 +1,8 @@
-import pytest
-
 from fpy.test_helpers import (
     assert_run_success,
     assert_compile_failure,
 )
 
-
-@pytest.fixture(name="fprime_test_api", scope="module")
-def fprime_test_api_override(request):
-    if request.config.getoption("--use-gds"):
-        return request.getfixturevalue("fprime_test_api_session")
-    return None
 
 
 # ── Anonymous struct tests ──────────────────────────────────────────────
