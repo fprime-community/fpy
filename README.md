@@ -181,10 +181,12 @@ enum_var: Fw.Success = Fw.Success.SUCCESS
 array_var: Ref.DpDemo.U32Array = Ref.DpDemo.U32Array(0, 1, 2, 3, 4)
 
 # you can construct structs:
-struct_var: Ref.SignalPair = Ref.SignalPair(0.0, 1.0)
+struct_var: Fw.TimeInterval = {seconds: 0, useconds: 1000}
 ```
 
-In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`. Trailing commas are allowed.
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
+
+Trailing commas are allowed in these expressions.
 
 ## Math
 You can do basic math and store the result in variables in Fpy:
@@ -263,19 +265,6 @@ CdhCore.cmdDisp.CMD_NO_OP()
 if CdhCore.cmdDisp.CommandsDispatched >= 1:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
 ```
-
-## Anonymous struct/array expressions
-
-You can construct structs/arrays with a simple syntax:
-```py
-time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
-
-array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
-```
-
-If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
-
-Trailing commas are allowed in these expressions.
 
 ## Check statement
 
