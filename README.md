@@ -178,7 +178,7 @@ Fpy also has access to all structs, arrays and enums in the F-Prime dictionary:
 enum_var: Fw.Success = Fw.Success.SUCCESS
 
 # you can construct arrays:
-array_var: Ref.DpDemo.U32Array = Ref.DpDemo.U32Array(0, 1, 2, 3, 4)
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 
 # you can construct structs:
 struct_var: Fw.TimeInterval = {seconds: 0, useconds: 1000}
