@@ -19,6 +19,7 @@ from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
+    CheckPositionsOfStatements,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
@@ -468,6 +469,7 @@ def ast_to_directives(
     
     state = get_base_compile_state(dictionary, compile_args)
     state.root = body
+    state.num_pre_stmts = len(builtin_library_ast.stmts)
 
     pre_semantic_desugaring_passes = [
         DesugarCheckStatements()
@@ -478,6 +480,9 @@ def ast_to_directives(
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
         CreateScopes(),
+        # Check to see if positional statements / definitions are in the right place
+        # ex: metadata sequence arguments
+        CheckPositionsOfStatements(),
         # based on assignment syntax nodes, we know which variables exist where.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.

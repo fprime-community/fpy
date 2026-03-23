@@ -99,6 +99,7 @@ from fpy.syntax import (
     AstReference,
     AstReturn,
     AstBlock,
+    AstSequenceMetadata,
     AstStmt,
     AstStmtWithExpr,
     AstString,
@@ -227,6 +228,34 @@ class CreateScopes:
                                 self._walk(elem, state, scope)
             elif isinstance(val, Ast):
                 self._walk(val, state, scope)
+    
+class CheckPositionsOfStatements(TopDownVisitor):
+    """
+    Ensures that 'arg' tagged variables only appear at the very top of the main sequence.
+    Once we see any non-arg statement, all subsequent arg declarations are errors.
+
+    Builtin function definitions (prepended by the compiler) are skipped, but user-defined
+    functions count as non-arg statements.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.seen_user_code = False
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # Only check the root block (top-level sequence)
+        if node is not state.root:
+            return
+
+        # Walk through statements in order
+        for stmt in node.stmts:
+            # Check to see if sequence() definition is immediately after builtin statements
+            if isinstance(stmt, AstSequenceMetadata) and not stmt is node.stmts[state.num_pre_stmts]:
+                print("ERROR")
+                state.err(
+                    f"sequence() definitions must appear before statements with side effects.\n",
+                    stmt
+                )
 
 
 class CreateVariablesAndFuncs(TopDownVisitor):
@@ -383,6 +412,28 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         self._deferred_defs.append(node)
         return STOP_DESCENT
 
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        scope = state.enclosing_value_scope[node]
+
+        existing_meta = scope.get("SeqArgMeta")
+        if existing_meta is not None:
+            state.err(
+                f"Sequence Metadata has already been defined", node
+            )
+        scope["SeqArgMeta"] = node
+
+        if node.parameters is not None:
+            for arg in node.parameters:
+                arg_name_var, arg_type_name = arg
+                existing_arg = scope.lookup(arg_name_var.name)
+                if existing_arg is not None:
+                    # two args with the same name
+                    state.err(
+                        f"Sequence Parameter '{arg_name_var.name}' has already been defined",
+                        arg_name_var,
+                    )
+                arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node, is_global=True)
+                scope[arg_name_var.name] = arg_var
 
 class SetEnclosingLoops(Visitor):
     """sets the enclosing_loop of any break/continue it finds"""
@@ -535,6 +586,15 @@ class ResolveQualifiedNames(TopDownVisitor):
             return
         if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
             return
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is not None:
+            for arg_name_var, arg_type_name in node.parameters:
+                if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+                    return
+                # arg names become vars in func scope, so resolve them in func scope
+                if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
+                    return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
@@ -712,6 +772,21 @@ class UpdateTypesAndFuncs(Visitor):
 
         var.type = var_type
 
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        # Resolve parameter types
+        if node.parameters is not None:
+            for arg_name_var, arg_type_name in node.parameters:
+                arg_type = state.resolved_symbols[arg_type_name]
+                if not is_type_constant_size(arg_type):
+                    state.err(
+                        f"Type {arg_type.display_name} is not constant-sized (contains strings)",
+                        arg_type_name,
+                    )
+                    return
+                # update the var type
+                arg_var = state.resolved_symbols[arg_name_var]
+                assert is_instance_compat(arg_var, VariableSymbol), arg_var
+                arg_var.type = arg_type
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
@@ -774,6 +849,11 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # function parameters - no use-before-define check needed
             # this is because if it's in scope, it's defined, as its
             # "declaration" is the start of the scope
+            return
+        if is_instance_compat(sym.declaration, AstSequenceMetadata):
+            # sequence metadata parameters - no use-before-define check needed
+            # this is because if it's in scope, it's defined, as its
+            # "declaration" is the start of the sequence
             return
         if (
             is_instance_compat(sym.declaration, AstAssign)
@@ -1742,6 +1822,21 @@ class PickTypesAndResolveFields(Visitor):
                 # Check that default value's type can be coerced to parameter type
                 if not self.coerce_expr_type(default_value, arg_type, state):
                     return
+    
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        # Validate that default argument types are compatible with parameter types
+        if node.parameters is None:
+            return
+        
+        for arg in node.parameters:
+            arg_name_var, arg_type_name = arg
+            arg_sym = state.resolved_symbols[arg_name_var]
+            if not is_instance_compat(arg_sym, VariableSymbol):
+                state.err("Invalid assignment", arg_name_var)
+                return
+            
+            if not self.coerce_expr_type(arg_name_var, arg_sym.type, state):
+                return
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         func = state.enclosing_funcs[node]
