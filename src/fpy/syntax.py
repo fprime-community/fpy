@@ -565,8 +565,8 @@ class FpyTransformer(Transformer):
     return_stmt = AstReturn
 
     meta_stmt = AstSequenceMetadata
-    seq_arg_defs = no_inline_or_meta(list)
-    seq_arg_def = no_inline(handle_sequence_argument)
+    sequence_stmt_parameters = no_inline_or_meta(list)
+    sequence_stmt_parameter = no_inline(handle_sequence_argument)
 
     NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int

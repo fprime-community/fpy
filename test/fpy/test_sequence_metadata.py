@@ -1,7 +1,6 @@
 import pytest
 
 from fpy.test_helpers import (
-    assert_run_success,
     assert_compile_failure,
     assert_compile_success,
 )
@@ -219,3 +218,29 @@ for i in 0..max_val:
     sum = sum + i
 """
     assert_compile_success(fprime_test_api, seq)
+
+def test_defining_sequence_in_function(fprime_test_api):
+    """Test defining sequence in a function."""
+    seq = """
+def myfunc():
+    sequence(max_val: I64)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_defining_sequence_in_loop(fprime_test_api):
+    """Test defining sequence in a loop."""
+    seq = """
+for i in 0..5:
+    sequence(max_val: I64)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+def test_defining_sequence_in_if_stmt(fprime_test_api):
+    """Test defining sequence in an if stmt."""
+    seq = """
+value: bool = True
+if value:
+    sequence(max_val: I64)
+"""
+    assert_compile_failure(fprime_test_api, seq)

@@ -16,9 +16,9 @@ _small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | 
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 
 # the sequence metadata definition statement
-meta_stmt: "sequence" "(" [seq_arg_defs] ")"
-seq_arg_defs: seq_arg_def ("," seq_arg_def)* ","?
-seq_arg_def: name ":" expr
+meta_stmt: "sequence" "(" [sequence_stmt_parameters] ")"
+sequence_stmt_parameters: sequence_stmt_parameter ("," sequence_stmt_parameter)* ","?
+sequence_stmt_parameter: name ":" expr
 
 
 # an indented list of statements
