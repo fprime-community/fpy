@@ -222,7 +222,7 @@ for i in 0..max_val:
 def test_defining_sequence_in_function(fprime_test_api):
     """Test defining sequence in a function."""
     seq = """
-def myfunc():
+def test_func():
     sequence(max_val: I64)
 """
     assert_compile_failure(fprime_test_api, seq)
