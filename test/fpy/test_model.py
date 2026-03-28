@@ -849,7 +849,8 @@ class TestFlog:
         """log(e) should return 1.0."""
         model = self._make_model()
         model.push(math.e)
-        result = model.dispatch(FloatLogDirective())
+        val = model.pop(type=float)
+        assert abs(val - 1.0) < 1e-10
         assert result == DirectiveErrorCode.NO_ERROR
         assert abs(model.pop(type=float) - 1.0) < 1e-10
 
