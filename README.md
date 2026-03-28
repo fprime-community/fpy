@@ -309,6 +309,13 @@ timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 ```
 
+If you just want to wait until a condition is true without running any body, you can omit the colon and body:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60}
+# execution continues here once the condition is satisfied (or times out)
+CdhCore.cmdDisp.CMD_NO_OP_STRING("done waiting!")
+```
+
 ## Getting Struct Members and Array Items
 
 You can access members of structs by name, or array elements by index:
