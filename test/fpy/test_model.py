@@ -2,11 +2,12 @@
 Tests for fpy.model - FpySequencerModel directive handlers and error conditions.
 """
 
-import pytest
+import math
 from fpy.model import (
     DirectiveErrorCode,
     FpySequencerModel,
     overflow_check,
+    MAX_INT64,
     MIN_INT64,
 )
 from fpy.bytecode.directives import (
@@ -727,3 +728,173 @@ class TestMemoryDirectives:
         model.push(4, size=4)
         result = model.dispatch(PeekDirective())
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+
+class TestIntegerOverflow:
+    """The model's handle_iadd/isub/imul should return ARITHMETIC_OVERFLOW or
+    ARITHMETIC_UNDERFLOW on overflow, matching the C++ VM."""
+
+    def _make_model(self):
+        return FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+
+    def test_iadd_overflow(self):
+        """MAX_INT64 + 1 should produce ARITHMETIC_OVERFLOW."""
+        model = self._make_model()
+        model.push(MAX_INT64)
+        model.push(1)
+        result = model.dispatch(IntAddDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
+    def test_iadd_underflow(self):
+        """MIN_INT64 + (-1) should produce ARITHMETIC_UNDERFLOW."""
+        model = self._make_model()
+        model.push(MIN_INT64)
+        model.push(-1)
+        result = model.dispatch(IntAddDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+
+    def test_iadd_no_overflow(self):
+        """Normal addition should work fine."""
+        model = self._make_model()
+        model.push(100)
+        model.push(200)
+        result = model.dispatch(IntAddDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        assert model.pop() == 300
+
+    def test_isub_overflow(self):
+        """MAX_INT64 - (-1) should produce ARITHMETIC_OVERFLOW."""
+        model = self._make_model()
+        model.push(MAX_INT64)
+        model.push(-1)
+        result = model.dispatch(IntSubtractDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
+    def test_isub_underflow(self):
+        """MIN_INT64 - 1 should produce ARITHMETIC_UNDERFLOW."""
+        model = self._make_model()
+        model.push(MIN_INT64)
+        model.push(1)
+        result = model.dispatch(IntSubtractDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+
+    def test_imul_overflow_positive(self):
+        """MAX_INT64 * 2 should produce ARITHMETIC_OVERFLOW."""
+        model = self._make_model()
+        model.push(MAX_INT64)
+        model.push(2)
+        result = model.dispatch(IntMultiplyDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
+    def test_imul_underflow(self):
+        """MAX_INT64 * (-2) should produce ARITHMETIC_UNDERFLOW."""
+        model = self._make_model()
+        model.push(MAX_INT64)
+        model.push(-2)
+        result = model.dispatch(IntMultiplyDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_UNDERFLOW
+
+
+class TestFpow:
+    """The model's handle_fpow should return NaN on domain errors
+    like pow(-1.0, 0.5), matching C++ pow()."""
+
+    def _make_model(self):
+        return FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+
+    def test_fpow_domain_error_returns_nan(self):
+        """(-1.0) ** 0.5 should push NaN, not crash."""
+        model = self._make_model()
+        model.push(-1.0)
+        model.push(0.5)
+        result = model.dispatch(FloatExponentDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert math.isnan(val)
+
+    def test_fpow_normal(self):
+        """Normal exponentiation should work."""
+        model = self._make_model()
+        model.push(2.0)
+        model.push(3.0)
+        result = model.dispatch(FloatExponentDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        assert model.pop(type=float) == 8.0
+
+
+class TestFlog:
+    """The model's handle_log should return DOMAIN_ERROR for non-positive
+    values, matching C++ op_flog."""
+
+    def _make_model(self):
+        return FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+
+    def test_flog_zero_returns_domain_error(self):
+        """log(0.0) should return DOMAIN_ERROR, not crash."""
+        model = self._make_model()
+        model.push(0.0)
+        result = model.dispatch(FloatLogDirective())
+        assert result == DirectiveErrorCode.DOMAIN_ERROR
+
+    def test_flog_negative_returns_domain_error(self):
+        """log(-1.0) should return DOMAIN_ERROR, not crash."""
+        model = self._make_model()
+        model.push(-1.0)
+        result = model.dispatch(FloatLogDirective())
+        assert result == DirectiveErrorCode.DOMAIN_ERROR
+
+    def test_flog_normal(self):
+        """log(e) should return 1.0."""
+        model = self._make_model()
+        model.push(math.e)
+        result = model.dispatch(FloatLogDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        assert abs(model.pop(type=float) - 1.0) < 1e-10
+
+
+class TestFdivNegativeZero:
+    """The model's handle_fdiv should consider the sign of both operands
+    when dividing by zero, matching IEEE 754."""
+
+    def _make_model(self):
+        return FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+
+    def test_fdiv_positive_by_neg_zero(self):
+        """1.0 / (-0.0) should be -inf."""
+        model = self._make_model()
+        model.push(1.0)
+        model.push(-0.0)
+        result = model.dispatch(FloatDivideDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float('-inf')
+
+    def test_fdiv_negative_by_neg_zero(self):
+        """(-1.0) / (-0.0) should be +inf."""
+        model = self._make_model()
+        model.push(-1.0)
+        model.push(-0.0)
+        result = model.dispatch(FloatDivideDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float('inf')
+
+    def test_fdiv_positive_by_pos_zero(self):
+        """1.0 / 0.0 should be +inf."""
+        model = self._make_model()
+        model.push(1.0)
+        model.push(0.0)
+        result = model.dispatch(FloatDivideDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float('inf')
+
+    def test_fdiv_zero_by_zero(self):
+        """0.0 / 0.0 should be NaN."""
+        model = self._make_model()
+        model.push(0.0)
+        model.push(0.0)
+        result = model.dispatch(FloatDivideDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert math.isnan(val)

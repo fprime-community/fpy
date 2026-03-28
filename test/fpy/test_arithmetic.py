@@ -471,3 +471,60 @@ assert iabs(-1) == 1
         assert_run_success(fprime_test_api, seq)
 
 
+class TestFloorDivision:
+    """Floor division uses C++ truncation semantics (toward zero).
+    Both const-folded and runtime paths should agree."""
+
+    def test_int_floor_div_negative_const_vs_runtime(self, fprime_test_api):
+        """Runtime -7 // 2 should give -3 (truncation toward zero)."""
+        seq = """
+a: I64 = -7
+b: I64 = 2
+result: I64 = a // b
+assert result == -3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_int_floor_div_negative_const_folded(self, fprime_test_api):
+        """Const-folded (-7) // 2 should also give -3 (truncation toward zero)."""
+        seq = """
+result: I64 = (-7) // 2
+assert result == -3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_negative_const_vs_runtime(self, fprime_test_api):
+        """Runtime float floor division: -5.5 // 2.0 = -2.0 (truncation toward zero)."""
+        seq = """
+a: F64 = -5.5
+b: F64 = 2.0
+result: F64 = a // b
+assert result == -2.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_negative_const_folded(self, fprime_test_api):
+        """Const-folded (-5.5) // 2.0 should also give -2.0 (truncation toward zero)."""
+        seq = """
+result: F64 = (-5.5) // 2.0
+assert result == -2.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_int_floor_div_positive(self, fprime_test_api):
+        """Positive floor division: 7 // 2 = 3."""
+        seq = """
+result: I64 = 7 // 2
+assert result == 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_int_floor_div_negative_divisor(self, fprime_test_api):
+        """7 // (-2) = -3 (truncation toward zero)."""
+        seq = """
+result: I64 = 7 // (-2)
+assert result == -3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+

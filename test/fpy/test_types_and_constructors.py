@@ -116,6 +116,64 @@ Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED).priority = 5
 
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_write_struct_array_member_const_idx(self, fprime_test_api):
+        """Write to a struct's array member at a constant index.
+
+        Ref.SignalInfo has:
+          type: Ref.SignalType (4 bytes)
+          history: F32[4] (16 bytes)  -- offset 4 within struct
+          pairHistory: Ref.SignalPairSet (32 bytes)
+        """
+        seq = """
+info: Ref.SignalInfo = Ref.SignalInfo( \\
+    Ref.SignalType.TRIANGLE, \\
+    Ref.SignalSet(0.0, 0.0, 0.0, 0.0), \\
+    Ref.SignalPairSet( \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0)))
+info.history[1] = 42.0
+assert info.history[1] == 42.0
+assert info.history[0] == 0.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_write_struct_array_member_var_idx(self, fprime_test_api):
+        """Write to a struct's array member with a variable index."""
+        seq = """
+info: Ref.SignalInfo = Ref.SignalInfo( \\
+    Ref.SignalType.TRIANGLE, \\
+    Ref.SignalSet(0.0, 0.0, 0.0, 0.0), \\
+    Ref.SignalPairSet( \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0)))
+idx: I64 = 1
+info.history[idx] = 42.0
+assert info.history[1] == 42.0
+assert info.history[0] == 0.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_write_struct_array_member_nonzero_history(self, fprime_test_api):
+        """Write to history[0] — the first element of an array member at a
+        non-zero offset within the struct."""
+        seq = """
+info: Ref.SignalInfo = Ref.SignalInfo( \\
+    Ref.SignalType.TRIANGLE, \\
+    Ref.SignalSet(0.0, 0.0, 0.0, 0.0), \\
+    Ref.SignalPairSet( \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0), \\
+        Ref.SignalPair(0.0, 0.0)))
+info.history[0] = 77.0
+assert info.history[0] == 77.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
 class TestArrays:
 
     def test_array_ctor_var_arg(self, fprime_test_api):
@@ -269,6 +327,37 @@ record: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 value: U32 = record[0]
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_write_array_elem_struct_member(self, fprime_test_api):
+        """Ref.SignalPairSet is Ref.SignalPair[4].
+        Ref.SignalPair has {time: F32, value: F32}.
+        Writing to pairs[0].value should work."""
+        seq = """
+pairs: Ref.SignalPairSet = Ref.SignalPairSet( \\
+    Ref.SignalPair(1.0, 2.0), \\
+    Ref.SignalPair(3.0, 4.0), \\
+    Ref.SignalPair(5.0, 6.0), \\
+    Ref.SignalPair(7.0, 8.0))
+pairs[0].value = 99.0
+assert pairs[0].value == 99.0
+assert pairs[0].time == 1.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_write_array_elem_struct_member_var_idx(self, fprime_test_api):
+        """Write to array element's struct member with variable index."""
+        seq = """
+pairs: Ref.SignalPairSet = Ref.SignalPairSet( \\
+    Ref.SignalPair(1.0, 2.0), \\
+    Ref.SignalPair(3.0, 4.0), \\
+    Ref.SignalPair(5.0, 6.0), \\
+    Ref.SignalPair(7.0, 8.0))
+idx: I64 = 1
+pairs[idx].value = 99.0
+assert pairs[1].value == 99.0
+assert pairs[1].time == 3.0
+"""
+        assert_run_success(fprime_test_api, seq)
 
 class TestConstFoldEquality:
 
