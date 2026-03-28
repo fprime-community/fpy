@@ -137,12 +137,12 @@ check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persi
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 1 freq {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 period {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
     timeout now() + {seconds: 60}
     persist {seconds: 1}
-    freq {seconds: 1}:
+    period {seconds: 1}:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")

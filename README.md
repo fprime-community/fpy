@@ -290,20 +290,20 @@ timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 ```
 
-Finally, you can specify a `freq` at which the condition should be checked:
+Finally, you can specify a `period` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 freq {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 period {seconds: 1}: # check every 1 second
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
 ```
 
-If you don't specify a value for `freq`, the default frequency is 1 Hertz.
+If you don't specify a value for `period`, the default period is 1 second.
 
-The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
+The `timeout`, `persist` and `period` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30
     timeout now() + {seconds: 60}
     persist {seconds: 2}
-    freq {seconds: 1}
+    period {seconds: 1}
     CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")

@@ -286,7 +286,7 @@ class AstCheck(Ast):
     condition: AstExpr
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    freq: Union[AstExpr, None]    # Default: 1 second interval
+    period: Union[AstExpr, None]    # Default: 1 second interval
     body: "AstBlock"
     timeout_body: Union["AstBlock", None] = None
 
@@ -400,7 +400,7 @@ def handle_str(meta, s: str):
 
 
 # Check statement clause handlers.
-# The check_stmt grammar has multiple optional clauses (timeout, persist, freq).
+# The check_stmt grammar has multiple optional clauses (timeout, persist, period).
 # We use separate grammar rules for each clause so we can tag them and identify
 # which optional clauses were provided, regardless of how many are present.
 def handle_check_clause(tag):
@@ -433,18 +433,18 @@ def handle_check_clauses(meta, children):
 
 
 def handle_check_stmt(meta, children):
-    """Parse check statement with optional timeout/persist/freq clauses."""
+    """Parse check statement with optional timeout/persist/period clauses."""
     from fpy.error import SyntaxErrorDuringTransform
     
     condition = children[0]
     timeout = None
     persist = None
-    freq = None
+    period = None
     body = None
     timeout_body = None
     
     def set_clause(clause_type, expr):
-        nonlocal timeout, persist, freq
+        nonlocal timeout, persist, period
         if clause_type == "timeout":
             if timeout is not None:
                 raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
@@ -453,10 +453,10 @@ def handle_check_stmt(meta, children):
             if persist is not None:
                 raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
             persist = expr
-        elif clause_type == "freq":
-            if freq is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'freq' clause in check statement", expr)
-            freq = expr
+        elif clause_type == "period":
+            if period is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'period' clause in check statement", expr)
+            period = expr
     
     for child in children[1:]:
         # Handle check_clauses which returns ("check_clauses_result", clauses, body)
@@ -475,7 +475,7 @@ def handle_check_stmt(meta, children):
                 timeout_body = child
     
     assert body is not None, "check statement must have a body"
-    return AstCheck(meta, condition, timeout, persist, freq, body, timeout_body)
+    return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
 
 
 def handle_parameter(meta, args):
@@ -505,10 +505,10 @@ class FpyTransformer(Transformer):
 
     check_timeout = handle_check_clause("timeout")
     check_persist = handle_check_clause("persist")
-    check_freq = handle_check_clause("freq")
+    check_period = handle_check_clause("period")
     check_timeout_final = handle_check_clause("timeout")
     check_persist_final = handle_check_clause("persist")
-    check_freq_final = handle_check_clause("freq")
+    check_period_final = handle_check_clause("period")
 
     @v_args(meta=True, inline=True)
     def check_clause(self, meta, x):
