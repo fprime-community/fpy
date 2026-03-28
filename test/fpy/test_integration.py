@@ -34,14 +34,28 @@ uint: U32 = 123123
 int: I32 = I32(uint)
 assert int == 123123
 
+high_bitwidth: U32 = 16383
+low_bitwidth: U8 = U8(high_bitwidth)
+
+CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
+success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+
+if success == Fw.CmdResponse.OK:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
+
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
 # sleep for 1 second
 sleep(1)
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
 # sleep for half a second
 sleep(useconds=500_000)
+# sleep until the next checkTimers call
+sleep()
 
-value: bool = 1 > 2 and (3 + 4) != 5
 many_cmds_dispatched: bool = cmds_dispatched >= 123
 record1: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 record2: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
@@ -59,6 +73,8 @@ time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
 
 array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 
+enum_var: Fw.Enabled = Fw.Enabled.ENABLED
+
 counter: U64 = 0
 while counter < 100:
     counter = counter + 1
@@ -70,6 +86,10 @@ for i in 0 .. 5:
     sum = sum + i
 
 assert sum == 10
+i: I64 = 123
+for i in 0..5:
+    sum = sum + i
+assert sum == 20
 counter = 0
 while True:
     counter = counter + 1
@@ -147,6 +167,9 @@ check CdhCore.cmdDisp.CommandsDispatched > 1
 timeout:
     CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
 
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60}
+CdhCore.cmdDisp.CMD_NO_OP_STRING("done waiting!")
+
 # Time functions examples
 current_time: Fw.Time = now()
 t1: Fw.Time = now()
@@ -164,6 +187,12 @@ assert (current + offset).seconds == 160
 start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
 end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
+
+parsed_time: Fw.Time = time("2025-12-19T14:30:00.123456Z")
+parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
+
+assert 1 > 0
+exit(0)
 """
         assert_run_success(
             fprime_test_api,

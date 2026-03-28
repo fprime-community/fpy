@@ -469,8 +469,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
-# time base of 0, time context of 1
-sleep_until({timeBase: 0, timeContext: 1, seconds=1234567890, useconds=0})
+sleep_until({timeBase: TimeBase.TB_NONE, timeContext: 1, seconds: 1234567890, useconds: 0})
 CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
 ```
 
@@ -483,8 +482,8 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize timeBase and timeContext (defaults are 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=2, timeContext=1)
+# Customize timeBase and timeContext (defaults are TimeBase.TB_NONE and 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
@@ -521,15 +520,15 @@ assert interval1 < interval2
 
 You can add a `Fw.TimeInterval` to a `Fw.Time`:
 ```py
-current: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 500000}
+current: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 500000}
 offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
 You can subtract two `Fw.Time` values to get a `Fw.TimeInterval`:
 ```py
-start: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 0}
-end: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 105, useconds: 500000}
+start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 ```
 
