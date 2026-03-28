@@ -586,3 +586,114 @@ def check_no_timeout() -> I64:
         # The check desugars to: while True:...; if result: <body> else: <implicit>
         # The implicit else doesn't return, so we need a trailing return
         assert_compile_failure(fprime_test_api, seq)
+
+
+class TestBodylessCheck:
+
+    def test_bodyless_check_inline_true(self, fprime_test_api):
+        """Body-less check with True condition proceeds immediately."""
+        seq = """
+done: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) period Fw.TimeIntervalValue(0, 100000)
+done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_inline_with_timeout(self, fprime_test_api):
+        """Body-less check that times out (no timeout body, just proceeds)."""
+        seq = """
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 50000)) period Fw.TimeIntervalValue(0, 10000)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_inline_no_clauses(self, fprime_test_api):
+        """Body-less check with no clauses uses defaults (True passes immediately)."""
+        seq = """
+done: bool = False
+check True
+done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_inline_only_timeout(self, fprime_test_api):
+        """Body-less check with only a timeout clause."""
+        seq = """
+done: bool = False
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_inline_only_period(self, fprime_test_api):
+        """Body-less check with only a period clause."""
+        seq = """
+done: bool = False
+check True period Fw.TimeIntervalValue(0, 100000)
+done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_multiline_clauses(self, fprime_test_api):
+        """Body-less check with multi-line clauses (no colon on last clause)."""
+        seq = """
+done: bool = False
+check True
+    timeout time_add(now(), Fw.TimeIntervalValue(1, 0))
+    period Fw.TimeIntervalValue(0, 100000)
+done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_multiline_with_timeout_body(self, fprime_test_api):
+        """Body-less check with multi-line clauses and a timeout body."""
+        seq = """
+timed_out: bool = False
+check False
+    timeout time_add(now(), Fw.TimeIntervalValue(0, 50000))
+    period Fw.TimeIntervalValue(0, 10000)
+timeout:
+    timed_out = True
+assert timed_out
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_waits_for_condition(self, fprime_test_api):
+        """Body-less check actually waits until the condition becomes true."""
+        seq = """
+counter: I64 = 0
+def counting_condition() -> bool:
+    counter = counter + 1
+    return counter >= 3
+
+check counting_condition() timeout time_add(now(), Fw.TimeIntervalValue(5, 0)) period Fw.TimeIntervalValue(0, 10000)
+assert counter >= 3
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_inside_block(self, fprime_test_api):
+        """Body-less check inside an if block."""
+        seq = """
+done: bool = False
+if True:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) period Fw.TimeIntervalValue(0, 100000)
+    done = True
+assert done
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bodyless_check_in_function(self, fprime_test_api):
+        """Body-less check inside a function, followed by more statements."""
+        seq = """
+def wait_and_return() -> I64:
+    check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) period Fw.TimeIntervalValue(0, 100000)
+    return 42
+
+result: I64 = wait_and_return()
+assert result == 42
+"""
+        assert_run_success(fprime_test_api, seq)

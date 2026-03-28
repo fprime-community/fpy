@@ -287,7 +287,7 @@ class AstCheck(Ast):
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
     period: Union[AstExpr, None]    # Default: 1 second interval
-    body: "AstBlock"
+    body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
 
 
@@ -415,7 +415,7 @@ def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
     
     Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
-    (clause_type, expr) tuples and body_stmts is an AstBlock.
+    (clause_type, expr) tuples and body_stmts is an AstBlock or None (body-less).
     """
     clauses = []
     stmts = []
@@ -429,7 +429,8 @@ def handle_check_clauses(meta, children):
             stmts.append(child)
     
     # Return as a special tuple that handle_check_stmt can recognize
-    return ("check_clauses_result", clauses, AstBlock(meta, stmts))
+    body = AstBlock(meta, stmts) if stmts else None
+    return ("check_clauses_result", clauses, body)
 
 
 def handle_check_stmt(meta, children):
@@ -442,6 +443,7 @@ def handle_check_stmt(meta, children):
     period = None
     body = None
     timeout_body = None
+    body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
     
     def set_clause(clause_type, expr):
         nonlocal timeout, persist, period
@@ -464,17 +466,18 @@ def handle_check_stmt(meta, children):
             _, clauses, stmts = child
             for clause_type, expr in clauses:
                 set_clause(clause_type, expr)
-            body = stmts
+            body = stmts  # May be None for body-less multi-line check
+            body_set = True
         elif isinstance(child, tuple) and len(child) == 2:
             clause_type, expr = child
             set_clause(clause_type, expr)
         elif isinstance(child, AstBlock):
-            if body is None:
+            if not body_set:
                 body = child
+                body_set = True
             else:
                 timeout_body = child
     
-    assert body is not None, "check statement must have a body"
     return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
 
 

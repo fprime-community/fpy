@@ -626,15 +626,32 @@ class DesugarCheckStatements(Transformer):
         #     <body>
         # else:
         #     <timeout_body>  (optional)
-        final_if = AstIf(
-            self.meta,
-            cs("result"),
-            node.body,           # Use original body
-            [],                  # No elifs
-            node.timeout_body    # Use original timeout_body (may be None)
-        )
+        #
+        # For body-less check (body is None):
+        # - No body, no timeout_body: just the while loop (wait until condition)
+        # - No body, has timeout_body: if not $check_state.result: <timeout_body>
+        result = [init_check_state, while_loop]
         
-        return [init_check_state, while_loop, final_if]
+        if node.body is not None:
+            final_if = AstIf(
+                self.meta,
+                cs("result"),
+                node.body,           # Use original body
+                [],                  # No elifs
+                node.timeout_body    # Use original timeout_body (may be None)
+            )
+            result.append(final_if)
+        elif node.timeout_body is not None:
+            final_if = AstIf(
+                self.meta,
+                self.unary("not", cs("result")),
+                node.timeout_body,   # Run timeout_body when check failed
+                [],                  # No elifs
+                None                 # No else
+            )
+            result.append(final_if)
+        
+        return result
 
 
 
