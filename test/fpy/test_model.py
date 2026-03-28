@@ -819,7 +819,8 @@ class TestFpow:
         model.push(2.0)
         model.push(3.0)
         result = model.dispatch(FloatExponentDirective())
-        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == 8.0
         assert model.pop(type=float) == 8.0
 
 
