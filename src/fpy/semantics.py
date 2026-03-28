@@ -1732,8 +1732,7 @@ class PickTypesAndResolveFields(Visitor):
             return
 
         func = state.resolved_symbols[node.name]
-        if not is_instance_compat(func, FunctionSymbol):
-            return
+        assert is_instance_compat(func, FunctionSymbol), func
 
         for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
@@ -2270,7 +2269,19 @@ class CalculateConstExprValues(Visitor):
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
-                folded_value = lhs_value // rhs_value
+                # Use truncation toward zero to match C++ semantics
+                if isinstance(lhs_value, Decimal):
+                    folded_value = (lhs_value / rhs_value).to_integral_value(
+                        rounding=decimal.ROUND_DOWN
+                    )
+                else:
+                    folded_value = (
+                        int(lhs_value / rhs_value)
+                        if isinstance(lhs_value, int)
+                        else Decimal(str(lhs_value / rhs_value)).to_integral_value(
+                            rounding=decimal.ROUND_DOWN
+                        )
+                    )
             elif node.op == BinaryStackOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations
