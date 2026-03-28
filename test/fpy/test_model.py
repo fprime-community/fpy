@@ -760,7 +760,8 @@ class TestIntegerOverflow:
         model.push(200)
         result = model.dispatch(IntAddDirective())
         assert result == DirectiveErrorCode.NO_ERROR
-        assert model.pop() == 300
+        popped_value = model.pop()
+        assert popped_value == 300
 
     def test_isub_overflow(self):
         """MAX_INT64 - (-1) should produce ARITHMETIC_OVERFLOW."""
