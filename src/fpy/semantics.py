@@ -1732,8 +1732,7 @@ class PickTypesAndResolveFields(Visitor):
             return
 
         func = state.resolved_symbols[node.name]
-        if not is_instance_compat(func, FunctionSymbol):
-            return
+        assert is_instance_compat(func, FunctionSymbol), func
 
         for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
