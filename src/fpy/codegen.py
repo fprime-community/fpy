@@ -17,6 +17,8 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    CMD_RESPONSE,
+    FLAG_ID,
     FpyType,
     FpyValue,
     INTEGER,
@@ -104,6 +106,7 @@ from fpy.bytecode.directives import (
     StoreAbsDirective,
     PushPrmDirective,
     PushTlmValDirective,
+    GetFlagDirective,
     UnaryStackOp,
     UnsignedIntToFloatDirective,
 )
@@ -274,6 +277,35 @@ class GenerateFunctionBody(Emitter):
         if result_type.max_size > 0:
             return [DiscardDirective(result_type.max_size)]
         return []
+
+    def assert_cmd_response_ok(self, node: AstFuncCall, state: CompileState) -> list[Directive | Ir]:
+        """For a bare command call, emit code to check the response and exit if
+        it is not OK and the EXIT_ON_CMD_FAIL flag is set."""
+        dirs: list[Directive | Ir] = []
+        end_label = IrLabel(node, "cmd_ok")
+        # compare response on stack to Fw.CmdResponse.OK
+        dirs.append(PushValDirective(FpyValue(CMD_RESPONSE, 0).serialize()))
+        dirs.append(MemCompareDirective(CMD_RESPONSE.max_size))
+        # now stack has True if response == OK
+        # if response was OK, skip to end, otherwise go to "cmd_not_ok"
+        not_ok_label = IrLabel(node, "cmd_not_ok")
+        dirs.append(IrIf(not_ok_label))
+        dirs.append(IrGoto(end_label))
+
+        dirs.append(not_ok_label)
+        # response was not OK — check the EXIT_ON_CMD_FAIL flag
+        dirs.append(GetFlagDirective(FLAG_ID.enum_dict["EXIT_ON_CMD_FAIL"]))
+        # if flag is false, skip to end (don't exit)
+        dirs.append(IrIf(end_label))
+        # flag is true and response was not OK — exit with error
+        dirs.append(
+            PushValDirective(
+                FpyValue(U8, DirectiveErrorCode.CMD_FAIL.value).serialize()
+            )
+        )
+        dirs.append(ExitDirective())
+        dirs.append(end_label)
+        return dirs
 
     def get_64_bit_numeric_type(self, type: FpyType) -> FpyType:
         """return the 64 bit version of the input numeric type"""
@@ -450,6 +482,15 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IntMultiplyDirective())
         return dirs
 
+    def _is_cmd_and_response_unhandled(self, stmt: Ast, state: CompileState) -> bool:
+        """True when *stmt* is a command call whose response is not captured."""
+        return (
+            is_instance_compat(stmt, AstFuncCall)
+            and is_instance_compat(
+                state.resolved_symbols.get(stmt.func), CommandSymbol
+            )
+        )
+
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
@@ -458,8 +499,11 @@ class GenerateFunctionBody(Emitter):
                 # TODO warn
                 continue
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         return dirs
 
     def emit_AstIf(self, node: AstIf, state: CompileState):
@@ -536,8 +580,11 @@ class GenerateFunctionBody(Emitter):
                 # last stmt, it must be the inc stmt, add the label before it
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         # go back to condition check
         dirs.append(IrGoto(while_start_label))
         dirs.append(while_end_label)
