@@ -277,14 +277,14 @@ x: U32 = [10, 20, 30][i]
 # ── Anonymous expressions in check statements ───────────────────────────
 
 class TestAnonExprInCheck:
-    """Check statements accept Fw.TimeIntervalValue for persist/freq/timeout.
+    """Check statements accept Fw.TimeIntervalValue for persist/period/timeout.
     Verify that anonymous struct syntax works in each position."""
 
     def test_check_anon_persist(self, fprime_test_api):
         """Anon struct for the persist clause."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {seconds: 0, useconds: 0} freq Fw.TimeIntervalValue(0, 100000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {seconds: 0, useconds: 0} period Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
     assert False, 1
@@ -294,10 +294,10 @@ assert check_passed
         assert_run_success(fprime_test_api, seq)
 
     def test_check_anon_freq(self, fprime_test_api):
-        """Anon struct for the freq clause."""
+        """Anon struct for the period clause."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq {seconds: 0, useconds: 100000}:
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
@@ -309,7 +309,7 @@ assert check_passed
         """Anon struct for the timeout clause (as TimeIntervalValue added to now())."""
         seq = """
 timed_out: bool = False
-check False timeout now() + {seconds: 0, useconds: 100000} persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+check False timeout now() + {seconds: 0, useconds: 100000} persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     assert False, 1
 timeout:
     timed_out = True
@@ -321,7 +321,7 @@ assert timed_out
         """All three clauses use anon struct syntax simultaneously."""
         seq = """
 check_passed: bool = False
-check True timeout now() + {seconds: 1, useconds: 0} persist {seconds: 0, useconds: 0} freq {seconds: 0, useconds: 100000}:
+check True timeout now() + {seconds: 1, useconds: 0} persist {seconds: 0, useconds: 0} period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
@@ -333,7 +333,7 @@ assert check_passed
         """Anon struct with defaults for persist (empty → {seconds:0, useconds:0})."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {} freq Fw.TimeIntervalValue(0, 100000):
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {} period Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
     assert False, 1
@@ -342,10 +342,10 @@ assert check_passed
         assert_run_success(fprime_test_api, seq)
 
     def test_check_anon_freq_partial(self, fprime_test_api):
-        """Anon struct with partial members for freq (useconds only, seconds defaults to 0)."""
+        """Anon struct with partial members for period (useconds only, seconds defaults to 0)."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq {useconds: 100000}:
+check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period {useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
