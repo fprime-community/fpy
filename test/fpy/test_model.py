@@ -115,7 +115,7 @@ class TestStackAllocation:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(DiscardDirective(8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestLoadDirectives:
@@ -174,28 +174,28 @@ class TestStoreDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(StoreRelDirective(8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_store_abs_stack_underflow(self):
         """Test store_abs with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(StoreAbsDirective(8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_store_rel_const_offset_underflow(self):
         """Test store_rel_const_offset with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(StoreRelConstOffsetDirective(0, 8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_store_abs_const_offset_underflow(self):
         """Test store_abs_const_offset with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestPushDirectives:
@@ -254,14 +254,14 @@ class TestWaitDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(WaitRelDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_wait_abs_stack_underflow(self):
         """Test wait_abs with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(WaitAbsDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestControlFlowDirectives:
@@ -272,7 +272,7 @@ class TestControlFlowDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(StackCmdDirective(8))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_goto_out_of_bounds(self):
         """Test goto to invalid directive index."""
@@ -295,28 +295,28 @@ class TestControlFlowDirectives:
         model.dirs = [NoOpDirective()]
         model.stack = bytearray(0)
         result = model.dispatch(IfDirective(0))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_call_stack_underflow(self):
         """Test call with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(2)
         result = model.dispatch(CallDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_return_stack_underflow(self):
         """Test return with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(ReturnDirective(8, 0))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_exit_stack_underflow(self):
         """Test exit with empty stack."""
         model = FpySequencerModel()
         model.stack = bytearray(0)
         result = model.dispatch(ExitDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestLogicalDirectives:
@@ -327,21 +327,21 @@ class TestLogicalDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(1)
         result = model.dispatch(OrDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_and_stack_underflow(self):
         """Test and with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(1)
         result = model.dispatch(AndDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_not_stack_underflow(self):
         """Test not with empty stack."""
         model = FpySequencerModel()
         model.stack = bytearray(0)
         result = model.dispatch(NotDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestComparisonDirectives:
@@ -352,7 +352,7 @@ class TestComparisonDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(IntEqualDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_comparison_handlers_stack_underflow(self):
         """Test various comparison handlers with insufficient stack."""
@@ -379,7 +379,7 @@ class TestComparisonDirectives:
             model.stack = bytearray(8)  # Need 16
             result = model.dispatch(directive)
             assert (
-                result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+                result == DirectiveErrorCode.STACK_UNDERFLOW
             ), f"{type(directive).__name__} should fail"
 
 
@@ -391,14 +391,14 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(2)
         result = model.dispatch(FloatExtendDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_extend_8_to_64_stack_underflow(self):
         """Test siext 8->64 with empty stack."""
         model = FpySequencerModel()
         model.stack = bytearray(0)
         result = model.dispatch(IntegerSignedExtend8To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_extend_8_to_64_stack_overflow(self):
         """Test siext 8->64 when would overflow."""
@@ -413,7 +413,7 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(1)
         result = model.dispatch(IntegerSignedExtend16To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_extend_16_to_64_stack_overflow(self):
         """Test siext 16->64 when would overflow."""
@@ -427,7 +427,7 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(2)
         result = model.dispatch(IntegerSignedExtend32To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_extend_32_to_64_stack_overflow(self):
         """Test siext 32->64 when would overflow."""
@@ -441,7 +441,7 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(0)
         result = model.dispatch(IntegerZeroExtend8To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_zero_extend_8_to_64_stack_overflow(self):
         """Test ziext 8->64 when would overflow."""
@@ -455,7 +455,7 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(1)
         result = model.dispatch(IntegerZeroExtend16To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_zero_extend_16_to_64_stack_overflow(self):
         """Test ziext 16->64 when would overflow."""
@@ -469,7 +469,7 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(2)
         result = model.dispatch(IntegerZeroExtend32To64Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_zero_extend_32_to_64_stack_overflow(self):
         """Test ziext 32->64 when would overflow."""
@@ -483,56 +483,56 @@ class TestTypeConversionDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(FloatTruncateDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_int_truncate_64_to_8_stack_underflow(self):
         """Test itrunc 64->8 with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(IntegerTruncate64To8Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_int_truncate_64_to_16_stack_underflow(self):
         """Test itrunc 64->16 with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(IntegerTruncate64To16Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_int_truncate_64_to_32_stack_underflow(self):
         """Test itrunc 64->32 with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(IntegerTruncate64To32Directive())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_to_signed_int_stack_underflow(self):
         """Test fptosi with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(FloatToSignedIntDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_to_unsigned_int_stack_underflow(self):
         """Test fptoui with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(FloatToUnsignedIntDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_int_to_float_stack_underflow(self):
         """Test sitofp with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(SignedIntToFloatDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_unsigned_int_to_float_stack_underflow(self):
         """Test uitofp with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(UnsignedIntToFloatDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestArithmeticDirectives:
@@ -543,28 +543,28 @@ class TestArithmeticDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(IntAddDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_int_sub_stack_underflow(self):
         """Test isub with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(IntSubtractDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_int_mul_stack_underflow(self):
         """Test imul with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(IntMultiplyDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_unsigned_div_stack_underflow(self):
         """Test udiv with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(UnsignedIntDivideDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_unsigned_div_by_zero(self):
         """Test udiv with zero divisor."""
@@ -579,7 +579,7 @@ class TestArithmeticDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(SignedIntDivideDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_div_by_zero(self):
         """Test sdiv with zero divisor."""
@@ -604,63 +604,63 @@ class TestArithmeticDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatAddDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_sub_stack_underflow(self):
         """Test fsub with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatSubtractDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_mul_stack_underflow(self):
         """Test fmul with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatMultiplyDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_div_stack_underflow(self):
         """Test fdiv with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatDivideDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_signed_mod_stack_underflow(self):
         """Test smod with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(SignedModuloDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_unsigned_mod_stack_underflow(self):
         """Test umod with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(UnsignedModuloDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_mod_stack_underflow(self):
         """Test fmod with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatModuloDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_pow_stack_underflow(self):
         """Test fpow with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(FloatExponentDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_float_log_stack_underflow(self):
         """Test log with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(FloatLogDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
 
 class TestMemoryDirectives:
@@ -671,14 +671,14 @@ class TestMemoryDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(MemCompareDirective(16))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_get_field_stack_underflow(self):
         """Test get_field with insufficient stack."""
         model = FpySequencerModel()
         model.stack = bytearray(8)
         result = model.dispatch(GetFieldDirective(16, 4))
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_get_field_member_larger_than_parent(self):
         """Test get_field when member size > parent size."""
@@ -701,7 +701,7 @@ class TestMemoryDirectives:
         model = FpySequencerModel()
         model.stack = bytearray(4)
         result = model.dispatch(PeekDirective())
-        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_peek_offset_beyond_stack(self):
         """Test peek when offset is beyond stack."""
