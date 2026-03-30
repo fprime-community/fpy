@@ -6,6 +6,8 @@ add
 itrunc_64_32
 return 4 4
 allocate 5
+push_val 255
+store_rel_const_offset 0 1
 push_val 0 0 0 5
 push_val 0 0 0 1
 call

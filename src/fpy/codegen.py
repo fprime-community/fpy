@@ -1155,6 +1155,17 @@ class GenerateModule(Emitter):
         lvar_array_size_bytes = state.frame_sizes[node]
         if lvar_array_size_bytes > 0:
             main_body.append(AllocateDirective(lvar_array_size_bytes))
+
+        # Initialize magic flags variable to its non-zero defaults
+        flags_type = state.flags_var.type
+        flags_offset = state.flags_var.frame_offset
+        member_offset = 0
+        for member in flags_type.members:
+            default = flags_type.member_defaults[member.name]
+            if default.val:
+                main_body.append(PushValDirective(default.serialize()))
+                main_body.append(StoreRelConstOffsetDirective(flags_offset + member_offset, member.type.max_size))
+            member_offset += member.type.max_size
         
         main_body.extend(GenerateTopLevel().emit(node, state))
 

@@ -1,3 +1,5 @@
 allocate 5
+push_val 255
+store_rel_const_offset 0 1
 push_val 64 72 245 195
 store_rel_const_offset 1 4
