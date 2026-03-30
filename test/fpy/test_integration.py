@@ -1,6 +1,7 @@
+from fpy.model import DirectiveErrorCode
 from fpy.types import FpyValue, U32
 
-from fpy.test_helpers import assert_run_success
+from fpy.test_helpers import assert_run_success, assert_run_failure
 
 
 class TestReadmeExamples:
@@ -164,10 +165,34 @@ assert (current + offset).seconds == 160
 start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
 end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
+
+# Named argument command call
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+
+# flags.assert_cmd_success = False allows failing commands to proceed
+flags.assert_cmd_success = False
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# sequence proceeds normally
+
+# Handling the return value suppresses auto-assert even with flag True
+flags.assert_cmd_success = True
+success: Fw.CmdResponse = Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# cmd response is handled, sequence proceeds normally
 """
         assert_run_success(
             fprime_test_api,
             seq,
             {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
             timeout_s=20
+        )
+
+    def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
+        """Unhandled failing command with assert_cmd_success=True exits with error."""
+        seq = """
+flags.assert_cmd_success = True
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# sequence exits with an error
+"""
+        assert_run_failure(
+            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
         )
