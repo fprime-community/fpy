@@ -282,7 +282,7 @@ class GenerateFunctionBody(Emitter):
         dirs: list[Directive | Ir] = []
         end_label = IrLabel(node, "cmd_ok")
         # compare response on stack to Fw.CmdResponse.OK
-        dirs.append(PushValDirective(FpyValue(CMD_RESPONSE, 0).serialize()))
+        dirs.append(PushValDirective(FpyValue(CMD_RESPONSE, CMD_RESPONSE.enum_dict["OK"]).serialize()))
         dirs.append(MemCompareDirective(CMD_RESPONSE.max_size))
         # now stack has True if response == OK
         # if response was OK, skip to end, otherwise go to "cmd_not_ok"
@@ -294,10 +294,7 @@ class GenerateFunctionBody(Emitter):
         # response was not OK — read flags.assert_cmd_success from the stack
         # assert_cmd_success is at offset 0 within the flags struct
         flag_offset = state.flags_var.frame_offset
-        if self.in_function:
-            dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
-        else:
-            dirs.append(LoadRelDirective(flag_offset, BOOL.max_size))
+        dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
         # if flag is false, skip to end (don't exit)
         dirs.append(IrIf(end_label))
         # flag is true and response was not OK — exit with error

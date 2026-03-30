@@ -82,6 +82,7 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING(CdhCore.cmdDisp.CMD_NO_OP_STRING)
 """
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestCommandArguments:
 
     def test_non_const_str_arg(self, fprime_test_api):
@@ -153,6 +154,7 @@ CdhCore.cmdDisp.CMD_TEST_CMD_1(arg1=val1, arg2=val2, arg3=val3)
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestNamespaces:
 
     def test_get_item_of_namespace(self, fprime_test_api):
@@ -160,6 +162,7 @@ class TestNamespaces:
 value: U32 = CdhCore.cmdDisp[0]
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestFlags:
 
@@ -232,7 +235,8 @@ assert flags.assert_cmd_success == True
 """
         assert_run_success(fprime_test_api, seq)
 
-class TestExitOnCmdFail:
+
+class TestAssertCmdSuccess:
     """Tests the assert_cmd_success flag across all 4 cases:
     (unhandled/handled) x (flag=True/flag=False), for both failing and successful commands.
     """
@@ -246,7 +250,9 @@ flags.assert_cmd_success = True
 Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.EXIT_WITH_ERROR,
         )
 
     def test_unhandled_fail_flag_false_continues(self, fprime_test_api):
@@ -316,7 +322,9 @@ if True:
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.EXIT_WITH_ERROR,
         )
 
     def test_bare_cmd_in_while_block(self, fprime_test_api):
@@ -329,7 +337,9 @@ while x:
     x = False
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.EXIT_WITH_ERROR,
         )
 
     def test_bare_cmd_in_function(self, fprime_test_api):
@@ -341,8 +351,20 @@ def do_cmd():
 do_cmd()
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.EXIT_WITH_ERROR,
         )
+
+    def test_bare_cmd_in_function_no_fail(self, fprime_test_api):
+        """Auto-assert fires for bare commands inside functions."""
+        seq = """
+flags.assert_cmd_success = False
+def do_cmd():
+    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+do_cmd()
+"""
+        assert_run_success(fprime_test_api, seq)
 
     def test_bare_cmd_in_for_loop(self, fprime_test_api):
         """Auto-assert fires for bare commands inside for loops."""
@@ -352,5 +374,7 @@ for i in 0 .. 1:
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.EXIT_WITH_ERROR,
         )
