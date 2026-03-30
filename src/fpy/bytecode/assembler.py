@@ -243,7 +243,7 @@ def _get_version_tuple() -> tuple[int, int, int]:
 
 
 MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 HEADER_FORMAT = "!BBBBBHI"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
