@@ -1,5 +1,4 @@
-allocate 5
 push_val 255
-store_rel_const_offset 0 1
+allocate 4
 push_val 0 0 0 42
 store_rel_const_offset 1 4
