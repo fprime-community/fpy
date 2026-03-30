@@ -18,7 +18,6 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
     CMD_RESPONSE,
-    FLAG_ID,
     FpyType,
     FpyValue,
     INTEGER,
@@ -106,7 +105,6 @@ from fpy.bytecode.directives import (
     StoreAbsDirective,
     PushPrmDirective,
     PushTlmValDirective,
-    GetFlagDirective,
     UnaryStackOp,
     UnsignedIntToFloatDirective,
 )
@@ -280,7 +278,7 @@ class GenerateFunctionBody(Emitter):
 
     def assert_cmd_response_ok(self, node: AstFuncCall, state: CompileState) -> list[Directive | Ir]:
         """For a bare command call, emit code to check the response and exit if
-        it is not OK and the EXIT_ON_CMD_FAIL flag is set."""
+        it is not OK and the flags.EXIT_ON_CMD_FAIL variable is set."""
         dirs: list[Directive | Ir] = []
         end_label = IrLabel(node, "cmd_ok")
         # compare response on stack to Fw.CmdResponse.OK
@@ -293,8 +291,13 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IrGoto(end_label))
 
         dirs.append(not_ok_label)
-        # response was not OK — check the EXIT_ON_CMD_FAIL flag
-        dirs.append(GetFlagDirective(FLAG_ID.enum_dict["EXIT_ON_CMD_FAIL"]))
+        # response was not OK — read flags.EXIT_ON_CMD_FAIL from the stack
+        # EXIT_ON_CMD_FAIL is at offset 0 within the flags struct
+        flag_offset = state.flags_var.frame_offset
+        if self.in_function:
+            dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
+        else:
+            dirs.append(LoadRelDirective(flag_offset, BOOL.max_size))
         # if flag is false, skip to end (don't exit)
         dirs.append(IrIf(end_label))
         # flag is true and response was not OK — exit with error

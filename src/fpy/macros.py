@@ -2,16 +2,14 @@ from __future__ import annotations
 from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
-    GetFlagDirective,
     PushTimeDirective,
-    SetFlagDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
     WaitRelDirective,
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import FLAG_ID, INTERNAL_STRING, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.types import INTERNAL_STRING, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
@@ -179,18 +177,4 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     # time() parses ISO 8601 timestamps at compile time
     # The generate function should never be called since this is always const-evaluated
     "time": TIME_MACRO,
-    "set_flag": BuiltinFuncSymbol(
-        "set_flag",
-        NOTHING,
-        [("flag_idx", FLAG_ID, None), ("value", BOOL, None)],
-        lambda n, c: [SetFlagDirective(FLAG_ID.enum_dict[c[0].val])],
-        const_arg_indices=frozenset({0}),
-    ),
-    "get_flag": BuiltinFuncSymbol(
-        "get_flag",
-        BOOL,
-        [("flag_idx", FLAG_ID, None)],
-        lambda n, c: [GetFlagDirective(FLAG_ID.enum_dict[c[0].val])],
-        const_arg_indices=frozenset({0}),
-    ),
 }

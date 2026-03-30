@@ -40,7 +40,7 @@ from fpy.types import (
     SPECIFIC_NUMERIC_TYPES,
     CHECK_STATE,
     CMD_RESPONSE,
-    FLAG_ID,
+    FLAGS_TYPE,
     TIME_COMPARISON,
     TIME_INTERVAL,
     TIME_BASE,
@@ -57,6 +57,7 @@ from fpy.state import (
     CommandSymbol,
     CompileState,
     TypeCtorSymbol,
+    VariableSymbol,
     create_symbol_table,
     merge_symbol_tables,
 )
@@ -276,6 +277,8 @@ def _populate_type_defaults(typ: FpyType) -> None:
     Every type is guaranteed to have a default value.
     """
     if typ.kind == TypeKind.STRUCT:
+        if typ.member_defaults is not None:
+            return  # Already populated (e.g., built-in FLAGS_TYPE)
         assert typ.json_default is not None, (
             f"Struct {typ.name} must have json_default"
         )
@@ -349,7 +352,6 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _update_time_context_type_from_dict(dict_type_name_dict)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
-    _validate_and_replace_type(dict_type_name_dict, "Svc.Fpy.FlagId", FLAG_ID)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
 
@@ -362,8 +364,9 @@ def _build_global_scopes(dictionary: str) -> tuple:
         "Fw.Time": TIME,
         "Fw.TimeInterval": TIME_INTERVAL,
         **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
-        "bool": BOOL,
-        "$CheckState": CHECK_STATE,
+        BOOL.name: BOOL,
+        CHECK_STATE.name: CHECK_STATE,
+        FLAGS_TYPE.name: FLAGS_TYPE,
     }
 
     # Collect enum constants from the final type dict (after builtins and
@@ -450,6 +453,13 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
+
+    # Create the built-in 'flags' variable ($Flags struct).
+    # declaration=None marks it as a built-in that is always defined.
+    flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
+    state.global_value_scope["flags"] = flags_var
+    state.flags_var = flags_var
+
     return state
 
 

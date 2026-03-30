@@ -135,8 +135,6 @@ class DirectiveId(Enum):
     STACK_CMD = 64
     PUSH_TLM_VAL_AND_TIME = 65
     PUSH_TIME = 66
-    SET_FLAG = 67
-    GET_FLAG = 68
     GET_FIELD = 69
     PEEK = 70
     STORE_REL = 71
@@ -660,20 +658,6 @@ class PeekDirective(Directive):
 @dataclass
 class PushTimeDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.PUSH_TIME
-
-
-@dataclass
-class SetFlagDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.SET_FLAG
-    flag_idx: int
-    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"flag_idx": U8}
-
-
-@dataclass
-class GetFlagDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.GET_FLAG
-    flag_idx: int
-    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"flag_idx": U8}
 
 
 @dataclass

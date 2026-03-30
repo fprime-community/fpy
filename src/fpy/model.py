@@ -11,7 +11,6 @@ from fpy.bytecode.directives import (
     ConstCmdDirective,
     Directive,
     FwOpcodeType,
-    GetFlagDirective,
     PeekDirective,
     ExitDirective,
     FloatAddDirective,
@@ -45,7 +44,6 @@ from fpy.bytecode.directives import (
     LoadRelDirective,
     LoadAbsDirective,
     NoOpDirective,
-    SetFlagDirective,
     NotDirective,
     OrDirective,
     PushValDirective,
@@ -122,7 +120,6 @@ class DirectiveErrorCode(Enum):
     STACK_ACCESS_OUT_OF_BOUNDS = 8
     STACK_OVERFLOW = 9
     DOMAIN_ERROR = 10
-    FLAG_IDX_OUT_OF_BOUNDS = 11
     ARRAY_OUT_OF_BOUNDS = 12
     ARITHMETIC_OVERFLOW = 13
     ARITHMETIC_UNDERFLOW = 14
@@ -136,9 +133,6 @@ class FpySequencerModel:
     # CmdResponse enum values matching Fw.CmdResponse
     CMD_RESPONSE_OK = 0
     CMD_RESPONSE_EXECUTION_ERROR = 4
-
-    # Flag indices
-    FLAG_EXIT_ON_CMD_FAIL = 0
 
     def __init__(
         self, stack_size=4096, cmd_dict: dict[int, CmdDef] = None,
@@ -161,11 +155,6 @@ class FpySequencerModel:
         self.time_context = time_context
         self.initial_time_us = initial_time_us
         self.simulated_time_us = initial_time_us
-
-        # Flags: indexed boolean array, initialized to defaults
-        # Index 0 = EXIT_ON_CMD_FAIL (default: False)
-        self.NUM_FLAGS = 1
-        self.flags: list[bool] = [False] * self.NUM_FLAGS
 
         self.handlers: dict[type[Directive], typing.Callable] = {}
         self.find_handlers()
@@ -196,7 +185,6 @@ class FpySequencerModel:
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
         self.simulated_time_us = self.initial_time_us
-        self.flags = [False] * self.NUM_FLAGS
 
     def dispatch(self, dir: Directive) -> DirectiveErrorCode:
         opcode = dir.opcode
@@ -487,7 +475,7 @@ class FpySequencerModel:
         return None
 
     def _push_cmd_response(self, opcode: int):
-        """Push a CmdResponse onto the stack and check EXIT_ON_CMD_FAIL.
+        """Push a CmdResponse onto the stack.
 
         Returns a DirectiveErrorCode if the sequencer should halt, else None.
         """
@@ -496,8 +484,6 @@ class FpySequencerModel:
         else:
             response = self.CMD_RESPONSE_OK
         self.push(response, size=1)
-        if self.flags[self.FLAG_EXIT_ON_CMD_FAIL] and response != self.CMD_RESPONSE_OK:
-            return DirectiveErrorCode.CMD_FAIL
         return None
 
     def handle_const_cmd(self, dir: ConstCmdDirective):
@@ -1099,23 +1085,6 @@ class FpySequencerModel:
             "useconds": useconds,
         })
         self.push(time_val.serialize())
-        return None
-
-    def handle_set_flag(self, dir: SetFlagDirective):
-        if dir.flag_idx >= self.NUM_FLAGS:
-            return DirectiveErrorCode.FLAG_IDX_OUT_OF_BOUNDS
-        if len(self.stack) < 1:
-            return DirectiveErrorCode.STACK_UNDERFLOW
-        value = self.pop(type=int, size=1)
-        self.flags[dir.flag_idx] = value != 0
-        return None
-
-    def handle_get_flag(self, dir: GetFlagDirective):
-        if dir.flag_idx >= self.NUM_FLAGS:
-            return DirectiveErrorCode.FLAG_IDX_OUT_OF_BOUNDS
-        if len(self.stack) + 1 > self.max_stack_size:
-            return DirectiveErrorCode.STACK_OVERFLOW
-        self.push(dir.flag_idx < self.NUM_FLAGS and self.flags[dir.flag_idx])
         return None
 
     def handle_call(self, dir: CallDirective):
