@@ -1025,7 +1025,7 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
 # Set timeout with timeBase=TimeBase.TB_PROC_TIME
 bad_timeout: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)
 
-check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 100000):
+check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 100000):
     pass
 timeout:
     pass
@@ -1045,8 +1045,8 @@ timeout:
 timed_out: bool = False
 
 # Set timeout to be 100ms from now
-# With freq of 10ms, we'll check ~10 times before timeout
-check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+# With period of 10ms, we'll check ~10 times before timeout
+check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     # This shouldn't run because condition is always false
     assert False, 1
 timeout:
@@ -1074,7 +1074,7 @@ def condition() -> bool:
 
 # Require condition to persist for 50ms with 10ms frequency
 # Should need ~5 checks to persist
-check condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 50000) freq Fw.TimeIntervalValue(0, 10000):
+check condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 50000) period Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1
@@ -1117,7 +1117,7 @@ def check_time_base() -> bool:
         time_base_ok = False
     return check_count >= 3
 
-check check_time_base() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) freq Fw.TimeIntervalValue(0, 10000):
+check check_time_base() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1

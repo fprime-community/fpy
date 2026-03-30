@@ -277,7 +277,7 @@ check True timeout time_add(
         seconds: 1,
         useconds: 0,
     },
-) persist {seconds: 0, useconds: 0} freq {seconds: 0, useconds: 100000}:
+) persist {seconds: 0, useconds: 0} period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
@@ -295,7 +295,7 @@ check True timeout now() + {
 } persist {
     seconds: 0,
     useconds: 0,
-} freq {
+} period {
     seconds: 0,
     useconds: 100000,
 }:

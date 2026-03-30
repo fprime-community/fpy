@@ -611,7 +611,7 @@ CHECK_STATE = FpyType(
     members=(
         StructMember("persist", TIME_INTERVAL),
         StructMember("timeout", TIME),
-        StructMember("freq", TIME_INTERVAL),
+        StructMember("period", TIME_INTERVAL),
         StructMember("result", BOOL),
         StructMember("last_was_true", BOOL),
         StructMember("last_time_true", TIME),
@@ -620,7 +620,7 @@ CHECK_STATE = FpyType(
     json_default={
         "persist": _TIME_INTERVAL_DEFAULT,
         "timeout": _TIME_DEFAULT,
-        "freq": _TIME_INTERVAL_DEFAULT,
+        "period": _TIME_INTERVAL_DEFAULT,
         "result": False,
         "last_was_true": False,
         "last_time_true": _TIME_DEFAULT,
