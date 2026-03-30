@@ -164,76 +164,76 @@ value: U32 = CdhCore.cmdDisp[0]
 class TestFlags:
 
     def test_set_flag_basic(self, fprime_test_api):
-        """Setting flags.EXIT_ON_CMD_FAIL to True should succeed."""
+        """Setting flags.assert_cmd_success to True should succeed."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_set_flag_false(self, fprime_test_api):
-        """Setting flags.EXIT_ON_CMD_FAIL to False should succeed."""
+        """Setting flags.assert_cmd_success to False should succeed."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = False
+flags.assert_cmd_success = False
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_set_and_get_flag(self, fprime_test_api):
-        """Setting and reading flags.EXIT_ON_CMD_FAIL should work."""
+        """Setting and reading flags.assert_cmd_success should work."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
-assert flags.EXIT_ON_CMD_FAIL == True
+flags.assert_cmd_success = True
+assert flags.assert_cmd_success == True
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_set_flag_toggle(self, fprime_test_api):
         """Setting a flag to True then False should work."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
-assert flags.EXIT_ON_CMD_FAIL == True
-flags.EXIT_ON_CMD_FAIL = False
-assert flags.EXIT_ON_CMD_FAIL == False
+flags.assert_cmd_success = True
+assert flags.assert_cmd_success == True
+flags.assert_cmd_success = False
+assert flags.assert_cmd_success == False
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_set_flag_dynamic_value(self, fprime_test_api):
-        """flags.EXIT_ON_CMD_FAIL should accept a runtime bool expression."""
+        """flags.assert_cmd_success should accept a runtime bool expression."""
         seq = """
 x: bool = True
-flags.EXIT_ON_CMD_FAIL = x
-assert flags.EXIT_ON_CMD_FAIL == True
+flags.assert_cmd_success = x
+assert flags.assert_cmd_success == True
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_get_flag_in_expression(self, fprime_test_api):
-        """flags.EXIT_ON_CMD_FAIL should be usable in boolean expressions."""
+        """flags.assert_cmd_success should be usable in boolean expressions."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
-x: bool = flags.EXIT_ON_CMD_FAIL and True
+flags.assert_cmd_success = True
+x: bool = flags.assert_cmd_success and True
 assert x == True
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_get_flag_assign_to_var(self, fprime_test_api):
-        """flags.EXIT_ON_CMD_FAIL can be assigned to a bool variable."""
+        """flags.assert_cmd_success can be assigned to a bool variable."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = False
-flag_val: bool = flags.EXIT_ON_CMD_FAIL
+flags.assert_cmd_success = False
+flag_val: bool = flags.assert_cmd_success
 assert flag_val == False
-flags.EXIT_ON_CMD_FAIL = True
-flag_val = flags.EXIT_ON_CMD_FAIL
+flags.assert_cmd_success = True
+flag_val = flags.assert_cmd_success
 assert flag_val == True
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_flag_default_is_true(self, fprime_test_api):
-        """flags.EXIT_ON_CMD_FAIL defaults to True."""
+        """flags.assert_cmd_success defaults to True."""
         seq = """
-assert flags.EXIT_ON_CMD_FAIL == True
+assert flags.assert_cmd_success == True
 """
         assert_run_success(fprime_test_api, seq)
 
 class TestExitOnCmdFail:
-    """Tests the EXIT_ON_CMD_FAIL flag across all 4 cases:
+    """Tests the assert_cmd_success flag across all 4 cases:
     (unhandled/handled) x (flag=True/flag=False), for both failing and successful commands.
     """
 
@@ -242,7 +242,7 @@ class TestExitOnCmdFail:
     def test_unhandled_fail_flag_true_exits(self, fprime_test_api):
         """Bare failing command with flag=True should exit with error."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
@@ -252,7 +252,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
     def test_unhandled_fail_flag_false_continues(self, fprime_test_api):
         """Bare failing command with flag=False should not halt."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = False
+flags.assert_cmd_success = False
 Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_success(fprime_test_api, seq)
@@ -262,7 +262,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
     def test_handled_fail_flag_true_continues(self, fprime_test_api):
         """Captured failing command with flag=True should NOT auto-assert."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
@@ -271,7 +271,7 @@ assert resp == Fw.CmdResponse.EXECUTION_ERROR
     def test_handled_fail_flag_false_continues(self, fprime_test_api):
         """Captured failing command with flag=False should not halt."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = False
+flags.assert_cmd_success = False
 resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
@@ -282,7 +282,7 @@ assert resp == Fw.CmdResponse.EXECUTION_ERROR
     def test_unhandled_success_flag_true(self, fprime_test_api):
         """Bare successful command with flag=True should pass."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 CdhCore.cmdDisp.CMD_NO_OP()
 """
         assert_run_success(fprime_test_api, seq)
@@ -290,7 +290,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
     def test_unhandled_success_flag_false(self, fprime_test_api):
         """Bare successful command with flag=False should pass."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = False
+flags.assert_cmd_success = False
 CdhCore.cmdDisp.CMD_NO_OP()
 """
         assert_run_success(fprime_test_api, seq)
@@ -298,10 +298,10 @@ CdhCore.cmdDisp.CMD_NO_OP()
     # -- Edge cases --
 
     def test_toggle_off_before_cmd(self, fprime_test_api):
-        """Setting EXIT_ON_CMD_FAIL then unsetting it before a failing cmd should not exit."""
+        """Setting assert_cmd_success then unsetting it before a failing cmd should not exit."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
-flags.EXIT_ON_CMD_FAIL = False
+flags.assert_cmd_success = True
+flags.assert_cmd_success = False
 Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_success(fprime_test_api, seq)
@@ -311,7 +311,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
     def test_bare_cmd_in_if_block(self, fprime_test_api):
         """Auto-assert fires for bare commands inside if blocks."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 if True:
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
@@ -322,7 +322,7 @@ if True:
     def test_bare_cmd_in_while_block(self, fprime_test_api):
         """Auto-assert fires for bare commands inside while loops."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 x: bool = True
 while x:
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
@@ -335,7 +335,7 @@ while x:
     def test_bare_cmd_in_function(self, fprime_test_api):
         """Auto-assert fires for bare commands inside functions."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 def do_cmd():
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 do_cmd()
@@ -347,7 +347,7 @@ do_cmd()
     def test_bare_cmd_in_for_loop(self, fprime_test_api):
         """Auto-assert fires for bare commands inside for loops."""
         seq = """
-flags.EXIT_ON_CMD_FAIL = True
+flags.assert_cmd_success = True
 for i in 0 .. 1:
     Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """

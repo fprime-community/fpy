@@ -278,7 +278,7 @@ class GenerateFunctionBody(Emitter):
 
     def assert_cmd_response_ok(self, node: AstFuncCall, state: CompileState) -> list[Directive | Ir]:
         """For a bare command call, emit code to check the response and exit if
-        it is not OK and the flags.EXIT_ON_CMD_FAIL variable is set."""
+        it is not OK and the flags.assert_cmd_success variable is set."""
         dirs: list[Directive | Ir] = []
         end_label = IrLabel(node, "cmd_ok")
         # compare response on stack to Fw.CmdResponse.OK
@@ -291,8 +291,8 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IrGoto(end_label))
 
         dirs.append(not_ok_label)
-        # response was not OK — read flags.EXIT_ON_CMD_FAIL from the stack
-        # EXIT_ON_CMD_FAIL is at offset 0 within the flags struct
+        # response was not OK — read flags.assert_cmd_success from the stack
+        # assert_cmd_success is at offset 0 within the flags struct
         flag_offset = state.flags_var.frame_offset
         if self.in_function:
             dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))

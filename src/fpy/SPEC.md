@@ -111,7 +111,7 @@ Fpy exposes several categories of callables:
 
 ## Commands
 Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
-If a command's response is not explicitly saved in a variable or used in an expression, the compiler emits a runtime check: when the `EXIT_ON_CMD_FAIL` flag is set and the response is not `Fw.CmdResponse.OK`, the sequence exits with an error. When the flag is not set, the non-OK response is silently discarded.
+If a command's response is not explicitly saved in a variable or used in an expression, the compiler emits a runtime check: when the `assert_cmd_success` flag is set and the response is not `Fw.CmdResponse.OK`, the sequence exits with an error. When the flag is not set, the non-OK response is silently discarded.
 ## Macros
 Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
 

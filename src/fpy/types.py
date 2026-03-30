@@ -562,9 +562,9 @@ FLAGS_TYPE = FpyType(
     TypeKind.STRUCT,
     "$Flags",
     members=(
-        StructMember("EXIT_ON_CMD_FAIL", BOOL),
+        StructMember("assert_cmd_success", BOOL),
     ),
-    member_defaults={"EXIT_ON_CMD_FAIL": FpyValue(BOOL, True)},
+    member_defaults={"assert_cmd_success": FpyValue(BOOL, True)},
 )
 
 # The canonical Fw.CmdResponse enum type
