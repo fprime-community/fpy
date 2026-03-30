@@ -233,9 +233,14 @@ assert flags.EXIT_ON_CMD_FAIL == True
         assert_run_success(fprime_test_api, seq)
 
 class TestExitOnCmdFail:
+    """Tests the EXIT_ON_CMD_FAIL flag across all 4 cases:
+    (unhandled/handled) x (flag=True/flag=False), for both failing and successful commands.
+    """
 
-    def test_exit_on_cmd_fail_flag_causes_exit(self, fprime_test_api):
-        """When EXIT_ON_CMD_FAIL is set and a command fails, the sequence should exit with error."""
+    # -- Unhandled (bare) command + failing --
+
+    def test_unhandled_fail_flag_true_exits(self, fprime_test_api):
+        """Bare failing command with flag=True should exit with error."""
         seq = """
 flags.EXIT_ON_CMD_FAIL = True
 Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
@@ -244,8 +249,27 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
             fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
         )
 
-    def test_no_exit_on_cmd_fail_flag_allows_failure(self, fprime_test_api):
-        """When EXIT_ON_CMD_FAIL is explicitly off, a failing command should not halt the sequence."""
+    def test_unhandled_fail_flag_false_continues(self, fprime_test_api):
+        """Bare failing command with flag=False should not halt."""
+        seq = """
+flags.EXIT_ON_CMD_FAIL = False
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # -- Handled (captured) command + failing --
+
+    def test_handled_fail_flag_true_continues(self, fprime_test_api):
+        """Captured failing command with flag=True should NOT auto-assert."""
+        seq = """
+flags.EXIT_ON_CMD_FAIL = True
+resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
+assert resp == Fw.CmdResponse.EXECUTION_ERROR
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_handled_fail_flag_false_continues(self, fprime_test_api):
+        """Captured failing command with flag=False should not halt."""
         seq = """
 flags.EXIT_ON_CMD_FAIL = False
 resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
@@ -253,15 +277,27 @@ assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_exit_on_cmd_fail_with_successful_cmd(self, fprime_test_api):
-        """When EXIT_ON_CMD_FAIL is set but the command succeeds, no exit should occur."""
+    # -- Successful commands (should always pass regardless of flag/handling) --
+
+    def test_unhandled_success_flag_true(self, fprime_test_api):
+        """Bare successful command with flag=True should pass."""
         seq = """
 flags.EXIT_ON_CMD_FAIL = True
 CdhCore.cmdDisp.CMD_NO_OP()
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_exit_on_cmd_fail_toggle_off_before_cmd(self, fprime_test_api):
+    def test_unhandled_success_flag_false(self, fprime_test_api):
+        """Bare successful command with flag=False should pass."""
+        seq = """
+flags.EXIT_ON_CMD_FAIL = False
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    # -- Edge cases --
+
+    def test_toggle_off_before_cmd(self, fprime_test_api):
         """Setting EXIT_ON_CMD_FAIL then unsetting it before a failing cmd should not exit."""
         seq = """
 flags.EXIT_ON_CMD_FAIL = True
@@ -270,42 +306,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_success(fprime_test_api, seq)
 
-
-class TestBareCommandAutoAssert:
-
-    def test_bare_cmd_ok_passes(self, fprime_test_api):
-        """A bare successful command should always pass."""
-        seq = """
-CdhCore.cmdDisp.CMD_NO_OP()
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_bare_cmd_fail_with_flag_exits(self, fprime_test_api):
-        """A bare failing command with EXIT_ON_CMD_FAIL=True should exit with error."""
-        seq = """
-flags.EXIT_ON_CMD_FAIL = True
-Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
-"""
-        assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
-        )
-
-    def test_bare_cmd_fail_without_flag_continues(self, fprime_test_api):
-        """A bare failing command with EXIT_ON_CMD_FAIL=False should not halt."""
-        seq = """
-flags.EXIT_ON_CMD_FAIL = False
-Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_captured_cmd_fail_no_auto_assert(self, fprime_test_api):
-        """When a failing command's response is captured, no auto-assert fires."""
-        seq = """
-flags.EXIT_ON_CMD_FAIL = False
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
-assert resp == Fw.CmdResponse.EXECUTION_ERROR
-"""
-        assert_run_success(fprime_test_api, seq)
+    # -- Bare commands in nested scopes (flag=True) --
 
     def test_bare_cmd_in_if_block(self, fprime_test_api):
         """Auto-assert fires for bare commands inside if blocks."""

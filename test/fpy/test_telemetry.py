@@ -48,3 +48,10 @@ Ref.cmdSeq.Debug.nextStatementOpcode = 0
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_nonexistent_tlm_channel(self, fprime_test_api):
+        seq = """
+x: U32 = CdhCore.cmdDisp.NonExistentChannel
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
