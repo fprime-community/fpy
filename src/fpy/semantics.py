@@ -235,10 +235,6 @@ class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
     Builtin function definitions (prepended by the compiler) are skipped
     """
 
-    def __init__(self):
-        super().__init__()
-        self.seen_user_code = False
-
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         # Only check the root block (top-level sequence)
         if node is not state.root:
@@ -765,19 +761,21 @@ class UpdateTypesAndFuncs(Visitor):
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         # Resolve parameter types
-        if node.parameters is not None:
-            for arg_name_var, arg_type_name in node.parameters:
-                arg_type = state.resolved_symbols[arg_type_name]
-                if not is_type_constant_size(arg_type):
-                    state.err(
-                        f"Type {arg_type.display_name} is not constant-sized (contains strings)",
-                        arg_type_name,
-                    )
-                    return
-                # update the var type
-                arg_var = state.resolved_symbols[arg_name_var]
-                assert is_instance_compat(arg_var, VariableSymbol), arg_var
-                arg_var.type = arg_type
+        if node.parameters is None:
+            return
+        
+        for arg_name_var, arg_type_name in node.parameters:
+            arg_type = state.resolved_symbols[arg_type_name]
+            if not is_type_constant_size(arg_type):
+                state.err(
+                    f"Type {arg_type.display_name} is not constant-sized (contains strings)",
+                    arg_type_name,
+                )
+                return
+            # update the var type
+            arg_var = state.resolved_symbols[arg_name_var]
+            assert is_instance_compat(arg_var, VariableSymbol), arg_var
+            arg_var.type = arg_type
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
