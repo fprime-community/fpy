@@ -460,16 +460,26 @@ def ast_to_directives(
     compile_args: dict | None = None,
 ) -> list[Directive] | CompileError | BackendError:
     compile_args = compile_args or dict()
-    
-    # Prepend builtin library functions to user code - always available.
+
+    # Create initial compile state (without builtins yet)
+    state = get_base_compile_state(dictionary, compile_args)
+    state.root = body
+
+    # Run pre-builtin validation passes
+    pre_builtin_passes = [
+        CheckSequenceMetadataDefinedAtTop(),
+    ]
+
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
+
+    # Now prepend builtin library functions to user code - always available.
     # will be elided if unused
     import copy
     builtin_library_ast = _get_builtin_library_ast()
     body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
-    
-    state = get_base_compile_state(dictionary, compile_args)
-    state.root = body
-    state.num_pre_stmts = len(builtin_library_ast.stmts)
 
     pre_semantic_desugaring_passes = [
         DesugarCheckStatements()
@@ -480,9 +490,6 @@ def ast_to_directives(
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
         CreateScopes(),
-        # Check to see if positional statements / definitions are in the right place
-        # ex: metadata sequence arguments
-        CheckSequenceMetadataDefinedAtTop(),
         # based on assignment syntax nodes, we know which variables exist where.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.

@@ -231,8 +231,9 @@ class CreateScopes:
     
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
     """
-    Ensure that sequence() statement is at top of sequence.
-    Builtin function definitions (prepended by the compiler) are skipped
+    Ensure that sequence() statement is at the top of the user's sequence.
+    This pass runs BEFORE builtin functions are inserted, so we check the raw user code.
+    If a sequence() definition exists, it must be the very first statement.
     """
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
@@ -241,13 +242,25 @@ class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
             return
 
         # Walk through statements in order
+        found_non_metadata = False
         for stmt in node.stmts:
-            # Check to see if sequence() definition is immediately after builtin statements
-            if isinstance(stmt, AstSequenceMetadata) and not stmt is node.stmts[state.num_pre_stmts]:
-                state.err(
-                    f"sequence() definitions must appear before statements with side effects.\n",
-                    stmt
-                )
+            if isinstance(stmt, AstSequenceMetadata):
+                # If we've already seen a non-metadata statement, this is an error
+                if found_non_metadata:
+                    state.err(
+                        f"sequence() definition must appear at the top of the sequence, "
+                        f"before any other statements.",
+                        stmt
+                    )
+                # sequence() must be the first statement if present
+                elif stmt is not node.stmts[0]:
+                    state.err(
+                        f"sequence() definition must be the first statement in the sequence.",
+                        stmt
+                    )
+            else:
+                # Mark that we've seen a non-metadata statement
+                found_non_metadata = True
 
 
 class CreateVariablesAndFuncs(TopDownVisitor):
