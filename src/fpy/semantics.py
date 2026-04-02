@@ -427,7 +427,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
             if existing_arg is not None:
                 # two sequence parameters with the same name
                 state.err(
-                    f"Parameter '{arg_name_var}' has already been before defined",
+                    f"Parameter '{arg_name_var}' has already been defined",
                     arg_name_var,
                 )
             arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node, is_global=True)
@@ -496,7 +496,11 @@ class ResolveQualifiedNames(TopDownVisitor):
 
         if not is_instance_compat(root_node, AstIdent):
             # not a qualified name
-            # skip for now
+            if group == NameGroup.TYPE:
+                # types must be identifiers or qualified names
+                state.err(f"Expected a type name", node)
+                return False
+            # for values/callables, non-identifier expressions are fine
             return True
 
         root_symbol = None

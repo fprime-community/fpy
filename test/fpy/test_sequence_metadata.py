@@ -219,6 +219,80 @@ for i in 0..max_val:
 """
     assert_compile_success(fprime_test_api, seq)
 
+def test_sequence_literal_as_type(fprime_test_api):
+    """Test that a literal as a type annotation fails."""
+    seq = """
+sequence(x: 5)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_sequence_bool_as_type(fprime_test_api):
+    """Test that a bool as a type annotation fails."""
+    seq = """
+sequence(x: True)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_sequence_string_type_parameter(fprime_test_api):
+    """Test that string-typed parameters are rejected (not constant-sized)."""
+    seq = """
+sequence(s: Ref.DpDemo.StringAlias)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_sequence_struct_with_string_member(fprime_test_api):
+    """Test that structs containing strings are rejected."""
+    seq = """
+sequence(s: Ref.DpDemo.StructWithStringMembers)
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_sequence_param_as_default_arg(fprime_test_api):
+    """Test that sequence parameters cannot be used as default argument values."""
+    seq = """
+sequence(x: U32)
+def foo(y: U32 = x):
+    pass
+"""
+    assert_compile_failure(fprime_test_api, seq)
+
+
+def test_sequence_param_same_name_as_func(fprime_test_api):
+    """Test that a sequence parameter can coexist with a function of the same name."""
+    seq = """
+sequence(foo: U32)
+def foo():
+    pass
+foo()
+"""
+    assert_compile_success(fprime_test_api, seq)
+
+
+def test_sequence_param_shadowed_by_loop_var(fprime_test_api):
+    """Test that a for-loop variable can shadow a sequence parameter."""
+    seq = """
+sequence(i: U32)
+for i in 0..10:
+    pass
+"""
+    assert_compile_success(fprime_test_api, seq)
+
+
+def test_sequence_param_shadowed_by_func_param(fprime_test_api):
+    """Test that a function parameter can shadow a sequence parameter."""
+    seq = """
+sequence(x: U32)
+def foo(x: I32):
+    pass
+foo(5)
+"""
+    assert_compile_success(fprime_test_api, seq)
+
+
 def test_defining_sequence_in_function(fprime_test_api):
     """Test defining sequence in a function."""
     seq = """
