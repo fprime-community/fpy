@@ -321,6 +321,10 @@ class AstDef(Ast):
     return_type: Union[AstExpr, None]
     body: AstBlock
 
+@dataclass
+class AstSequenceMetadata(Ast):
+    parameters: Union[list[tuple[AstIdent, AstExpr]], None]
+
 
 AstStmt = Union[
     AstExpr,
@@ -335,6 +339,7 @@ AstStmt = Union[
     AstCheck,
     AstAssert,
     AstDef,
+    AstSequenceMetadata,
     AstReturn
 ]
 AstStmtWithExpr = Union[
@@ -488,6 +493,12 @@ def handle_parameter(meta, args):
     default_value = args[2] if len(args) == 3 else None
     return (name, type_expr, default_value)
 
+def handle_sequence_argument(meta, args):
+    """Parse a sequence argument: (name, type)"""
+    assert len(args) == 2, f"Expected 2 args, got {len(args)}: {args}"
+    name, type_expr = args[0], args[1]
+    return (name, type_expr)
+
 
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
@@ -555,6 +566,10 @@ class FpyTransformer(Transformer):
     parameter = no_inline(handle_parameter)
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
+
+    meta_stmt = AstSequenceMetadata
+    sequence_stmt_parameters = no_inline_or_meta(list)
+    sequence_stmt_parameter = no_inline(handle_sequence_argument)
 
     NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int
