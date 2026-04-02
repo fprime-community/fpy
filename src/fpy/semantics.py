@@ -248,14 +248,13 @@ class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
                 # If we've already seen a non-metadata statement, this is an error
                 if found_non_metadata:
                     state.err(
-                        f"sequence() definition must appear at the top of the sequence, "
-                        f"before any other statements.",
+                        f"sequence() definition must be the first statement in the file",
                         stmt
                     )
                 # sequence() must be the first statement if present
                 elif stmt is not node.stmts[0]:
                     state.err(
-                        f"sequence() definition must be the first statement in the sequence.",
+                        f"sequence() definition must be the first statement in the file",
                         stmt
                     )
             else:
