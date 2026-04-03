@@ -120,12 +120,12 @@ class DirectiveErrorCode(Enum):
     STACK_ACCESS_OUT_OF_BOUNDS = 8
     STACK_OVERFLOW = 9
     DOMAIN_ERROR = 10
-    ARRAY_OUT_OF_BOUNDS = 12
-    ARITHMETIC_OVERFLOW = 13
-    ARITHMETIC_UNDERFLOW = 14
-    FRAME_START_OUT_OF_BOUNDS = 15
-    STACK_UNDERFLOW = 16
-    CMD_FAIL = 17
+    ARRAY_OUT_OF_BOUNDS = 11
+    ARITHMETIC_OVERFLOW = 12
+    ARITHMETIC_UNDERFLOW = 13
+    FRAME_START_OUT_OF_BOUNDS = 14
+    STACK_UNDERFLOW = 15
+    CMD_FAIL = 16
 
 
 class FpySequencerModel:
@@ -1024,6 +1024,8 @@ class FpySequencerModel:
         if exit_code == 0:
             self.next_dir_idx = len(self.dirs)
             return None
+        elif exit_code == DirectiveErrorCode.CMD_FAIL.value:
+            return DirectiveErrorCode.CMD_FAIL
         else:
             return DirectiveErrorCode.EXIT_WITH_ERROR
 

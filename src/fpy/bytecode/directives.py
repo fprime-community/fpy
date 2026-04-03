@@ -135,14 +135,14 @@ class DirectiveId(Enum):
     STACK_CMD = 64
     PUSH_TLM_VAL_AND_TIME = 65
     PUSH_TIME = 66
-    GET_FIELD = 69
-    PEEK = 70
-    STORE_REL = 71
-    CALL = 72
-    RETURN = 73
-    LOAD_ABS = 74
-    STORE_ABS = 75
-    STORE_ABS_CONST_OFFSET = 76
+    GET_FIELD = 67
+    PEEK = 68
+    STORE_REL = 69
+    CALL = 70
+    RETURN = 71
+    LOAD_ABS = 72
+    STORE_ABS = 73
+    STORE_ABS_CONST_OFFSET = 74
 
 
 # ─────────────────────────────────────────────────────────────────────────────
