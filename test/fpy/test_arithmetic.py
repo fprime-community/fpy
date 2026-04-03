@@ -282,7 +282,7 @@ exit(1)
 
     def test_log(self, fprime_test_api):
         seq = """
-if flog(4.0) > 1.385 and flog(4.0) < 1.387:
+if ln(4.0) > 1.385 and ln(4.0) < 1.387:
     exit(0)
 exit(1)
 """

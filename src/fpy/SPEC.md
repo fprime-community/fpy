@@ -118,7 +118,7 @@ Inline macros behave like functions whose bodies are pre-defined sequences of by
 Available macros:
 
 * `exit(exit_code: U8)`: terminates the sequence immediately by emitting an `ExitDirective`.
-* `flog(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
+* `ln(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
 * `sleep(seconds: U32 = 0, microseconds: U32 = 0)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
 * `sleep_until(wakeup_time: Fw.TimeValue)`: waits until the supplied absolute time using `WaitAbsDirective`.
 * `now() -> Fw.TimeValue`: pushes the current time via `PushTimeDirective`.

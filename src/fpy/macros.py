@@ -170,8 +170,8 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "exit": BuiltinFuncSymbol(
         "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
     ),
-    "flog": BuiltinFuncSymbol(
-        "flog", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
+    "ln": BuiltinFuncSymbol(
+        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
