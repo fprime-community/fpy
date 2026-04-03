@@ -1,6 +1,7 @@
+from fpy.model import DirectiveErrorCode
 from fpy.types import FpyValue, U32
 
-from fpy.test_helpers import assert_run_success
+from fpy.test_helpers import assert_run_success, assert_run_failure
 
 
 class TestReadmeExamples:
@@ -36,16 +37,6 @@ assert int == 123123
 
 high_bitwidth: U32 = 16383
 low_bitwidth: U8 = U8(high_bitwidth)
-
-CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
-CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
-
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
-
-if success == Fw.CmdResponse.OK:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 
 CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
 # sleep for 1 second
@@ -188,6 +179,24 @@ start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100,
 end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 
+# Commands — named arguments
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+
+# Commands — flags.assert_cmd_success = False allows failing commands to proceed
+# README: flags.assert_cmd_success = False / CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+flags.assert_cmd_success = False
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# sequence proceeds normally
+
+# Commands — handling the return value suppresses auto-assert
+# README: flags.assert_cmd_success = True / success = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+flags.assert_cmd_success = True
+success: Fw.CmdResponse = Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# cmd response is handled, sequence proceeds normally
+
+if success == Fw.CmdResponse.OK:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+
 parsed_time: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
 
@@ -199,4 +208,14 @@ exit(0)
             seq,
             {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
             timeout_s=20
+        )
+
+    def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
+        """README: CdhCore.exampleComponent.CMD_THAT_WILL_FAIL() / sequence exits with an error"""
+        seq = """
+Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+# sequence exits with an error
+"""
+        assert_run_failure(
+            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
         )

@@ -855,6 +855,9 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # check needed this is because if it's in scope, it's defined, as
             # its "declaration" is the start of the scope
             return
+        if sym.declaration is None:
+            # Built-in variable (e.g., flags) — always defined
+            return
         if (
             is_instance_compat(sym.declaration, AstAssign)
             and sym.declaration.lhs == node

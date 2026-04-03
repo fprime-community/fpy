@@ -66,29 +66,29 @@ Commands arguments are type checked, and they do not need to be constants. You c
 CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
 ```
 
-If a command doesn't successfully execute, the sequence can optionally exit with an error. You can configure this in the sequence by setting the `Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL` flag:
-
+If a command fails and the response isn't handled, the sequence will exit with an error:
 ```py
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
-# sequence proceeds normally
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 # sequence exits with an error
 ```
 
-This is kind of like Bash's `set -e` and `set +e` commands.
-
-If you choose to allow command failures, you can also handle the return status of the command:
+You can suppress errors by handling the return value of the command:
 ```py
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+success: Fw.CmdResponse = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# cmd response is handled, sequence proceeds normally
 
-if success == Fw.CmdResponse.OK:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+if success == Fw.CmdResponse.EXECUTION_ERROR:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("Command failed!")
 ```
 
-You can configure the default value of that flag for all sequences by changing the `Svc.FpySequencer.FLAG_DEFAULT_EXIT_ON_CMD_FAIL` parameter.
+You can configure whether unhandled command failures cause the sequence to exit by setting the `flags.assert_cmd_success` Boolean flag:
+```py
+flags.assert_cmd_success = False
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence proceeds normally
+```
+
+`flags.assert_cmd_success` is kind of like Bash's `set -e` and `set +e` commands. The flag defaults to `True`.
 
 ## Variables and Basic Types
 

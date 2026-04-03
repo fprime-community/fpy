@@ -556,12 +556,15 @@ class PrmDef:
     description: str = ""
 
 
-# The canonical Svc.Fpy.FlagId enum type
-FLAG_ID = FpyType(
-    TypeKind.ENUM,
-    "Svc.Fpy.FlagId",
-    enum_dict={"EXIT_ON_CMD_FAIL": 0},
-    rep_type=U8,
+# The built-in flags struct that controls sequencer behavior.
+# Allocated as a magic global variable at the start of the stack.
+FLAGS_TYPE = FpyType(
+    TypeKind.STRUCT,
+    "$Flags",
+    members=(
+        StructMember("assert_cmd_success", BOOL),
+    ),
+    member_defaults={"assert_cmd_success": FpyValue(BOOL, True)},
 )
 
 # The canonical Fw.CmdResponse enum type

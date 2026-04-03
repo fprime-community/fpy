@@ -17,6 +17,7 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    CMD_RESPONSE,
     FpyType,
     FpyValue,
     INTEGER,
@@ -275,6 +276,37 @@ class GenerateFunctionBody(Emitter):
             return [DiscardDirective(result_type.max_size)]
         return []
 
+    def assert_cmd_response_ok(self, node: AstFuncCall, state: CompileState) -> list[Directive | Ir]:
+        """For a bare command call, emit code to check the response and exit if
+        it is not OK and the flags.assert_cmd_success variable is set."""
+        dirs: list[Directive | Ir] = []
+        end_label = IrLabel(node, "cmd_ok")
+        # compare response on stack to Fw.CmdResponse.OK
+        dirs.append(PushValDirective(FpyValue(CMD_RESPONSE, CMD_RESPONSE.enum_dict["OK"]).serialize()))
+        dirs.append(MemCompareDirective(CMD_RESPONSE.max_size))
+        # now stack has True if response == OK
+        # if response was OK, skip to end, otherwise go to "cmd_not_ok"
+        not_ok_label = IrLabel(node, "cmd_not_ok")
+        dirs.append(IrIf(not_ok_label))
+        dirs.append(IrGoto(end_label))
+
+        dirs.append(not_ok_label)
+        # response was not OK — read flags.assert_cmd_success from the stack
+        # assert_cmd_success is at offset 0 within the flags struct
+        flag_offset = state.flags_var.frame_offset
+        dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
+        # if flag is false, skip to end (don't exit)
+        dirs.append(IrIf(end_label))
+        # flag is true and response was not OK — exit with error
+        dirs.append(
+            PushValDirective(
+                FpyValue(U8, DirectiveErrorCode.CMD_FAIL.value).serialize()
+            )
+        )
+        dirs.append(ExitDirective())
+        dirs.append(end_label)
+        return dirs
+
     def get_64_bit_numeric_type(self, type: FpyType) -> FpyType:
         """return the 64 bit version of the input numeric type"""
         assert type in SPECIFIC_NUMERIC_TYPES, type
@@ -450,6 +482,15 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IntMultiplyDirective())
         return dirs
 
+    def _is_cmd_and_response_unhandled(self, stmt: Ast, state: CompileState) -> bool:
+        """True when *stmt* is a command call whose response is not captured."""
+        return (
+            is_instance_compat(stmt, AstFuncCall)
+            and is_instance_compat(
+                state.resolved_symbols.get(stmt.func), CommandSymbol
+            )
+        )
+
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
@@ -458,8 +499,11 @@ class GenerateFunctionBody(Emitter):
                 # TODO warn
                 continue
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         return dirs
 
     def emit_AstIf(self, node: AstIf, state: CompileState):
@@ -536,8 +580,11 @@ class GenerateFunctionBody(Emitter):
                 # last stmt, it must be the inc stmt, add the label before it
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         # go back to condition check
         dirs.append(IrGoto(while_start_label))
         dirs.append(while_end_label)
@@ -1101,10 +1148,16 @@ class GenerateModule(Emitter):
         # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
         
-        # Allocate space for top-level local variables
-        lvar_array_size_bytes = state.frame_sizes[node]
-        if lvar_array_size_bytes > 0:
-            main_body.append(AllocateDirective(lvar_array_size_bytes))
+        # Push the flags struct default value onto the stack (it's the first
+        # variable, so push_val places it at the right offset), then allocate
+        # the remaining space for other top-level locals.
+        flags_type = state.flags_var.type
+        assert state.flags_var.frame_offset == 0
+        flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
+        main_body.append(PushValDirective(flags_default.serialize()))
+        remaining = state.frame_sizes[node] - flags_type.max_size
+        if remaining > 0:
+            main_body.append(AllocateDirective(remaining))
         
         main_body.extend(GenerateTopLevel().emit(node, state))
 
