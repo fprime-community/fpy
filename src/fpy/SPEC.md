@@ -125,7 +125,7 @@ Available macros:
 * `time(timestamp: String, timeBase: TimeBase = TimeBase.TB_NONE, timeContext: U8 = 0) -> Fw.TimeValue`: parses an ISO 8601 timestamp string (e.g., `"2025-12-19T14:30:00Z"` or `"2025-12-19T14:30:00.123456Z"`) at compile time and returns an `Fw.TimeValue` with the specified `timeBase` and `timeContext`. The timestamp must be in UTC with a `Z` suffix.
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
-* `log(message: String, severity: LogSeverity = LogSeverity.ACTIVITY_HI)`: pushes the severity and message onto the stack, then emits a `PopEventDirective`. Both arguments must be compile-time constants.
+* `log(message: String, severity: Fw.LogSeverity = Fw.LogSeverity.ACTIVITY_HI)`: pushes the severity and message onto the stack, then emits a `PopEventDirective`. Both arguments must be compile-time constants.
 
 ## Type constructors
 Structs, arrays, and `Fw.TimeValue` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.TimeValue` with `timeBase: TimeBase`, `timeContext: U8`, `seconds: U32`, `useconds: U32`). A constructor call serializes the provided values into a new instance of that type. `Fw.Time` is an alias for `Fw.TimeValue`, and `Fw.TimeInterval` is an alias for `Fw.TimeIntervalValue`.

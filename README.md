@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/fprime-community/fpy)](LICENSE)
 
 
-Fpy is a user-friendly spacecraft scripting language for the [F-Prime](https://nasa.github.io/fprime/) flight software framework.
+Fpy is a user-friendly spacecraft scripting language for the [F Prime](https://nasa.github.io/fprime/) flight software framework.
 
 ---
 
@@ -27,7 +27,7 @@ This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy byt
 
 # User's Guide
 
-This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F-Prime before.
+This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F Prime before.
 
 ## Compiling and Running a Sequence
 
@@ -50,9 +50,25 @@ You can compile it with `fprime-fpyc test.fpy --dictionary Ref/build-artifacts/L
 
 Make sure your deployment topology has an instance of the `Svc.FpySequencer` component. You can run the sequence by passing it in as an argument to the `Svc.FpySequencer.RUN` command.
 
+## Logging
+
+Fpy supports logging F Prime events:
+```py
+log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
+```
+You can configure the severity of the event:
+```py
+log("uh oh", Fw.LogSeverity.WARNING_HI)
+log("oh no!", Fw.LogSeverity.FATAL)
+```
+
+All F Prime severity levels are supported.
+
+At the moment, only constant string arguments are supported. See [Strings](#strings).
+
 ## Commands
 
-Fpy supports calling any command in the F-Prime dictionary:
+Fpy supports calling any command in the F Prime dictionary:
 
 ```py
 CdhCore.cmdDisp.CMD_NO_OP()
@@ -172,7 +188,7 @@ int: I32 = I32(uint)
 
 ## Dictionary Types
 
-Fpy also has access to all structs, arrays and enums in the F-Prime dictionary:
+Fpy also has access to all structs, arrays and enums in the F Prime dictionary:
 ```py
 # you can access enum constants by name:
 enum_var: Fw.Success = Fw.Success.SUCCESS
@@ -563,7 +579,7 @@ assert 1 > 2, 123
 ```
 
 ## Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
 
 # Developer's Guide
@@ -575,7 +591,7 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 3. Make changes to the source
 4. `pytest`
 
-## Running on a test F-Prime deployment
+## Running on a test F Prime deployment
 
 1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
 2. `cd fprime-fpy-testbed`

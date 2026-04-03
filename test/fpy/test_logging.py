@@ -16,7 +16,7 @@ log("hello world")
 
     def test_explicit_severity(self, fprime_test_api):
         seq = '''
-log("oh no", LogSeverity.FATAL)
+log("oh no", Fw.LogSeverity.FATAL)
 '''
         assert_run_success(fprime_test_api, seq)
 
@@ -33,7 +33,7 @@ log("test message")
 
     def test_explicit_fatal(self, fprime_test_api):
         seq = '''
-log("critical", LogSeverity.FATAL)
+log("critical", Fw.LogSeverity.FATAL)
 '''
         directives = compile_seq(fprime_test_api, seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
@@ -44,7 +44,7 @@ log("critical", LogSeverity.FATAL)
 
     def test_explicit_warning_hi(self, fprime_test_api):
         seq = '''
-log("watch out", LogSeverity.WARNING_HI)
+log("watch out", Fw.LogSeverity.WARNING_HI)
 '''
         directives = compile_seq(fprime_test_api, seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
@@ -78,8 +78,8 @@ log("roundtrip test")
     def test_multiple_events(self, fprime_test_api):
         seq = '''
 log("step 1")
-log("step 2", LogSeverity.WARNING_HI)
-log("step 3", LogSeverity.FATAL)
+log("step 2", Fw.LogSeverity.WARNING_HI)
+log("step 3", Fw.LogSeverity.FATAL)
 '''
         directives = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopEventDirective)]

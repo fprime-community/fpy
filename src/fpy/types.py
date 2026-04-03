@@ -352,7 +352,7 @@ TIME_BASE = FpyType(
 
 LOG_SEVERITY = FpyType(
     TypeKind.ENUM,
-    "LogSeverity",
+    "Fw.LogSeverity",
     enum_dict={
         "FATAL": 1,
         "WARNING_HI": 2,

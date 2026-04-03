@@ -200,6 +200,11 @@ if success == Fw.CmdResponse.OK:
 parsed_time: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
 
+# Logging
+log("hello world!")
+log("uh oh", Fw.LogSeverity.WARNING_HI)
+log("oh no!", Fw.LogSeverity.FATAL)
+
 assert 1 > 0
 exit(0)
 """
