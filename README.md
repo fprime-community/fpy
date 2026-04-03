@@ -72,24 +72,23 @@ CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 # sequence exits with an error
 ```
 
-You can configure this behavior by setting the `flags.assert_cmd_success` Boolean flag:
+You can suppress errors by handling the return value of the command:
+```py
+success: Fw.CmdResponse = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# cmd response is handled, sequence proceeds normally
+
+if success == Fw.CmdResponse.EXECUTION_ERROR:
+    CdhCore.cmdDisp.CMD_NO_OP_STRING("Command failed!")
+```
+
+You can configure whether unhandled command failures cause the sequence to exit by setting the `flags.assert_cmd_success` Boolean flag:
 ```py
 flags.assert_cmd_success = False
 CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 # sequence proceeds normally
 ```
 
-This is kind of like Bash's `set -e` and `set +e` commands. The flag defaults to `True`.
-
-You can also suppress errors by handling the return value of the command:
-```py
-flags.assert_cmd_success = True
-success: Fw.CmdResponse = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
-# cmd response is handled, sequence proceeds normally
-
-if success == Fw.CmdResponse.OK:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
-```
+`flags.assert_cmd_success` is kind of like Bash's `set -e` and `set +e` commands. The flag defaults to `True`.
 
 ## Variables and Basic Types
 
