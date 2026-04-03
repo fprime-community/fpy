@@ -42,6 +42,7 @@ from fpy.types import (
     CHECK_STATE,
     CMD_RESPONSE,
     FLAGS_TYPE,
+    LOG_SEVERITY,
     TIME_COMPARISON,
     TIME_INTERVAL,
     TIME_BASE,
@@ -368,6 +369,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
         BOOL.name: BOOL,
         CHECK_STATE.name: CHECK_STATE,
         FLAGS_TYPE.name: FLAGS_TYPE,
+        LOG_SEVERITY.name: LOG_SEVERITY,
     }
 
     # Collect enum constants from the final type dict (after builtins and

@@ -10,6 +10,7 @@ from fpy.bytecode.directives import (
     CallDirective,
     ConstCmdDirective,
     Directive,
+    PopEventDirective,
     FwOpcodeType,
     PeekDirective,
     ExitDirective,
@@ -82,7 +83,7 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     IntegerTruncate64To8Directive,
 )
-from fpy.types import FpyValue, TIME
+from fpy.types import FpyValue, LOG_SEVERITY, TIME
 from fpy.state import CmdDef
 
 debug = False
@@ -1141,4 +1142,15 @@ class FpySequencerModel:
         # and push return value if one exists
         if dir.return_val_size > 0:
             self.push(return_val)
+        return None
+
+    def handle_pop_event(self, dir: PopEventDirective):
+        if len(self.stack) < dir.message_size + 1:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        message = bytes(self.pop(type=bytes, size=dir.message_size)) if dir.message_size > 0 else b""
+        severity = self.pop(type=int, signed=False, size=1)
+        severity_names = {v: k for k, v in LOG_SEVERITY.enum_dict.items()}
+        severity_name = severity_names.get(severity, f"UNKNOWN({severity})")
+        if debug:
+            print(f"POP_EVENT [{severity_name}]: {message.decode('utf-8')}")
         return None

@@ -2,14 +2,16 @@ from __future__ import annotations
 from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
+    PopEventDirective,
     PushTimeDirective,
+    PushValDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
     WaitRelDirective,
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import INTERNAL_STRING, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
@@ -168,8 +170,8 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "exit": BuiltinFuncSymbol(
         "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
     ),
-    "log": BuiltinFuncSymbol(
-        "log", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
+    "flog": BuiltinFuncSymbol(
+        "flog", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
@@ -177,4 +179,17 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     # time() parses ISO 8601 timestamps at compile time
     # The generate function should never be called since this is always const-evaluated
     "time": TIME_MACRO,
+    # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
+    "log": BuiltinFuncSymbol(
+        "log", NOTHING, [
+            ("message", INTERNAL_STRING, None),
+            ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
+        ],
+        lambda n, c: [
+            PushValDirective(c[1].serialize()),
+            PushValDirective(c[0].val.encode("utf-8")),
+            PopEventDirective(len(c[0].val.encode("utf-8"))),
+        ],
+        const_arg_indices=frozenset({0, 1}),
+    ),
 }
