@@ -1,3 +1,4 @@
+import pytest
 from fpy.bytecode.directives import Directive, PopEventDirective, PushValDirective
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -14,6 +15,7 @@ log("hello world")
 '''
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.skipif("config.getoption('--use-gds')", reason="FATAL severity kills the program on the GDS")
     def test_explicit_severity(self, fprime_test_api):
         seq = '''
 log("oh no", Fw.LogSeverity.FATAL)
@@ -79,13 +81,15 @@ log("roundtrip test")
 
     def test_multiple_events(self, fprime_test_api):
         seq = '''
-log("step 1")
-log("step 2", Fw.LogSeverity.WARNING_HI)
-log("step 3", Fw.LogSeverity.FATAL)
+log("test")
+log("test", Fw.LogSeverity.DIAGNOSTIC)
+log("test", Fw.LogSeverity.COMMAND)
+log("test", Fw.LogSeverity.ACTIVITY_HI)
+log("test", Fw.LogSeverity.ACTIVITY_LO)
+log("test", Fw.LogSeverity.WARNING_HI)
+log("test", Fw.LogSeverity.WARNING_LO)
 '''
-        directives = compile_seq(fprime_test_api, seq)
-        pop_dirs = [d for d in directives if isinstance(d, PopEventDirective)]
-        assert len(pop_dirs) == 3
+        assert_run_success(fprime_test_api, seq)
 
     def test_non_literal_message_rejected(self, fprime_test_api):
         seq = '''
