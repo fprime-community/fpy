@@ -143,6 +143,7 @@ class DirectiveId(Enum):
     LOAD_ABS = 72
     STORE_ABS = 73
     STORE_ABS_CONST_OFFSET = 74
+    POP_EVENT = 75
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,6 +367,12 @@ class ConstCmdDirective(Directive):
     cmd_opcode: int
     args: bytes
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"cmd_opcode": FwOpcodeType}
+
+
+@dataclass
+class PopEventDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.POP_EVENT
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

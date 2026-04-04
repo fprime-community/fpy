@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/fprime-community/fpy)](LICENSE)
 
 
-Fpy is a user-friendly spacecraft scripting language for the [F-Prime](https://nasa.github.io/fprime/) flight software framework.
+Fpy is a user-friendly spacecraft scripting language for the [F Prime](https://nasa.github.io/fprime/) flight software framework.
 
 ---
 
@@ -27,7 +27,7 @@ This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy byt
 
 # User's Guide
 
-This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F-Prime before.
+This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F Prime before.
 
 ## Compiling and Running a Sequence
 
@@ -50,20 +50,37 @@ You can compile it with `fprime-fpyc test.fpy --dictionary Ref/build-artifacts/L
 
 Make sure your deployment topology has an instance of the `Svc.FpySequencer` component. You can run the sequence by passing it in as an argument to the `Svc.FpySequencer.RUN` command.
 
+## Logging
+
+Fpy supports logging F Prime events:
+```py
+log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
+```
+
+You can configure the severity of the event:
+```py
+log("uh oh", Fw.LogSeverity.WARNING_HI)
+log("oh no!", Fw.LogSeverity.FATAL)
+```
+
+All F Prime severity levels are supported.
+
+At the moment, only constant string arguments are supported. See [Strings](#strings).
+
 ## Commands
 
-Fpy supports calling any command in the F-Prime dictionary:
+Fpy supports calling any command in the F Prime dictionary:
 
 ```py
 CdhCore.cmdDisp.CMD_NO_OP()
 # no delay between commands
-CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
+CdhCore.cmdDisp.CMD_NO_OP_STRING("hello world!")
 # the sequence waits until a command response is returned
 ```
 
 Commands arguments are type checked, and they do not need to be constants. You can pass command arguments by name:
 ```py
-CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="hello world!")
 ```
 
 If a command fails and the response isn't handled, the sequence will exit with an error:
@@ -78,7 +95,7 @@ success: Fw.CmdResponse = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 # cmd response is handled, sequence proceeds normally
 
 if success == Fw.CmdResponse.EXECUTION_ERROR:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("Command failed!")
+    log("Command failed!")
 ```
 
 You can configure whether unhandled command failures cause the sequence to exit by setting the `flags.assert_cmd_success` Boolean flag:
@@ -172,7 +189,7 @@ int: I32 = I32(uint)
 
 ## Dictionary Types
 
-Fpy also has access to all structs, arrays and enums in the F-Prime dictionary:
+Fpy also has access to all structs, arrays and enums in the F Prime dictionary:
 ```py
 # you can access enum constants by name:
 enum_var: Fw.Success = Fw.Success.SUCCESS
@@ -250,11 +267,11 @@ You can branch off of conditionals with `if`, `elif` and `else`:
 random_value: I8 = 4 # chosen by fair dice roll. guaranteed to be random
 
 if random_value < 0:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("won't happen")
+    log("won't happen")
 elif random_value > 0 and random_value <= 6:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen!")
+    log("should happen!")
 else:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
+    log("uh oh...")
 ```
 
 This is particularly useful for checking telemetry channel values:
@@ -263,7 +280,7 @@ This is particularly useful for checking telemetry channel values:
 CdhCore.cmdDisp.CMD_NO_OP()
 # the commands dispatched count should be >= 1
 if CdhCore.cmdDisp.CommandsDispatched >= 1:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
+    log("should happen")
 ```
 
 ## Check statement
@@ -271,7 +288,7 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+    log("more than 30 commands for 15 seconds!")
 ```
 
 If you don't specify a value for `persist`, the condition only has to be true once.
@@ -279,21 +296,21 @@ If you don't specify a value for `persist`, the condition only has to be true on
 You can specify an absolute time at which the `check` should time out:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
 ```
 
 Finally, you can specify a `period` at which the condition should be checked:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 period {seconds: 1}: # check every 1 second
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
+    log("more than 30 commands!")
 ```
 
 If you don't specify a value for `period`, the default period is 1 second.
@@ -304,16 +321,16 @@ check CdhCore.cmdDisp.CommandsDispatched > 30
     timeout now() + {seconds: 60}
     persist {seconds: 2}
     period {seconds: 1}
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
 ```
 
 If you just want to wait until a condition is true without running any body, you can omit the colon and body:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60}
 # execution continues here once the condition is satisfied (or times out)
-CdhCore.cmdDisp.CMD_NO_OP_STRING("done waiting!")
+log("done waiting!")
 ```
 
 ## Getting Struct Members and Array Items
@@ -401,7 +418,7 @@ You can define and call functions:
 ```py
 def foobar():
     if 1 + 2 == 3:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
+        log("foo")
 
 foobar()
 ```
@@ -420,7 +437,7 @@ Functions can have default argument values:
 ```py
 def greet(times: I64 = 3):
     for i in 0..times:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
+        log("hello")
 
 greet()  # uses default: prints 3 times
 greet(1) # prints once
@@ -445,7 +462,7 @@ Functions can call each other or themselves:
 def recurse(limit: U64):
     if limit == 0:
         return
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
+    log("tick")
     recurse(limit - 1)
 
 recurse(5) # prints "tick" 5 times
@@ -456,21 +473,21 @@ Functions can only be defined at the top level—not inside loops, conditionals,
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
+log("second 0")
 # sleep for 1 second
 sleep(1)
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+log("second 1")
 # sleep for half a second
 sleep(useconds=500_000)
 
 # sleep until the next checkTimers call on the Svc.FpySequencer component
 sleep()
-CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
+log("checkTimers called!")
 
-CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
+log("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
 sleep_until({timeBase: TimeBase.TB_NONE, timeContext: 1, seconds: 1234567890, useconds: 0})
-CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
+log("much later")
 ```
 
 You can also use the `time()` function to parse ISO 8601 timestamps:
@@ -563,7 +580,7 @@ assert 1 > 2, 123
 ```
 
 ## Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
 
 # Developer's Guide
@@ -575,7 +592,7 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 3. Make changes to the source
 4. `pytest`
 
-## Running on a test F-Prime deployment
+## Running on a test F Prime deployment
 
 1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
 2. `cd fprime-fpy-testbed`
