@@ -127,6 +127,7 @@ class DirectiveErrorCode(Enum):
     FRAME_START_OUT_OF_BOUNDS = 14
     STACK_UNDERFLOW = 15
     INVALID_ARG = 16
+    CMD_FAIL = 17
 
 
 class FpySequencerModel:
