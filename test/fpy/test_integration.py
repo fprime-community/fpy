@@ -38,10 +38,10 @@ assert int == 123123
 high_bitwidth: U32 = 16383
 low_bitwidth: U8 = U8(high_bitwidth)
 
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
+log("second 0")
 # sleep for 1 second
 sleep(1)
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+log("second 1")
 # sleep for half a second
 sleep(useconds=500_000)
 # sleep until the next checkTimers call
@@ -54,11 +54,11 @@ records_equal: bool = record1 == record2 # == True
 random_value: I8 = 4 # chosen by fair dice roll. guaranteed to be random
 
 if random_value < 0:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("won't happen")
+    log("won't happen")
 elif random_value > 0 and random_value <= 6:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen!")
+    log("should happen!")
 else:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
+    log("uh oh...")
 
 time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
 
@@ -108,7 +108,7 @@ counter_global: I64 = 0
 
 def foobar():
     if 1 + 2 == 3:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
+        log("foo")
 
 foobar()
 
@@ -119,7 +119,7 @@ assert add_vals(1, 2) == 3
 
 def greet(times: I64 = 3):
     for i in 0..times:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
+        log("hello")
 
 greet()  # uses default: prints 3 times
 greet(1) # prints once
@@ -134,32 +134,32 @@ assert counter_global == 2
 def recurse(limit: U64):
     if limit == 0:
         return
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
+    log("tick")
     recurse(limit - 1)
 
 recurse(5) # prints "tick" 5 times
 
 
 check CdhCore.cmdDisp.CommandsDispatched > 1 persist {seconds: 1}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+    log("more than 30 commands for 15 seconds!")
 check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60} persist {seconds: 1}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
 check CdhCore.cmdDisp.CommandsDispatched > 1 period {seconds: 1}: # check every 1 second
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
+    log("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
     timeout now() + {seconds: 60}
     persist {seconds: 1}
     period {seconds: 1}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
 
 check CdhCore.cmdDisp.CommandsDispatched > 1 timeout now() + {seconds: 60}
-CdhCore.cmdDisp.CMD_NO_OP_STRING("done waiting!")
+log("done waiting!")
 
 # Time functions examples
 current_time: Fw.Time = now()
@@ -195,10 +195,15 @@ success: Fw.CmdResponse = Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOC
 # cmd response is handled, sequence proceeds normally
 
 if success == Fw.CmdResponse.OK:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+    log("No-op works!")
 
 parsed_time: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
+
+# Logging
+log("hello world!")
+log("uh oh", Fw.LogSeverity.WARNING_HI)
+log("oh no!", Fw.LogSeverity.FATAL)
 
 assert 1 > 0
 exit(0)

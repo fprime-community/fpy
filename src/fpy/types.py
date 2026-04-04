@@ -350,6 +350,21 @@ TIME_BASE = FpyType(
     rep_type=U16,
 )
 
+LOG_SEVERITY = FpyType(
+    TypeKind.ENUM,
+    "Fw.LogSeverity",
+    enum_dict={
+        "FATAL": 1,
+        "WARNING_HI": 2,
+        "WARNING_LO": 3,
+        "COMMAND": 4,
+        "ACTIVITY_HI": 5,
+        "ACTIVITY_LO": 6,
+        "DIAGNOSTIC": 7,
+    },
+    rep_type=U8,
+)
+
 TIME = FpyType(
     TypeKind.STRUCT,
     "Fw.TimeValue",
