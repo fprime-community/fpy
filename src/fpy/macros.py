@@ -188,7 +188,8 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         lambda n, c: [
             PushValDirective(c[1].serialize()),
             PushValDirective(c[0].val.encode("utf-8")),
-            PopEventDirective(len(c[0].val.encode("utf-8"))),
+            PushValDirective(FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()),
+            PopEventDirective(),
         ],
         const_arg_indices=frozenset({0, 1}),
     ),

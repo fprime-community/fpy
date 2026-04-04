@@ -372,8 +372,7 @@ class ConstCmdDirective(Directive):
 @dataclass
 class PopEventDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.POP_EVENT
-    message_size: int
-    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"message_size": StackSizeType}
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

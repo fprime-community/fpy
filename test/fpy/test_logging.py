@@ -26,10 +26,10 @@ log("test message")
 '''
         directives = compile_seq(fprime_test_api, seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
-        assert len(push_vals) >= 2
+        assert len(push_vals) >= 3
         # ACTIVITY_HI = 5
-        assert push_vals[-2].val == bytes([5])
-        assert push_vals[-1].val == b"test message"
+        assert push_vals[-3].val == bytes([5])
+        assert push_vals[-2].val == b"test message"
 
     def test_explicit_fatal(self, fprime_test_api):
         seq = '''
@@ -37,10 +37,10 @@ log("critical", Fw.LogSeverity.FATAL)
 '''
         directives = compile_seq(fprime_test_api, seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
-        assert len(push_vals) >= 2
+        assert len(push_vals) >= 3
         # FATAL = 1
-        assert push_vals[-2].val == bytes([1])
-        assert push_vals[-1].val == b"critical"
+        assert push_vals[-3].val == bytes([1])
+        assert push_vals[-2].val == b"critical"
 
     def test_explicit_warning_hi(self, fprime_test_api):
         seq = '''
@@ -48,9 +48,9 @@ log("watch out", Fw.LogSeverity.WARNING_HI)
 '''
         directives = compile_seq(fprime_test_api, seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
-        assert len(push_vals) >= 2
+        assert len(push_vals) >= 3
         # WARNING_HI = 2
-        assert push_vals[-2].val == bytes([2])
+        assert push_vals[-3].val == bytes([2])
 
     def test_emits_pop_event_directive(self, fprime_test_api):
         seq = '''
@@ -59,7 +59,10 @@ log("test")
         directives = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopEventDirective)]
         assert len(pop_dirs) == 1
-        assert pop_dirs[0].message_size == len(b"test")
+        # message_size should be pushed onto the stack before POP_EVENT
+        push_vals = [d for d in directives if isinstance(d, PushValDirective)]
+        # Last push before POP_EVENT should be the message size (U32 big-endian)
+        assert push_vals[-1].val == len(b"test").to_bytes(4, "big")
 
     def test_serialization_roundtrip(self, fprime_test_api):
         seq = '''
@@ -73,7 +76,6 @@ log("roundtrip test")
         serialized = original.serialize()
         _, deserialized = Directive.deserialize(serialized, 0)
         assert isinstance(deserialized, PopEventDirective)
-        assert deserialized.message_size == original.message_size
 
     def test_multiple_events(self, fprime_test_api):
         seq = '''

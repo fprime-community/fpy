@@ -1145,9 +1145,12 @@ class FpySequencerModel:
         return None
 
     def handle_pop_event(self, dir: PopEventDirective):
-        if len(self.stack) < dir.message_size + 1:
+        if len(self.stack) < StackSizeType.max_size:
             return DirectiveErrorCode.STACK_UNDERFLOW
-        message = bytes(self.pop(type=bytes, size=dir.message_size)) if dir.message_size > 0 else b""
+        message_size = self.pop(type=int, signed=False, size=StackSizeType.max_size)
+        if len(self.stack) < message_size + 1:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        message = bytes(self.pop(type=bytes, size=message_size)) if message_size > 0 else b""
         severity = self.pop(type=int, signed=False, size=1)
         severity_names = {v: k for k, v in LOG_SEVERITY.enum_dict.items()}
         severity_name = severity_names.get(severity, f"UNKNOWN({severity})")
