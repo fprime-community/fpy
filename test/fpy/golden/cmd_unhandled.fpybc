@@ -6,5 +6,5 @@ if 6
 goto 10
 load_abs 0 1
 if 10
-push_val 16
+push_val 17
 exit
