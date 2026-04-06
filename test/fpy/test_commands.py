@@ -252,7 +252,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
         assert_run_failure(
             fprime_test_api,
             seq,
-            DirectiveErrorCode.EXIT_WITH_ERROR,
+            DirectiveErrorCode.CMD_FAIL,
         )
 
     def test_unhandled_fail_flag_false_continues(self, fprime_test_api):
@@ -324,7 +324,7 @@ if True:
         assert_run_failure(
             fprime_test_api,
             seq,
-            DirectiveErrorCode.EXIT_WITH_ERROR,
+            DirectiveErrorCode.CMD_FAIL,
         )
 
     def test_bare_cmd_in_while_block(self, fprime_test_api):
@@ -339,7 +339,7 @@ while x:
         assert_run_failure(
             fprime_test_api,
             seq,
-            DirectiveErrorCode.EXIT_WITH_ERROR,
+            DirectiveErrorCode.CMD_FAIL,
         )
 
     def test_bare_cmd_in_function(self, fprime_test_api):
@@ -353,7 +353,7 @@ do_cmd()
         assert_run_failure(
             fprime_test_api,
             seq,
-            DirectiveErrorCode.EXIT_WITH_ERROR,
+            DirectiveErrorCode.CMD_FAIL,
         )
 
     def test_bare_cmd_in_function_no_fail(self, fprime_test_api):
@@ -376,5 +376,5 @@ for i in 0 .. 1:
         assert_run_failure(
             fprime_test_api,
             seq,
-            DirectiveErrorCode.EXIT_WITH_ERROR,
+            DirectiveErrorCode.CMD_FAIL,
         )

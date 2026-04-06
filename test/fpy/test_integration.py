@@ -222,5 +222,5 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 # sequence exits with an error
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR,
+            fprime_test_api, seq, DirectiveErrorCode.CMD_FAIL,
         )
