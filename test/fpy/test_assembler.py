@@ -440,9 +440,10 @@ class TestDirectiveSerializationRoundTrip:
         """Helper to test serialize/deserialize round-trip for a single directive."""
         dirs = [original]
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, arg_type_names = deserialize_directives(serialized)
         
         assert len(deserialized) == 1
+        assert arg_type_names == []
         result = deserialized[0]
         
         # Check type matches
@@ -856,7 +857,8 @@ uitofp
         binary, _ = serialize_directives(dirs)
         
         # Step 3: Deserialize binary back to directives
-        dirs2 = deserialize_directives(binary)
+        dirs2, arg_type_names = deserialize_directives(binary)
+        assert arg_type_names == []
         
         # Step 4: Convert directives back to text
         result_text = directives_to_fpybc(dirs2)
@@ -890,19 +892,19 @@ class TestEdgeCases:
         # Test with a very large goto index
         dirs = [GotoDirective(dir_idx=0xFFFFFFFE)]
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         assert deserialized[0].dir_idx == 0xFFFFFFFE
 
     def test_negative_offset(self):
         dirs = [LoadRelDirective(lvar_offset=-2147483648, size=4)]  # min I32
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         assert deserialized[0].lvar_offset == -2147483648
 
     def test_max_positive_offset(self):
         dirs = [LoadRelDirective(lvar_offset=2147483647, size=4)]  # max I32
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         assert deserialized[0].lvar_offset == 2147483647
 
     def test_multiple_tags_same_location(self):
@@ -946,7 +948,7 @@ class TestMultipleDirectives:
             ExitDirective(),
         ]
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         
         assert len(deserialized) == len(dirs)
         for orig, d in zip(dirs, deserialized):
@@ -955,14 +957,64 @@ class TestMultipleDirectives:
     def test_empty_directive_list(self):
         dirs = []
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         assert len(deserialized) == 0
 
     def test_many_directives(self):
         # Create a sequence with many directives
         dirs = [NoOpDirective() for _ in range(100)]
         serialized, _ = serialize_directives(dirs)
-        deserialized = deserialize_directives(serialized)
+        deserialized, _ = deserialize_directives(serialized)
         assert len(deserialized) == 100
         assert all(isinstance(d, NoOpDirective) for d in deserialized)
+
+
+class TestArgTypeNames:
+    """Test that arg type names are correctly serialized and deserialized."""
+
+    def test_no_arg_type_names(self):
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs, arg_type_names=[])
+        _, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == []
+
+    def test_none_arg_type_names(self):
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs, arg_type_names=None)
+        _, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == []
+
+    def test_single_primitive_type(self):
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs, arg_type_names=["U32"])
+        _, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == ["U32"]
+
+    def test_multiple_primitive_types(self):
+        dirs = [NoOpDirective()]
+        names = ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64", "F32", "F64", "bool"]
+        serialized, _ = serialize_directives(dirs, arg_type_names=names)
+        _, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == names
+
+    def test_qualified_type_names(self):
+        dirs = [NoOpDirective()]
+        names = ["U32", "Svc.DpRecord", "Ref.DpDemo.U32Array", "Fw.Enabled"]
+        serialized, _ = serialize_directives(dirs, arg_type_names=names)
+        _, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == names
+
+    def test_arg_type_names_with_directives_roundtrip(self):
+        dirs = [
+            AllocateDirective(size=32),
+            PushValDirective(val=b"\x01\x02\x03\x04"),
+            ExitDirective(),
+        ]
+        names = ["U32", "F64"]
+        serialized, _ = serialize_directives(dirs, arg_type_names=names)
+        deserialized, arg_type_names = deserialize_directives(serialized)
+        assert arg_type_names == names
+        assert len(deserialized) == 3
+        assert isinstance(deserialized[0], AllocateDirective)
+        assert deserialized[0].size == 32
 

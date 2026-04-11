@@ -98,19 +98,21 @@ def compile_main(args: list[str] = None):
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
     try:
-        directives = ast_to_directives(body, parsed_args.dictionary)
+        result = ast_to_directives(body, parsed_args.dictionary)
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
     if isinstance(
-        directives,
+        result,
         (
             fpy.error.CompileError,
             fpy.error.BackendError,
         ),
     ):
-        print(directives, file=sys.stderr)
+        print(result, file=sys.stderr)
         sys.exit(1)
+
+    directives, arg_type_names = result
 
     output = parsed_args.output
     if output is None:
@@ -119,7 +121,7 @@ def compile_main(args: list[str] = None):
         fpybc = directives_to_fpybc(directives)
         print(fpybc)
     else:
-        output_bytes, crc = serialize_directives(directives)
+        output_bytes, crc = serialize_directives(directives, arg_type_names)
         output.write_bytes(output_bytes)
         print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 
@@ -148,7 +150,7 @@ def model_main(args: list[str] = None):
     if args.debug:
         fpy.model.debug = True
 
-    directives = deserialize_directives(args.input.read_bytes())
+    directives, _ = deserialize_directives(args.input.read_bytes())
     model = FpySequencerModel()
     ret = model.run(directives)
     if ret != DirectiveErrorCode.NO_ERROR:
@@ -214,7 +216,7 @@ def disassemble_main(args: list[str] = None):
         print(f"Input file {args.input} does not exist")
         exit(1)
 
-    dirs = deserialize_directives(args.input.read_bytes())
+    dirs, _ = deserialize_directives(args.input.read_bytes())
     fpybc = directives_to_fpybc(dirs)
     output = args.output
     if output is None:

@@ -49,12 +49,12 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
     def fake_ast_to_directives(body, dictionary):
         assert body == "AST"
         assert Path(dictionary) == dict_path
-        return ["directive"]
+        return ["directive"], []
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
 
-    def fail_serialize(_):
+    def fail_serialize(*args):
         raise AssertionError("serialize_directives should not be called")
 
     monkeypatch.setattr(fpy_main, "serialize_directives", fail_serialize)
@@ -84,13 +84,13 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "ast_to_directives",
-        lambda body, dictionary: ["directive"],
+        lambda body, dictionary: (["directive"], []),
     )
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
     monkeypatch.setattr(
         fpy_main,
         "serialize_directives",
-        lambda directives: (b"\x01\x02", 0xABCD),
+        lambda directives, arg_type_names: (b"\x01\x02", 0xABCD),
     )
 
     fpy_main.compile_main(
@@ -113,7 +113,7 @@ def test_model_main_success(monkeypatch, tmp_path):
     binary.write_bytes(b"data")
 
     monkeypatch.setattr(fpy_model, "debug", False, raising=False)
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: ["dir"])
+    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
 
     instances = []
 
@@ -138,7 +138,7 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
     binary = tmp_path / "seq.bin"
     binary.write_bytes(b"data")
 
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: ["dir"])
+    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
 
     class DummyModel:
         def run(self, directives):
@@ -196,7 +196,7 @@ def test_disassemble_main_writes_text(monkeypatch, tmp_path, capsys):
     source = tmp_path / "seq.bin"
     source.write_bytes(b"data")
 
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: ["dirs"])
+    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dirs"], []))
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda dirs: "FPYBC")
 
     fpy_main.disassemble_main([str(source)])

@@ -34,10 +34,11 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
     for flag in flags or []:
         compile_args[flag] = True
     
-    directives = ast_to_directives(body, default_dictionary, compile_args)
-    if isinstance(directives, (fpy.error.CompileError, fpy.error.BackendError)):
-        raise CompilationFailed(f"Compilation failed:\n{directives}")
+    result = ast_to_directives(body, default_dictionary, compile_args)
+    if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
+        raise CompilationFailed(f"Compilation failed:\n{result}")
     
+    directives, _ = result
     return directives
 
 

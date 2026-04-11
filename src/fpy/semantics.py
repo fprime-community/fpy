@@ -792,6 +792,7 @@ class UpdateTypesAndFuncs(Visitor):
             arg_var = state.resolved_symbols[arg_name_var]
             assert is_instance_compat(arg_var, VariableSymbol), arg_var
             arg_var.type = arg_type
+            state.sequence_arg_type_names.append(arg_type.name)
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
