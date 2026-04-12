@@ -15,6 +15,8 @@ from fpy.bytecode.assembler import (
     parse as fpybc_parse,
     assemble,
     directives_to_fpybc,
+    HEADER_FORMAT,
+    HEADER_SIZE,
 )
 from fpy.bytecode.directives import (
     Directive,
@@ -969,52 +971,112 @@ class TestMultipleDirectives:
         assert all(isinstance(d, NoOpDirective) for d in deserialized)
 
 
-class TestArgTypeNames:
-    """Test that arg type names are correctly serialized and deserialized."""
+class TestArgSpecs:
+    """Test that arg specs are correctly serialized and deserialized."""
 
-    def test_no_arg_type_names(self):
+    def test_no_arg_specs(self):
         dirs = [NoOpDirective()]
-        serialized, _ = serialize_directives(dirs, arg_type_names=[])
-        _, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == []
+        serialized, _ = serialize_directives(dirs, arg_specs=[])
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == []
 
-    def test_none_arg_type_names(self):
+    def test_none_arg_specs(self):
         dirs = [NoOpDirective()]
-        serialized, _ = serialize_directives(dirs, arg_type_names=None)
-        _, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == []
+        serialized, _ = serialize_directives(dirs, arg_specs=None)
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == []
 
     def test_single_primitive_type(self):
         dirs = [NoOpDirective()]
-        serialized, _ = serialize_directives(dirs, arg_type_names=["U32"])
-        _, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == ["U32"]
+        serialized, _ = serialize_directives(dirs, arg_specs=[("U32", 4)])
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == [("U32", 4)]
 
     def test_multiple_primitive_types(self):
         dirs = [NoOpDirective()]
-        names = ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64", "F32", "F64", "bool"]
-        serialized, _ = serialize_directives(dirs, arg_type_names=names)
-        _, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == names
+        specs = [("U8", 1), ("U16", 2), ("U32", 4), ("U64", 8), ("I8", 1), ("I16", 2), ("I32", 4), ("I64", 8), ("F32", 4), ("F64", 8), ("bool", 1)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == specs
 
     def test_qualified_type_names(self):
         dirs = [NoOpDirective()]
-        names = ["U32", "Svc.DpRecord", "Ref.DpDemo.U32Array", "Fw.Enabled"]
-        serialized, _ = serialize_directives(dirs, arg_type_names=names)
-        _, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == names
+        specs = [("U32", 4), ("Svc.DpRecord", 128), ("Ref.DpDemo.U32Array", 256), ("Fw.Enabled", 1)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == specs
 
-    def test_arg_type_names_with_directives_roundtrip(self):
+    def test_arg_specs_with_directives_roundtrip(self):
         dirs = [
             AllocateDirective(size=32),
             PushValDirective(val=b"\x01\x02\x03\x04"),
             ExitDirective(),
         ]
-        names = ["U32", "F64"]
-        serialized, _ = serialize_directives(dirs, arg_type_names=names)
-        deserialized, arg_type_names = deserialize_directives(serialized)
-        assert arg_type_names == names
+        specs = [("U32", 4), ("F64", 8)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        deserialized, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == specs
         assert len(deserialized) == 3
         assert isinstance(deserialized[0], AllocateDirective)
         assert deserialized[0].size == 32
+
+
+class TestArgSpecsBinaryFormat:
+    """Test the binary layout of arg specs in the serialized output."""
+
+    def test_header_argument_count(self):
+        """argumentCount in the header should match the number of arg specs."""
+        dirs = [NoOpDirective()]
+        specs = [("U32", 4), ("U8", 1)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        header = struct.unpack_from(HEADER_FORMAT, serialized)
+        argument_count = header[4]  # argumentCount is 5th field
+        assert argument_count == 2
+
+    def test_header_argument_count_zero(self):
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs, arg_specs=[])
+        header = struct.unpack_from(HEADER_FORMAT, serialized)
+        argument_count = header[4]
+        assert argument_count == 0
+
+    def test_header_args_size(self):
+        """argsSize should equal the total byte length of the serialized arg specs section."""
+        dirs = [NoOpDirective()]
+        # "U32" = 3 bytes name, so per-entry: 1 (len) + 3 (name) + 4 (U32 size) = 8 bytes
+        # "I8" = 2 bytes name, so per-entry: 1 (len) + 2 (name) + 4 (U32 size) = 7 bytes
+        specs = [("U32", 4), ("I8", 1)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        header = struct.unpack_from(HEADER_FORMAT, serialized)
+        args_size = header[5]  # argsSize is 6th field
+        assert args_size == 8 + 7  # 15
+
+    def test_args_section_follows_header(self):
+        """The arg specs section should begin immediately after the header."""
+        dirs = [NoOpDirective()]
+        specs = [("U32", 4)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        # After header: 1 byte name_len + "U32" (3 bytes) + U32 size (4 bytes)
+        offset = HEADER_SIZE
+        name_len = serialized[offset]
+        assert name_len == 3
+        name = serialized[offset + 1 : offset + 1 + 3].decode("utf-8")
+        assert name == "U32"
+        size = struct.unpack_from("!I", serialized, offset + 4)[0]
+        assert size == 4
+
+    def test_args_size_zero_when_empty(self):
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs, arg_specs=[])
+        header = struct.unpack_from(HEADER_FORMAT, serialized)
+        args_size = header[5]
+        assert args_size == 0
+
+    def test_large_type_size_roundtrip(self):
+        """Sizes up to 2^32-1 should survive round-trip."""
+        dirs = [NoOpDirective()]
+        specs = [("BigStruct", 65535)]
+        serialized, _ = serialize_directives(dirs, arg_specs=specs)
+        _, arg_specs = deserialize_directives(serialized)
+        assert arg_specs == specs
 

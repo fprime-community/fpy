@@ -6,6 +6,7 @@ from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
+from fpy.types import FpyType, FpyValue
 
 
 default_dictionary = str(
@@ -21,8 +22,8 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Directive]:
-    """Compile a sequence string to a list of directives in memory."""
+def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> tuple[list[Directive], list[FpyType]]:
+    """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
     
     body = text_to_ast(seq)
@@ -38,8 +39,8 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{result}")
     
-    directives, _ = result
-    return directives
+    directives, arg_types = result
+    return directives, arg_types
 
 
 def lookup_type(fprime_test_api, type_name: str):
@@ -56,6 +57,8 @@ def run_seq(
     initial_time_us: int = 0,
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
+    args: bytes = None,
+    arg_types: list[FpyType] = None,
 ):
     """Run a list of directives.
 
@@ -93,7 +96,7 @@ def run_seq(
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
         tlm_db[ch_template.ch_id] = val
-    ret = model.run(directives, tlm_db)
+    ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)
     if len(directives) > 0 and isinstance(directives[0], AllocateDirective):
@@ -116,9 +119,13 @@ def assert_run_success(
     initial_time_us: int = 0,
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
+    args: list[FpyValue] = None,
 ):
-    directives = compile_seq(fprime_test_api, seq, flags)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes)
+    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    args_bytes = None
+    if args is not None:
+        args_bytes = b"".join(v.serialize() for v in args)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
@@ -141,10 +148,14 @@ def assert_run_failure(
     timeContext: int = 0,
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
+    args: list[FpyValue] = None,
 ):
-    directives = compile_seq(fprime_test_api, seq, flags)
+    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    args_bytes = None
+    if args is not None:
+        args_bytes = b"".join(v.serialize() for v in args)
     try:
-        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
+        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types)
     except (RuntimeError, AssertionError) as e:
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)

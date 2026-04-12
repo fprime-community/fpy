@@ -470,7 +470,7 @@ def ast_to_directives(
     body: AstBlock,
     dictionary: str,
     compile_args: dict | None = None,
-) -> tuple[list[Directive], list[str]] | CompileError | BackendError:
+) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
     compile_args = compile_args or dict()
 
     # Create initial compile state (without builtins yet)
@@ -582,4 +582,4 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir, state.sequence_arg_type_names
+    return ir, state.sequence_arg_specs

@@ -90,7 +90,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "serialize_directives",
-        lambda directives, arg_type_names: (b"\x01\x02", 0xABCD),
+        lambda directives, arg_specs: (b"\x01\x02", 0xABCD),
     )
 
     fpy_main.compile_main(
@@ -122,7 +122,7 @@ def test_model_main_success(monkeypatch, tmp_path):
             instances.append(self)
             self.ran_with = None
 
-        def run(self, directives):
+        def run(self, directives, tlm_db=None, args=None, arg_types=None):
             self.ran_with = directives
             return fpy_main.DirectiveErrorCode.NO_ERROR
 
@@ -141,7 +141,7 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
 
     class DummyModel:
-        def run(self, directives):
+        def run(self, directives, tlm_db=None, args=None, arg_types=None):
             return fpy_main.DirectiveErrorCode.EXIT_WITH_ERROR
 
     monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)

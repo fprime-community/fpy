@@ -270,30 +270,32 @@ class Footer:
     crc: int
 
 
-def _serialize_arg_type_names(arg_type_names: list[str]) -> bytes:
-    """Serialize arg type names as length-prefixed UTF-8 strings."""
+def _serialize_arg_specs(arg_specs: list[tuple[str, int]]) -> bytes:
+    """Serialize arg specs as (length-prefixed UTF-8 name, U32 size) pairs."""
     result = bytes()
-    for name in arg_type_names:
+    for name, size in arg_specs:
         encoded = name.encode("utf-8")
         assert len(encoded) <= 255, f"Type name too long: {name}"
-        result += struct.pack("!B", len(encoded)) + encoded
+        result += struct.pack("!B", len(encoded)) + encoded + struct.pack("!I", size)
     return result
 
 
-def _deserialize_arg_type_names(data: bytes, offset: int, count: int) -> tuple[int, list[str]]:
-    """Deserialize arg type names from length-prefixed UTF-8 strings.
-    Returns (new_offset, list_of_names)."""
-    names = []
+def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, list[tuple[str, int]]]:
+    """Deserialize arg specs from (length-prefixed UTF-8 name, U32 size) pairs.
+    Returns (new_offset, list_of_(name, size)_tuples)."""
+    specs = []
     for _ in range(count):
         name_len = struct.unpack_from("!B", data, offset)[0]
         offset += 1
         name = data[offset:offset + name_len].decode("utf-8")
         offset += name_len
-        names.append(name)
-    return offset, names
+        size = struct.unpack_from("!I", data, offset)[0]
+        offset += 4
+        specs.append((name, size))
+    return offset, specs
 
 
-def deserialize_directives(data: bytes) -> tuple[list[Directive], list[str]]:
+def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, int]]]:
     header = Header(*struct.unpack_from(HEADER_FORMAT, data))
 
     if header.schemaVersion != SCHEMA_VERSION:
@@ -301,9 +303,9 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[str]]:
             f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
         )
 
-    # Deserialize arg type names section
+    # Deserialize arg specs section
     args_offset = HEADER_SIZE
-    _, arg_type_names = _deserialize_arg_type_names(data, args_offset, header.argumentCount)
+    _, arg_specs = _deserialize_arg_specs(data, args_offset, header.argumentCount)
 
     dirs = []
     idx = 0
@@ -321,18 +323,18 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[str]]:
             f"{len(data) - FOOTER_SIZE - offset} extra bytes at end of sequence"
         )
 
-    return dirs, arg_type_names
+    return dirs, arg_specs
 
 
 def serialize_directives(
     dirs: list[Directive],
-    arg_type_names: list[str] | None = None,
+    arg_specs: list[tuple[str, int]] | None = None,
     max_directive_size: int = 2048,
 ) -> tuple[bytes, int]:
-    if arg_type_names is None:
-        arg_type_names = []
+    if arg_specs is None:
+        arg_specs = []
 
-    args_bytes = _serialize_arg_type_names(arg_type_names)
+    args_bytes = _serialize_arg_specs(arg_specs)
     body_bytes = bytes()
 
     for dir in dirs:
@@ -351,7 +353,7 @@ def serialize_directives(
         MINOR_VERSION,
         PATCH_VERSION,
         SCHEMA_VERSION,
-        len(arg_type_names),
+        len(arg_specs),
         len(args_bytes),
         len(dirs),
         len(body_bytes),

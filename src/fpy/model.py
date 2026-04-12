@@ -4,6 +4,7 @@ import inspect
 import math
 import struct
 import typing
+from fpy.types import FpyType
 from fpy.bytecode.directives import (
     AllocateDirective,
     AndDirective,
@@ -203,12 +204,38 @@ class FpySequencerModel:
             return DirectiveErrorCode.NO_ERROR
         return ret
 
-    def run(self, dirs: list[Directive], tlm: dict[int, bytearray] = None):
+    def run(
+        self,
+        dirs: list[Directive],
+        tlm: dict[int, bytearray] = None,
+        args: bytes | None = None,
+        arg_types: list[FpyType] | None = None,
+    ):
         if tlm is None:
             tlm = {}
+        if arg_types is None:
+            arg_types = []
+
+        # Validate args against arg_types
+        expected_total = sum(t.max_size for t in arg_types)
+        if args is not None:
+            if len(args) != expected_total:
+                raise ValueError(
+                    f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
+                    f"but got {len(args)} bytes"
+                )
+        elif expected_total > 0:
+            raise ValueError(
+                f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
+                f"but no args were provided"
+            )
+
         self.reset()
         self.dirs = dirs
         self.tlm_db = tlm
+        # Push args as the very first thing on the stack
+        if args is not None:
+            self.stack = bytearray(args)
         if debug:
             # begin the sequence at dir 0
             print("stack", len(self.stack), "frame", self.stack_frame_start)

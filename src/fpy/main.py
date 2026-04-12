@@ -20,6 +20,8 @@ import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.dictionary import load_dictionary
+from fpy.types import PRIMITIVE_TYPE_MAP
 
 
 def human_readable_size(size_bytes):
@@ -112,7 +114,7 @@ def compile_main(args: list[str] = None):
         print(result, file=sys.stderr)
         sys.exit(1)
 
-    directives, arg_type_names = result
+    directives, arg_types = result
 
     output = parsed_args.output
     if output is None:
@@ -121,7 +123,8 @@ def compile_main(args: list[str] = None):
         fpybc = directives_to_fpybc(directives)
         print(fpybc)
     else:
-        output_bytes, crc = serialize_directives(directives, arg_type_names)
+        arg_specs = [(t.name, t.max_size) for t in arg_types]
+        output_bytes, crc = serialize_directives(directives, arg_specs)
         output.write_bytes(output_bytes)
         print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 
@@ -137,6 +140,18 @@ def model_main(args: list[str] = None):
         action="store_true",
         help="Whether or not to print debug info during sequence execution",
     )
+    arg_parser.add_argument(
+        "--args",
+        type=str,
+        default=None,
+        help="Hex-encoded sequence arguments (e.g. '0000002a' for U32 value 42)",
+    )
+    arg_parser.add_argument(
+        "--dictionary",
+        type=Path,
+        default=None,
+        help="Path to JSON dictionary (required when sequence has non-primitive arg types)",
+    )
 
     if args is not None:
         args = arg_parser.parse_args(args)
@@ -150,9 +165,30 @@ def model_main(args: list[str] = None):
     if args.debug:
         fpy.model.debug = True
 
-    directives, _ = deserialize_directives(args.input.read_bytes())
+    directives, arg_specs = deserialize_directives(args.input.read_bytes())
+
+    # Reconstruct FpyType list from deserialized (name, size) specs
+    arg_types = []
+    if len(arg_specs) > 0:
+        if args.dictionary is None:
+            print(f"Must pass --dictionary when sequence has arguments", file=sys.stderr)
+            sys.exit(1)
+        type_defs = load_dictionary(str(args.dictionary))["type_defs"]
+        for name, size in arg_specs:
+            if name in PRIMITIVE_TYPE_MAP:
+                arg_types.append(PRIMITIVE_TYPE_MAP[name])
+            else:
+                if name not in type_defs:
+                    print(f"Unknown type '{name}' (size {size})", file=sys.stderr)
+                    sys.exit(1)
+                arg_types.append(type_defs[name])
+
+    seq_args = None
+    if args.args is not None:
+        seq_args = bytes.fromhex(args.args)
+
     model = FpySequencerModel()
-    ret = model.run(directives)
+    ret = model.run(directives, arg_types=arg_types, args=seq_args)
     if ret != DirectiveErrorCode.NO_ERROR:
         print("Sequence failed with " + str(ret))
         exit(1)
