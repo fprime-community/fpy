@@ -176,12 +176,19 @@ def model_main(args: list[str] = None):
         type_defs = load_dictionary(str(args.dictionary))["type_defs"]
         for name, size in arg_specs:
             if name in PRIMITIVE_TYPE_MAP:
-                arg_types.append(PRIMITIVE_TYPE_MAP[name])
+                fpy_type = PRIMITIVE_TYPE_MAP[name]
+            elif name in type_defs:
+                fpy_type = type_defs[name]
             else:
-                if name not in type_defs:
-                    print(f"Unknown type '{name}' (size {size})", file=sys.stderr)
-                    sys.exit(1)
-                arg_types.append(type_defs[name])
+                print(f"Unknown type '{name}' (size {size})", file=sys.stderr)
+                sys.exit(1)
+            if fpy_type.max_size != size:
+                print(
+                    f"Type '{name}' size mismatch: binary says {size}, dictionary says {fpy_type.max_size}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            arg_types.append(fpy_type)
 
     seq_args = None
     if args.args is not None:

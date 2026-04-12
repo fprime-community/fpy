@@ -167,10 +167,10 @@ def assert_run_failure(
             raise
         print(e)
         return
-    except (RuntimeError, AssertionError) as e:
+    except RuntimeError as e:
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
-        if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
+        if len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)
         print(e)
         return

@@ -245,7 +245,7 @@ def _get_version_tuple() -> tuple[int, int, int]:
 MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
 SCHEMA_VERSION = 6
 
-HEADER_FORMAT = "!BBBBBHHI"
+HEADER_FORMAT = "!BBBBBHI"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 
 
@@ -256,7 +256,6 @@ class Header:
     patchVersion: int
     schemaVersion: int
     argumentCount: int
-    argsSize: int
     statementCount: int
     bodySize: int
     arg_specs: list[tuple[str, int]] = field(default_factory=list)
@@ -269,7 +268,6 @@ class Header:
             self.patchVersion,
             self.schemaVersion,
             self.argumentCount,
-            self.argsSize,
             self.statementCount,
             self.bodySize,
         )
@@ -277,10 +275,10 @@ class Header:
 
     @staticmethod
     def unpack(data: bytes) -> Header:
-        (major, minor, patch, schema, arg_count, args_size, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
+        (major, minor, patch, schema, arg_count, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
         args_offset = HEADER_SIZE
         _, arg_specs = _deserialize_arg_specs(data, args_offset, arg_count)
-        return Header(major, minor, patch, schema, arg_count, args_size, stmt_count, body_size, arg_specs)
+        return Header(major, minor, patch, schema, arg_count, stmt_count, body_size, arg_specs)
 
 
 FOOTER_FORMAT = "!I"
@@ -325,9 +323,11 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
             f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
         )
 
+    # Compute args section size from the arg specs
+    args_size = sum(1 + len(name.encode("utf-8")) + 4 for name, _ in header.arg_specs)
     dirs = []
     idx = 0
-    offset = HEADER_SIZE + header.argsSize
+    offset = HEADER_SIZE + args_size
     while idx < header.statementCount:
         offset_and_dir = Directive.deserialize(data, offset)
         if offset_and_dir is None:
@@ -372,7 +372,6 @@ def serialize_directives(
         PATCH_VERSION,
         SCHEMA_VERSION,
         len(arg_specs),
-        len(args_bytes),
         len(dirs),
         len(body_bytes),
         arg_specs,

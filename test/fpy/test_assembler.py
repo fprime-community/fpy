@@ -1041,17 +1041,6 @@ class TestArgSpecsBinaryFormat:
         argument_count = header[4]
         assert argument_count == 0
 
-    def test_header_args_size(self):
-        """argsSize should equal the total byte length of the serialized arg specs section."""
-        dirs = [NoOpDirective()]
-        # "U32" = 3 bytes name, so per-entry: 1 (len) + 3 (name) + 4 (U32 size) = 8 bytes
-        # "I8" = 2 bytes name, so per-entry: 1 (len) + 2 (name) + 4 (U32 size) = 7 bytes
-        specs = [("U32", 4), ("I8", 1)]
-        serialized, _ = serialize_directives(dirs, arg_specs=specs)
-        header = struct.unpack_from(HEADER_FORMAT, serialized)
-        args_size = header[5]  # argsSize is 6th field
-        assert args_size == 8 + 7  # 15
-
     def test_args_section_follows_header(self):
         """The arg specs section should begin immediately after the header."""
         dirs = [NoOpDirective()]
@@ -1065,13 +1054,6 @@ class TestArgSpecsBinaryFormat:
         assert name == "U32"
         size = struct.unpack_from("!I", serialized, offset + 4)[0]
         assert size == 4
-
-    def test_args_size_zero_when_empty(self):
-        dirs = [NoOpDirective()]
-        serialized, _ = serialize_directives(dirs, arg_specs=[])
-        header = struct.unpack_from(HEADER_FORMAT, serialized)
-        args_size = header[5]
-        assert args_size == 0
 
     def test_large_type_size_roundtrip(self):
         """Sizes up to 2^32-1 should survive round-trip."""
