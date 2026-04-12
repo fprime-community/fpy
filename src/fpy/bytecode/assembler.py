@@ -341,6 +341,14 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
             f"{len(data) - FOOTER_SIZE - offset} extra bytes at end of sequence"
         )
 
+    # Verify CRC
+    expected_crc = struct.unpack_from(FOOTER_FORMAT, data, offset)[0]
+    actual_crc = zlib.crc32(data[:offset]) % (1 << 32)
+    if expected_crc != actual_crc:
+        raise RuntimeError(
+            f"CRC mismatch (expected {hex(expected_crc)}, computed {hex(actual_crc)})"
+        )
+
     return dirs, header.arg_specs
 
 
@@ -351,6 +359,14 @@ def serialize_directives(
 ) -> tuple[bytes, int]:
     if arg_specs is None:
         arg_specs = []
+
+    if len(arg_specs) > 255:
+        print(
+            CompileError(
+                f"Too many sequence arguments ({len(arg_specs)}); maximum is 255"
+            )
+        )
+        exit(1)
 
     body_bytes = bytes()
 

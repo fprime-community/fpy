@@ -430,6 +430,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"Parameter '{arg_name_var}' has already been defined",
                     arg_name_var,
                 )
+                return
             arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node, is_global=True)
             scope[arg_name_var.name] = arg_var
 

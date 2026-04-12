@@ -1063,3 +1063,21 @@ class TestArgSpecsBinaryFormat:
         _, arg_specs = deserialize_directives(serialized)
         assert arg_specs == specs
 
+    def test_too_many_args_rejected(self):
+        """Serialization should reject more than 255 arguments."""
+        dirs = [NoOpDirective()]
+        specs = [(f"arg{i}", 1) for i in range(256)]
+        with pytest.raises(SystemExit):
+            serialize_directives(dirs, arg_specs=specs)
+
+    def test_bad_crc_rejected(self):
+        """Corrupting a byte should cause deserialization to fail with a CRC error."""
+        dirs = [NoOpDirective()]
+        serialized, _ = serialize_directives(dirs)
+        corrupted = bytearray(serialized)
+        # Corrupt the CRC footer itself (last 4 bytes) so the body parses
+        # fine but the CRC check fails.
+        corrupted[-1] ^= 0x01
+        with pytest.raises(RuntimeError, match="CRC mismatch"):
+            deserialize_directives(bytes(corrupted))
+

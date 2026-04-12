@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
-from fpy.bytecode.directives import AllocateDirective, Directive
+from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
@@ -99,10 +99,22 @@ def run_seq(
     ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)
-    if len(directives) > 0 and isinstance(directives[0], AllocateDirective):
-        # check that the start and end sizes are the same
-        if len(model.stack) != directives[0].size:
-            raise RuntimeError(f"Sequence leaked {len(model.stack) - directives[0].size} bytes")
+    # Compute expected frame size: args + setup directives (PushVal for flags, then Allocate)
+    # If functions are present, the first directive is a Goto that jumps past them;
+    # skip to the goto target to find the actual setup directives.
+    args_size = sum(t.max_size for t in (arg_types or []))
+    setup_start = 0
+    if directives and isinstance(directives[0], GotoDirective):
+        setup_start = directives[0].dir_idx
+    setup_size = 0
+    # The frame setup is exactly: PushVal (flags default), then optionally Allocate (remaining locals).
+    if setup_start < len(directives) and isinstance(directives[setup_start], PushValDirective):
+        setup_size += len(directives[setup_start].val)
+        if setup_start + 1 < len(directives) and isinstance(directives[setup_start + 1], AllocateDirective):
+            setup_size += directives[setup_start + 1].size
+    expected_stack = args_size + setup_size
+    if expected_stack > 0 and len(model.stack) != expected_stack:
+        raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
 def assert_compile_success(fprime_test_api, seq: str, flags: list[str] = None):
