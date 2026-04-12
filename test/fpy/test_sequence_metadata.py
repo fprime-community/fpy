@@ -3,7 +3,11 @@ import pytest
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_compile_success,
+    assert_run_success,
+    assert_run_failure,
 )
+from fpy.model import DirectiveErrorCode
+from fpy.types import U8, U32, F64, BOOL, FpyValue
 
 
 # When --use-gds is NOT passed (the default), override fprime_test_api with None
@@ -318,3 +322,247 @@ if value:
     sequence(max_val: I64)
 """
     assert_compile_failure(fprime_test_api, seq)
+
+
+# ---- End-to-end arg passing tests ----
+
+def test_run_sequence_with_u32_arg(fprime_test_api):
+    """Run a sequence that takes a U32 arg and uses it."""
+    seq = """
+sequence(x: U32)
+result: U32 = x
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
+
+
+def test_run_sequence_with_multiple_args(fprime_test_api):
+    """Run a sequence that takes multiple args of different types."""
+    seq = """
+sequence(a: U32, b: U32)
+sum: U64 = a + b
+"""
+    assert_run_success(
+        fprime_test_api, seq,
+        args=[FpyValue(U32, 10), FpyValue(U32, 32)],
+    )
+
+
+def test_run_sequence_no_args_expected_none_provided(fprime_test_api):
+    """Running a sequence with no args declared and no args passed should work."""
+    seq = """
+sequence()
+result: U32 = 1
+"""
+    assert_run_success(fprime_test_api, seq)
+
+
+def test_run_sequence_args_wrong_size(fprime_test_api):
+    """Passing wrong-size args should raise an error."""
+    seq = """
+sequence(x: U32)
+"""
+    assert_run_failure(fprime_test_api, seq, validation_error=True, args=[FpyValue(U8, 0)])
+
+
+def test_run_sequence_args_expected_but_missing(fprime_test_api):
+    """Declaring args but not providing them should raise an error."""
+    seq = """
+sequence(x: U32)
+"""
+    assert_run_failure(fprime_test_api, seq, validation_error=True)
+
+
+# ---- Value assertion tests ----
+
+
+def test_arg_value_u32(fprime_test_api):
+    """Assert on the value of a U32 arg."""
+    seq = """
+sequence(x: U32)
+assert x == 42
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
+
+
+def test_arg_value_bool_true(fprime_test_api):
+    """Assert on a bool arg being True."""
+    seq = """
+sequence(flag: bool)
+assert flag
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, True)])
+
+
+def test_arg_value_bool_false(fprime_test_api):
+    """Assert on a bool arg being False."""
+    seq = """
+sequence(flag: bool)
+assert not flag
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, False)])
+
+
+def test_arg_value_arithmetic(fprime_test_api):
+    """Use arg in arithmetic and assert the result."""
+    seq = """
+sequence(a: U32, b: U32)
+assert a + b == 100
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 60), FpyValue(U32, 40)])
+
+
+def test_arg_value_in_if(fprime_test_api):
+    """Use arg as a condition and verify control flow."""
+    seq = """
+sequence(flag: bool)
+result: U32 = 0
+if flag:
+    result = 1
+assert result == 1
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, True)])
+
+
+def test_arg_wrong_value_fails_assert(fprime_test_api):
+    """Passing a value that doesn't satisfy the assert should fail."""
+    seq = """
+sequence(x: U32)
+assert x == 99
+"""
+    assert_run_failure(
+        fprime_test_api, seq,
+        error_code=DirectiveErrorCode.EXIT_WITH_ERROR,
+        args=[FpyValue(U32, 1)],
+    )
+
+
+def test_multiple_args_correct_offsets(fprime_test_api):
+    """Each arg should be at the correct frame offset and readable independently."""
+    seq = """
+sequence(a: U32, b: U32, c: U32)
+assert a == 1
+assert b == 2
+assert c == 3
+"""
+    assert_run_success(
+        fprime_test_api, seq,
+        args=[FpyValue(U32, 1), FpyValue(U32, 2), FpyValue(U32, 3)],
+    )
+
+
+def test_args_and_locals_coexist(fprime_test_api):
+    """Args and local variables should both be accessible."""
+    seq = """
+sequence(x: U32)
+y: U64 = x + 10
+assert x == 5
+assert y == 15
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 5)])
+
+
+def test_arg_passed_to_function(fprime_test_api):
+    """Sequence arg can be passed to a user-defined function."""
+    seq = """
+sequence(x: U32)
+
+def double(v: U32) -> U64:
+    return v + v
+
+assert double(x) == 84
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
+
+
+def test_arg_returned_from_function(fprime_test_api):
+    """Function can return a value derived from an arg, and the arg is still valid after."""
+    seq = """
+sequence(x: U32, y: U32)
+
+def add(a: U32, b: U32) -> U64:
+    return a + b
+
+result: U64 = add(x, y)
+assert result == 30
+assert x == 10
+assert y == 20
+"""
+    assert_run_success(
+        fprime_test_api, seq,
+        args=[FpyValue(U32, 10), FpyValue(U32, 20)],
+    )
+
+
+def test_arg_with_flags_modification(fprime_test_api):
+    """Modifying flags should not corrupt sequence args."""
+    seq = """
+sequence(x: U32)
+assert x == 7
+flags.assert_cmd_success = False
+assert x == 7
+flags.assert_cmd_success = True
+assert x == 7
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 7)])
+
+
+def test_arg_with_flags_and_locals(fprime_test_api):
+    """Args, flags, and locals should all coexist without stack corruption."""
+    seq = """
+sequence(a: U32, b: U32)
+flags.assert_cmd_success = False
+y: U64 = a + b
+assert a == 3
+assert b == 4
+assert y == 7
+assert flags.assert_cmd_success == False
+flags.assert_cmd_success = True
+"""
+    assert_run_success(
+        fprime_test_api, seq,
+        args=[FpyValue(U32, 3), FpyValue(U32, 4)],
+    )
+
+
+def test_arg_survives_function_call(fprime_test_api):
+    """Args should not be corrupted after a function call modifies the stack."""
+    seq = """
+sequence(x: U32)
+
+def work(v: U32) -> U64:
+    a: U64 = v + 100
+    b: U64 = a + 200
+    return b
+
+result: U64 = work(x)
+assert x == 5
+assert result == 305
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 5)])
+
+
+def test_modify_arg(fprime_test_api):
+    """Sequence args can be reassigned."""
+    seq = """
+sequence(x: U32)
+assert x == 10
+x = 20
+assert x == 20
+"""
+    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 10)])
+
+
+def test_modify_arg_does_not_affect_other_args(fprime_test_api):
+    """Modifying one arg doesn't corrupt another."""
+    seq = """
+sequence(a: U32, b: U32)
+assert a == 1
+assert b == 2
+a = 99
+assert a == 99
+assert b == 2
+"""
+    assert_run_success(
+        fprime_test_api, seq,
+        args=[FpyValue(U32, 1), FpyValue(U32, 2)],
+    )

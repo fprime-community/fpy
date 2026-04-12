@@ -110,6 +110,10 @@ def _trunc_div(a: int, b: int) -> int:
     return sign * (abs(a) // abs(b))
 
 
+class ValidationError(Exception):
+    pass
+
+
 class DirectiveErrorCode(Enum):
     NO_ERROR = 0
     STMT_OUT_OF_BOUNDS = 1
@@ -220,12 +224,12 @@ class FpySequencerModel:
         expected_total = sum(t.max_size for t in arg_types)
         if args is not None:
             if len(args) != expected_total:
-                raise ValueError(
+                raise ValidationError(
                     f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
                     f"but got {len(args)} bytes"
                 )
         elif expected_total > 0:
-            raise ValueError(
+            raise ValidationError(
                 f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
                 f"but no args were provided"
             )

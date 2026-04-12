@@ -259,6 +259,28 @@ class Header:
     argsSize: int
     statementCount: int
     bodySize: int
+    arg_specs: list[tuple[str, int]] = field(default_factory=list)
+
+    def pack(self) -> bytes:
+        header_bytes = struct.pack(
+            HEADER_FORMAT,
+            self.majorVersion,
+            self.minorVersion,
+            self.patchVersion,
+            self.schemaVersion,
+            self.argumentCount,
+            self.argsSize,
+            self.statementCount,
+            self.bodySize,
+        )
+        return header_bytes + _serialize_arg_specs(self.arg_specs)
+
+    @staticmethod
+    def unpack(data: bytes) -> Header:
+        (major, minor, patch, schema, arg_count, args_size, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
+        args_offset = HEADER_SIZE
+        _, arg_specs = _deserialize_arg_specs(data, args_offset, arg_count)
+        return Header(major, minor, patch, schema, arg_count, args_size, stmt_count, body_size, arg_specs)
 
 
 FOOTER_FORMAT = "!I"
@@ -296,16 +318,12 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
 
 
 def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, int]]]:
-    header = Header(*struct.unpack_from(HEADER_FORMAT, data))
+    header = Header.unpack(data)
 
     if header.schemaVersion != SCHEMA_VERSION:
         raise RuntimeError(
             f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
         )
-
-    # Deserialize arg specs section
-    args_offset = HEADER_SIZE
-    _, arg_specs = _deserialize_arg_specs(data, args_offset, header.argumentCount)
 
     dirs = []
     idx = 0
@@ -323,7 +341,7 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
             f"{len(data) - FOOTER_SIZE - offset} extra bytes at end of sequence"
         )
 
-    return dirs, arg_specs
+    return dirs, header.arg_specs
 
 
 def serialize_directives(
@@ -334,7 +352,6 @@ def serialize_directives(
     if arg_specs is None:
         arg_specs = []
 
-    args_bytes = _serialize_arg_specs(arg_specs)
     body_bytes = bytes()
 
     for dir in dirs:
@@ -348,6 +365,7 @@ def serialize_directives(
             exit(1)
         body_bytes += dir_bytes
 
+    args_bytes = _serialize_arg_specs(arg_specs)
     header = Header(
         MAJOR_VERSION,
         MINOR_VERSION,
@@ -357,8 +375,9 @@ def serialize_directives(
         len(args_bytes),
         len(dirs),
         len(body_bytes),
+        arg_specs,
     )
-    output_bytes = struct.pack(HEADER_FORMAT, *astuple(header)) + args_bytes + body_bytes
+    output_bytes = header.pack() + body_bytes
 
     crc = zlib.crc32(output_bytes) % (1 << 32)
     footer = Footer(crc)

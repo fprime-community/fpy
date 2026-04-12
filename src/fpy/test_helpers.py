@@ -1,7 +1,7 @@
 from pathlib import Path
 import tempfile
 import fpy.error
-from fpy.model import DirectiveErrorCode, FpySequencerModel
+from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
 from fpy.bytecode.directives import AllocateDirective, Directive
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
@@ -142,7 +142,8 @@ def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
 def assert_run_failure(
     fprime_test_api,
     seq: str,
-    error_code: DirectiveErrorCode,
+    error_code: DirectiveErrorCode = None,
+    validation_error: bool = False,
     flags: list[str] = None,
     timeBase: int = 0,
     timeContext: int = 0,
@@ -150,17 +151,28 @@ def assert_run_failure(
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
 ):
+    assert not (error_code is not None and validation_error), \
+        "Cannot specify both error_code and validation_error"
+    assert error_code is not None or validation_error, \
+        "Must specify either error_code or validation_error"
+
     directives, arg_types = compile_seq(fprime_test_api, seq, flags)
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
     try:
         run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types)
+    except ValidationError as e:
+        if not validation_error:
+            raise
+        print(e)
+        return
     except (RuntimeError, AssertionError) as e:
+        if validation_error:
+            raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
         if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)
         print(e)
         return
 
-    # other exceptions we will let through, such as assertions
     raise RuntimeError("run_seq succeeded")

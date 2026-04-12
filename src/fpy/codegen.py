@@ -166,6 +166,9 @@ class CalculateFrameSizes(TopDownVisitor):
         self.offset = 0
 
     def run(self, start: Ast, state: CompileState):
+        # For the global frame, start after sequence args (already on stack)
+        if start is state.root:
+            self.offset = sum(t.max_size for t in state.sequence_arg_types)
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
@@ -1148,14 +1151,15 @@ class GenerateModule(Emitter):
         # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
         
-        # Push the flags struct default value onto the stack (it's the first
-        # variable, so push_val places it at the right offset), then allocate
-        # the remaining space for other top-level locals.
+        # Push the flags struct default value onto the stack.
+        # Sequence args (if any) are already on the stack at offset 0,
+        # so flags comes right after them.
         flags_type = state.flags_var.type
-        assert state.flags_var.frame_offset == 0
+        args_size = sum(t.max_size for t in state.sequence_arg_types)
+        assert state.flags_var.frame_offset == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))
-        remaining = state.frame_sizes[node] - flags_type.max_size
+        remaining = state.frame_sizes[node] - flags_type.max_size - args_size
         if remaining > 0:
             main_body.append(AllocateDirective(remaining))
         

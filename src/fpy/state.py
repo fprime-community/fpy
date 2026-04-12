@@ -355,7 +355,7 @@ class CompileState:
     flags_var: VariableSymbol = None
     """The built-in 'flags' variable ($Flags struct) that controls sequencer behavior."""
 
-    sequence_arg_specs: list[FpyType] = field(default_factory=list)
+    sequence_arg_types: list[FpyType] = field(default_factory=list)
     """Ordered list of sequence argument types.
     Populated during semantic analysis; callers extract .name and .max_size as needed."""
 

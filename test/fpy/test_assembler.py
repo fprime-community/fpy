@@ -8,6 +8,7 @@ These tests verify that:
 4. The full round-trip (text -> directives -> binary -> directives -> text) works
 """
 
+import struct
 import pytest
 from dataclasses import fields
 
