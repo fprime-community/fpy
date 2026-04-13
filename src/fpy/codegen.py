@@ -173,9 +173,7 @@ class CalculateFrameSizes(TopDownVisitor):
         state.frame_sizes[start] = self.offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        scope = state.enclosing_value_scope.get(node)
-        if scope is None:
-            return
+        scope = state.enclosing_value_scope[node]
         for _name, sym in scope.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
@@ -1148,21 +1146,32 @@ class GenerateModule(Emitter):
         if node is not state.root:
             return []
 
-        # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
-        
-        # Push the flags struct default value onto the stack.
-        # Sequence args (if any) are already on the stack at offset 0,
-        # so flags comes right after them.
+
+        # the structure of the lvar section of the main stack frame is:
+        # (sequence args) (flags struct) (user-defined lvars)
+
+        # sequence args will be pushed to stack before the first instruction is
+        # executed. flags struct, we will push a value (won't just write zeroes)
+        # for user-defined lvars, we will have to write zeroes with Allocate
+
         flags_type = state.flags_var.type
         args_size = sum(t.max_size for t in state.sequence_arg_types)
         assert state.flags_var.frame_offset == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))
+        
+        # we can calc how much space the user-defined lvars take by subtracting
+        # the sequence args size, and the flags size, from the frame size
+
         remaining = state.frame_sizes[node] - flags_type.max_size - args_size
+        assert remaining >= 0, remaining
+
+        # allocate space for local variables
         if remaining > 0:
             main_body.append(AllocateDirective(remaining))
         
+        # generate the main function using GenerateTopLevel (not in a function context)
         main_body.extend(GenerateTopLevel().emit(node, state))
 
         # if there are functions, emit them at the top with a goto to skip past them

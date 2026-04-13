@@ -150,7 +150,7 @@ def model_main(args: list[str] = None):
         "--dictionary",
         type=Path,
         default=None,
-        help="Path to JSON dictionary (required when sequence has non-primitive arg types)",
+        help="Path to JSON dictionary (required when sequence has arguments)",
     )
 
     if args is not None:
