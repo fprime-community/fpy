@@ -566,3 +566,10 @@ assert b == 2
         fprime_test_api, seq,
         args=[FpyValue(U32, 1), FpyValue(U32, 2)],
     )
+
+
+def test_too_many_parameters(fprime_test_api):
+    """Sequences with more than 255 parameters should fail to compile."""
+    params = ", ".join(f"a{i}: U8" for i in range(256))
+    seq = f"sequence({params})\n"
+    assert_compile_failure(fprime_test_api, seq)

@@ -360,13 +360,7 @@ def serialize_directives(
     if arg_specs is None:
         arg_specs = []
 
-    if len(arg_specs) > 255:
-        print(
-            CompileError(
-                f"Too many sequence arguments ({len(arg_specs)}); maximum is 255"
-            )
-        )
-        exit(1)
+    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by semantics"
 
     body_bytes = bytes()
 

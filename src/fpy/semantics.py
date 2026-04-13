@@ -421,6 +421,13 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         if node.parameters is None:
             return
 
+        if len(node.parameters) > 255:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); maximum is 255",
+                node,
+            )
+            return
+
         for arg in node.parameters:
             arg_name_var, arg_type_name = arg
             existing_arg = scope.lookup(arg_name_var.name)
