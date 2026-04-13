@@ -9,7 +9,7 @@ from typing import Union
 from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
-from fpy.bytecode.directives import Directive, StackOpDirective
+from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
 from fpy.types import FpyValue
 
 from fpy.error import CompileError
@@ -291,17 +291,17 @@ class Footer:
 
 
 def _serialize_arg_specs(arg_specs: list[tuple[str, int]]) -> bytes:
-    """Serialize arg specs as (length-prefixed UTF-8 name, U32 size) pairs."""
+    """Serialize arg specs as (length-prefixed UTF-8 name, StackSizeType size) pairs."""
     result = bytes()
     for name, size in arg_specs:
         encoded = name.encode("utf-8")
         assert len(encoded) <= 255, f"Type name too long: {name}"
-        result += struct.pack("!B", len(encoded)) + encoded + struct.pack("!I", size)
+        result += struct.pack("!B", len(encoded)) + encoded + FpyValue(StackSizeType, size).serialize()
     return result
 
 
 def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, list[tuple[str, int]]]:
-    """Deserialize arg specs from (length-prefixed UTF-8 name, U32 size) pairs.
+    """Deserialize arg specs from (length-prefixed UTF-8 name, StackSizeType size) pairs.
     Returns (new_offset, list_of_(name, size)_tuples)."""
     specs = []
     for _ in range(count):
@@ -309,9 +309,8 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
         offset += 1
         name = data[offset:offset + name_len].decode("utf-8")
         offset += name_len
-        size = struct.unpack_from("!I", data, offset)[0]
-        offset += 4
-        specs.append((name, size))
+        size_val, offset = FpyValue.deserialize(StackSizeType, data, offset)
+        specs.append((name, size_val.val))
     return offset, specs
 
 
@@ -324,7 +323,7 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
         )
 
     # Compute args section size from the arg specs
-    args_size = sum(1 + len(name.encode("utf-8")) + 4 for name, _ in header.arg_specs)
+    args_size = sum(1 + len(name.encode("utf-8")) + StackSizeType.max_size for name, _ in header.arg_specs)
     dirs = []
     idx = 0
     offset = HEADER_SIZE + args_size
