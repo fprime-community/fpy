@@ -374,7 +374,6 @@ def serialize_directives(
             exit(1)
         body_bytes += dir_bytes
 
-    args_bytes = _serialize_arg_specs(arg_specs)
     header = Header(
         MAJOR_VERSION,
         MINOR_VERSION,
