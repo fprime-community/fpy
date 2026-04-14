@@ -9,7 +9,7 @@ from typing import Union
 from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
-from fpy.bytecode.directives import Directive, StackOpDirective
+from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
 from fpy.types import FpyValue
 
 from fpy.error import CompileError
@@ -243,7 +243,7 @@ def _get_version_tuple() -> tuple[int, int, int]:
 
 
 MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 HEADER_FORMAT = "!BBBBBHI"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
@@ -258,6 +258,27 @@ class Header:
     argumentCount: int
     statementCount: int
     bodySize: int
+    arg_specs: list[tuple[str, int]] = field(default_factory=list)
+
+    def pack(self) -> bytes:
+        header_bytes = struct.pack(
+            HEADER_FORMAT,
+            self.majorVersion,
+            self.minorVersion,
+            self.patchVersion,
+            self.schemaVersion,
+            self.argumentCount,
+            self.statementCount,
+            self.bodySize,
+        )
+        return header_bytes + _serialize_arg_specs(self.arg_specs)
+
+    @staticmethod
+    def unpack(data: bytes) -> Header:
+        (major, minor, patch, schema, arg_count, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
+        args_offset = HEADER_SIZE
+        _, arg_specs = _deserialize_arg_specs(data, args_offset, arg_count)
+        return Header(major, minor, patch, schema, arg_count, stmt_count, body_size, arg_specs)
 
 
 FOOTER_FORMAT = "!I"
@@ -269,35 +290,78 @@ class Footer:
     crc: int
 
 
-def deserialize_directives(bytes: bytes) -> list[Directive]:
-    header = Header(*struct.unpack_from(HEADER_FORMAT, bytes))
+def _serialize_arg_specs(arg_specs: list[tuple[str, int]]) -> bytes:
+    """Serialize arg specs as (length-prefixed UTF-8 name, StackSizeType size) pairs."""
+    result = bytes()
+    for name, size in arg_specs:
+        encoded = name.encode("utf-8")
+        assert len(encoded) <= 255, f"Type name too long: {name}"
+        result += struct.pack("!B", len(encoded)) + encoded + FpyValue(StackSizeType, size).serialize()
+    return result
+
+
+def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, list[tuple[str, int]]]:
+    """Deserialize arg specs from (length-prefixed UTF-8 name, StackSizeType size) pairs.
+    Returns (new_offset, list_of_(name, size)_tuples)."""
+    specs = []
+    for _ in range(count):
+        name_len = struct.unpack_from("!B", data, offset)[0]
+        offset += 1
+        name = data[offset:offset + name_len].decode("utf-8")
+        offset += name_len
+        size_val, offset = FpyValue.deserialize(StackSizeType, data, offset)
+        specs.append((name, size_val.val))
+    return offset, specs
+
+
+def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, int]]]:
+    header = Header.unpack(data)
 
     if header.schemaVersion != SCHEMA_VERSION:
         raise RuntimeError(
             f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
         )
 
+    # Compute args section size from the arg specs
+    args_size = sum(1 + len(name.encode("utf-8")) + StackSizeType.max_size for name, _ in header.arg_specs)
     dirs = []
     idx = 0
-    offset = HEADER_SIZE
+    offset = HEADER_SIZE + args_size
     while idx < header.statementCount:
-        offset_and_dir = Directive.deserialize(bytes, offset)
+        offset_and_dir = Directive.deserialize(data, offset)
         if offset_and_dir is None:
             raise RuntimeError("Unable to deserialize sequence")
         offset, dir = offset_and_dir
         dirs.append(dir)
         idx += 1
 
-    if offset != len(bytes) - FOOTER_SIZE:
+    if offset != len(data) - FOOTER_SIZE:
         raise RuntimeError(
-            f"{len(bytes) - FOOTER_SIZE - offset} extra bytes at end of sequence"
+            f"{len(data) - FOOTER_SIZE - offset} extra bytes at end of sequence"
         )
 
-    return dirs
+    # Verify CRC
+    expected_crc = struct.unpack_from(FOOTER_FORMAT, data, offset)[0]
+    actual_crc = zlib.crc32(data[:offset]) % (1 << 32)
+    if expected_crc != actual_crc:
+        raise RuntimeError(
+            f"CRC mismatch (expected {hex(expected_crc)}, computed {hex(actual_crc)})"
+        )
+
+    return dirs, header.arg_specs
 
 
-def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048) -> tuple[bytes, int]:
-    output_bytes = bytes()
+def serialize_directives(
+    dirs: list[Directive],
+    arg_specs: list[tuple[str, int]] | None = None,
+    max_directive_size: int = 2048,
+) -> tuple[bytes, int]:
+    if arg_specs is None:
+        arg_specs = []
+
+    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by semantics"
+
+    body_bytes = bytes()
 
     for dir in dirs:
         dir_bytes = dir.serialize()
@@ -308,18 +372,19 @@ def serialize_directives(dirs: list[Directive], max_directive_size: int = 2048) 
                 )
             )
             exit(1)
-        output_bytes += dir_bytes
+        body_bytes += dir_bytes
 
     header = Header(
         MAJOR_VERSION,
         MINOR_VERSION,
         PATCH_VERSION,
         SCHEMA_VERSION,
-        0,
+        len(arg_specs),
         len(dirs),
-        len(output_bytes),
+        len(body_bytes),
+        arg_specs,
     )
-    output_bytes = struct.pack(HEADER_FORMAT, *astuple(header)) + output_bytes
+    output_bytes = header.pack() + body_bytes
 
     crc = zlib.crc32(output_bytes) % (1 << 32)
     footer = Footer(crc)

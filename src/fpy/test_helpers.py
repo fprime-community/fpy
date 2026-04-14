@@ -1,11 +1,12 @@
 from pathlib import Path
 import tempfile
 import fpy.error
-from fpy.model import DirectiveErrorCode, FpySequencerModel
-from fpy.bytecode.directives import AllocateDirective, Directive
+from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
+from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
+from fpy.types import FpyType, FpyValue
 
 
 default_dictionary = str(
@@ -21,8 +22,8 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Directive]:
-    """Compile a sequence string to a list of directives in memory."""
+def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> tuple[list[Directive], list[FpyType]]:
+    """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
     
     body = text_to_ast(seq)
@@ -34,11 +35,12 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> list[Dire
     for flag in flags or []:
         compile_args[flag] = True
     
-    directives = ast_to_directives(body, default_dictionary, compile_args)
-    if isinstance(directives, (fpy.error.CompileError, fpy.error.BackendError)):
-        raise CompilationFailed(f"Compilation failed:\n{directives}")
+    result = ast_to_directives(body, default_dictionary, compile_args)
+    if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
+        raise CompilationFailed(f"Compilation failed:\n{result}")
     
-    return directives
+    directives, arg_types = result
+    return directives, arg_types
 
 
 def lookup_type(fprime_test_api, type_name: str):
@@ -55,6 +57,8 @@ def run_seq(
     initial_time_us: int = 0,
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
+    args: bytes = None,
+    arg_types: list[FpyType] = None,
 ):
     """Run a list of directives.
 
@@ -92,13 +96,25 @@ def run_seq(
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
         tlm_db[ch_template.ch_id] = val
-    ret = model.run(directives, tlm_db)
+    ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)
-    if len(directives) > 0 and isinstance(directives[0], AllocateDirective):
-        # check that the start and end sizes are the same
-        if len(model.stack) != directives[0].size:
-            raise RuntimeError(f"Sequence leaked {len(model.stack) - directives[0].size} bytes")
+    # Compute expected frame size: args + setup directives (PushVal for flags, then Allocate)
+    # If functions are present, the first directive is a Goto that jumps past them;
+    # skip to the goto target to find the actual setup directives.
+    args_size = sum(t.max_size for t in (arg_types or []))
+    setup_start = 0
+    if directives and isinstance(directives[0], GotoDirective):
+        setup_start = directives[0].dir_idx
+    setup_size = 0
+    # The frame setup is exactly: PushVal (flags default), then optionally Allocate (remaining locals).
+    if setup_start < len(directives) and isinstance(directives[setup_start], PushValDirective):
+        setup_size += len(directives[setup_start].val)
+        if setup_start + 1 < len(directives) and isinstance(directives[setup_start + 1], AllocateDirective):
+            setup_size += directives[setup_start + 1].size
+    expected_stack = args_size + setup_size
+    if expected_stack > 0 and len(model.stack) != expected_stack:
+        raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
 def assert_compile_success(fprime_test_api, seq: str, flags: list[str] = None):
@@ -115,9 +131,13 @@ def assert_run_success(
     initial_time_us: int = 0,
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
+    args: list[FpyValue] = None,
 ):
-    directives = compile_seq(fprime_test_api, seq, flags)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes)
+    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    args_bytes = None
+    if args is not None:
+        args_bytes = b"".join(v.serialize() for v in args)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
@@ -134,21 +154,37 @@ def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
 def assert_run_failure(
     fprime_test_api,
     seq: str,
-    error_code: DirectiveErrorCode,
+    error_code: DirectiveErrorCode = None,
+    validation_error: bool = False,
     flags: list[str] = None,
     timeBase: int = 0,
     timeContext: int = 0,
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
+    args: list[FpyValue] = None,
 ):
-    directives = compile_seq(fprime_test_api, seq, flags)
+    assert not (error_code is not None and validation_error), \
+        "Cannot specify both error_code and validation_error"
+    assert error_code is not None or validation_error, \
+        "Must specify either error_code or validation_error"
+
+    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    args_bytes = None
+    if args is not None:
+        args_bytes = b"".join(v.serialize() for v in args)
     try:
-        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes)
-    except (RuntimeError, AssertionError) as e:
-        if isinstance(e, RuntimeError) and len(e.args) == 1 and e.args[0] != error_code:
+        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types)
+    except ValidationError as e:
+        if not validation_error:
+            raise
+        print(e)
+        return
+    except RuntimeError as e:
+        if validation_error:
+            raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
+        if len(e.args) == 1 and e.args[0] != error_code:
             raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)
         print(e)
         return
 
-    # other exceptions we will let through, such as assertions
     raise RuntimeError("run_seq succeeded")

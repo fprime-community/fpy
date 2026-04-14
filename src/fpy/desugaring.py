@@ -26,8 +26,8 @@ from fpy.types import (
     FpyValue,
     INTEGER,
     TIME_OPS,
+    TIME_COMPARISON,
     BOOL,
-    I8,
     I64,
 )
 from fpy.state import (
@@ -734,9 +734,10 @@ class DesugarTimeOperators(Transformer):
         For == : cmp(lhs, rhs) == 0
         For != : cmp(lhs, rhs) != 0
         """
-        # Create the cmp function call - returns I8, but we'll use I64 as the intermediate type
-        cmp_call = self._make_func_call(node, cmp_func, I8, state)
-        # Set the contextual type to I64 so codegen will insert sign-extension
+        # Create the cmp function call — returns Fw.TimeComparison enum.
+        # We set contextual type to I64 so codegen inserts sign-extension for the
+        # subsequent integer comparison.
+        cmp_call = self._make_func_call(node, cmp_func, TIME_COMPARISON.rep_type, state)
         state.contextual_types[cmp_call] = I64
         
         op = node.op

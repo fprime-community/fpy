@@ -421,6 +421,13 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         if node.parameters is None:
             return
 
+        if len(node.parameters) > 255:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); maximum is 255",
+                node,
+            )
+            return
+
         for arg in node.parameters:
             arg_name_var, arg_type_name = arg
             existing_arg = scope.lookup(arg_name_var.name)
@@ -430,6 +437,7 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                     f"Parameter '{arg_name_var}' has already been defined",
                     arg_name_var,
                 )
+                return
             arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node, is_global=True)
             scope[arg_name_var.name] = arg_var
 
@@ -780,6 +788,7 @@ class UpdateTypesAndFuncs(Visitor):
         if node.parameters is None:
             return
         
+        arg_offset = 0
         for arg_name_var, arg_type_name in node.parameters:
             arg_type = state.resolved_symbols[arg_type_name]
             if not is_type_constant_size(arg_type):
@@ -792,6 +801,9 @@ class UpdateTypesAndFuncs(Visitor):
             arg_var = state.resolved_symbols[arg_name_var]
             assert is_instance_compat(arg_var, VariableSymbol), arg_var
             arg_var.type = arg_type
+            arg_var.frame_offset = arg_offset
+            arg_offset += arg_type.max_size
+            state.sequence_arg_types.append(arg_type)
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
