@@ -14,6 +14,7 @@ from fpy.bytecode.assembler import (
     deserialize_directives,
     directives_to_fpybc,
     parse as fpybc_parse,
+    resolve_arg_specs,
     serialize_directives,
 )
 import fpy.error
@@ -81,6 +82,14 @@ def compile_main(args: list[str] = None):
         default=False,
         help="Pass this to print out compiler debugging information",
     )
+    arg_parser.add_argument(
+        "-B",
+        "--binary-dir",
+        type=Path,
+        required=False,
+        default=None,
+        help="Directory to resolve .bin file paths for sequence calls (default: input file directory)",
+    )
 
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
@@ -94,13 +103,17 @@ def compile_main(args: list[str] = None):
         print(f"Input file {parsed_args.input} does not exist")
         sys.exit(1)
     fpy.error.file_name = str(parsed_args.input)
+
+    binary_dir = parsed_args.binary_dir
+    if binary_dir is None:
+        binary_dir = parsed_args.input.parent
     try:
         body = text_to_ast(parsed_args.input.read_text())
     except RecursionError:
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
     try:
-        result = ast_to_directives(body, parsed_args.dictionary)
+        result = ast_to_directives(body, parsed_args.dictionary, binary_dir=str(binary_dir.resolve()))
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
@@ -174,21 +187,11 @@ def model_main(args: list[str] = None):
             print(f"Must pass --dictionary when sequence has arguments", file=sys.stderr)
             sys.exit(1)
         type_defs = load_dictionary(str(args.dictionary))["type_defs"]
-        for name, size in arg_specs:
-            if name in PRIMITIVE_TYPE_MAP:
-                fpy_type = PRIMITIVE_TYPE_MAP[name]
-            elif name in type_defs:
-                fpy_type = type_defs[name]
-            else:
-                print(f"Unknown type '{name}' (size {size})", file=sys.stderr)
-                sys.exit(1)
-            if fpy_type.max_size != size:
-                print(
-                    f"Type '{name}' size mismatch: binary says {size}, dictionary says {fpy_type.max_size}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            arg_types.append(fpy_type)
+        try:
+            arg_types = resolve_arg_specs(arg_specs, type_defs)
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
 
     seq_args = None
     if args.args is not None:

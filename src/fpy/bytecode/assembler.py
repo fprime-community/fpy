@@ -315,12 +315,7 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
 
 
 def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, int]]]:
-    header = Header.unpack(data)
-
-    if header.schemaVersion != SCHEMA_VERSION:
-        raise RuntimeError(
-            f"Schema version wrong (expected {SCHEMA_VERSION} found {header.schemaVersion})"
-        )
+    header = _unpack_and_check_header(data)
 
     # Compute args section size from the arg specs
     args_size = sum(1 + len(name.encode("utf-8")) + StackSizeType.max_size for name, _ in header.arg_specs)
@@ -349,6 +344,53 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
         )
 
     return dirs, header.arg_specs
+
+
+def _unpack_and_check_header(data: bytes) -> Header:
+    """Unpack binary header and validate schema version."""
+    header = Header.unpack(data)
+    if header.schemaVersion != SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Schema version mismatch: expected {SCHEMA_VERSION}, found {header.schemaVersion}"
+        )
+    return header
+
+
+def read_bin_arg_specs(path: Path) -> list[tuple[str, int]]:
+    """Read only the header of a compiled .bin file and return its arg_specs.
+
+    This is used at compile time to discover the expected argument types of a
+    called sequence without deserializing the full directive body.
+    """
+    data = path.read_bytes()
+    return _unpack_and_check_header(data).arg_specs
+
+
+def resolve_arg_specs(
+    arg_specs: list[tuple[str, int]],
+    type_defs: dict[str, "FpyType"],
+) -> list["FpyType"]:
+    """Resolve (type_name, size) arg_spec pairs into FpyType objects.
+
+    Looks up each type name in PRIMITIVE_TYPE_MAP first, then in *type_defs*.
+    Raises RuntimeError if a type is not found or the size doesn't match.
+    """
+    from fpy.types import PRIMITIVE_TYPE_MAP
+
+    arg_types = []
+    for name, size in arg_specs:
+        if name in PRIMITIVE_TYPE_MAP:
+            fpy_type = PRIMITIVE_TYPE_MAP[name]
+        elif name in type_defs:
+            fpy_type = type_defs[name]
+        else:
+            raise RuntimeError(f"Unknown type '{name}' (size {size})")
+        if fpy_type.max_size != size:
+            raise RuntimeError(
+                f"Type '{name}' size mismatch: binary says {size}, dictionary says {fpy_type.max_size}"
+            )
+        arg_types.append(fpy_type)
+    return arg_types
 
 
 def serialize_directives(

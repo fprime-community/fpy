@@ -1296,6 +1296,35 @@
     },
     {
       "kind" : "struct",
+      "qualifiedName" : "Svc.SeqArgs",
+      "members" : {
+        "$size" : {
+          "type" : {
+            "name" : "U64",
+            "kind" : "integer",
+            "size" : 64,
+            "signed" : false
+          },
+          "index" : 0
+        },
+        "buffer" : {
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "index" : 1,
+          "size" : 256
+        }
+      },
+      "default" : {
+        "$size" : 0,
+        "buffer" : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      }
+    },
+    {
+      "kind" : "struct",
       "qualifiedName" : "Ref.SignalPair",
       "members" : {
         "time" : {
@@ -4262,6 +4291,44 @@
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Loads, validates and runs a sequence"
+    },
+    {
+      "name" : "Ref.cmdSeq.RUN_ARGS",
+      "commandKind" : "async",
+      "opcode" : 268460050,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 200
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file"
+        },
+        {
+          "name" : "block",
+          "type" : {
+            "name" : "Svc.FpySequencer.BlockState",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "Return command status when complete or not"
+        },
+        {
+          "name" : "args",
+          "type" : {
+            "name" : "Svc.SeqArgs",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "Arguments to pass to the sequence"
+        }
+      ],
+      "priority" : 7,
+      "queueFullBehavior" : "assert",
+      "annotation" : "Loads, validates and runs a sequence with arguments"
     },
     {
       "name" : "Ref.cmdSeq.VALIDATE",

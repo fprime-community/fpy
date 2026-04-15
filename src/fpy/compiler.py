@@ -43,6 +43,7 @@ from fpy.types import (
     CMD_RESPONSE,
     FLAGS_TYPE,
     LOG_SEVERITY,
+    SEQ_ARGS,
     TIME_COMPARISON,
     TIME_INTERVAL,
     TIME_BASE,
@@ -341,7 +342,7 @@ def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
 def _build_global_scopes(dictionary: str) -> tuple:
     """
     Build and cache the 3 global scopes for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope, sequence_config).
+    Returns tuple of (type_scope, callable_scope, values_scope).
     """
     d = load_dictionary(dictionary)
     cmd_name_dict = d["cmd_name_dict"]
@@ -356,6 +357,13 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
+
+    # Svc.SeqArgs is optional -- not all dictionaries have it.
+    # If present, validate and replace; if absent, just inject the canonical type.
+    if "Svc.SeqArgs" in dict_type_name_dict:
+        _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
+    else:
+        dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
 
     # Build the full type dict: start from (now-validated) dictionary types,
     # then layer on builtins and internal types.  Later entries win, so
@@ -391,9 +399,23 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
-        callable_name_dict[name] = CommandSymbol(
-            cmd.name, CMD_RESPONSE, args, cmd
-        )
+        # Detect sequence-run commands by matching the 3-arg signature:
+        # (fileName: string, block: Svc.FpySequencer.BlockState, args: Svc.SeqArgs)
+        if (
+            len(args) == 3
+            and args[0][1].is_string
+            and args[1][1].kind == TypeKind.ENUM
+            and args[2][1].name == "Svc.SeqArgs"
+        ):
+            # Strip the SeqArgs param; user provides varargs instead
+            fixed_args = args[:2]
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run=True
+            )
+        else:
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, args, cmd
+            )
 
     for typ in SPECIFIC_NUMERIC_TYPES:
         callable_name_dict[typ.name] = CastSymbol(
@@ -429,7 +451,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     return (type_scope, callable_scope, values_scope)
 
 
-def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
+def get_base_compile_state(dictionary: str, binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
@@ -452,7 +474,8 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
-        compile_args=compile_args or dict(),
+        dictionary=dictionary,
+        binary_dir=binary_dir,
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
@@ -469,12 +492,10 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
 def ast_to_directives(
     body: AstBlock,
     dictionary: str,
-    compile_args: dict | None = None,
+    binary_dir: str | None = None,
 ) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
-    compile_args = compile_args or dict()
-
     # Create initial compile state (without builtins yet)
-    state = get_base_compile_state(dictionary, compile_args)
+    state = get_base_compile_state(dictionary, binary_dir=binary_dir)
     state.root = body
 
     # Run pre-builtin validation passes

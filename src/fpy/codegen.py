@@ -240,6 +240,115 @@ class GenerateFunctionBody(Emitter):
             return [PushValDirective(arg.serialize())]
         return self.emit(arg, state)
 
+    def _emit_padded_stack_arg(
+        self, arg, expected_type: FpyType, state: CompileState
+    ) -> tuple[list[Directive | Ir], int]:
+        """Emit an argument for the StackCmd path, returning (directives, actual_byte_count).
+
+        For compile-time constants the actual serialized size may be smaller
+        than *expected_type.max_size* (e.g. strings serialize compactly).
+        For variable loads (LoadRel, etc.) the size is always max_size.
+        The caller must use the returned byte count for StackCmdDirective
+        accounting so it matches the bytes actually placed on the stack.
+        """
+        const_val = (
+            arg if isinstance(arg, FpyValue)
+            else state.const_expr_values.get(arg)
+        )
+        if const_val is not None:
+            serialized = const_val.serialize()
+            return [PushValDirective(serialized)], len(serialized)
+        dirs = self.emit(arg, state)
+        return dirs, expected_type.max_size
+
+    def _emit_seq_run_cmd(
+        self,
+        node: AstFuncCall,
+        func: CommandSymbol,
+        state: CompileState,
+    ) -> list[Directive | Ir]:
+        """Emit a sequence-run command.
+
+        Serializes the two fixed args (fileName, blockState) plus a SeqArgs
+        struct containing the vararg values packed into its buffer.
+        """
+        import struct as struct_mod
+        from fpy.types import SEQ_ARGS
+
+        call_info = state.seq_run_call_info[node]
+        resolved_args = state.resolved_args[node]
+
+        # Compute the actual data size in the SeqArgs buffer
+        vararg_data_size = sum(t.max_size for t in call_info.target_arg_types)
+        buffer_size = SEQ_ARGS.members[1].type.length
+        assert vararg_data_size <= buffer_size, (
+            f"Vararg data ({vararg_data_size} bytes) exceeds SeqArgs buffer ({buffer_size} bytes)"
+        )
+        padding_size = buffer_size - vararg_data_size
+        # $size is FwSizeType (U64)
+        size_bytes = struct_mod.pack("!Q", vararg_data_size)
+
+        # Check if all args (fixed + varargs) are compile-time constants
+        all_fixed_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in resolved_args
+        )
+        all_varargs_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in call_info.vararg_exprs
+        )
+
+        if all_fixed_const and all_varargs_const:
+            # All constant: build the full command payload at compile time
+            arg_bytes = bytes()
+            # Fixed args
+            for a in resolved_args:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            # SeqArgs struct: $size + buffer (vararg data + padding)
+            arg_bytes += size_bytes
+            for a in call_info.vararg_exprs:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            arg_bytes += bytes(padding_size)
+            return [ConstCmdDirective(func.cmd.opcode, arg_bytes)]
+        else:
+            # Dynamic: push everything to the stack.
+            # Each arg must be tracked by its actual serialized size,
+            # which matches max_size for variables but may be smaller
+            # for compile-time constants (e.g. compact string literals).
+            dirs = []
+            arg_byte_count = 0
+
+            # Push fixed args
+            for a in resolved_args:
+                t = a.type if isinstance(a, FpyValue) else state.contextual_types[a]
+                arg_dirs, actual_size = self._emit_padded_stack_arg(a, t, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push SeqArgs struct: $size field
+            dirs.append(PushValDirective(size_bytes))
+            arg_byte_count += 8  # U64
+
+            # Push vararg values
+            for a, expected_type in zip(call_info.vararg_exprs, call_info.target_arg_types):
+                arg_dirs, actual_size = self._emit_padded_stack_arg(a, expected_type, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push zero padding to fill the rest of the buffer
+            if padding_size > 0:
+                dirs.append(PushValDirective(bytes(padding_size)))
+                arg_byte_count += padding_size
+
+            # Push opcode, then emit stack command
+            dirs.append(
+                PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+            )
+            dirs.append(StackCmdDirective(arg_byte_count))
+            return dirs
+
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
@@ -900,7 +1009,9 @@ class GenerateFunctionBody(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         dirs = []
-        if is_instance_compat(func, CommandSymbol):
+        if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
+            dirs = self._emit_seq_run_cmd(node, func, state)
+        elif is_instance_compat(func, CommandSymbol):
             const_args = all(
                 isinstance(arg_node, FpyValue) or 
                 (state.const_expr_values[arg_node] is not None)

@@ -42,11 +42,13 @@ from fpy.state import (
     BuiltinFuncSymbol,
     CallableSymbol,
     CastSymbol,
+    CommandSymbol,
     CompileState,
     FieldAccess,
     ForLoopAnalysis,
     FunctionSymbol,
     NameGroup,
+    SeqRunCallInfo,
     Symbol,
     SymbolTable,
     TypeCtorSymbol,
@@ -1570,16 +1572,21 @@ class PickTypesAndResolveFields(Visitor):
         2. Fills in default values for missing optional arguments
         3. Checks for missing required arguments
 
+        For seq-run commands, extra positional arguments beyond the fixed
+        parameters are collected as varargs (sequence arguments).
+
         Returns a list of argument expressions in positional order.
         Returns a CompileError if there's an issue with the arguments.
         """
         func_args = func.args
+        is_seq_run = is_instance_compat(func, CommandSymbol) and func.is_seq_run
 
         # Build a map of parameter name to index
         param_name_to_idx = {arg[0]: i for i, arg in enumerate(func_args)}
 
         # Track which arguments have been assigned
         assigned_args: list[AstExpr | None] = [None] * len(func_args)
+        vararg_exprs: list[AstExpr] = []
         seen_named = False
         positional_count = 0
 
@@ -1608,6 +1615,11 @@ class PickTypesAndResolveFields(Visitor):
                         arg,
                     )
                 if positional_count >= len(func_args):
+                    if is_seq_run:
+                        # Extra positional args are varargs (sequence arguments)
+                        vararg_exprs.append(arg)
+                        positional_count += 1
+                        continue
                     return CompileError(
                         f"Too many arguments (expected at most {len(func_args)})",
                         node,
@@ -1633,6 +1645,12 @@ class PickTypesAndResolveFields(Visitor):
                         f"Missing required argument '{func_args[i][0]}'",
                         node,
                     )
+
+        # For seq-run commands, stash the varargs on the node for later retrieval
+        if is_seq_run:
+            # Store varargs temporarily as an attribute; visit_AstFuncCall will
+            # pick them up and put them into SeqRunCallInfo.
+            node._seq_run_varargs = vararg_exprs
 
         return assigned_args
 
@@ -1695,6 +1713,87 @@ class PickTypesAndResolveFields(Visitor):
         # all args r good
         return
 
+    def _validate_seq_run_call(
+        self,
+        node: AstFuncCall,
+        func: CommandSymbol,
+        resolved_args: list,
+        vararg_exprs: list,
+        state: CompileState,
+    ) -> CompileError | None:
+        """Validate a sequence-run call: read the target .bin, check vararg types."""
+        from pathlib import Path
+        from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
+
+        # First arg (fileName) must be a string literal
+        file_name_arg = resolved_args[0]
+        if not is_instance_compat(file_name_arg, AstString):
+            return CompileError(
+                "Sequence file name must be a string literal",
+                file_name_arg,
+            )
+
+        bin_name = file_name_arg.value
+        binary_dir = state.binary_dir
+        if binary_dir is None:
+            return CompileError(
+                "Cannot resolve sequence binary path: no binary directory configured (use --binary-dir / -B)",
+                node,
+            )
+
+        bin_path = Path(binary_dir) / bin_name
+        if not bin_path.exists():
+            return CompileError(
+                f"Compiled sequence binary not found: {bin_path}",
+                file_name_arg,
+            )
+
+        try:
+            arg_specs = read_bin_arg_specs(bin_path)
+        except Exception as e:
+            return CompileError(
+                f"Failed to read sequence binary {bin_path}: {e}",
+                file_name_arg,
+            )
+
+        try:
+            from fpy.dictionary import load_dictionary
+            type_defs = load_dictionary(state.dictionary)["type_defs"]
+            target_arg_types = resolve_arg_specs(arg_specs, type_defs)
+        except RuntimeError as e:
+            return CompileError(
+                f"Failed to resolve argument types from {bin_path}: {e}",
+                file_name_arg,
+            )
+
+        # Validate vararg count
+        if len(vararg_exprs) != len(target_arg_types):
+            return CompileError(
+                f"Sequence '{bin_name}' expects {len(target_arg_types)} argument(s), "
+                f"but {len(vararg_exprs)} provided",
+                node,
+            )
+
+        # Validate vararg types
+        for i, (vararg, expected_type) in enumerate(zip(vararg_exprs, target_arg_types)):
+            if vararg not in state.synthesized_types:
+                continue
+            actual_type = state.synthesized_types[vararg]
+            if not self.can_coerce_type(actual_type, expected_type):
+                return CompileError(
+                    f"Sequence argument {i}: expected {expected_type.display_name}, "
+                    f"found {actual_type.display_name}",
+                    vararg,
+                )
+
+        # Store call info for codegen
+        state.seq_run_call_info[node] = SeqRunCallInfo(
+            target_arg_types=target_arg_types,
+            vararg_exprs=vararg_exprs,
+        )
+
+        return None
+
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
         if func is None:
@@ -1734,6 +1833,14 @@ class PickTypesAndResolveFields(Visitor):
         # okay, we've made sure that the func is possible
         # to call with these args
 
+        # For seq-run commands, validate varargs against the target .bin header
+        if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
+            vararg_exprs = getattr(node, "_seq_run_varargs", [])
+            error = self._validate_seq_run_call(node, func, resolved_args, vararg_exprs, state)
+            if error is not None:
+                state.errors.append(error)
+                return
+
         # go handle coercion/casting
         if is_instance_compat(func, CastSymbol):
             node_arg = resolved_args[0]
@@ -1745,6 +1852,29 @@ class PickTypesAndResolveFields(Visitor):
             # let us turn off some checks for boundaries later when we do const folding
             # we turn off the checks because the user is asking us to force this!
             state.expr_explicit_casts.append(node_arg)
+        elif is_instance_compat(func, CommandSymbol) and func.is_seq_run:
+            # Coerce fixed args
+            for value_expr, arg in zip(resolved_args, func.args):
+                if not is_instance_compat(value_expr, Ast):
+                    continue
+                if value_expr not in state.synthesized_types:
+                    continue
+                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
+                    continue
+                arg_type = arg[1]
+                if not self.coerce_expr_type(value_expr, arg_type, state):
+                    return
+            # Coerce varargs against the target sequence's arg types
+            call_info = state.seq_run_call_info[node]
+            for value_expr, target_type in zip(call_info.vararg_exprs, call_info.target_arg_types):
+                if not is_instance_compat(value_expr, Ast):
+                    continue
+                if value_expr not in state.synthesized_types:
+                    continue
+                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
+                    continue
+                if not self.coerce_expr_type(value_expr, target_type, state):
+                    return
         else:
             for value_expr, arg in zip(resolved_args, func.args):
                 # Skip coercion for FpyValue defaults from builtins or type constructors

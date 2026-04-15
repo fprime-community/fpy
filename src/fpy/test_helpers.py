@@ -22,7 +22,7 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> tuple[list[Directive], list[FpyType]]:
+def compile_seq(fprime_test_api, seq: str, binary_dir: str = None) -> tuple[list[Directive], list[FpyType]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
     
@@ -31,11 +31,7 @@ def compile_seq(fprime_test_api, seq: str, flags: list[str] = None) -> tuple[lis
         # This shouldn't happen - text_to_ast calls exit(1) on parse errors
         raise CompilationFailed("Parsing failed")
     
-    compile_args = {}
-    for flag in flags or []:
-        compile_args[flag] = True
-    
-    result = ast_to_directives(body, default_dictionary, compile_args)
+    result = ast_to_directives(body, default_dictionary, binary_dir=binary_dir)
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{result}")
     
@@ -59,6 +55,8 @@ def run_seq(
     failing_opcodes: set[int] = None,
     args: bytes = None,
     arg_types: list[FpyType] = None,
+    seq_run_opcodes: set[int] = None,
+    binary_dir: str = None,
 ):
     """Run a list of directives.
 
@@ -80,6 +78,7 @@ def run_seq(
     ch_name_dict = d["ch_name_dict"]
     cmd_id_dict = d["cmd_id_dict"]
     cmd_name_dict = d["cmd_name_dict"]
+    type_defs = d["type_defs"]
     # Ref.cmdSeq.RUN always fails when called from within a running sequence
     seq_run_opcode = cmd_name_dict["Ref.cmdSeq.RUN"].opcode
     always_failing = {seq_run_opcode}
@@ -91,6 +90,9 @@ def run_seq(
         time_context=time_context,
         initial_time_us=initial_time_us,
         failing_opcodes=always_failing,
+        seq_run_opcodes=seq_run_opcodes or set(),
+        binary_dir=binary_dir,
+        arg_type_defs=type_defs,
     )
     tlm_db = {}
     for chan_name, val in tlm.items():
@@ -117,15 +119,14 @@ def run_seq(
         raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
-def assert_compile_success(fprime_test_api, seq: str, flags: list[str] = None):
-    compile_seq(fprime_test_api, seq, flags)
+def assert_compile_success(fprime_test_api, seq: str):
+    compile_seq(fprime_test_api, seq)
 
 
 def assert_run_success(
     fprime_test_api,
     seq: str,
     tlm: dict[str, bytes] = None,
-    flags: list[str] = None,
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
@@ -133,16 +134,16 @@ def assert_run_success(
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
 ):
-    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    directives, arg_types = compile_seq(fprime_test_api, seq)
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
     run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types)
 
 
-def assert_compile_failure(fprime_test_api, seq: str, flags: list[str] = None):
+def assert_compile_failure(fprime_test_api, seq: str):
     try:
-        compile_seq(fprime_test_api, seq, flags)
+        compile_seq(fprime_test_api, seq)
     except (SystemExit, CompilationFailed):
         # Compilation failed as expected
         return
@@ -156,7 +157,6 @@ def assert_run_failure(
     seq: str,
     error_code: DirectiveErrorCode = None,
     validation_error: bool = False,
-    flags: list[str] = None,
     timeBase: int = 0,
     timeContext: int = 0,
     initial_time_us: int = 0,
@@ -168,7 +168,7 @@ def assert_run_failure(
     assert error_code is not None or validation_error, \
         "Must specify either error_code or validation_error"
 
-    directives, arg_types = compile_seq(fprime_test_api, seq, flags)
+    directives, arg_types = compile_seq(fprime_test_api, seq)
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
