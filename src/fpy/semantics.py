@@ -895,6 +895,76 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
 
+class ResolveSequenceDependencies(TopDownVisitor):
+    """Discover and resolve all sequence-run dependencies before type checking.
+
+    For each call to a seq-run command with a string-literal filename,
+    reads the target .bin header and resolves its argument types.
+    Results are stored in state.seq_dependencies so that later passes
+    (and external tools) can access them without file I/O.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run:
+            return
+
+        if not node.args or len(node.args) < 1:
+            # Missing args will be caught by build_resolved_call_args (too few arguments)
+            return
+
+        file_name_arg = node.args[0]
+        if not is_instance_compat(file_name_arg, AstString):
+            # Non-literal filename will be reported by _validate_seq_run_call
+            # during PickTypesAndResolveFields; we just can't resolve the
+            # dependency without a known filename.
+            return
+
+        bin_name = file_name_arg.value
+        if bin_name in state.seq_dependencies:
+            # Already resolved (e.g. same sequence called twice)
+            return
+
+        binary_dir = state.binary_dir
+        if binary_dir is None:
+            state.err(
+                "Cannot resolve sequence binary path: no binary directory configured (use --binary-dir / -B)",
+                node,
+            )
+            return
+
+        from pathlib import Path
+        from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
+
+        bin_path = Path(binary_dir) / bin_name
+        if not bin_path.exists():
+            state.err(
+                f"Compiled sequence binary not found: {bin_path}",
+                file_name_arg,
+            )
+            return
+
+        try:
+            arg_specs = read_bin_arg_specs(bin_path)
+        except Exception as e:
+            state.err(
+                f"Failed to read sequence binary {bin_path}: {e}",
+                file_name_arg,
+            )
+            return
+
+        try:
+            target_arg_types = resolve_arg_specs(arg_specs, state.type_defs)
+        except RuntimeError as e:
+            state.err(
+                f"Failed to resolve argument types from {bin_path}: {e}",
+                file_name_arg,
+            )
+            return
+
+        state.seq_dependencies[bin_name] = target_arg_types
+
+
 class PickTypesAndResolveFields(Visitor):
 
     def can_coerce_type(self, source: FpyType, target: FpyType) -> bool:
@@ -1716,11 +1786,11 @@ class PickTypesAndResolveFields(Visitor):
         vararg_exprs: list,
         state: CompileState,
     ) -> CompileError | None:
-        """Validate a sequence-run call: read the target .bin, check vararg types."""
-        from pathlib import Path
-        from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
+        """Validate a sequence-run call's vararg count and types.
 
-        # First arg (fileName) must be a string literal
+        Dependency resolution (reading .bin files, resolving types) is done
+        by the earlier ResolveSequenceDependencies pass.
+        """
         file_name_arg = resolved_args[0]
         if not is_instance_compat(file_name_arg, AstString):
             return CompileError(
@@ -1729,35 +1799,10 @@ class PickTypesAndResolveFields(Visitor):
             )
 
         bin_name = file_name_arg.value
-        binary_dir = state.binary_dir
-        if binary_dir is None:
-            return CompileError(
-                "Cannot resolve sequence binary path: no binary directory configured (use --binary-dir / -B)",
-                node,
-            )
-
-        bin_path = Path(binary_dir) / bin_name
-        if not bin_path.exists():
-            return CompileError(
-                f"Compiled sequence binary not found: {bin_path}",
-                file_name_arg,
-            )
-
-        try:
-            arg_specs = read_bin_arg_specs(bin_path)
-        except Exception as e:
-            return CompileError(
-                f"Failed to read sequence binary {bin_path}: {e}",
-                file_name_arg,
-            )
-
-        try:
-            target_arg_types = resolve_arg_specs(arg_specs, state.type_defs)
-        except RuntimeError as e:
-            return CompileError(
-                f"Failed to resolve argument types from {bin_path}: {e}",
-                file_name_arg,
-            )
+        target_arg_types = state.seq_dependencies.get(bin_name)
+        if target_arg_types is None:
+            # ResolveSequenceDependencies already reported the error
+            return None
 
         # Validate vararg count
         if len(vararg_exprs) != len(target_arg_types):

@@ -30,6 +30,7 @@ from fpy.semantics import (
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
+    ResolveSequenceDependencies,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
@@ -534,6 +535,8 @@ def ast_to_directives(
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
+        # discover sequence-run dependencies (.bin files) before type checking
+        ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveFields(),
         # Calculate const values for default arguments first (and check they're const).
