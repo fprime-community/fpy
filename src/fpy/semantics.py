@@ -909,11 +909,14 @@ class PickTypesAndResolveFields(Visitor):
         self, node: AstExpr, type: FpyType, state: CompileState
     ) -> bool:
         unconverted_type = state.synthesized_types[node]
-        # make sure it isn't already being coerced
-        assert unconverted_type == state.contextual_types[node], (
-            unconverted_type,
-            state.contextual_types[node],
-        )
+        current_contextual = state.contextual_types[node]
+
+        # Already coerced — idempotent if same target, bug if different
+        if current_contextual != unconverted_type:
+            assert current_contextual == type, (
+                f"double coercion: {unconverted_type} -> {current_contextual} vs {type}"
+            )
+            return True
 
         if not self.can_coerce_type(unconverted_type, type):
             state.err(
@@ -1564,7 +1567,7 @@ class PickTypesAndResolveFields(Visitor):
         node: AstFuncCall,
         func: CallableSymbol,
         node_args: list,
-    ) -> list[AstExpr] | CompileError:
+    ) -> tuple[list[AstExpr], list[AstExpr]] | CompileError:
         """Build a complete list of argument expressions for a function call.
 
         This function:
@@ -1575,7 +1578,7 @@ class PickTypesAndResolveFields(Visitor):
         For seq-run commands, extra positional arguments beyond the fixed
         parameters are collected as varargs (sequence arguments).
 
-        Returns a list of argument expressions in positional order.
+        Returns (assigned_args, vararg_exprs) on success.
         Returns a CompileError if there's an issue with the arguments.
         """
         func_args = func.args
@@ -1584,55 +1587,52 @@ class PickTypesAndResolveFields(Visitor):
         # Build a map of parameter name to index
         param_name_to_idx = {arg[0]: i for i, arg in enumerate(func_args)}
 
-        # Track which arguments have been assigned
-        assigned_args: list[AstExpr | None] = [None] * len(func_args)
-        vararg_exprs: list[AstExpr] = []
+        # Validate: no positional args after named args
         seen_named = False
-        positional_count = 0
-
         for arg in node_args:
             if is_instance_compat(arg, AstNamedArgument):
                 seen_named = True
-                # Check if the name is valid
-                if arg.name not in param_name_to_idx:
-                    return CompileError(
-                        f"Unknown argument name '{arg.name}'",
-                        arg,
-                    )
-                idx = param_name_to_idx[arg.name]
-                # Check if the argument was already assigned
-                if assigned_args[idx] is not None:
-                    return CompileError(
-                        f"Argument '{arg.name}' specified multiple times",
-                        arg,
-                    )
-                assigned_args[idx] = arg.value
+            elif seen_named:
+                return CompileError(
+                    "Positional argument cannot follow named argument",
+                    arg,
+                )
+
+        # okay, all named args follow all positional args
+
+        assigned_args: list[AstExpr | None] = [None] * len(func_args)
+        vararg_exprs: list[AstExpr] = []
+
+        # Process positional args (guaranteed to come before any named args)
+        for i, arg in enumerate(node_args):
+            if is_instance_compat(arg, AstNamedArgument):
+                break
+            if i < len(func_args):
+                assigned_args[i] = arg
+            elif is_seq_run:
+                vararg_exprs.append(arg)
             else:
-                # Positional argument
-                if seen_named:
-                    return CompileError(
-                        "Positional argument cannot follow named argument",
-                        arg,
-                    )
-                if positional_count >= len(func_args):
-                    if is_seq_run:
-                        # Extra positional args are varargs (sequence arguments)
-                        vararg_exprs.append(arg)
-                        positional_count += 1
-                        continue
-                    return CompileError(
-                        f"Too many arguments (expected at most {len(func_args)})",
-                        node,
-                    )
-                # Check if already assigned (shouldn't happen for positional-only case)
-                if assigned_args[positional_count] is not None:
-                    # This would happen if named arg came before positional
-                    return CompileError(
-                        f"Argument '{func_args[positional_count][0]}' specified multiple times",
-                        arg,
-                    )
-                assigned_args[positional_count] = arg
-                positional_count += 1
+                return CompileError(
+                    f"Too many arguments (expected at most {len(func_args)})",
+                    node,
+                )
+
+        # Process named args
+        for arg in node_args:
+            if not is_instance_compat(arg, AstNamedArgument):
+                continue
+            if arg.name not in param_name_to_idx:
+                return CompileError(
+                    f"Unknown argument name '{arg.name}'",
+                    arg,
+                )
+            idx = param_name_to_idx[arg.name]
+            if assigned_args[idx] is not None:
+                return CompileError(
+                    f"Argument '{arg.name}' specified multiple times",
+                    arg,
+                )
+            assigned_args[idx] = arg.value
 
         # Fill in default values for missing arguments, error on missing required args
         for i, arg_expr in enumerate(assigned_args):
@@ -1646,13 +1646,7 @@ class PickTypesAndResolveFields(Visitor):
                         node,
                     )
 
-        # For seq-run commands, stash the varargs on the node for later retrieval
-        if is_seq_run:
-            # Store varargs temporarily as an attribute; visit_AstFuncCall will
-            # pick them up and put them into SeqRunCallInfo.
-            node._seq_run_varargs = vararg_exprs
-
-        return assigned_args
+        return assigned_args, vararg_exprs
 
     def check_arg_types_compatible_with_func(
         self,
@@ -1695,6 +1689,7 @@ class PickTypesAndResolveFields(Visitor):
             # or from dictionary defaults for type constructors
             if not is_instance_compat(value_expr, Ast):
                 assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
+                assert is_instance_compat(value_expr, FpyValue), value_expr
                 continue
 
             # Skip type check for default values from forward-called functions.
@@ -1757,9 +1752,7 @@ class PickTypesAndResolveFields(Visitor):
             )
 
         try:
-            from fpy.dictionary import load_dictionary
-            type_defs = load_dictionary(state.dictionary)["type_defs"]
-            target_arg_types = resolve_arg_specs(arg_specs, type_defs)
+            target_arg_types = resolve_arg_specs(arg_specs, state.type_defs)
         except RuntimeError as e:
             return CompileError(
                 f"Failed to resolve argument types from {bin_path}: {e}",
@@ -1776,8 +1769,6 @@ class PickTypesAndResolveFields(Visitor):
 
         # Validate vararg types
         for i, (vararg, expected_type) in enumerate(zip(vararg_exprs, target_arg_types)):
-            if vararg not in state.synthesized_types:
-                continue
             actual_type = state.synthesized_types[vararg]
             if not self.can_coerce_type(actual_type, expected_type):
                 return CompileError(
@@ -1815,11 +1806,12 @@ class PickTypesAndResolveFields(Visitor):
         node_args = node.args if node.args else []
 
         # Build resolved args: reorder named args, fill in defaults, check for missing required
-        resolved_args = self.build_resolved_call_args(node, func, node_args)
-        if is_instance_compat(resolved_args, CompileError):
-            state.errors.append(resolved_args)
+        result = self.build_resolved_call_args(node, func, node_args)
+        if is_instance_compat(result, CompileError):
+            state.errors.append(result)
             return
 
+        resolved_args, vararg_exprs = result
         state.resolved_args[node] = resolved_args
 
         error_or_none = self.check_arg_types_compatible_with_func(
@@ -1835,11 +1827,12 @@ class PickTypesAndResolveFields(Visitor):
 
         # For seq-run commands, validate varargs against the target .bin header
         if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
-            vararg_exprs = getattr(node, "_seq_run_varargs", [])
             error = self._validate_seq_run_call(node, func, resolved_args, vararg_exprs, state)
             if error is not None:
                 state.errors.append(error)
                 return
+        else:
+            assert not vararg_exprs, vararg_exprs
 
         # go handle coercion/casting
         if is_instance_compat(func, CastSymbol):
@@ -1852,46 +1845,22 @@ class PickTypesAndResolveFields(Visitor):
             # let us turn off some checks for boundaries later when we do const folding
             # we turn off the checks because the user is asking us to force this!
             state.expr_explicit_casts.append(node_arg)
-        elif is_instance_compat(func, CommandSymbol) and func.is_seq_run:
-            # Coerce fixed args
-            for value_expr, arg in zip(resolved_args, func.args):
-                if not is_instance_compat(value_expr, Ast):
-                    continue
-                if value_expr not in state.synthesized_types:
-                    continue
-                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
-                    continue
-                arg_type = arg[1]
-                if not self.coerce_expr_type(value_expr, arg_type, state):
-                    return
-            # Coerce varargs against the target sequence's arg types
-            call_info = state.seq_run_call_info[node]
-            for value_expr, target_type in zip(call_info.vararg_exprs, call_info.target_arg_types):
-                if not is_instance_compat(value_expr, Ast):
-                    continue
-                if value_expr not in state.synthesized_types:
-                    continue
-                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
-                    continue
-                if not self.coerce_expr_type(value_expr, target_type, state):
-                    return
         else:
-            for value_expr, arg in zip(resolved_args, func.args):
+            # Build (expr, target_type) coercion pairs
+            coercion_pairs = [(expr, arg[1]) for expr, arg in zip(resolved_args, func.args)]
+            if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
+                call_info = state.seq_run_call_info[node]
+                coercion_pairs += list(zip(call_info.vararg_exprs, call_info.target_arg_types))
+
+            for value_expr, target_type in coercion_pairs:
                 # Skip coercion for FpyValue defaults from builtins or type constructors
                 if not is_instance_compat(value_expr, Ast):
-                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                     continue
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
-                # Skip default values already coerced by visit_AstDef.
-                # When a function's default value AST node is reused in resolved_args,
-                # it may already have been coerced during the function definition visit.
-                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
-                    continue
-                arg_type = arg[1]
-                if not self.coerce_expr_type(value_expr, arg_type, state):
+                if not self.coerce_expr_type(value_expr, target_type, state):
                     return
 
         state.synthesized_types[node] = func.return_type

@@ -80,7 +80,7 @@ class TestSeqRunDetection:
 
         _build_global_scopes.cache_clear()
         load_dictionary.cache_clear()
-        _, callable_scope, _ = _build_global_scopes(default_dictionary)
+        _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
 
         # Navigate to Ref.cmdSeq.RUN_ARGS
         sym = callable_scope["Ref"]["cmdSeq"]["RUN_ARGS"]
@@ -98,7 +98,7 @@ class TestSeqRunDetection:
 
         _build_global_scopes.cache_clear()
         load_dictionary.cache_clear()
-        _, callable_scope, _ = _build_global_scopes(default_dictionary)
+        _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
 
         sym = callable_scope["Ref"]["cmdSeq"]["RUN"]
         assert isinstance(sym, CommandSymbol)

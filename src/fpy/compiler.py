@@ -341,8 +341,8 @@ def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
 @lru_cache(maxsize=4)
 def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Build and cache the 3 global scopes for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope).
+    Build and cache the 3 global scopes and type_name_dict for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope, type_name_dict).
     """
     d = load_dictionary(dictionary)
     cmd_name_dict = d["cmd_name_dict"]
@@ -448,12 +448,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
         ),
     )
 
-    return (type_scope, callable_scope, values_scope)
+    return (type_scope, callable_scope, values_scope, type_name_dict)
 
 
 def get_base_compile_state(dictionary: str, binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
+    type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
 
     def _const_int(key: str, default: int) -> int:
@@ -474,7 +474,7 @@ def get_base_compile_state(dictionary: str, binary_dir: str | None = None) -> Co
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
-        dictionary=dictionary,
+        type_defs=type_defs,
         binary_dir=binary_dir,
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),

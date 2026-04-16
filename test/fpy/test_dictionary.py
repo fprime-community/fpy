@@ -2081,12 +2081,12 @@ class TestSingleValueArrayInitIntegration:
 
     def _get_type_scope(self):
         from fpy.compiler import _build_global_scopes
-        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _get_callable_scope(self):
         from fpy.compiler import _build_global_scopes
-        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _lookup_type(self, name: str) -> FpyType:
@@ -2684,12 +2684,12 @@ class TestTypeCtorDefaults:
 
     def _get_callable_scope(self):
         from fpy.compiler import _build_global_scopes
-        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _get_type_scope(self):
         from fpy.compiler import _build_global_scopes
-        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _lookup_callable(self, name: str):

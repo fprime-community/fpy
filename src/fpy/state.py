@@ -289,8 +289,8 @@ class CompileState:
     """The global value scope: a symbol table whose leaf nodes are runtime values
     (telemetry channels, parameters, enum constants, variables)."""
 
-    dictionary: str = ""
-    """Path to the F-Prime dictionary JSON file."""
+    type_defs: dict = field(default_factory=dict)
+    """Flat map of fully-qualified type name to FpyType, for resolving types at compile time."""
     binary_dir: str | None = None
     """Directory for resolving compiled sequence binaries (.bin files)."""
 
