@@ -638,3 +638,26 @@ Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=42)
 """
             with pytest.raises(CompilationFailed, match="Missing sequence argument 'y'"):
                 compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+
+
+class TestSeqArgLimits:
+    """Test compile-time limits on sequence argument names and counts."""
+
+    def test_arg_name_too_long(self, fprime_test_api):
+        """Arg name exceeding 255 UTF-8 bytes should be a compile error."""
+        long_name = "a" * 256
+        seq = f"""\
+sequence({long_name}: U32)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+        with pytest.raises(CompilationFailed, match="too long"):
+            compile_seq(fprime_test_api, seq)
+
+    def test_arg_name_exactly_255_bytes(self, fprime_test_api):
+        """Arg name of exactly 255 bytes should compile fine."""
+        name_255 = "a" * 255
+        seq = f"""\
+sequence({name_255}: U32)
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+        compile_seq(fprime_test_api, seq)

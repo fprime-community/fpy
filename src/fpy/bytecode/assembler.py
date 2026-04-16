@@ -302,7 +302,7 @@ def _serialize_arg_specs(arg_specs: list[tuple[str, str, int]]) -> bytes:
     for arg_name, type_name, size in arg_specs:
         for name in (arg_name, type_name):
             encoded = name.encode("utf-8")
-            assert len(encoded) <= 255, f"Name too long: {name}"
+            assert len(encoded) <= 255, f"Name too long: {name}; should have been caught by semantics"
             result += struct.pack("!B", len(encoded)) + encoded
         result += FpyValue(StackSizeType, size).serialize()
     return result
@@ -419,7 +419,7 @@ def serialize_directives(
     if arg_specs is None:
         arg_specs = []
 
-    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by semantics"
+    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by CheckSeqRunArgs"
 
     body_bytes = bytes()
 

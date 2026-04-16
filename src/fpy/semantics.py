@@ -2849,8 +2849,42 @@ class WarnRangesAreNotEmpty(Visitor):
             state.warn("Range is empty", node)
 
 
-class CheckSeqRunArgsFit(Visitor):
-    """Check that sequence-run vararg data fits in the SeqArgs buffer."""
+class CheckSeqRunArgs(Visitor):
+    """Check sequence argument constraints:
+    - vararg data fits in the SeqArgs buffer
+    - arg count fits in a u8 (max 255)
+    - arg names and type names fit in a pascal string (max 255 UTF-8 bytes)
+    """
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+
+        if len(node.parameters) > 255:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); max is 255",
+                node,
+            )
+
+        for arg_name_var, arg_type_name in node.parameters:
+            arg_var = state.resolved_symbols[arg_name_var]
+            arg_type = state.resolved_symbols[arg_type_name]
+
+            name_len = len(arg_var.name.encode("utf-8"))
+            if name_len > 255:
+                state.err(
+                    f"Sequence argument name '{arg_var.name}' is too long "
+                    f"({name_len} UTF-8 bytes); max is 255",
+                    arg_name_var,
+                )
+
+            type_name_len = len(arg_type.name.encode("utf-8"))
+            if type_name_len > 255:
+                state.err(
+                    f"Sequence argument type name '{arg_type.name}' is too long "
+                    f"({type_name_len} UTF-8 bytes); max is 255",
+                    arg_type_name,
+                )
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         call_info = state.seq_run_call_info.get(node)
