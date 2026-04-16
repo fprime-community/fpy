@@ -276,6 +276,7 @@ class GenerateFunctionBody(Emitter):
         resolved_args = state.resolved_args[node]
 
         # Compute the actual data size in the SeqArgs buffer
+        # vararg data guaranteed no strings
         vararg_data_size = sum(t.max_size for t in call_info.arg_types)
         buffer_size = SEQ_ARGS.members[1].type.length
         padding_size = buffer_size - vararg_data_size
@@ -283,6 +284,9 @@ class GenerateFunctionBody(Emitter):
         size_bytes = FpyValue(size_type, vararg_data_size).serialize()
 
         # Check if all args (fixed + varargs) are compile-time constants
+        # fixed args may have strings (almost certainly does of course)
+        # but we don't need to know the actual byte count. just push as a byte array
+        # as part of const cmd
         all_fixed_const = all(
             isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
             for a in resolved_args
@@ -311,6 +315,10 @@ class GenerateFunctionBody(Emitter):
             arg_byte_count = 0
 
             # Push fixed args
+            # okay, for StackCmd we actually need to know at compile time the size of
+            # the args we pushed. so we use this emit cmd arg func which tells us the
+            # size (if the arg is a const value, which is always the case for strings rn, which
+            # are the only type which are not always their max_size when serialized)
             for a in resolved_args:
                 arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
@@ -321,7 +329,7 @@ class GenerateFunctionBody(Emitter):
             arg_byte_count += size_type.max_size
 
             # Push vararg values
-            for a, _expected_type in zip(call_info.vararg_exprs, call_info.arg_types):
+            for a in call_info.vararg_exprs:
                 arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
                 arg_byte_count += actual_size
