@@ -595,7 +595,7 @@ class FpySequencerModel:
         # Resolve child arg types
         child_arg_types = []
         if child_arg_specs:
-            child_arg_types = resolve_arg_specs(child_arg_specs, self.arg_type_defs)
+            child_arg_types = [t for _, t in resolve_arg_specs(child_arg_specs, self.arg_type_defs)]
 
         # Create and run a child model
         child_model = FpySequencerModel(

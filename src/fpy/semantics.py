@@ -805,7 +805,7 @@ class UpdateTypesAndFuncs(Visitor):
             arg_var.type = arg_type
             arg_var.frame_offset = arg_offset
             arg_offset += arg_type.max_size
-            state.sequence_arg_types.append(arg_type)
+            state.sequence_args.append((arg_var.name, arg_type))
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
@@ -1632,6 +1632,73 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = anon_type
         state.contextual_types[node] = anon_type
 
+    def _resolve_args_positional_order(
+        self,
+        args: list,
+        param_names: list[str],
+        node: Ast,
+        *,
+        collect_overflow: bool = False,
+    ) -> tuple[list[AstExpr | None], list[AstExpr]] | CompileError:
+        """Resolve a mix of positional and named arguments into positional slots.
+
+        If collect_overflow is True, extra positional args and unrecognized named
+        args are returned in the overflow list. Otherwise they cause errors.
+
+        Returns (assigned_slots, overflow) where slots may be None if unfilled.
+        """
+        param_name_to_idx = {name: i for i, name in enumerate(param_names)}
+
+        # Validate: no positional args after named args
+        seen_named = False
+        for arg in args:
+            if is_instance_compat(arg, AstNamedArgument):
+                seen_named = True
+            elif seen_named:
+                return CompileError(
+                    "Positional argument cannot follow named argument",
+                    arg if is_instance_compat(arg, Ast) else node,
+                )
+
+        assigned: list[AstExpr | None] = [None] * len(param_names)
+        overflow: list[AstExpr] = []
+
+        # Process positional args (guaranteed to come before any named args)
+        for i, arg in enumerate(args):
+            if is_instance_compat(arg, AstNamedArgument):
+                break
+            if i < len(param_names):
+                assigned[i] = arg
+            elif collect_overflow:
+                overflow.append(arg)
+            else:
+                return CompileError(
+                    f"Too many arguments (expected {len(param_names)})",
+                    node,
+                )
+
+        # Process named args
+        for arg in args:
+            if not is_instance_compat(arg, AstNamedArgument):
+                continue
+            if arg.name not in param_name_to_idx:
+                if collect_overflow:
+                    overflow.append(arg)
+                    continue
+                return CompileError(
+                    f"Unknown argument '{arg.name}'",
+                    arg,
+                )
+            idx = param_name_to_idx[arg.name]
+            if assigned[idx] is not None:
+                return CompileError(
+                    f"Argument '{arg.name}' specified multiple times",
+                    arg,
+                )
+            assigned[idx] = arg.value
+
+        return assigned, overflow
+
     def build_resolved_call_args(
         self,
         node: AstFuncCall,
@@ -1654,55 +1721,13 @@ class PickTypesAndResolveFields(Visitor):
         func_args = func.args
         is_seq_run = is_instance_compat(func, CommandSymbol) and func.is_seq_run
 
-        # Build a map of parameter name to index
-        param_name_to_idx = {arg[0]: i for i, arg in enumerate(func_args)}
-
-        # Validate: no positional args after named args
-        seen_named = False
-        for arg in node_args:
-            if is_instance_compat(arg, AstNamedArgument):
-                seen_named = True
-            elif seen_named:
-                return CompileError(
-                    "Positional argument cannot follow named argument",
-                    arg,
-                )
-
-        # okay, all named args follow all positional args
-
-        assigned_args: list[AstExpr | None] = [None] * len(func_args)
-        vararg_exprs: list[AstExpr] = []
-
-        # Process positional args (guaranteed to come before any named args)
-        for i, arg in enumerate(node_args):
-            if is_instance_compat(arg, AstNamedArgument):
-                break
-            if i < len(func_args):
-                assigned_args[i] = arg
-            elif is_seq_run:
-                vararg_exprs.append(arg)
-            else:
-                return CompileError(
-                    f"Too many arguments (expected at most {len(func_args)})",
-                    node,
-                )
-
-        # Process named args
-        for arg in node_args:
-            if not is_instance_compat(arg, AstNamedArgument):
-                continue
-            if arg.name not in param_name_to_idx:
-                return CompileError(
-                    f"Unknown argument name '{arg.name}'",
-                    arg,
-                )
-            idx = param_name_to_idx[arg.name]
-            if assigned_args[idx] is not None:
-                return CompileError(
-                    f"Argument '{arg.name}' specified multiple times",
-                    arg,
-                )
-            assigned_args[idx] = arg.value
+        result = self._resolve_args_positional_order(
+            node_args, [a[0] for a in func_args], node,
+            collect_overflow=is_seq_run,
+        )
+        if isinstance(result, CompileError):
+            return result
+        assigned_args, vararg_exprs = result
 
         # Fill in default values for missing arguments, error on missing required args
         for i, arg_expr in enumerate(assigned_args):
@@ -1790,6 +1815,10 @@ class PickTypesAndResolveFields(Visitor):
 
         Dependency resolution (reading .bin files, resolving types) is done
         by the earlier ResolveSequenceDependencies pass.
+
+        vararg_exprs may contain AstNamedArgument nodes (for named varargs)
+        or plain AstExpr nodes (for positional varargs). This method resolves
+        them into positional order based on the child sequence's parameter names.
         """
         file_name_arg = resolved_args[0]
         if not is_instance_compat(file_name_arg, AstString):
@@ -1799,21 +1828,28 @@ class PickTypesAndResolveFields(Visitor):
             )
 
         bin_name = file_name_arg.value
-        target_arg_types = state.seq_dependencies.get(bin_name)
-        if target_arg_types is None:
-            # ResolveSequenceDependencies already reported the error
-            return None
+        target_arg_name_types = state.seq_dependencies[bin_name]
 
-        # Validate vararg count
-        if len(vararg_exprs) != len(target_arg_types):
-            return CompileError(
-                f"Sequence '{bin_name}' expects {len(target_arg_types)} argument(s), "
-                f"but {len(vararg_exprs)} provided",
-                node,
-            )
+        target_arg_types = [t for _, t in target_arg_name_types]
+        param_names = [name for name, _ in target_arg_name_types]
+
+        result = self._resolve_args_positional_order(
+            vararg_exprs, param_names, node,
+        )
+        if isinstance(result, CompileError):
+            return result
+        ordered_varargs, _ = result
+
+        # Check for missing args
+        for i, expr in enumerate(ordered_varargs):
+            if expr is None:
+                return CompileError(
+                    f"Missing sequence argument '{target_arg_name_types[i][0]}'",
+                    node,
+                )
 
         # Validate vararg types
-        for i, (vararg, expected_type) in enumerate(zip(vararg_exprs, target_arg_types)):
+        for i, (vararg, expected_type) in enumerate(zip(ordered_varargs, target_arg_types)):
             actual_type = state.synthesized_types[vararg]
             if not self.can_coerce_type(actual_type, expected_type):
                 return CompileError(
@@ -1824,8 +1860,8 @@ class PickTypesAndResolveFields(Visitor):
 
         # Store call info for codegen
         state.seq_run_call_info[node] = SeqRunCallInfo(
-            target_arg_types=target_arg_types,
-            vararg_exprs=vararg_exprs,
+            arg_types=target_arg_types,
+            vararg_exprs=ordered_varargs,
         )
 
         return None
@@ -1895,7 +1931,7 @@ class PickTypesAndResolveFields(Visitor):
             coercion_pairs = [(expr, arg[1]) for expr, arg in zip(resolved_args, func.args)]
             if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
                 call_info = state.seq_run_call_info[node]
-                coercion_pairs += list(zip(call_info.vararg_exprs, call_info.target_arg_types))
+                coercion_pairs += list(zip(call_info.vararg_exprs, call_info.arg_types))
 
             for value_expr, target_type in coercion_pairs:
                 # Skip coercion for FpyValue defaults from builtins or type constructors
@@ -2811,3 +2847,23 @@ class WarnRangesAreNotEmpty(Visitor):
 
         if lower_value.val >= upper_value.val:
             state.warn("Range is empty", node)
+
+
+class CheckSeqRunArgsFit(Visitor):
+    """Check that sequence-run vararg data fits in the SeqArgs buffer."""
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        call_info = state.seq_run_call_info.get(node)
+        if call_info is None:
+            return
+
+        from fpy.types import SEQ_ARGS
+
+        vararg_data_size = sum(t.max_size for t in call_info.arg_types)
+        buffer_size = SEQ_ARGS.members[1].type.length
+        if vararg_data_size > buffer_size:
+            state.err(
+                f"Sequence arguments ({vararg_data_size} bytes) exceed "
+                f"Svc.SeqArgs buffer capacity ({buffer_size} bytes)",
+                node,
+            )

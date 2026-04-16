@@ -27,6 +27,7 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
+    CheckSeqRunArgsFit,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
@@ -550,6 +551,7 @@ def ast_to_directives(
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
+        CheckSeqRunArgsFit(),
     ]
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
@@ -606,4 +608,4 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir, state.sequence_arg_types
+    return ir, state.sequence_args

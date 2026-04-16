@@ -154,6 +154,18 @@ CdhCore.cmdDisp.CMD_TEST_CMD_1(arg1=val1, arg2=val2, arg3=val3)
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_const_string_with_non_const_arg(self, fprime_test_api):
+        """Command with a string literal and a non-const arg should work.
+
+        Regression test: the StackCmd path must account for compact string
+        serialization when counting bytes pushed on the stack.
+        """
+        seq = """
+en: Fw.Enabled = Fw.Enabled.ENABLED
+CdhCore.health.HLTH_PING_ENABLE("task1", en)
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestNamespaces:
 

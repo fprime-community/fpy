@@ -32,6 +32,7 @@ from fpy.types import (
     I64,
     F32,
     F64,
+    SEQ_ARGS,
     is_instance_compat,
 )
 from fpy.state import (
@@ -168,7 +169,7 @@ class CalculateFrameSizes(TopDownVisitor):
     def run(self, start: Ast, state: CompileState):
         # For the global frame, start after sequence args (already on stack)
         if start is state.root:
-            self.offset = sum(t.max_size for t in state.sequence_arg_types)
+            self.offset = sum(t.max_size for _, t in state.sequence_args)
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
@@ -240,14 +241,13 @@ class GenerateFunctionBody(Emitter):
             return [PushValDirective(arg.serialize())]
         return self.emit(arg, state)
 
-    def _emit_padded_stack_arg(
-        self, arg, expected_type: FpyType, state: CompileState
+    def _emit_cmd_arg(
+        self, arg, state: CompileState
     ) -> tuple[list[Directive | Ir], int]:
-        """Emit an argument for the StackCmd path, returning (directives, actual_byte_count).
+        """Emit a command argument, returning (directives, actual_byte_count).
 
         For compile-time constants the actual serialized size may be smaller
-        than *expected_type.max_size* (e.g. strings serialize compactly).
-        For variable loads (LoadRel, etc.) the size is always max_size.
+        than the type's max_size (e.g. strings serialize compactly).
         The caller must use the returned byte count for StackCmdDirective
         accounting so it matches the bytes actually placed on the stack.
         """
@@ -259,7 +259,7 @@ class GenerateFunctionBody(Emitter):
             serialized = const_val.serialize()
             return [PushValDirective(serialized)], len(serialized)
         dirs = self.emit(arg, state)
-        return dirs, expected_type.max_size
+        return dirs, state.contextual_types[arg].max_size
 
     def _emit_seq_run_cmd(
         self,
@@ -272,21 +272,15 @@ class GenerateFunctionBody(Emitter):
         Serializes the two fixed args (fileName, blockState) plus a SeqArgs
         struct containing the vararg values packed into its buffer.
         """
-        import struct as struct_mod
-        from fpy.types import SEQ_ARGS
-
         call_info = state.seq_run_call_info[node]
         resolved_args = state.resolved_args[node]
 
         # Compute the actual data size in the SeqArgs buffer
-        vararg_data_size = sum(t.max_size for t in call_info.target_arg_types)
+        vararg_data_size = sum(t.max_size for t in call_info.arg_types)
         buffer_size = SEQ_ARGS.members[1].type.length
-        assert vararg_data_size <= buffer_size, (
-            f"Vararg data ({vararg_data_size} bytes) exceeds SeqArgs buffer ({buffer_size} bytes)"
-        )
         padding_size = buffer_size - vararg_data_size
-        # $size is FwSizeType (U64)
-        size_bytes = struct_mod.pack("!Q", vararg_data_size)
+        size_type = SEQ_ARGS.members[0].type
+        size_bytes = FpyValue(size_type, vararg_data_size).serialize()
 
         # Check if all args (fixed + varargs) are compile-time constants
         all_fixed_const = all(
@@ -313,33 +307,28 @@ class GenerateFunctionBody(Emitter):
             arg_bytes += bytes(padding_size)
             return [ConstCmdDirective(func.cmd.opcode, arg_bytes)]
         else:
-            # Dynamic: push everything to the stack.
-            # Each arg must be tracked by its actual serialized size,
-            # which matches max_size for variables but may be smaller
-            # for compile-time constants (e.g. compact string literals).
             dirs = []
             arg_byte_count = 0
 
             # Push fixed args
             for a in resolved_args:
-                t = a.type if isinstance(a, FpyValue) else state.contextual_types[a]
-                arg_dirs, actual_size = self._emit_padded_stack_arg(a, t, state)
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
                 arg_byte_count += actual_size
 
             # Push SeqArgs struct: $size field
             dirs.append(PushValDirective(size_bytes))
-            arg_byte_count += 8  # U64
+            arg_byte_count += size_type.max_size
 
             # Push vararg values
-            for a, expected_type in zip(call_info.vararg_exprs, call_info.target_arg_types):
-                arg_dirs, actual_size = self._emit_padded_stack_arg(a, expected_type, state)
+            for a, _expected_type in zip(call_info.vararg_exprs, call_info.arg_types):
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
                 arg_byte_count += actual_size
 
             # Push zero padding to fill the rest of the buffer
             if padding_size > 0:
-                dirs.append(PushValDirective(bytes(padding_size)))
+                dirs.append(AllocateDirective(size=padding_size))
                 arg_byte_count += padding_size
 
             # Push opcode, then emit stack command
@@ -1029,9 +1018,9 @@ class GenerateFunctionBody(Emitter):
                 # push all args to the stack
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
-                    arg_converted_type = arg_node.type if isinstance(arg_node, FpyValue) else state.contextual_types[arg_node]
-                    arg_byte_count += arg_converted_type.max_size
+                    arg_dirs, actual_size = self._emit_cmd_arg(arg_node, state)
+                    dirs.extend(arg_dirs)
+                    arg_byte_count += actual_size
                 # then push cmd opcode to stack as u32
                 dirs.append(
                     PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
@@ -1267,7 +1256,7 @@ class GenerateModule(Emitter):
         # for user-defined lvars, we will have to write zeroes with Allocate
 
         flags_type = state.flags_var.type
-        args_size = sum(t.max_size for t in state.sequence_arg_types)
+        args_size = sum(t.max_size for _, t in state.sequence_args)
         assert state.flags_var.frame_offset == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))

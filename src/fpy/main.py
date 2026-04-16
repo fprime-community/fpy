@@ -136,7 +136,7 @@ def compile_main(args: list[str] = None):
         fpybc = directives_to_fpybc(directives)
         print(fpybc)
     else:
-        arg_specs = [(t.name, t.max_size) for t in arg_types]
+        arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
         output_bytes, crc = serialize_directives(directives, arg_specs)
         output.write_bytes(output_bytes)
         print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
@@ -188,7 +188,7 @@ def model_main(args: list[str] = None):
             sys.exit(1)
         type_defs = load_dictionary(str(args.dictionary))["type_defs"]
         try:
-            arg_types = resolve_arg_specs(arg_specs, type_defs)
+            arg_types = [t for _, t in resolve_arg_specs(arg_specs, type_defs)]
         except RuntimeError as e:
             print(str(e), file=sys.stderr)
             sys.exit(1)

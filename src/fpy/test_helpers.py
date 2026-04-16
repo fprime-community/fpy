@@ -22,7 +22,7 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, binary_dir: str = None) -> tuple[list[Directive], list[FpyType]]:
+def compile_seq(fprime_test_api, seq: str, binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
     
@@ -134,7 +134,8 @@ def assert_run_success(
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
 ):
-    directives, arg_types = compile_seq(fprime_test_api, seq)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq)
+    arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
@@ -168,7 +169,8 @@ def assert_run_failure(
     assert error_code is not None or validation_error, \
         "Must specify either error_code or validation_error"
 
-    directives, arg_types = compile_seq(fprime_test_api, seq)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq)
+    arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
