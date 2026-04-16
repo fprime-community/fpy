@@ -41,6 +41,7 @@ getoption
 github
 gz
 hh
+HLTH
 iabs
 idx
 ieq
@@ -88,6 +89,7 @@ ul
 umod
 usec
 useconds
+vararg
 vh
 vw
 wrt

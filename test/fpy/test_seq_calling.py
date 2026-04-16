@@ -168,8 +168,8 @@ assert val == 99
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-myval: U32 = 99
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, myval)
+my_val: U32 = 99
+Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, my_val)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
 
@@ -541,8 +541,8 @@ assert val == 55
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-myval: U32 = 55
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val=myval)
+val: U32 = 55
+Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val=val)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
 
@@ -604,7 +604,7 @@ Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=1, x
                 compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
 
     def test_positional_and_named_conflict(self, fprime_test_api):
-        """Same arg specified both positionally and by name should fail."""
+        """Same arg specified both by position and by name should fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
 
