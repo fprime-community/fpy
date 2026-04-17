@@ -21,6 +21,108 @@ def test_human_readable_size(size, expected):
     assert fpy_main.human_readable_size(size) == expected
 
 
+def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
+    """--ground-binary-dir is resolved and passed to ast_to_directives."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+    bin_dir = tmp_path / "binaries"
+    bin_dir.mkdir()
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+
+    captured_kwargs = {}
+
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+        captured_kwargs["ground_binary_dir"] = ground_binary_dir
+        captured_kwargs["flight_binary_dir"] = flight_binary_dir
+        return ["directive"], []
+
+    monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
+    monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
+
+    fpy_main.compile_main(
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "--bytecode",
+            "--ground-binary-dir",
+            str(bin_dir),
+        ]
+    )
+
+    assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
+    assert captured_kwargs["flight_binary_dir"] is None
+
+
+def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tmp_path, capsys):
+    """When --ground-binary-dir is not passed, it defaults to the input file's parent."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+
+    captured_kwargs = {}
+
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+        captured_kwargs["ground_binary_dir"] = ground_binary_dir
+        return ["directive"], []
+
+    monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
+    monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
+
+    fpy_main.compile_main(
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "--bytecode",
+        ]
+    )
+
+    assert captured_kwargs["ground_binary_dir"] == str(input_path.parent.resolve())
+
+
+def test_compile_main_flight_binary_dir(monkeypatch, tmp_path, capsys):
+    """--flight-binary-dir is passed through to ast_to_directives."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+
+    captured_kwargs = {}
+
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+        captured_kwargs["ground_binary_dir"] = ground_binary_dir
+        captured_kwargs["flight_binary_dir"] = flight_binary_dir
+        return ["directive"], []
+
+    monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
+    monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
+
+    fpy_main.compile_main(
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "--bytecode",
+            "--ground-binary-dir",
+            str(tmp_path),
+            "--flight-binary-dir",
+            "/seq/bin",
+        ]
+    )
+
+    assert captured_kwargs["ground_binary_dir"] == str(tmp_path.resolve())
+    assert captured_kwargs["flight_binary_dir"] == "/seq/bin"
+
+
 def test_compile_main_missing_input(tmp_path, capsys):
     missing = tmp_path / "missing.fpy"
     dict_path = tmp_path / "dict.json"
