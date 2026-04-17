@@ -27,7 +27,7 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
-    CheckSeqRunArgs,
+    CheckSequenceArgs,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
@@ -553,7 +553,7 @@ def ast_to_directives(
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
-        CheckSeqRunArgs(),
+        CheckSequenceArgs(),
     ]
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops

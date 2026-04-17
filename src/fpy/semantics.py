@@ -2853,7 +2853,7 @@ class WarnRangesAreNotEmpty(Visitor):
             state.warn("Range is empty", node)
 
 
-class CheckSeqRunArgs(Visitor):
+class CheckSequenceArgs(Visitor):
     """Check sequence argument constraints:
     - vararg data fits in the SeqArgs buffer
     - arg count fits in a u8 (max 255)
