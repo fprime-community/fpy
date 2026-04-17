@@ -258,10 +258,9 @@ class Header:
     argumentCount: int
     statementCount: int
     bodySize: int
-    arg_specs: list[tuple[str, str, int]] = field(default_factory=list)
 
     def pack(self) -> bytes:
-        header_bytes = struct.pack(
+        return struct.pack(
             HEADER_FORMAT,
             self.majorVersion,
             self.minorVersion,
@@ -271,14 +270,11 @@ class Header:
             self.statementCount,
             self.bodySize,
         )
-        return header_bytes + _serialize_arg_specs(self.arg_specs)
 
     @staticmethod
     def unpack(data: bytes) -> Header:
         (major, minor, patch, schema, arg_count, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
-        args_offset = HEADER_SIZE
-        _, arg_specs = _deserialize_arg_specs(data, args_offset, arg_count)
-        return Header(major, minor, patch, schema, arg_count, stmt_count, body_size, arg_specs)
+        return Header(major, minor, patch, schema, arg_count, stmt_count, body_size)
 
 
 FOOTER_FORMAT = "!I"
@@ -332,14 +328,11 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
 def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, str, int]]]:
     header = _unpack_and_check_header(data)
 
-    # Compute args section size from the arg specs
-    args_size = sum(
-        1 + len(arg_name.encode("utf-8")) + 1 + len(type_name.encode("utf-8")) + StackSizeType.max_size
-        for arg_name, type_name, _ in header.arg_specs
-    )
+    # Deserialize arg specs section (immediately after fixed header)
+    offset, arg_specs = _deserialize_arg_specs(data, HEADER_SIZE, header.argumentCount)
+
     dirs = []
     idx = 0
-    offset = HEADER_SIZE + args_size
     while idx < header.statementCount:
         offset_and_dir = Directive.deserialize(data, offset)
         if offset_and_dir is None:
@@ -361,7 +354,7 @@ def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str
             f"CRC mismatch (expected {hex(expected_crc)}, computed {hex(actual_crc)})"
         )
 
-    return dirs, header.arg_specs
+    return dirs, arg_specs
 
 
 def _unpack_and_check_header(data: bytes) -> Header:
@@ -375,13 +368,15 @@ def _unpack_and_check_header(data: bytes) -> Header:
 
 
 def read_bin_arg_specs(path: Path) -> list[tuple[str, str, int]]:
-    """Read only the header of a compiled .bin file and return its arg_specs.
+    """Read the arg specs section of a compiled .bin file.
 
     This is used at compile time to discover the expected argument types of a
     called sequence without deserializing the full directive body.
     """
     data = path.read_bytes()
-    return _unpack_and_check_header(data).arg_specs
+    header = _unpack_and_check_header(data)
+    _, arg_specs = _deserialize_arg_specs(data, HEADER_SIZE, header.argumentCount)
+    return arg_specs
 
 
 def resolve_arg_specs(
@@ -442,9 +437,8 @@ def serialize_directives(
         len(arg_specs),
         len(dirs),
         len(body_bytes),
-        arg_specs,
     )
-    output_bytes = header.pack() + body_bytes
+    output_bytes = header.pack() + _serialize_arg_specs(arg_specs) + body_bytes
 
     crc = zlib.crc32(output_bytes) % (1 << 32)
     footer = Footer(crc)
