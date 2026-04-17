@@ -402,7 +402,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
         # Detect sequence-run commands by matching the 3-arg signature:
-        # (fileName: string, block: Svc.FpySequencer.BlockState, args: Svc.SeqArgs)
+        # (fileName: string, block: <any enum>, args: Svc.SeqArgs)
         if (
             len(args) == 3
             and args[0][1].is_string
