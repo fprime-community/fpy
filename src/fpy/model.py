@@ -146,7 +146,6 @@ class FpySequencerModel:
         time_base: int = 0, time_context: int = 0, initial_time_us: int = 0,
         failing_opcodes: set[int] = None,
         seq_run_opcodes: set[int] = None,
-        binary_dir: str = None,
         arg_type_defs: dict[str, FpyType] = None,
     ) -> None:
         self.stack = bytearray()
@@ -155,7 +154,6 @@ class FpySequencerModel:
         self.cmd_dict = cmd_dict
         self.failing_opcodes: set[int] = failing_opcodes or set()
         self.seq_run_opcodes: set[int] = seq_run_opcodes or set()
-        self.binary_dir = binary_dir
         self.arg_type_defs: dict[str, FpyType] = arg_type_defs or {}
 
         self.dirs: list[Directive] = None
@@ -583,9 +581,8 @@ class FpySequencerModel:
         # Extract actual arg bytes from the buffer
         child_args = bytes(args[offset : offset + actual_size])
 
-        # Resolve the .bin file
-        assert self.binary_dir is not None, "binary_dir required for seq-run commands"
-        bin_path = Path(self.binary_dir) / file_name
+        # Resolve the .bin file relative to cwd, just like the real sequencer
+        bin_path = Path(file_name)
         assert bin_path.exists(), f"Child sequence binary not found: {bin_path}"
 
         # Read and deserialize the child sequence
@@ -606,7 +603,6 @@ class FpySequencerModel:
             initial_time_us=self.simulated_time_us,
             failing_opcodes=self.failing_opcodes,
             seq_run_opcodes=self.seq_run_opcodes,
-            binary_dir=self.binary_dir,
             arg_type_defs=self.arg_type_defs,
         )
         result = child_model.run(

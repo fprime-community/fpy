@@ -22,7 +22,7 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
+def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None, flight_binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
     
@@ -31,7 +31,7 @@ def compile_seq(fprime_test_api, seq: str, binary_dir: str = None) -> tuple[list
         # This shouldn't happen - text_to_ast calls exit(1) on parse errors
         raise CompilationFailed("Parsing failed")
     
-    result = ast_to_directives(body, default_dictionary, binary_dir=binary_dir)
+    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{result}")
     
@@ -56,7 +56,6 @@ def run_seq(
     args: bytes = None,
     arg_types: list[FpyType] = None,
     seq_run_opcodes: set[int] = None,
-    binary_dir: str = None,
 ):
     """Run a list of directives.
 
@@ -91,7 +90,6 @@ def run_seq(
         initial_time_us=initial_time_us,
         failing_opcodes=always_failing,
         seq_run_opcodes=seq_run_opcodes or set(),
-        binary_dir=binary_dir,
         arg_type_defs=type_defs,
     )
     tlm_db = {}

@@ -46,7 +46,7 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_error, "debug", False, raising=False)
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
-    def fake_ast_to_directives(body, dictionary, binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
         assert body == "AST"
         assert Path(dictionary) == dict_path
         return ["directive"], []
@@ -84,7 +84,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "ast_to_directives",
-        lambda body, dictionary, binary_dir=None: (["directive"], []),
+        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: (["directive"], []),
     )
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
     monkeypatch.setattr(

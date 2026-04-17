@@ -925,10 +925,10 @@ class ResolveSequenceDependencies(TopDownVisitor):
             # Already resolved (e.g. same sequence called twice)
             return
 
-        binary_dir = state.binary_dir
-        if binary_dir is None:
+        ground_binary_dir = state.ground_binary_dir
+        if ground_binary_dir is None:
             state.err(
-                "Cannot resolve sequence binary path: no binary directory configured (use --binary-dir / -B)",
+                "Cannot resolve sequence binary path: no binary directory configured (use --ground-binary-dir / -B)",
                 node,
             )
             return
@@ -936,7 +936,11 @@ class ResolveSequenceDependencies(TopDownVisitor):
         from pathlib import Path
         from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
 
-        bin_path = Path(binary_dir) / bin_name
+        resolve_name = bin_name
+        if state.flight_binary_dir is not None and bin_name.startswith(state.flight_binary_dir):
+            resolve_name = bin_name[len(state.flight_binary_dir):].lstrip("/")
+
+        bin_path = Path(ground_binary_dir) / resolve_name
         if not bin_path.exists():
             state.err(
                 f"Compiled sequence binary not found: {bin_path}",

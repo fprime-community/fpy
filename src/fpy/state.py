@@ -291,8 +291,11 @@ class CompileState:
 
     type_defs: dict = field(default_factory=dict)
     """Flat map of fully-qualified type name to FpyType, for resolving types at compile time."""
-    binary_dir: str | None = None
-    """Directory for resolving compiled sequence binaries (.bin files)."""
+    ground_binary_dir: str | None = None
+    """Local directory for resolving compiled sequence binaries (.bin files)."""
+    flight_binary_dir: str | None = None
+    """Absolute path prefix for .bin files on the spacecraft. Sequence paths starting
+    with this prefix will have it stripped and be resolved relative to ground_binary_dir."""
 
     # Sequence limits loaded from dictionary (or defaults if not specified)
     max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT

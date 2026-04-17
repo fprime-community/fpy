@@ -25,7 +25,7 @@ from fpy.test_helpers import (
 from fpy.types import FpyType, FpyValue, U32, U8, F32
 
 
-def _compile_to_bin(seq_text: str, out_path: Path, binary_dir: str = None):
+def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None):
     """Compile a sequence string and write the binary to *out_path*.
 
     Returns (directives, arg_types) for the compiled sequence.
@@ -33,7 +33,7 @@ def _compile_to_bin(seq_text: str, out_path: Path, binary_dir: str = None):
     fpy.error.file_name = "<test-child>"
     body = text_to_ast(seq_text)
     assert body is not None, "Failed to parse child sequence"
-    result = ast_to_directives(body, default_dictionary, binary_dir=binary_dir)
+    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
     assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), (
         f"Compilation failed:\n{result}"
     )
@@ -52,22 +52,34 @@ def _get_seq_run_opcode() -> int:
 def _compile_and_run_parent(
     fprime_test_api,
     seq_text: str,
-    binary_dir: str,
+    ground_binary_dir: str,
     seq_run_opcodes: set[int] = None,
     failing_opcodes: set[int] = None,
+    flight_binary_dir: str = None,
 ):
     """Compile and run a parent sequence that may call child sequences."""
     fpy.error.file_name = "<test-parent>"
-    directives, arg_types = compile_seq(fprime_test_api, seq_text, binary_dir=binary_dir)
+    directives, arg_types = compile_seq(
+        fprime_test_api, seq_text,
+        ground_binary_dir=ground_binary_dir,
+        flight_binary_dir=flight_binary_dir,
+    )
     if seq_run_opcodes is None:
         seq_run_opcodes = {_get_seq_run_opcode()}
-    run_seq(
-        fprime_test_api,
-        directives,
-        seq_run_opcodes=seq_run_opcodes,
-        binary_dir=binary_dir,
-        failing_opcodes=failing_opcodes,
-    )
+    # Run from ground_binary_dir so relative paths resolve correctly,
+    # mimicking the real sequencer resolving paths relative to its cwd
+    import os
+    old_cwd = os.getcwd()
+    os.chdir(ground_binary_dir)
+    try:
+        run_seq(
+            fprime_test_api,
+            directives,
+            seq_run_opcodes=seq_run_opcodes,
+            failing_opcodes=failing_opcodes,
+        )
+    finally:
+        os.chdir(old_cwd)
 
 
 class TestSeqRunDetection:
@@ -120,7 +132,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingWithArgs:
@@ -139,7 +151,7 @@ assert x == 42
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_call_child_multiple_args(self, fprime_test_api):
         """Parent calls child with multiple arguments; child asserts values."""
@@ -155,7 +167,7 @@ assert y == 7
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 100, 7)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_call_child_with_variable_args(self, fprime_test_api):
         """Parent passes variables as arguments to child; child asserts value."""
@@ -171,7 +183,7 @@ assert val == 99
 my_val: U32 = 99
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, my_val)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_call_child_with_expression_arg(self, fprime_test_api):
         """Parent passes an arithmetic expression; child asserts the result."""
@@ -186,7 +198,7 @@ assert val == 30
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 10 + 20)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_child_uses_arg_in_arithmetic(self, fprime_test_api):
         """Child sequence uses the arg in arithmetic and asserts the result."""
@@ -202,7 +214,7 @@ assert result == 50
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_call_child_u8_arg(self, fprime_test_api):
         """Parent passes a U8 argument; child asserts value."""
@@ -217,7 +229,7 @@ assert b == 255
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 255)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_call_child_f32_arg(self, fprime_test_api):
         """Parent passes an F32 argument; child asserts approximate value."""
@@ -233,7 +245,7 @@ assert f < 3.15
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 3.14)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_wrong_value_causes_failure(self, fprime_test_api):
         """Child assert fails when the wrong value is passed."""
@@ -249,7 +261,7 @@ assert x == 999
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 1)
 """
             with pytest.raises(RuntimeError):
-                _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingErrors:
@@ -269,7 +281,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
 """
             with pytest.raises(CompilationFailed, match="Missing sequence argument 'y'"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_wrong_arg_type(self, fprime_test_api):
         """Providing incompatible vararg types should fail at compile time."""
@@ -285,7 +297,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, true)
 """
             with pytest.raises(CompilationFailed):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_missing_bin_file(self, fprime_test_api):
         """Calling a nonexistent .bin file should fail at compile time."""
@@ -295,7 +307,7 @@ Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, true)
 Ref.cmdSeq.RUN_ARGS("{fake_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
             with pytest.raises(CompilationFailed, match="not found"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_no_binary_dir(self, fprime_test_api):
         """Calling without binary_dir should fail at compile time."""
@@ -337,13 +349,13 @@ sequence(x: U32)
 assert x == 42
 Ref.cmdSeq.RUN_ARGS("{grandchild_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 7)
 """
-            _compile_to_bin(child_seq, Path(child_path), binary_dir=tmpdir)
+            _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             # Parent: calls child with an arg
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 42)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_nested_pass_through_arg(self, fprime_test_api):
         """Parent passes a value through two levels of sequence calls."""
@@ -363,12 +375,12 @@ sequence(val: U32)
 assert val == 123
 Ref.cmdSeq.RUN_ARGS("{grandchild_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val)
 """
-            _compile_to_bin(child_seq, Path(child_path), binary_dir=tmpdir)
+            _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 123)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingReturnStatus:
@@ -391,7 +403,7 @@ if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_branch_on_child_failure(self, fprime_test_api):
         """Parent detects EXECUTION_ERROR when child asserts false."""
@@ -410,7 +422,7 @@ if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_branch_on_success_with_args(self, fprime_test_api):
         """Parent branches on OK response from a child that receives args."""
@@ -430,7 +442,7 @@ if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_branch_on_failure_wrong_arg(self, fprime_test_api):
         """Parent detects failure when child gets wrong arg value."""
@@ -450,7 +462,7 @@ if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingNamedArgs:
@@ -471,7 +483,7 @@ assert x == 42
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=42)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_multiple_named_args(self, fprime_test_api):
         """Parent passes multiple named args to child sequence."""
@@ -489,7 +501,7 @@ assert b == 7
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, a=100, b=7)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_named_args_reordered(self, fprime_test_api):
         """Named args passed in different order than declared should be reordered."""
@@ -507,7 +519,7 @@ assert second == 2
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, second=2, first=1)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_mixed_positional_and_named(self, fprime_test_api):
         """First arg positional, second arg named."""
@@ -526,7 +538,7 @@ assert c == 30
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 10, c=30, b=20)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_named_arg_with_variable(self, fprime_test_api):
         """Pass a variable by name to child sequence."""
@@ -544,7 +556,7 @@ assert val == 55
 val: U32 = 55
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val=val)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_named_arg_with_expression(self, fprime_test_api):
         """Pass an expression by name to child sequence."""
@@ -561,7 +573,7 @@ assert result == 30
             parent_seq = f"""\
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, result=10 + 20)
 """
-            _compile_and_run_parent(fprime_test_api, parent_seq, binary_dir=tmpdir)
+            _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingNamedArgErrors:
@@ -583,7 +595,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, z=42)
 """
             with pytest.raises(CompilationFailed, match="Unknown argument 'z'"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_duplicate_named_arg(self, fprime_test_api):
         """Same named arg specified twice should fail."""
@@ -601,7 +613,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=1, x=2)
 """
             with pytest.raises(CompilationFailed, match="specified multiple times"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_positional_and_named_conflict(self, fprime_test_api):
         """Same arg specified both by position and by name should fail."""
@@ -619,7 +631,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42, x=99)
 """
             with pytest.raises(CompilationFailed, match="specified multiple times"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_missing_named_arg(self, fprime_test_api):
         """Missing a required arg when using named args should fail."""
@@ -637,7 +649,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=42)
 """
             with pytest.raises(CompilationFailed, match="Missing sequence argument 'y'"):
-                compile_seq(fprime_test_api, parent_seq, binary_dir=tmpdir)
+                compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqArgLimits:
@@ -661,3 +673,67 @@ sequence({name_255}: U32)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
         compile_seq(fprime_test_api, seq)
+
+
+class TestFlightBinaryDir:
+    """Test --flight-binary-dir prefix stripping for sequence calls."""
+
+    def test_absolute_flight_path_resolved_via_prefix(self, fprime_test_api):
+        """An absolute flight path with the configured prefix should compile successfully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
+            child_path = str(Path(tmpdir) / "child.bin")
+            child_seq = """\
+sequence(x: U32)
+assert x == 42
+"""
+            _compile_to_bin(child_seq, Path(child_path))
+
+            # Parent references child via an absolute flight path;
+            # compiler strips the prefix to find child.bin in ground_binary_dir
+            parent_seq = """\
+Ref.cmdSeq.RUN_ARGS("/seq/bin/child.bin", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+"""
+            compile_seq(
+                fprime_test_api, parent_seq,
+                ground_binary_dir=tmpdir,
+                flight_binary_dir="/seq/bin",
+            )
+
+    def test_prefix_not_matching_uses_path_as_is(self, fprime_test_api):
+        """A path that doesn't start with the prefix should resolve normally."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
+            child_path = str(Path(tmpdir) / "child.bin")
+            child_seq = """\
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+            _compile_to_bin(child_seq, Path(child_path))
+
+            parent_seq = """\
+Ref.cmdSeq.RUN_ARGS("child.bin", Svc.FpySequencer.BlockState.NO_BLOCK)
+"""
+            _compile_and_run_parent(
+                fprime_test_api, parent_seq,
+                ground_binary_dir=tmpdir,
+                flight_binary_dir="/some/other/prefix",
+            )
+
+    def test_prefix_with_trailing_slash(self, fprime_test_api):
+        """Prefix with trailing slash should still work."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = str(Path(tmpdir).resolve())
+            child_path = str(Path(tmpdir) / "child.bin")
+            child_seq = """\
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+            _compile_to_bin(child_seq, Path(child_path))
+
+            parent_seq = """\
+Ref.cmdSeq.RUN_ARGS("/seq/bin/child.bin", Svc.FpySequencer.BlockState.NO_BLOCK)
+"""
+            compile_seq(
+                fprime_test_api, parent_seq,
+                ground_binary_dir=tmpdir,
+                flight_binary_dir="/seq/bin/",
+            )
