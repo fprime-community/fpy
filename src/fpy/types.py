@@ -616,14 +616,14 @@ TIME_INTERVAL = FpyType(
 )
 
 # Default buffer size for Svc.SeqArgs when not derived from dictionary
-DEFAULT_SEQ_ARGS_BUFFER_SIZE = 256
+DEFAULT_SEQ_ARGS_BUFFER_SIZE = 255
 
 # The canonical Svc.SeqArgs struct type used for passing arguments to subsequences.
 # This is a struct with a size prefix and a fixed-size byte buffer.
 # FPP struct: { $size: FwSizeType, buffer: [DEFAULT_SEQ_ARGS_BUFFER_SIZE] U8 }
 _SEQ_ARGS_BUFFER_TYPE = FpyType(
     TypeKind.ARRAY,
-    "Array_U8_256",
+    "Array_U8_255",
     elem_type=U8,
     length=DEFAULT_SEQ_ARGS_BUFFER_SIZE,
 )
@@ -631,11 +631,11 @@ SEQ_ARGS = FpyType(
     TypeKind.STRUCT,
     "Svc.SeqArgs",
     members=(
-        StructMember("$size", U64),
+        StructMember("size", U64),
         StructMember("buffer", _SEQ_ARGS_BUFFER_TYPE),
     ),
     member_defaults={
-        "$size": FpyValue(U64, 0),
+        "size": FpyValue(U64, 0),
         "buffer": FpyValue(_SEQ_ARGS_BUFFER_TYPE, [FpyValue(U8, 0)] * DEFAULT_SEQ_ARGS_BUFFER_SIZE),
     },
 )

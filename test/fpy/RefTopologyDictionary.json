@@ -1,52 +1,13 @@
 {
   "metadata" : {
     "deploymentName" : "Ref.Ref",
-    "projectVersion" : "bd12edb-dirty",
-    "frameworkVersion" : "v4.1.1-62-gf81a33ee1",
+    "projectVersion" : "0a409b9-dirty",
+    "frameworkVersion" : "v4.2.0-19-gce1a60a8b-dirty",
     "libraryVersions" : [
     ],
     "dictionarySpecVersion" : "1.0.0"
   },
   "typeDefinitions" : [
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.VersionType",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "PROJECT",
-          "value" : 0,
-          "annotation" : "project version"
-        },
-        {
-          "name" : "FRAMEWORK",
-          "value" : 1,
-          "annotation" : "framework version"
-        },
-        {
-          "name" : "LIBRARY",
-          "value" : 2,
-          "annotation" : "library version"
-        },
-        {
-          "name" : "CUSTOM",
-          "value" : 3,
-          "annotation" : "custom version"
-        },
-        {
-          "name" : "ALL",
-          "value" : 4,
-          "annotation" : "all above versions"
-        }
-      ],
-      "default" : "Svc.VersionType.PROJECT",
-      "annotation" : "An enumeration for Version Type"
-    },
     {
       "kind" : "array",
       "qualifiedName" : "Svc.BuffQueueDepth",
@@ -76,23 +37,6 @@
         "signed" : true
       },
       "annotation" : "The type of smaller indices internal to the software, used\nfor array indices, e.g., port indices. Must be signed."
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "FwTlmPacketizeIdType",
-      "type" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "annotation" : "The type of a telemetry packet identifier"
     },
     {
       "kind" : "alias",
@@ -225,167 +169,6 @@
     },
     {
       "kind" : "struct",
-      "qualifiedName" : "Ref.DpDemo.StructWithEverything",
-      "members" : {
-        "booleanArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.BooleanArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 10
-        },
-        "booleanMember" : {
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "index" : 3
-        },
-        "enumArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.EnumArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 8
-        },
-        "nestedArrays" : {
-          "type" : {
-            "name" : "Ref.DpDemo.ArrayOfStringArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 12
-        },
-        "integerMember" : {
-          "type" : {
-            "name" : "Ref.DpDemo.I32Alias",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 0
-        },
-        "stringMember" : {
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "index" : 2
-        },
-        "F32Array" : {
-          "type" : {
-            "name" : "Ref.DpDemo.F32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 6
-        },
-        "enumMember" : {
-          "type" : {
-            "name" : "Ref.DpDemo.ColorEnum",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 4
-        },
-        "U32Array" : {
-          "type" : {
-            "name" : "Ref.DpDemo.U32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 7
-        },
-        "stringArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.StringArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 9
-        },
-        "structWithStrings" : {
-          "type" : {
-            "name" : "Ref.DpDemo.StructWithStringMembers",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 11
-        },
-        "arrayMemberU32" : {
-          "type" : {
-            "name" : "Ref.DpDemo.U32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 5,
-          "size" : 2
-        },
-        "floatMember" : {
-          "type" : {
-            "name" : "F32",
-            "kind" : "float",
-            "size" : 32
-          },
-          "index" : 1
-        }
-      },
-      "default" : {
-        "booleanArray" : [
-          false,
-          false
-        ],
-        "booleanMember" : false,
-        "enumArray" : [
-          "Ref.DpDemo.ColorEnum.RED",
-          "Ref.DpDemo.ColorEnum.RED",
-          "Ref.DpDemo.ColorEnum.RED"
-        ],
-        "nestedArrays" : [
-          [
-            "",
-            ""
-          ],
-          [
-            "",
-            ""
-          ],
-          [
-            "",
-            ""
-          ]
-        ],
-        "integerMember" : 0,
-        "stringMember" : "",
-        "F32Array" : [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "enumMember" : "Ref.DpDemo.ColorEnum.RED",
-        "U32Array" : [
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        "stringArray" : [
-          "",
-          ""
-        ],
-        "structWithStrings" : {
-          "stringMember" : "",
-          "stringArrayMember" : [
-            "",
-            ""
-          ]
-        },
-        "arrayMemberU32" : [
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        "floatMember" : 0.0
-      }
-    },
-    {
-      "kind" : "struct",
       "qualifiedName" : "Ref.PacketStat",
       "members" : {
         "BuffRecv" : {
@@ -423,6 +206,84 @@
         "PacketStatus" : "Ref.PacketRecvStatus.PACKET_STATE_NO_PACKETS"
       },
       "annotation" : "Some Packet Statistics"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.VersionType",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "PROJECT",
+          "value" : 0,
+          "annotation" : "project version"
+        },
+        {
+          "name" : "FRAMEWORK",
+          "value" : 1,
+          "annotation" : "framework version"
+        },
+        {
+          "name" : "LIBRARY",
+          "value" : 2,
+          "annotation" : "library version"
+        },
+        {
+          "name" : "CUSTOM",
+          "value" : 3,
+          "annotation" : "custom version"
+        },
+        {
+          "name" : "ALL",
+          "value" : 4,
+          "annotation" : "all above versions"
+        }
+      ],
+      "default" : "Svc.VersionType.PROJECT",
+      "annotation" : "An enumeration for Version Type"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Ccsds.Tfvn",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "TM_TC",
+          "value" : 0,
+          "annotation" : "Telemetry and Telecommand SDLs"
+        },
+        {
+          "name" : "AOS",
+          "value" : 1,
+          "annotation" : "Advanced Orbiting Systems SDL"
+        },
+        {
+          "name" : "PROX_ONE",
+          "value" : 2,
+          "annotation" : "Proximity-1 SDL"
+        },
+        {
+          "name" : "USLP",
+          "value" : 3,
+          "annotation" : "Unified Space Data Link Protocol"
+        },
+        {
+          "name" : "INVALID_UNINITIALIZED",
+          "value" : 4,
+          "annotation" : "Anything equal or higher value is invalid and should not be used"
+        }
+      ],
+      "default" : "Svc.Ccsds.Tfvn.INVALID_UNINITIALIZED",
+      "annotation" : "Transfer Frame Version Numbers are 4 bits long\nCCSDS References add 1 to the binary value when counting versions in english (e.g. TM & TC are \"version 1\" but 0b00)\nUntil the release of USLP, TFVN were 2 bits long\nWith the addition of USLP two bits were added to the trailing end that serve as the 2 most significant bits\n(i.e. on the wire USLP sends 0b1100)\nSee section 3.2.2.2 of USLP Overview (CCSDS 700.1-G-1),\nsection 4.1.2.2.2 of AOS (CCSDS 732.0-B-5),\nsection 4.3.2 of Space Data Link Protocol Summary (CCSDS 130.2-G-3),\n& table 3-1 in Overview of Space Comms Protocols (CCSDS 130.0-G-4)"
     },
     {
       "kind" : "enum",
@@ -595,87 +456,6 @@
         }
       ],
       "default" : "Ref.SignalType.TRIANGLE"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.DirectiveErrorCode",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "NO_ERROR",
-          "value" : 0
-        },
-        {
-          "name" : "STMT_OUT_OF_BOUNDS",
-          "value" : 1
-        },
-        {
-          "name" : "TLM_GET_NOT_CONNECTED",
-          "value" : 2
-        },
-        {
-          "name" : "TLM_CHAN_NOT_FOUND",
-          "value" : 3
-        },
-        {
-          "name" : "PRM_GET_NOT_CONNECTED",
-          "value" : 4
-        },
-        {
-          "name" : "PRM_NOT_FOUND",
-          "value" : 5
-        },
-        {
-          "name" : "CMD_SERIALIZE_FAILURE",
-          "value" : 6
-        },
-        {
-          "name" : "EXIT_WITH_ERROR",
-          "value" : 7
-        },
-        {
-          "name" : "STACK_ACCESS_OUT_OF_BOUNDS",
-          "value" : 8
-        },
-        {
-          "name" : "STACK_OVERFLOW",
-          "value" : 9
-        },
-        {
-          "name" : "DOMAIN_ERROR",
-          "value" : 10
-        },
-        {
-          "name" : "FLAG_IDX_OUT_OF_BOUNDS",
-          "value" : 11
-        },
-        {
-          "name" : "ARRAY_OUT_OF_BOUNDS",
-          "value" : 12
-        },
-        {
-          "name" : "ARITHMETIC_OVERFLOW",
-          "value" : 13
-        },
-        {
-          "name" : "ARITHMETIC_UNDERFLOW",
-          "value" : 14
-        },
-        {
-          "name" : "FRAME_START_OUT_OF_BOUNDS",
-          "value" : 15
-        },
-        {
-          "name" : "STACK_UNDERFLOW",
-          "value" : 16
-        }
-      ],
-      "default" : "Svc.Fpy.DirectiveErrorCode.NO_ERROR"
     },
     {
       "kind" : "array",
@@ -928,6 +708,176 @@
       },
       "default" : {
         "Color" : "Ref.DpDemo.ColorEnum.RED"
+      }
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.DpDemo.StructWithEverything",
+      "members" : {
+        "booleanArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.BooleanArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 10
+        },
+        "booleanMember" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 3
+        },
+        "enumArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.EnumArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 8
+        },
+        "nestedArrays" : {
+          "type" : {
+            "name" : "Ref.DpDemo.ArrayOfStringArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 12
+        },
+        "integerMember" : {
+          "type" : {
+            "name" : "Ref.DpDemo.I32Alias",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        },
+        "stringMember" : {
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "index" : 2
+        },
+        "F32Array" : {
+          "type" : {
+            "name" : "Ref.DpDemo.F32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 6
+        },
+        "enumMember" : {
+          "type" : {
+            "name" : "Ref.DpDemo.ColorEnum",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 4
+        },
+        "U32Array" : {
+          "type" : {
+            "name" : "Ref.DpDemo.U32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 7
+        },
+        "stringArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.StringArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 9
+        },
+        "structWithStrings" : {
+          "type" : {
+            "name" : "Ref.DpDemo.StructWithStringMembers",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 11
+        },
+        "arrayMemberU32" : {
+          "type" : {
+            "name" : "Ref.DpDemo.U32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 5,
+          "size" : 2
+        },
+        "floatMember" : {
+          "type" : {
+            "name" : "F32",
+            "kind" : "float",
+            "size" : 32
+          },
+          "index" : 1
+        }
+      },
+      "default" : {
+        "booleanArray" : [
+          false,
+          false
+        ],
+        "booleanMember" : false,
+        "enumArray" : [
+          "Ref.DpDemo.ColorEnum.RED",
+          "Ref.DpDemo.ColorEnum.RED",
+          "Ref.DpDemo.ColorEnum.RED"
+        ],
+        "nestedArrays" : [
+          [
+            "",
+            ""
+          ],
+          [
+            "",
+            ""
+          ],
+          [
+            "",
+            ""
+          ]
+        ],
+        "integerMember" : 0,
+        "stringMember" : "",
+        "F32Array" : [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "enumMember" : "Ref.DpDemo.ColorEnum.RED",
+        "U32Array" : [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "stringArray" : [
+          "",
+          ""
+        ],
+        "structWithStrings" : {
+          "stringMember" : "",
+          "stringArrayMember" : [
+            "",
+            ""
+          ]
+        },
+        "arrayMemberU32" : [
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "floatMember" : 0.0
       }
     },
     {
@@ -1296,35 +1246,6 @@
     },
     {
       "kind" : "struct",
-      "qualifiedName" : "Svc.SeqArgs",
-      "members" : {
-        "$size" : {
-          "type" : {
-            "name" : "U64",
-            "kind" : "integer",
-            "size" : 64,
-            "signed" : false
-          },
-          "index" : 0
-        },
-        "buffer" : {
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "index" : 1,
-          "size" : 256
-        }
-      },
-      "default" : {
-        "$size" : 0,
-        "buffer" : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      }
-    },
-    {
-      "kind" : "struct",
       "qualifiedName" : "Ref.SignalPair",
       "members" : {
         "time" : {
@@ -1601,157 +1522,20 @@
     },
     {
       "kind" : "alias",
-      "qualifiedName" : "FwOpcodeType",
+      "qualifiedName" : "FwTlmPacketizeIdType",
       "type" : {
-        "name" : "FwIdType",
-        "kind" : "qualifiedIdentifier"
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
       },
       "underlyingType" : {
-        "name" : "U32",
+        "name" : "U16",
         "kind" : "integer",
-        "size" : 32,
+        "size" : 16,
         "signed" : false
       },
-      "annotation" : "The type of a command opcode"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Ref.PacketRecvStatus",
-      "representationType" : {
-        "name" : "I32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : true
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "PACKET_STATE_NO_PACKETS",
-          "value" : 0
-        },
-        {
-          "name" : "PACKET_STATE_OK",
-          "value" : 1
-        },
-        {
-          "name" : "PACKET_STATE_ERRORS",
-          "value" : 3,
-          "annotation" : "Receiver has seen errors"
-        }
-      ],
-      "default" : "Ref.PacketRecvStatus.PACKET_STATE_NO_PACKETS",
-      "annotation" : "Packet receive status"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.SystemResourceEnabled",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "DISABLED",
-          "value" : 0
-        },
-        {
-          "name" : "ENABLED",
-          "value" : 1
-        }
-      ],
-      "default" : "Svc.SystemResourceEnabled.DISABLED"
-    },
-    {
-      "kind" : "array",
-      "qualifiedName" : "Ref.DpDemo.F32Array",
-      "size" : 3,
-      "elementType" : {
-        "name" : "F32",
-        "kind" : "float",
-        "size" : 32
-      },
-      "default" : [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "annotation" : "Array of floats"
-    },
-    {
-      "kind" : "array",
-      "qualifiedName" : "Ref.DpDemo.EnumArray",
-      "size" : 3,
-      "elementType" : {
-        "name" : "Ref.DpDemo.ColorEnum",
-        "kind" : "qualifiedIdentifier"
-      },
-      "default" : [
-        "Ref.DpDemo.ColorEnum.RED",
-        "Ref.DpDemo.ColorEnum.RED",
-        "Ref.DpDemo.ColorEnum.RED"
-      ],
-      "annotation" : "Array of enumerations"
-    },
-    {
-      "kind" : "struct",
-      "qualifiedName" : "Ref.ChoiceSlurry",
-      "members" : {
-        "tooManyChoices" : {
-          "type" : {
-            "name" : "Ref.TooManyChoices",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 0,
-          "annotation" : "A large set of disorganized choices"
-        },
-        "separateChoice" : {
-          "type" : {
-            "name" : "Ref.Choice",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 1,
-          "annotation" : "A singular choice"
-        },
-        "choicePair" : {
-          "type" : {
-            "name" : "Ref.ChoicePair",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 2,
-          "annotation" : "A pair of choices"
-        },
-        "choiceAsMemberArray" : {
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "index" : 3,
-          "size" : 2,
-          "annotation" : "An array of choices defined as member array"
-        }
-      },
-      "default" : {
-        "tooManyChoices" : [
-          [
-            "Ref.Choice.ONE",
-            "Ref.Choice.ONE"
-          ],
-          [
-            "Ref.Choice.ONE",
-            "Ref.Choice.ONE"
-          ]
-        ],
-        "separateChoice" : "Ref.Choice.ONE",
-        "choicePair" : {
-          "firstChoice" : "Ref.Choice.ONE",
-          "secondChoice" : "Ref.Choice.ONE"
-        },
-        "choiceAsMemberArray" : 0
-      },
-      "annotation" : "Structure of enums (with an multi-dimensional array and structure)"
+      "annotation" : "The type of a telemetry packet identifier"
     },
     {
       "kind" : "enum",
@@ -2032,47 +1816,420 @@
           "value" : 66
         },
         {
-          "name" : "SET_FLAG",
+          "name" : "GET_FIELD",
           "value" : 67
         },
         {
-          "name" : "GET_FLAG",
+          "name" : "PEEK",
           "value" : 68
         },
         {
-          "name" : "GET_FIELD",
+          "name" : "STORE_REL",
           "value" : 69
         },
         {
-          "name" : "PEEK",
+          "name" : "CALL",
           "value" : 70
         },
         {
-          "name" : "STORE_REL",
+          "name" : "RETURN",
           "value" : 71
         },
         {
-          "name" : "CALL",
+          "name" : "LOAD_ABS",
           "value" : 72
         },
         {
-          "name" : "RETURN",
+          "name" : "STORE_ABS",
           "value" : 73
         },
         {
-          "name" : "LOAD_ABS",
+          "name" : "STORE_ABS_CONST_OFFSET",
           "value" : 74
         },
         {
-          "name" : "STORE_ABS",
+          "name" : "POP_EVENT",
           "value" : 75
-        },
-        {
-          "name" : "STORE_ABS_CONST_OFFSET",
-          "value" : 76
         }
       ],
       "default" : "Svc.Fpy.DirectiveId.INVALID"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "FwOpcodeType",
+      "type" : {
+        "name" : "FwIdType",
+        "kind" : "qualifiedIdentifier"
+      },
+      "underlyingType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "annotation" : "The type of a command opcode"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Ref.PacketRecvStatus",
+      "representationType" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : true
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "PACKET_STATE_NO_PACKETS",
+          "value" : 0
+        },
+        {
+          "name" : "PACKET_STATE_OK",
+          "value" : 1
+        },
+        {
+          "name" : "PACKET_STATE_ERRORS",
+          "value" : 3,
+          "annotation" : "Receiver has seen errors"
+        }
+      ],
+      "default" : "Ref.PacketRecvStatus.PACKET_STATE_NO_PACKETS",
+      "annotation" : "Packet receive status"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Svc.SeqArgs",
+      "members" : {
+        "size" : {
+          "type" : {
+            "name" : "FwSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        },
+        "buffer" : {
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "index" : 1,
+          "size" : 255
+        }
+      },
+      "default" : {
+        "size" : 0,
+        "buffer" : [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.SystemResourceEnabled",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "DISABLED",
+          "value" : 0
+        },
+        {
+          "name" : "ENABLED",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.SystemResourceEnabled.DISABLED"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.DpDemo.F32Array",
+      "size" : 3,
+      "elementType" : {
+        "name" : "F32",
+        "kind" : "float",
+        "size" : 32
+      },
+      "default" : [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "annotation" : "Array of floats"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.DpDemo.EnumArray",
+      "size" : 3,
+      "elementType" : {
+        "name" : "Ref.DpDemo.ColorEnum",
+        "kind" : "qualifiedIdentifier"
+      },
+      "default" : [
+        "Ref.DpDemo.ColorEnum.RED",
+        "Ref.DpDemo.ColorEnum.RED",
+        "Ref.DpDemo.ColorEnum.RED"
+      ],
+      "annotation" : "Array of enumerations"
     },
     {
       "kind" : "array",
@@ -2343,6 +2500,91 @@
     },
     {
       "kind" : "enum",
+      "qualifiedName" : "Svc.Fpy.DirectiveErrorCode",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "NO_ERROR",
+          "value" : 0
+        },
+        {
+          "name" : "STMT_OUT_OF_BOUNDS",
+          "value" : 1
+        },
+        {
+          "name" : "TLM_GET_NOT_CONNECTED",
+          "value" : 2
+        },
+        {
+          "name" : "TLM_CHAN_NOT_FOUND",
+          "value" : 3
+        },
+        {
+          "name" : "PRM_GET_NOT_CONNECTED",
+          "value" : 4
+        },
+        {
+          "name" : "PRM_NOT_FOUND",
+          "value" : 5
+        },
+        {
+          "name" : "CMD_SERIALIZE_FAILURE",
+          "value" : 6
+        },
+        {
+          "name" : "EXIT_WITH_ERROR",
+          "value" : 7
+        },
+        {
+          "name" : "STACK_ACCESS_OUT_OF_BOUNDS",
+          "value" : 8
+        },
+        {
+          "name" : "STACK_OVERFLOW",
+          "value" : 9
+        },
+        {
+          "name" : "DOMAIN_ERROR",
+          "value" : 10
+        },
+        {
+          "name" : "ARRAY_OUT_OF_BOUNDS",
+          "value" : 11
+        },
+        {
+          "name" : "ARITHMETIC_OVERFLOW",
+          "value" : 12
+        },
+        {
+          "name" : "ARITHMETIC_UNDERFLOW",
+          "value" : 13
+        },
+        {
+          "name" : "FRAME_START_OUT_OF_BOUNDS",
+          "value" : 14
+        },
+        {
+          "name" : "STACK_UNDERFLOW",
+          "value" : 15
+        },
+        {
+          "name" : "INVALID_ARG",
+          "value" : 16
+        },
+        {
+          "name" : "CMD_FAIL",
+          "value" : 17
+        }
+      ],
+      "default" : "Svc.Fpy.DirectiveErrorCode.NO_ERROR"
+    },
+    {
+      "kind" : "enum",
       "qualifiedName" : "Svc.PrmDb.PrmDbFileLoadState",
       "representationType" : {
         "name" : "U8",
@@ -2499,6 +2741,55 @@
         "useconds" : 0
       },
       "annotation" : "Data structure for Time"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Fw.LogSeverity",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "FATAL",
+          "value" : 1,
+          "annotation" : "A fatal non-recoverable event"
+        },
+        {
+          "name" : "WARNING_HI",
+          "value" : 2,
+          "annotation" : "A serious but recoverable event"
+        },
+        {
+          "name" : "WARNING_LO",
+          "value" : 3,
+          "annotation" : "A less serious but recoverable event"
+        },
+        {
+          "name" : "COMMAND",
+          "value" : 4,
+          "annotation" : "An activity related to commanding"
+        },
+        {
+          "name" : "ACTIVITY_HI",
+          "value" : 5,
+          "annotation" : "Important informational events"
+        },
+        {
+          "name" : "ACTIVITY_LO",
+          "value" : 6,
+          "annotation" : "Less important informational events"
+        },
+        {
+          "name" : "DIAGNOSTIC",
+          "value" : 7,
+          "annotation" : "Software diagnostic events"
+        }
+      ],
+      "default" : "Fw.LogSeverity.FATAL",
+      "annotation" : "Enum representing event severity"
     },
     {
       "kind" : "alias",
@@ -2736,24 +3027,6 @@
       "annotation" : "Array of array"
     },
     {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.FlagId",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "EXIT_ON_CMD_FAIL",
-          "value" : 0,
-          "annotation" : "if true, the sequence will exit with an error if a command fails"
-        }
-      ],
-      "default" : "Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL"
-    },
-    {
       "kind" : "array",
       "qualifiedName" : "Ref.DpDemo.ArrayOfStringArray",
       "size" : 3,
@@ -2920,6 +3193,69 @@
         "signed" : false
       },
       "annotation" : "The type of an event identifier"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.ChoiceSlurry",
+      "members" : {
+        "tooManyChoices" : {
+          "type" : {
+            "name" : "Ref.TooManyChoices",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0,
+          "annotation" : "A large set of disorganized choices"
+        },
+        "separateChoice" : {
+          "type" : {
+            "name" : "Ref.Choice",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 1,
+          "annotation" : "A singular choice"
+        },
+        "choicePair" : {
+          "type" : {
+            "name" : "Ref.ChoicePair",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 2,
+          "annotation" : "A pair of choices"
+        },
+        "choiceAsMemberArray" : {
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "index" : 3,
+          "size" : 2,
+          "annotation" : "An array of choices defined as member array"
+        }
+      },
+      "default" : {
+        "tooManyChoices" : [
+          [
+            "Ref.Choice.ONE",
+            "Ref.Choice.ONE"
+          ],
+          [
+            "Ref.Choice.ONE",
+            "Ref.Choice.ONE"
+          ]
+        ],
+        "separateChoice" : "Ref.Choice.ONE",
+        "choicePair" : {
+          "firstChoice" : "Ref.Choice.ONE",
+          "secondChoice" : "Ref.Choice.ONE"
+        },
+        "choiceAsMemberArray" : [
+          0,
+          0
+        ]
+      },
+      "annotation" : "Structure of enums (with an multi-dimensional array and structure)"
     }
   ],
   "constants" : [
@@ -2934,6 +3270,30 @@
       },
       "value" : 65535,
       "annotation" : "the maximum number of bytes in a stack"
+    },
+    {
+      "kind" : "constant",
+      "qualifiedName" : "ComQueueBufferPorts",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 1,
+      "annotation" : "Used for number of Fw::Buffer type ports supported by Svc::ComQueue"
+    },
+    {
+      "kind" : "constant",
+      "qualifiedName" : "FW_CMD_ARG_BUFFER_MAX_SIZE",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 506,
+      "annotation" : "Specifies the size of the buffer that contains the serialized command arguments"
     },
     {
       "kind" : "constant",
@@ -2985,6 +3345,42 @@
     },
     {
       "kind" : "constant",
+      "qualifiedName" : "SequenceArgumentsMaxSize",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 255,
+      "annotation" : "The maximum size in bytes for passing sequence arguments through CmdSeqIn ports\nNote: This must fit within FW_CMD_ARG_BUFFER_MAX_SIZE along with cmd arguments using Svc::SeqArgs\nTotal serialized size: string length prefix + fileName + BlockState + SeqArgs(size + buffer)"
+    },
+    {
+      "kind" : "constant",
+      "qualifiedName" : "FW_COM_BUFFER_MAX_SIZE",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 512,
+      "annotation" : "Specifies the size of the buffer that contains a communications packet"
+    },
+    {
+      "kind" : "constant",
+      "qualifiedName" : "FileNameStringSize",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 240,
+      "annotation" : "The size of a file name string"
+    },
+    {
+      "kind" : "constant",
       "qualifiedName" : "ComCfg.TmFrameFixedSize",
       "type" : {
         "name" : "U64",
@@ -3021,30 +3417,6 @@
     },
     {
       "kind" : "constant",
-      "qualifiedName" : "ComQueueBufferPorts",
-      "type" : {
-        "name" : "U64",
-        "kind" : "integer",
-        "size" : 64,
-        "signed" : false
-      },
-      "value" : 1,
-      "annotation" : "Used for number of Fw::Buffer type ports supported by Svc::ComQueue"
-    },
-    {
-      "kind" : "constant",
-      "qualifiedName" : "FileNameStringSize",
-      "type" : {
-        "name" : "U64",
-        "kind" : "integer",
-        "size" : 64,
-        "signed" : false
-      },
-      "value" : 200,
-      "annotation" : "The size of a file name string"
-    },
-    {
-      "kind" : "constant",
       "qualifiedName" : "FW_FIXED_LENGTH_STRING_SIZE",
       "type" : {
         "name" : "U64",
@@ -3064,7 +3436,7 @@
         "size" : 64,
         "signed" : false
       },
-      "value" : 200,
+      "value" : 240,
       "annotation" : "The size of a file name in an AssertFatalAdapter event\nNote: File names in assertion failures are also truncated by\nthe constants FW_ASSERT_TEXT_SIZE and FW_LOG_STRING_MAX_SIZE, set\nin FpConfig.h."
     },
     {
@@ -3444,6 +3816,42 @@
       "annotation" : "Flush all queues. This will discard all queued data removing it from eventual downlink. Buffers requiring\nownership return will be returned via the bufferReturnOut port."
     },
     {
+      "name" : "ComCcsds.comQueue.SET_QUEUE_PRIORITY",
+      "commandKind" : "async",
+      "opcode" : 33554434,
+      "formalParams" : [
+        {
+          "name" : "queueType",
+          "type" : {
+            "name" : "Svc.QueueType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The Queue data type"
+        },
+        {
+          "name" : "indexType",
+          "type" : {
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The index of the queue (within the supplied type) to modify"
+        },
+        {
+          "name" : "newPriority",
+          "type" : {
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "New priority value for the queue"
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Set the priority of a specific queue at runtime"
+    },
+    {
       "name" : "DataProducts.dpCat.BUILD_CATALOG",
       "commandKind" : "async",
       "opcode" : 67108864,
@@ -3615,7 +4023,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory to create"
@@ -3634,7 +4042,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file name"
@@ -3644,7 +4052,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The destination file name"
@@ -3663,7 +4071,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory to remove"
@@ -3682,7 +4090,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file to remove"
@@ -3721,7 +4129,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the log file"
@@ -3740,7 +4148,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file to take content from"
@@ -3750,7 +4158,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file to append to"
@@ -3769,7 +4177,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file to get the size of"
@@ -3787,7 +4195,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory to list"
@@ -3806,7 +4214,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file to CRC"
@@ -3834,7 +4242,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the on-board file to set parameters from"
@@ -4273,7 +4681,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the sequence file"
@@ -4295,14 +4703,14 @@
     {
       "name" : "Ref.cmdSeq.RUN_ARGS",
       "commandKind" : "async",
-      "opcode" : 268460050,
+      "opcode" : 268460033,
       "formalParams" : [
         {
           "name" : "fileName",
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the sequence file"
@@ -4317,30 +4725,29 @@
           "annotation" : "Return command status when complete or not"
         },
         {
-          "name" : "args",
+          "name" : "buffer",
           "type" : {
             "name" : "Svc.SeqArgs",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
-          "annotation" : "Arguments to pass to the sequence"
+          "annotation" : "Arguments to pass to the sequencer"
         }
       ],
       "priority" : 7,
-      "queueFullBehavior" : "assert",
-      "annotation" : "Loads, validates and runs a sequence with arguments"
+      "queueFullBehavior" : "assert"
     },
     {
       "name" : "Ref.cmdSeq.VALIDATE",
       "commandKind" : "async",
-      "opcode" : 268460033,
+      "opcode" : 268460034,
       "formalParams" : [
         {
           "name" : "fileName",
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the sequence file"
@@ -4351,9 +4758,38 @@
       "annotation" : "Loads and validates a sequence"
     },
     {
+      "name" : "Ref.cmdSeq.VALIDATE_ARGS",
+      "commandKind" : "async",
+      "opcode" : 268460035,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file"
+        },
+        {
+          "name" : "buffer",
+          "type" : {
+            "name" : "Svc.SeqArgs",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "Arguments to pass to the sequencer"
+        }
+      ],
+      "priority" : 7,
+      "queueFullBehavior" : "assert",
+      "annotation" : "Loads and validates a sequence with arguments"
+    },
+    {
       "name" : "Ref.cmdSeq.RUN_VALIDATED",
       "commandKind" : "async",
-      "opcode" : 268460034,
+      "opcode" : 268460036,
       "formalParams" : [
         {
           "name" : "block",
@@ -4372,7 +4808,7 @@
     {
       "name" : "Ref.cmdSeq.CANCEL",
       "commandKind" : "async",
-      "opcode" : 268460035,
+      "opcode" : 268460037,
       "formalParams" : [
       ],
       "priority" : 8,
@@ -4382,7 +4818,7 @@
     {
       "name" : "Ref.cmdSeq.SET_BREAKPOINT",
       "commandKind" : "async",
-      "opcode" : 268460036,
+      "opcode" : 268460038,
       "formalParams" : [
         {
           "name" : "stmtIdx",
@@ -4413,7 +4849,7 @@
     {
       "name" : "Ref.cmdSeq.BREAK",
       "commandKind" : "async",
-      "opcode" : 268460037,
+      "opcode" : 268460039,
       "formalParams" : [
       ],
       "priority" : 7,
@@ -4423,7 +4859,7 @@
     {
       "name" : "Ref.cmdSeq.CONTINUE",
       "commandKind" : "async",
-      "opcode" : 268460038,
+      "opcode" : 268460040,
       "formalParams" : [
       ],
       "priority" : 7,
@@ -4433,7 +4869,7 @@
     {
       "name" : "Ref.cmdSeq.CLEAR_BREAKPOINT",
       "commandKind" : "async",
-      "opcode" : 268460039,
+      "opcode" : 268460041,
       "formalParams" : [
       ],
       "priority" : 7,
@@ -4443,7 +4879,7 @@
     {
       "name" : "Ref.cmdSeq.STEP",
       "commandKind" : "async",
-      "opcode" : 268460040,
+      "opcode" : 268460042,
       "formalParams" : [
       ],
       "priority" : 7,
@@ -4451,43 +4887,16 @@
       "annotation" : "Dispatches and awaits the result of the next directive, or ends the sequence if no more directives remain. Returns\nto the RUNNING.PAUSED state if the directive executes successfully. This command is only valid in the RUNNING.PAUSED state."
     },
     {
-      "name" : "Ref.cmdSeq.SET_FLAG",
-      "commandKind" : "async",
-      "opcode" : 268460041,
-      "formalParams" : [
-        {
-          "name" : "flag",
-          "type" : {
-            "name" : "Svc.Fpy.FlagId",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false
-        },
-        {
-          "name" : "value",
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "ref" : false
-        }
-      ],
-      "priority" : 7,
-      "queueFullBehavior" : "assert",
-      "annotation" : "Sets the value of a flag. See Fpy.FlagId docstrings for info on each flag.\nThis command is only valid in the RUNNING state."
-    },
-    {
       "name" : "Ref.cmdSeq.DUMP_STACK_TO_FILE",
       "commandKind" : "async",
-      "opcode" : 268460042,
+      "opcode" : 268460043,
       "formalParams" : [
         {
           "name" : "fileName",
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the output file"
@@ -4500,7 +4909,7 @@
     {
       "name" : "Ref.cmdSeq.STATEMENT_TIMEOUT_SECS_PRM_SET",
       "commandKind" : "set",
-      "opcode" : 268460043,
+      "opcode" : 268460044,
       "formalParams" : [
         {
           "name" : "val",
@@ -4517,35 +4926,10 @@
     {
       "name" : "Ref.cmdSeq.STATEMENT_TIMEOUT_SECS_PRM_SAVE",
       "commandKind" : "save",
-      "opcode" : 268460044,
+      "opcode" : 268460045,
       "formalParams" : [
       ],
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
-    },
-    {
-      "name" : "Ref.cmdSeq.FLAG_DEFAULT_EXIT_ON_CMD_FAIL_PRM_SET",
-      "commandKind" : "set",
-      "opcode" : 268460045,
-      "formalParams" : [
-        {
-          "name" : "val",
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "ref" : false
-        }
-      ],
-      "annotation" : "the default value of the EXIT_ON_CMD_FAIL sequence flag"
-    },
-    {
-      "name" : "Ref.cmdSeq.FLAG_DEFAULT_EXIT_ON_CMD_FAIL_PRM_SAVE",
-      "commandKind" : "save",
-      "opcode" : 268460046,
-      "formalParams" : [
-      ],
-      "annotation" : "the default value of the EXIT_ON_CMD_FAIL sequence flag"
     },
     {
       "name" : "Ref.sendBuffComp.SB_START_PKTS",
@@ -5359,17 +5743,6 @@
       "id" : 268460032,
       "default" : 0.0,
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
-    },
-    {
-      "name" : "Ref.cmdSeq.FLAG_DEFAULT_EXIT_ON_CMD_FAIL",
-      "type" : {
-        "name" : "bool",
-        "kind" : "bool",
-        "size" : 8
-      },
-      "id" : 268460033,
-      "default" : false,
-      "annotation" : "the default value of the EXIT_ON_CMD_FAIL sequence flag"
     },
     {
       "name" : "Ref.sendBuffComp.parameter3",
@@ -6257,7 +6630,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6287,7 +6660,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6328,7 +6701,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6380,7 +6753,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6443,7 +6816,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6517,7 +6890,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6602,7 +6975,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6698,7 +7071,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The source file of the assert"
@@ -6746,10 +7119,8 @@
         {
           "name" : "index",
           "type" : {
-            "name" : "U32",
-            "kind" : "integer",
-            "size" : 32,
-            "signed" : false
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
           "annotation" : "index of overflowed queue"
@@ -6758,6 +7129,42 @@
       "id" : 33554432,
       "format" : "The {} queue at index {} overflowed",
       "annotation" : "Queue overflow event"
+    },
+    {
+      "name" : "ComCcsds.comQueue.QueuePriorityChanged",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "queueType",
+          "type" : {
+            "name" : "Svc.QueueType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The Queue data type"
+        },
+        {
+          "name" : "indexType",
+          "type" : {
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The index of the queue (within the supplied type) that was modified"
+        },
+        {
+          "name" : "newPriority",
+          "type" : {
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "New priority value"
+        }
+      ],
+      "id" : 33554433,
+      "format" : "{} {} priority changed to {}",
+      "annotation" : "Queue priority changed event"
     },
     {
       "name" : "ComCcsds.frameAccumulator.NoBufferAvailable",
@@ -6878,6 +7285,15 @@
       "annotation" : "An allocation error occurred"
     },
     {
+      "name" : "ComCcsds.tcDeframer.InvalidPacket",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+      ],
+      "id" : 33570816,
+      "format" : "Invalid packet received refusing to deframe",
+      "annotation" : "Invalid packet received that will be dropped"
+    },
+    {
       "name" : "ComCcsds.tcDeframer.InvalidSpacecraftId",
       "severity" : "WARNING_LO",
       "formalParams" : [
@@ -6902,7 +7318,7 @@
           "ref" : false
         }
       ],
-      "id" : 33570816,
+      "id" : 33570817,
       "format" : "Invalid Spacecraft ID Received. Received: {} | Deframer configured with: {}",
       "annotation" : "Deframing received an invalid SCID"
     },
@@ -6929,7 +7345,7 @@
           "ref" : false
         }
       ],
-      "id" : 33570817,
+      "id" : 33570818,
       "format" : "Not enough data received. Header length specified: {} | Received data length: {}",
       "annotation" : "Deframing received an invalid frame length"
     },
@@ -6958,7 +7374,7 @@
           "ref" : false
         }
       ],
-      "id" : 33570818,
+      "id" : 33570819,
       "format" : "Invalid Virtual Channel ID Received. Header token specified: {} | Deframer configured with: {}",
       "annotation" : "Deframing received an invalid VCID"
     },
@@ -6987,9 +7403,18 @@
           "ref" : false
         }
       ],
-      "id" : 33570819,
+      "id" : 33570820,
       "format" : "Invalid checksum received. Trailer specified: {} | Computed on board: {}",
       "annotation" : "Deframing received an invalid checksum"
+    },
+    {
+      "name" : "ComCcsds.spacePacketDeframer.InvalidPacket",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 33574912,
+      "format" : "Malformed packet received refusing to deframe",
+      "annotation" : "Deframing received a malformed packet"
     },
     {
       "name" : "ComCcsds.spacePacketDeframer.InvalidLength",
@@ -7014,7 +7439,7 @@
           "ref" : false
         }
       ],
-      "id" : 33574912,
+      "id" : 33574913,
       "format" : "Invalid length received. Header specified packet byte size of {} | Actual received data length: {}",
       "annotation" : "Deframing received an invalid frame length"
     },
@@ -7075,7 +7500,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory"
@@ -7105,7 +7530,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory"
@@ -7124,7 +7549,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7143,7 +7568,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory"
@@ -7204,7 +7629,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7272,7 +7697,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7313,7 +7738,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7380,7 +7805,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "last directory read"
@@ -7403,7 +7828,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The directory"
@@ -7437,7 +7862,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7471,7 +7896,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7525,7 +7950,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7637,7 +8062,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7686,7 +8111,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7714,7 +8139,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7752,7 +8177,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7798,7 +8223,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7826,7 +8251,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7844,7 +8269,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7874,7 +8299,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7904,7 +8329,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7923,7 +8348,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -7941,7 +8366,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -8157,7 +8582,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -8213,7 +8638,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file"
@@ -8247,7 +8672,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The file name"
@@ -8858,6 +9283,43 @@
       "annotation" : "The File Downlink component started a file download."
     },
     {
+      "name" : "FileHandling.fileDownlink.DownlinkZeroSizeFile",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "sourceFileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 100
+          },
+          "ref" : false,
+          "annotation" : "The source file name"
+        }
+      ],
+      "id" : 83890185,
+      "format" : "Downlink of file {} stopped due to zero-size.",
+      "annotation" : "The File Downlink component stopped due to a zero-size file"
+    },
+    {
+      "name" : "FileHandling.fileDownlink.FilenameSourceOverflow",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 83890192,
+      "format" : "Commanded source filename too long",
+      "annotation" : "Supplied filename has overflowed. This intentionally discards the filename to avoid cascading overflows."
+    },
+    {
+      "name" : "FileHandling.fileDownlink.FilenameDestinationOverflow",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 83890193,
+      "format" : "Commanded destination filename too long",
+      "annotation" : "Supplied filename has overflowed"
+    },
+    {
       "name" : "FileHandling.fileManager.DirectoryCreateError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -8866,7 +9328,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -8896,7 +9358,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -8926,7 +9388,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the source file"
@@ -8936,7 +9398,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the destination file"
@@ -8966,7 +9428,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9026,7 +9488,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -9036,7 +9498,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file to append to"
@@ -9066,7 +9528,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -9076,7 +9538,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file to append to"
@@ -9095,7 +9557,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The command string"
@@ -9114,7 +9576,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9133,7 +9595,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9152,7 +9614,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the source file"
@@ -9162,7 +9624,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the destination file"
@@ -9181,7 +9643,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9200,7 +9662,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -9210,7 +9672,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file to append to"
@@ -9248,7 +9710,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9267,7 +9729,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9286,7 +9748,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the source file"
@@ -9296,7 +9758,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the destination file"
@@ -9315,7 +9777,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9334,7 +9796,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9362,7 +9824,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9392,7 +9854,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9411,7 +9873,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9430,7 +9892,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9460,7 +9922,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9490,7 +9952,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9500,7 +9962,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file"
@@ -9528,7 +9990,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the directory"
@@ -9538,7 +10000,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the subdirectory"
@@ -9557,7 +10019,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -9576,7 +10038,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -9606,7 +10068,7 @@
           "type" : {
             "name" : "string",
             "kind" : "string",
-            "size" : 200
+            "size" : 240
           },
           "ref" : false,
           "annotation" : "The name of the file being read from"
@@ -11255,6 +11717,172 @@
       "format" : "A sequence specified it had {} directives but the max was {}"
     },
     {
+      "name" : "Ref.cmdSeq.ArgSizeMismatch",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "expected",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "actual",
+          "type" : {
+            "name" : "FwSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460061,
+      "format" : "Expected {} bytes of arguments based on arg_specs, but received {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.ArgSpecTotalSizeExceedsStackLimit",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "currentTotal",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "argSize",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "maxStackSize",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460062,
+      "format" : "Arg spec total size {} + {} would exceed max stack size {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.ArgSpecSizeExceedsStackLimit",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "argIndex",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "argSize",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "maxStackSize",
+          "type" : {
+            "name" : "Svc.Fpy.StackSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460063,
+      "format" : "Arg spec[{}] size {} exceeds max stack size {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.ArgSpecNameTooLong",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "argIndex",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "nameLen",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "maxLen",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460064,
+      "format" : "Arg spec[{}] name length {} exceeds maximum {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.ArgSpecTypeTooLong",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "argIndex",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "typeLen",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "maxLen",
+          "type" : {
+            "name" : "U8",
+            "kind" : "integer",
+            "size" : 8,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460065,
+      "format" : "Arg spec[{}] type length {} exceeds maximum {}"
+    },
+    {
       "name" : "Ref.cmdSeq.SequencePaused",
       "severity" : "ACTIVITY_HI",
       "formalParams" : [
@@ -11269,7 +11897,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460061,
+      "id" : 268460066,
       "format" : "Sequence paused before dispatching directive index {}"
     },
     {
@@ -11296,7 +11924,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460062,
+      "id" : 268460067,
       "format" : "Breakpoint set before directive index {}. Will break once: {}"
     },
     {
@@ -11304,8 +11932,190 @@
       "severity" : "ACTIVITY_HI",
       "formalParams" : [
       ],
-      "id" : 268460063,
+      "id" : 268460068,
       "format" : "Breakpoint cleared"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogFatal",
+      "severity" : "FATAL",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460069,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogWarningHi",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460070,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogWarningLo",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460071,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogCommand",
+      "severity" : "COMMAND",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460072,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogActivityHi",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460073,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogActivityLo",
+      "severity" : "ACTIVITY_LO",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460074,
+      "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq.LogDiagnostic",
+      "severity" : "DIAGNOSTIC",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "message",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460075,
+      "format" : "Sequence {}: {}"
     },
     {
       "name" : "Ref.sendBuffComp.FirstPacketSent",
@@ -13443,7 +14253,7 @@
       "type" : {
         "name" : "string",
         "kind" : "string",
-        "size" : 200
+        "size" : 240
       },
       "id" : 268460041,
       "telemetryUpdate" : "on change",
@@ -13570,17 +14380,6 @@
       "id" : 268460052,
       "telemetryUpdate" : "on change",
       "annotation" : "value of prm STATEMENT_TIMEOUT_SECS"
-    },
-    {
-      "name" : "Ref.cmdSeq.PRM_FLAG_DEFAULT_EXIT_ON_CMD_FAIL",
-      "type" : {
-        "name" : "bool",
-        "kind" : "bool",
-        "size" : 8
-      },
-      "id" : 268460053,
-      "telemetryUpdate" : "on change",
-      "annotation" : "value of prm FLAG_DEFAULT_EXIT_ON_CMD_FAIL"
     },
     {
       "name" : "Ref.sendBuffComp.PacketsSent",
