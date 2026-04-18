@@ -359,13 +359,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
-
-    # Svc.SeqArgs is optional -- not all dictionaries have it.
-    # If present, validate and replace; if absent, just inject the canonical type.
-    if "Svc.SeqArgs" in dict_type_name_dict:
-        _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
-    else:
-        dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
+    _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
 
     # Build the full type dict: start from (now-validated) dictionary types,
     # then layer on builtins and internal types.  Later entries win, so

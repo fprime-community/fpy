@@ -325,6 +325,8 @@ class GenerateFunctionBody(Emitter):
                 arg_byte_count += actual_size
 
             # Push SeqArgs struct: $size field
+            # size_bytes is guaranteed to represent the real size, because the
+            # sequence args cannot contain strings
             dirs.append(PushValDirective(size_bytes))
             arg_byte_count += size_type.max_size
 
