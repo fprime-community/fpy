@@ -44,6 +44,14 @@ def lookup_type(fprime_test_api, type_name: str):
     return d["type_defs"][type_name]
 
 
+def _write_seq_to_tmpfile(directives: list[Directive], arg_types: list[tuple[str, FpyType]] = None) -> str:
+    """Serialize directives to a temp .bin file and return its path."""
+    arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
+    seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+    Path(seq_file.name).write_bytes(serialize_directives(directives, arg_specs=arg_specs)[0])
+    return seq_file.name
+
+
 def run_seq(
     fprime_test_api,
     directives: list[Directive],
@@ -56,6 +64,7 @@ def run_seq(
     args: bytes = None,
     arg_types: list[FpyType] = None,
     seq_run_opcodes: set[int] = None,
+    arg_name_types: list[tuple[str, FpyType]] = None,
 ):
     """Run a list of directives.
 
@@ -68,10 +77,8 @@ def run_seq(
         tlm = {}
 
     if fprime_test_api is not None:
-        arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
-        seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-        Path(seq_file.name).write_bytes(serialize_directives(directives, arg_specs=arg_specs)[0])
-        fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_file.name, "WAIT"], timeout=timeout_s)
+        seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
+        fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "WAIT"], timeout=timeout_s)
         return
 
     d = load_dictionary(default_dictionary)
@@ -141,7 +148,7 @@ def assert_run_success(
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types)
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types, arg_name_types=arg_name_types)
 
 
 def assert_compile_failure(fprime_test_api, seq: str):
@@ -176,6 +183,18 @@ def assert_run_failure(
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
+
+    if fprime_test_api is not None:
+        # GDS mode: send the sequence and assert that it fails via OpCodeError event
+        seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
+        fprime_test_api.send_and_assert_event(
+            "Ref.seqDisp.RUN",
+            [seq_path, "WAIT"],
+            events="CdhCore.cmdDisp.OpCodeError",
+            timeout=4,
+        )
+        return
+
     try:
         run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types)
     except ValidationError as e:

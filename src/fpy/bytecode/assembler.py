@@ -429,6 +429,8 @@ def serialize_directives(
             exit(1)
         body_bytes += dir_bytes
 
+    arg_specs_bytes = _serialize_arg_specs(arg_specs)
+
     header = Header(
         MAJOR_VERSION,
         MINOR_VERSION,
@@ -436,9 +438,9 @@ def serialize_directives(
         SCHEMA_VERSION,
         len(arg_specs),
         len(dirs),
-        len(body_bytes),
+        len(body_bytes)#len(arg_specs_bytes) + len(body_bytes), TODO Fixme
     )
-    output_bytes = header.pack() + _serialize_arg_specs(arg_specs) + body_bytes
+    output_bytes = header.pack() + arg_specs_bytes + body_bytes
 
     crc = zlib.crc32(output_bytes) % (1 << 32)
     footer = Footer(crc)

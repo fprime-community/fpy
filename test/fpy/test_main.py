@@ -6,7 +6,6 @@ from fpy import main as fpy_main
 from fpy.bytecode.directives import ConstCmdDirective
 import fpy.error as fpy_error
 import fpy.model as fpy_model
-from fpy.types import CmdDef, FpyType, TypeKind
 
 
 @pytest.mark.parametrize(
@@ -312,98 +311,12 @@ def test_disassemble_main_writes_text(monkeypatch, tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Helpers for run_main tests
+# cmd_main tests
 # ---------------------------------------------------------------------------
 
 
-def _make_string_type():
-    return FpyType(TypeKind.STRING, "string", max_length=240)
-
-
-def _make_block_enum_type():
-    return FpyType(
-        TypeKind.ENUM,
-        "Svc.FpySequencer.BlockState",
-        enum_dict={"BLOCK": 0, "NO_BLOCK": 1},
-        json_default="Svc.FpySequencer.BlockState.BLOCK",
-    )
-
-
-def _make_seq_args_type():
-    return FpyType(TypeKind.STRUCT, "Svc.SeqArgs")
-
-
-def _make_seq_run_cmd():
-    return CmdDef(
-        name="Ref.cmdSeq0.RUN_ARGS",
-        opcode=0x10006001,
-        args=[
-            ("fileName", "The sequence file name", _make_string_type()),
-            ("block", "Block state", _make_block_enum_type()),
-            ("buffer", "Sequence arguments", _make_seq_args_type()),
-        ],
-    )
-
-
-def _make_non_seq_cmd():
-    return CmdDef(
-        name="Ref.health.HLTH_PING_ENABLE",
-        opcode=0x1234,
-        args=[
-            ("enable", "Enable flag", FpyType(TypeKind.BOOL, "bool")),
-        ],
-    )
-
-
-# ---------------------------------------------------------------------------
-# run_main tests
-# ---------------------------------------------------------------------------
-
-
-def test_run_main_unknown_command(monkeypatch, capsys):
-    """Exit 1 when the command name isn't in the dictionary."""
-    monkeypatch.setattr(
-        fpy_main, "load_dictionary", lambda _: {"cmd_name_dict": {}},
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.run_main([
-            "-c", "Ref.cmdSeq0.DOES_NOT_EXIST",
-            "-d", "dict.json",
-            "-i", "seq.bin",
-        ])
-
-    assert exc.value.code == 1
-    assert "Unknown command" in capsys.readouterr().err
-
-
-def test_run_main_not_seq_run_command(monkeypatch, capsys):
-    """Exit 1 when the command doesn't have the seq-run signature."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.health.HLTH_PING_ENABLE": _make_non_seq_cmd()}},
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.run_main([
-            "-c", "Ref.health.HLTH_PING_ENABLE",
-            "-d", "dict.json",
-            "-i", "seq.bin",
-        ])
-
-    assert exc.value.code == 1
-    assert "not a sequence run command" in capsys.readouterr().err
-
-
-def test_run_main_compiles_and_sends(monkeypatch, capsys):
-    """Happy path: compiles the synthetic source and sends via ZMQ."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
-    )
-
+def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
+    """Happy path: compiles the provided source and sends via ZMQ."""
     captured_source = {}
 
     def fake_text_to_ast(text):
@@ -428,60 +341,19 @@ def test_run_main_compiles_and_sends(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "send_command_zmq", fake_send)
 
-    fpy_main.run_main([
-        "-c", "Ref.cmdSeq0.RUN_ARGS",
+    fpy_main.cmd_main([
+        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, 42)',
         "-d", "dict.json",
-        "-i", "seq.bin",
-        "42",
     ])
 
-    assert 'Ref.cmdSeq0.RUN_ARGS("seq.bin"' in captured_source["text"]
-    assert "42" in captured_source["text"]
+    assert captured_source["text"] == 'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, 42)\n'
     assert sent["cmd_opcode"] == 0x10006001
     assert sent["args"] == b"\xAB\xCD"
     assert "Sending" in capsys.readouterr().out
 
 
-def test_run_main_no_seq_args(monkeypatch, capsys):
-    """When no sequence args are given, the source omits the trailing args."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
-    )
-
-    captured_source = {}
-
-    def fake_text_to_ast(text):
-        captured_source["text"] = text
-        return "AST"
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", fake_text_to_ast)
-
-    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
-    monkeypatch.setattr(
-        fpy_main, "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: ([directive], []),
-    )
-    monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
-
-    fpy_main.run_main([
-        "-c", "Ref.cmdSeq0.RUN_ARGS",
-        "-d", "dict.json",
-        "-i", "seq.bin",
-    ])
-
-    source = captured_source["text"]
-    assert source == 'Ref.cmdSeq0.RUN_ARGS("seq.bin", Svc.FpySequencer.BlockState.BLOCK)\n'
-
-
-def test_run_main_compile_error(monkeypatch, capsys):
+def test_cmd_main_compile_error(monkeypatch, capsys):
     """Exit 1 when the compiler returns an error."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
-    )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
     error = fpy_error.CompileError("bad arg", None)
@@ -491,23 +363,36 @@ def test_run_main_compile_error(monkeypatch, capsys):
     )
 
     with pytest.raises(SystemExit) as exc:
-        fpy_main.run_main([
-            "-c", "Ref.cmdSeq0.RUN_ARGS",
+        fpy_main.cmd_main([
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, bad_value)',
             "-d", "dict.json",
-            "-i", "seq.bin",
-            "bad_value",
         ])
 
     assert exc.value.code == 1
 
 
-def test_run_main_send_failure(monkeypatch, capsys):
-    """Exit 1 when the ZMQ send raises an exception."""
+def test_cmd_main_non_const_arg(monkeypatch, capsys):
+    """AssertionError when compilation produces a non-const command."""
+    from fpy.bytecode.directives import StackCmdDirective
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+
     monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
+        fpy_main, "ast_to_directives",
+        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: (
+            [StackCmdDirective(args_size=10)], []
+        ),
     )
+
+    with pytest.raises(AssertionError, match="Expected exactly 1 ConstCmdDirective"):
+        fpy_main.cmd_main([
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, some_tlm)',
+            "-d", "dict.json",
+        ])
+
+
+def test_cmd_main_send_failure(monkeypatch, capsys):
+    """Exit 1 when the ZMQ send raises an exception."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
@@ -522,23 +407,17 @@ def test_run_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "send_command_zmq", fail_send)
 
     with pytest.raises(SystemExit) as exc:
-        fpy_main.run_main([
-            "-c", "Ref.cmdSeq0.RUN_ARGS",
+        fpy_main.cmd_main([
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
             "-d", "dict.json",
-            "-i", "seq.bin",
         ])
 
     assert exc.value.code == 1
     assert "Failed to send command" in capsys.readouterr().err
 
 
-def test_run_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
+def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     """--ground-binary-dir is resolved and passed to ast_to_directives."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
-    )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
     captured_kwargs = {}
@@ -554,25 +433,19 @@ def test_run_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     bin_dir = tmp_path / "bins"
     bin_dir.mkdir()
 
-    fpy_main.run_main([
-        "-c", "Ref.cmdSeq0.RUN_ARGS",
+    fpy_main.cmd_main([
+        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
         "-d", "dict.json",
         "-g", str(bin_dir),
         "-f", "/seq/",
-        "-i", "seq.bin",
     ])
 
     assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
     assert captured_kwargs["flight_binary_dir"] == "/seq/"
 
 
-def test_run_main_zmq_addr(monkeypatch, capsys):
+def test_cmd_main_zmq_addr(monkeypatch, capsys):
     """--zmq-addr is passed through to send_command_zmq."""
-    monkeypatch.setattr(
-        fpy_main,
-        "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
-    )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
@@ -584,11 +457,10 @@ def test_run_main_zmq_addr(monkeypatch, capsys):
     sent = {}
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda o, a, addr: sent.update(addr=addr))
 
-    fpy_main.run_main([
-        "-c", "Ref.cmdSeq0.RUN_ARGS",
+    fpy_main.cmd_main([
+        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
         "-d", "dict.json",
         "--zmq-addr", "tcp://192.168.1.1:50050",
-        "-i", "seq.bin",
     ])
 
     assert sent["addr"] == "tcp://192.168.1.1:50050"

@@ -25,7 +25,6 @@ import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives
 from fpy.dictionary import load_dictionary
-from fpy.types import PRIMITIVE_TYPE_MAP, TypeKind
 
 
 def human_readable_size(size_bytes):
@@ -323,26 +322,18 @@ def send_command_zmq(cmd_opcode: int, args: bytes, zmq_addr: str):
         context.term()
 
 
-def run_main(args: list[str] = None):
+def cmd_main(args: list[str] = None):
     arg_parser = argparse.ArgumentParser(
-        description=f"Run an Fpy sequence via the GDS {get_version_str()}"
+        description=f"Run an Fpy command via the GDS {get_version_str()}",
+        epilog='Example: %(prog)s \'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)\' -d dict.json',
     )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
     )
     arg_parser.add_argument(
-        "-c",
-        "--command",
+        "source",
         type=str,
-        required=True,
-        help="The sequence run command name (e.g., Ref.cmdSeq0.RUN_ARGS)",
-    )
-    arg_parser.add_argument(
-        "-i",
-        "--input",
-        type=str,
-        required=True,
-        help="The sequence binary path to pass to the run command",
+        help="A single line of valid Fpy source, containing a command with constant arguments (e.g., 'Ref.seqDisp.RUN_ARGS(\"seq.bin\", NO_WAIT)')",
     )
     arg_parser.add_argument(
         "-d",
@@ -373,60 +364,18 @@ def run_main(args: list[str] = None):
         default="ipc:///tmp/fprime-server-in",
         help="ZMQ address for the GDS uplink (default: ipc:///tmp/fprime-server-in)",
     )
-    arg_parser.add_argument(
-        "seq_args",
-        nargs="*",
-        help="Sequence argument values as Fpy literal expressions",
-    )
 
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
     else:
         parsed_args = arg_parser.parse_args()
 
-    # Load dictionary and look up the command
-    dictionary = load_dictionary(str(parsed_args.dictionary))
-    cmd_name_dict = dictionary["cmd_name_dict"]
-
-    cmd_name = parsed_args.command
-    if cmd_name not in cmd_name_dict:
-        print(f"Unknown command '{cmd_name}'", file=sys.stderr)
-        sys.exit(1)
-
-    cmd_def = cmd_name_dict[cmd_name]
-    cmd_args = cmd_def.args  # list of (name, description, FpyType)
-
-    # Validate this is a sequence-run command: (string, enum, Svc.SeqArgs)
-    if (
-        len(cmd_args) != 3
-        or not cmd_args[0][2].is_string
-        or cmd_args[1][2].kind != TypeKind.ENUM
-        or cmd_args[2][2].name != "Svc.SeqArgs"
-    ):
-        print(
-            f"Command '{cmd_name}' is not a sequence run command. "
-            f"Expected signature (string, enum, Svc.SeqArgs), got: "
-            f"({', '.join(a[2].name for a in cmd_args)})",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # Get the default value for the block state enum (2nd arg)
-    block_type = cmd_args[1][2]
-    block_default = block_type.json_default
-    assert block_default is not None, (
-        f"Block state enum '{block_type.name}' has no default value in the dictionary"
-    )
-
-    # Build synthetic Fpy source
-    seq_args_str = ", ".join(parsed_args.seq_args)
-    if seq_args_str:
-        source = f'{cmd_name}("{parsed_args.input}", {block_default}, {seq_args_str})\n'
-    else:
-        source = f'{cmd_name}("{parsed_args.input}", {block_default})\n'
+    source = parsed_args.source
+    if not source.endswith("\n"):
+        source += "\n"
 
     # Compile it
-    fpy.error.file_name = "<fprime-fpy-run>"
+    fpy.error.file_name = "<fprime-fpy-cmd>"
     fpy.error.input_text = source
     fpy.error.input_lines = source.splitlines()
 
@@ -464,9 +413,7 @@ def run_main(args: list[str] = None):
 
     directive = cmd_directives[0]
 
-    print(f"Sending {cmd_name}(\"{parsed_args.input}\", {block_default}"
-          + (f", {seq_args_str}" if seq_args_str else "")
-          + f") via {parsed_args.zmq_addr}")
+    print(f"Sending {source.strip()} via {parsed_args.zmq_addr}")
 
     try:
         send_command_zmq(directive.cmd_opcode, directive.args, parsed_args.zmq_addr)
