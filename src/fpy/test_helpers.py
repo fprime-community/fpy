@@ -65,6 +65,7 @@ def run_seq(
     arg_types: list[FpyType] = None,
     seq_run_opcodes: set[int] = None,
     arg_name_types: list[tuple[str, FpyType]] = None,
+    ground_binary_dir: str = None,
 ):
     """Run a list of directives.
 
@@ -107,7 +108,18 @@ def run_seq(
     for chan_name, val in tlm.items():
         ch_template = ch_name_dict[chan_name]
         tlm_db[ch_template.ch_id] = val
-    ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
+
+    import os
+    old_cwd = None
+    if ground_binary_dir is not None:
+        old_cwd = os.getcwd()
+        os.chdir(ground_binary_dir)
+    try:
+        ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
+    finally:
+        if old_cwd is not None:
+            os.chdir(old_cwd)
+
     if ret != DirectiveErrorCode.NO_ERROR:
         raise RuntimeError(ret)
     # Compute expected frame size: args + setup directives (PushVal for flags, then Allocate)
@@ -142,20 +154,28 @@ def assert_run_success(
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
+    ground_binary_dir: str = None,
+    flight_binary_dir: str = None,
+    seq_run_opcodes: set[int] = None,
 ):
-    directives, arg_name_types = compile_seq(fprime_test_api, seq)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types, arg_name_types=arg_name_types)
+    if seq_run_opcodes is None and ground_binary_dir is not None:
+        d = load_dictionary(default_dictionary)
+        seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
+    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types, arg_name_types=arg_name_types, seq_run_opcodes=seq_run_opcodes, ground_binary_dir=ground_binary_dir)
 
 
-def assert_compile_failure(fprime_test_api, seq: str):
+def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None, flight_binary_dir: str = None):
     try:
-        compile_seq(fprime_test_api, seq)
-    except (SystemExit, CompilationFailed):
-        # Compilation failed as expected
+        compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+    except (SystemExit, CompilationFailed) as e:
+        if match is not None:
+            import re
+            assert re.search(match, str(e)), f"Expected match {match!r} in {e!r}"
         return
 
     # no error was generated
@@ -172,17 +192,23 @@ def assert_run_failure(
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
+    ground_binary_dir: str = None,
+    flight_binary_dir: str = None,
+    seq_run_opcodes: set[int] = None,
 ):
     assert not (error_code is not None and validation_error), \
         "Cannot specify both error_code and validation_error"
     assert error_code is not None or validation_error, \
         "Must specify either error_code or validation_error"
 
-    directives, arg_name_types = compile_seq(fprime_test_api, seq)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
+    if seq_run_opcodes is None and ground_binary_dir is not None:
+        d = load_dictionary(default_dictionary)
+        seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
 
     if fprime_test_api is not None:
         # GDS mode: send the sequence and assert that it fails via OpCodeError event
@@ -196,7 +222,7 @@ def assert_run_failure(
         return
 
     try:
-        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types)
+        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types, seq_run_opcodes=seq_run_opcodes, ground_binary_dir=ground_binary_dir)
     except ValidationError as e:
         if not validation_error:
             raise
