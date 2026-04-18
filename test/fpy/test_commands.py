@@ -162,7 +162,7 @@ CdhCore.cmdDisp.CMD_TEST_CMD_1(arg1=val1, arg2=val2, arg3=val3)
         """
         seq = """
 en: Fw.Enabled = Fw.Enabled.ENABLED
-CdhCore.health.HLTH_PING_ENABLE("task1", en)
+_: Fw.CmdResponse = CdhCore.health.HLTH_PING_ENABLE("task1", en)
 """
         assert_run_success(fprime_test_api, seq)
 

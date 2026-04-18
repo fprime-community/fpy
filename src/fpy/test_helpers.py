@@ -52,6 +52,13 @@ def _write_seq_to_tmpfile(directives: list[Directive], arg_types: list[tuple[str
     return seq_file.name
 
 
+def _build_seq_args_json(args: bytes) -> str:
+    """Build a JSON string for the Svc.SeqArgs struct expected by RUN_ARGS."""
+    import json
+    buf = list(args) + [0] * (255 - len(args))
+    return json.dumps({"size": len(args), "buffer": buf})
+
+
 def run_seq(
     fprime_test_api,
     directives: list[Directive],
@@ -79,7 +86,11 @@ def run_seq(
 
     if fprime_test_api is not None:
         seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
-        fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "WAIT"], timeout=timeout_s)
+        if args:
+            seq_args = _build_seq_args_json(args)
+            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN_ARGS", [seq_path, "WAIT", seq_args], timeout=timeout_s)
+        else:
+            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "WAIT"], timeout=timeout_s)
         return
 
     d = load_dictionary(default_dictionary)
@@ -213,12 +224,21 @@ def assert_run_failure(
     if fprime_test_api is not None:
         # GDS mode: send the sequence and assert that it fails via OpCodeError event
         seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
-        fprime_test_api.send_and_assert_event(
-            "Ref.seqDisp.RUN",
-            [seq_path, "WAIT"],
-            events="CdhCore.cmdDisp.OpCodeError",
-            timeout=4,
-        )
+        if args_bytes:
+            seq_args = _build_seq_args_json(args_bytes)
+            fprime_test_api.send_and_assert_event(
+                "Ref.seqDisp.RUN_ARGS",
+                [seq_path, "WAIT", seq_args],
+                events="CdhCore.cmdDisp.OpCodeError",
+                timeout=4,
+            )
+        else:
+            fprime_test_api.send_and_assert_event(
+                "Ref.seqDisp.RUN",
+                [seq_path, "WAIT"],
+                events="CdhCore.cmdDisp.OpCodeError",
+                timeout=4,
+            )
         return
 
     try:
