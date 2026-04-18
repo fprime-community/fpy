@@ -272,40 +272,49 @@ class GenerateFunctionBody(Emitter):
         Serializes the two fixed args (fileName, blockState) plus a SeqArgs
         struct containing the vararg values packed into its buffer.
         """
-        call_info = state.seq_run_call_info[node]
         resolved_args = state.resolved_args[node]
+
+        # Split resolved args into fixed (command) args and seq args.
+        # ResolveSequenceDependencies extended func.args to include the
+        # target sequence's parameters.
+        bin_name = resolved_args[0].value
+        seq_dep = state.seq_dependencies[bin_name]
+        seq_arg_types = [t for _, t in seq_dep]
+        n_fixed = len(func.args) - len(seq_dep)
+        fixed_args = resolved_args[:n_fixed]
+        seq_args = resolved_args[n_fixed:]
 
         # Compute the actual data size in the SeqArgs buffer
         # vararg data guaranteed no strings
-        vararg_data_size = sum(t.max_size for t in call_info.arg_types)
+        vararg_data_size = sum(t.max_size for t in seq_arg_types)
         buffer_size = SEQ_ARGS.members[1].type.length
         padding_size = buffer_size - vararg_data_size
         size_type = SEQ_ARGS.members[0].type
         size_bytes = FpyValue(size_type, vararg_data_size).serialize()
 
-        # Check if all args (fixed + varargs) are compile-time constants
+        # Check if all args (fixed + seq) are compile-time constants
         # fixed args may have strings (almost certainly does of course)
         # but we don't need to know the actual byte count. just push as a byte array
         # as part of const cmd
         all_fixed_const = all(
             isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
-            for a in resolved_args
+            for a in fixed_args
         )
-        all_varargs_const = all(
+        all_seq_const = all(
             isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
-            for a in call_info.vararg_exprs
+            for a in seq_args
         )
 
-        if all_fixed_const and all_varargs_const:
+        if all_fixed_const and all_seq_const:
             # All constant: build the full command payload at compile time
             arg_bytes = bytes()
             # Fixed args
-            for a in resolved_args:
+            for a in fixed_args:
                 val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
                 arg_bytes += val.serialize()
-            # SeqArgs struct: $size + buffer (vararg data + padding)
+            # SeqArgs struct: $size + buffer (seq arg data + padding)
             arg_bytes += size_bytes
-            for a in call_info.vararg_exprs:
+            for a in seq_args:
                 val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
                 arg_bytes += val.serialize()
             arg_bytes += bytes(padding_size)
@@ -319,7 +328,7 @@ class GenerateFunctionBody(Emitter):
             # the args we pushed. so we use this emit cmd arg func which tells us the
             # size (if the arg is a const value, which is always the case for strings rn, which
             # are the only type which are not always their max_size when serialized)
-            for a in resolved_args:
+            for a in fixed_args:
                 arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
                 arg_byte_count += actual_size
@@ -330,8 +339,8 @@ class GenerateFunctionBody(Emitter):
             dirs.append(PushValDirective(size_bytes))
             arg_byte_count += size_type.max_size
 
-            # Push vararg values
-            for a in call_info.vararg_exprs:
+            # Push seq arg values
+            for a in seq_args:
                 arg_dirs, actual_size = self._emit_cmd_arg(a, state)
                 dirs.extend(arg_dirs)
                 arg_byte_count += actual_size

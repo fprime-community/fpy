@@ -242,7 +242,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="Missing sequence argument 'y'", ground_binary_dir=tmpdir)
+            assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
 
     def test_wrong_arg_type(self, fprime_test_api):
         """Providing incompatible vararg types should fail at compile time."""
@@ -603,7 +603,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, x=42)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="Missing sequence argument 'y'", ground_binary_dir=tmpdir)
+            assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
 
 
 class TestSeqArgLimits:

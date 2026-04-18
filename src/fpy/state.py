@@ -50,15 +50,6 @@ class CommandSymbol(CallableSymbol):
 
 
 @dataclass
-class SeqRunCallInfo:
-    """Metadata for a single sequence-run call site, stored during semantic analysis."""
-    arg_types: list[FpyType]
-    """Expected argument types of the called sequence (from the .bin header)."""
-    vararg_exprs: list[AstExpr]
-    """The extra positional arguments (sequence args) beyond the fixed params."""
-
-
-@dataclass
 class BuiltinFuncSymbol(CallableSymbol):
     generate: Callable[[AstFuncCall, dict[int, FpyValue]], list[Directive]]
     """a function which instantiates the builtin given the calling node and
@@ -374,9 +365,6 @@ class CompileState:
     sequence_args: list[tuple[str, FpyType]] = field(default_factory=list)
     """Ordered list of (arg_name, arg_type) for sequence parameters.
     Populated during semantic analysis."""
-
-    seq_run_call_info: dict[AstFuncCall, SeqRunCallInfo] = field(default_factory=dict)
-    """Metadata for each sequence-run call site (populated during PickTypesAndResolveFields)."""
 
     seq_dependencies: dict[str, list[tuple[str, FpyType]]] = field(default_factory=dict)
     """Map of .bin filename to resolved (arg_name, arg_type) pairs, populated by ResolveSequenceDependencies."""
