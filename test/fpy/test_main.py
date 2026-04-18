@@ -335,7 +335,7 @@ def _make_seq_args_type():
 
 def _make_seq_run_cmd():
     return CmdDef(
-        name="Ref.cmdSeq.RUN_ARGS",
+        name="Ref.cmdSeq0.RUN_ARGS",
         opcode=0x10006001,
         args=[
             ("fileName", "The sequence file name", _make_string_type()),
@@ -368,7 +368,7 @@ def test_run_main_unknown_command(monkeypatch, capsys):
 
     with pytest.raises(SystemExit) as exc:
         fpy_main.run_main([
-            "-c", "Ref.cmdSeq.DOES_NOT_EXIST",
+            "-c", "Ref.cmdSeq0.DOES_NOT_EXIST",
             "-d", "dict.json",
             "-i", "seq.bin",
         ])
@@ -401,7 +401,7 @@ def test_run_main_compiles_and_sends(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
 
     captured_source = {}
@@ -429,13 +429,13 @@ def test_run_main_compiles_and_sends(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "send_command_zmq", fake_send)
 
     fpy_main.run_main([
-        "-c", "Ref.cmdSeq.RUN_ARGS",
+        "-c", "Ref.cmdSeq0.RUN_ARGS",
         "-d", "dict.json",
         "-i", "seq.bin",
         "42",
     ])
 
-    assert 'Ref.cmdSeq.RUN_ARGS("seq.bin"' in captured_source["text"]
+    assert 'Ref.cmdSeq0.RUN_ARGS("seq.bin"' in captured_source["text"]
     assert "42" in captured_source["text"]
     assert sent["cmd_opcode"] == 0x10006001
     assert sent["args"] == b"\xAB\xCD"
@@ -447,7 +447,7 @@ def test_run_main_no_seq_args(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
 
     captured_source = {}
@@ -466,13 +466,13 @@ def test_run_main_no_seq_args(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
 
     fpy_main.run_main([
-        "-c", "Ref.cmdSeq.RUN_ARGS",
+        "-c", "Ref.cmdSeq0.RUN_ARGS",
         "-d", "dict.json",
         "-i", "seq.bin",
     ])
 
     source = captured_source["text"]
-    assert source == 'Ref.cmdSeq.RUN_ARGS("seq.bin", Svc.FpySequencer.BlockState.BLOCK)\n'
+    assert source == 'Ref.cmdSeq0.RUN_ARGS("seq.bin", Svc.FpySequencer.BlockState.BLOCK)\n'
 
 
 def test_run_main_compile_error(monkeypatch, capsys):
@@ -480,7 +480,7 @@ def test_run_main_compile_error(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
@@ -492,7 +492,7 @@ def test_run_main_compile_error(monkeypatch, capsys):
 
     with pytest.raises(SystemExit) as exc:
         fpy_main.run_main([
-            "-c", "Ref.cmdSeq.RUN_ARGS",
+            "-c", "Ref.cmdSeq0.RUN_ARGS",
             "-d", "dict.json",
             "-i", "seq.bin",
             "bad_value",
@@ -506,7 +506,7 @@ def test_run_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
@@ -523,7 +523,7 @@ def test_run_main_send_failure(monkeypatch, capsys):
 
     with pytest.raises(SystemExit) as exc:
         fpy_main.run_main([
-            "-c", "Ref.cmdSeq.RUN_ARGS",
+            "-c", "Ref.cmdSeq0.RUN_ARGS",
             "-d", "dict.json",
             "-i", "seq.bin",
         ])
@@ -537,7 +537,7 @@ def test_run_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
@@ -555,10 +555,10 @@ def test_run_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     bin_dir.mkdir()
 
     fpy_main.run_main([
-        "-c", "Ref.cmdSeq.RUN_ARGS",
+        "-c", "Ref.cmdSeq0.RUN_ARGS",
         "-d", "dict.json",
-        "-B", str(bin_dir),
-        "--flight-binary-dir", "/seq/",
+        "-g", str(bin_dir),
+        "-f", "/seq/",
         "-i", "seq.bin",
     ])
 
@@ -571,7 +571,7 @@ def test_run_main_zmq_addr(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "load_dictionary",
-        lambda _: {"cmd_name_dict": {"Ref.cmdSeq.RUN_ARGS": _make_seq_run_cmd()}},
+        lambda _: {"cmd_name_dict": {"Ref.cmdSeq0.RUN_ARGS": _make_seq_run_cmd()}},
     )
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
@@ -585,7 +585,7 @@ def test_run_main_zmq_addr(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda o, a, addr: sent.update(addr=addr))
 
     fpy_main.run_main([
-        "-c", "Ref.cmdSeq.RUN_ARGS",
+        "-c", "Ref.cmdSeq0.RUN_ARGS",
         "-d", "dict.json",
         "--zmq-addr", "tcp://192.168.1.1:50050",
         "-i", "seq.bin",

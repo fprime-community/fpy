@@ -71,7 +71,7 @@ def run_seq(
         arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
         seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
         Path(seq_file.name).write_bytes(serialize_directives(directives, arg_specs=arg_specs)[0])
-        fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=timeout_s)
+        fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_file.name, "WAIT"], timeout=timeout_s)
         return
 
     d = load_dictionary(default_dictionary)
@@ -79,9 +79,12 @@ def run_seq(
     cmd_id_dict = d["cmd_id_dict"]
     cmd_name_dict = d["cmd_name_dict"]
     type_defs = d["type_defs"]
-    # Ref.cmdSeq.RUN always fails when called from within a running sequence
-    seq_run_opcode = cmd_name_dict["Ref.cmdSeq.RUN"].opcode
-    always_failing = {seq_run_opcode}
+    # These RUN commands always fail when called from within a running sequence
+    # on the same sequencer instance; mark them as failing for the model.
+    always_failing = {
+        cmd_name_dict["Ref.cmdSeq0.RUN"].opcode,
+        cmd_name_dict["Ref.seqDisp.RUN"].opcode,
+    }
     if failing_opcodes:
         always_failing |= failing_opcodes
     model = FpySequencerModel(

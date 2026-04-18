@@ -1,7 +1,7 @@
 """Tests for sequence calling with arguments (issue #39).
 
 These tests compile a child sequence to a .bin file in a temp directory,
-then compile+run a parent sequence that calls the child via Ref.cmdSeq.RUN_ARGS.
+then compile+run a parent sequence that calls the child via Ref.seqDisp.RUN_ARGS.
 
 All tests accept the ``fprime_test_api`` fixture so they can optionally run
 against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
@@ -46,7 +46,7 @@ def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None
 
 def _get_seq_run_opcode() -> int:
     d = load_dictionary(default_dictionary)
-    return d["cmd_name_dict"]["Ref.cmdSeq.RUN_ARGS"].opcode
+    return d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode
 
 
 def _compile_and_run_parent(
@@ -69,13 +69,13 @@ def _compile_and_run_parent(
         seq_run_opcodes = {_get_seq_run_opcode()}
 
     if fprime_test_api is not None:
-        # GDS path: serialize parent to .bin and send via Ref.cmdSeq.RUN
+        # GDS path: serialize parent to .bin and send via Ref.seqDisp.RUN
         arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
         data, _ = serialize_directives(directives, arg_specs=arg_specs)
         parent_bin = Path(ground_binary_dir) / "_test_parent.bin"
         parent_bin.write_bytes(data)
         fprime_test_api.send_and_assert_command(
-            "Ref.cmdSeq.RUN", [str(parent_bin), "BLOCK"], timeout=timeout_s,
+            "Ref.seqDisp.RUN", [str(parent_bin), "WAIT"], timeout=timeout_s,
         )
         return
 
@@ -99,7 +99,7 @@ class TestSeqRunDetection:
     """Test that the compiler correctly detects seq-run commands."""
 
     def test_run_args_detected_as_seq_run(self, fprime_test_api):
-        """Ref.cmdSeq.RUN_ARGS should be detected as a seq-run CommandSymbol."""
+        """Ref.seqDisp.RUN_ARGS should be detected as a seq-run CommandSymbol."""
         from fpy.compiler import _build_global_scopes
         from fpy.state import CommandSymbol
 
@@ -107,8 +107,8 @@ class TestSeqRunDetection:
         load_dictionary.cache_clear()
         _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
 
-        # Navigate to Ref.cmdSeq.RUN_ARGS
-        sym = callable_scope["Ref"]["cmdSeq"]["RUN_ARGS"]
+        # Navigate to Ref.seqDisp.RUN_ARGS
+        sym = callable_scope["Ref"]["seqDisp"]["RUN_ARGS"]
         assert isinstance(sym, CommandSymbol)
         assert sym.is_seq_run
         # Fixed args should be (fileName, block) only
@@ -117,7 +117,7 @@ class TestSeqRunDetection:
         assert sym.args[1][0] == "block"
 
     def test_regular_run_not_seq_run(self, fprime_test_api):
-        """Ref.cmdSeq.RUN should NOT be detected as a seq-run command."""
+        """Ref.seqDisp.RUN should NOT be detected as a seq-run command."""
         from fpy.compiler import _build_global_scopes
         from fpy.state import CommandSymbol
 
@@ -125,7 +125,7 @@ class TestSeqRunDetection:
         load_dictionary.cache_clear()
         _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
 
-        sym = callable_scope["Ref"]["cmdSeq"]["RUN"]
+        sym = callable_scope["Ref"]["seqDisp"]["RUN"]
         assert isinstance(sym, CommandSymbol)
         assert not sym.is_seq_run
 
@@ -143,7 +143,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -162,7 +162,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 42)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -178,7 +178,7 @@ assert y == 7
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 100, 7)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 100, 7)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -194,7 +194,7 @@ assert val == 99
 
             parent_seq = f"""\
 my_val: U32 = 99
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, my_val)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, my_val)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -209,7 +209,7 @@ assert val == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 10 + 20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 10 + 20)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -225,7 +225,7 @@ assert result == 50
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 42)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -240,7 +240,7 @@ assert b == 255
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 255)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 255)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -256,7 +256,7 @@ assert f < 3.15
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 3.14)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 3.14)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -278,7 +278,7 @@ assert x == 999
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 1)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 1)
 """
             with pytest.raises(RuntimeError):
                 _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -298,7 +298,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 42)
 """
             with pytest.raises(CompilationFailed, match="Missing sequence argument 'y'"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -314,7 +314,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, true)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, true)
 """
             with pytest.raises(CompilationFailed):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -324,7 +324,7 @@ Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, true)
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_path = str(Path(tmpdir).resolve() / "nonexistent.bin")
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{fake_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.seqDisp.RUN_ARGS("{fake_path}", Fw.Wait.NO_WAIT)
 """
             with pytest.raises(CompilationFailed, match="not found"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -339,7 +339,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT)
 """
             # No binary_dir passed
             with pytest.raises(CompilationFailed, match="binary directory"):
@@ -351,6 +351,8 @@ class TestSeqCallingNested:
 
     def test_nested_two_levels(self, fprime_test_api):
         """Parent calls child which calls grandchild; all args verified."""
+        if fprime_test_api is not None:
+            pytest.skip("Needs 3 sequencers; only 2 available on GDS")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
 
@@ -367,18 +369,20 @@ assert gc_val == 7
             child_seq = f"""\
 sequence(x: U32)
 assert x == 42
-Ref.cmdSeq.RUN_ARGS("{grandchild_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 7)
+Ref.seqDisp.RUN_ARGS("{grandchild_path}", Fw.Wait.NO_WAIT, 7)
 """
             _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             # Parent: calls child with an arg
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_nested_pass_through_arg(self, fprime_test_api):
         """Parent passes a value through two levels of sequence calls."""
+        if fprime_test_api is not None:
+            pytest.skip("Needs 3 sequencers; only 2 available on GDS")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
 
@@ -393,12 +397,12 @@ assert val == 123
             child_seq = f"""\
 sequence(val: U32)
 assert val == 123
-Ref.cmdSeq.RUN_ARGS("{grandchild_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val)
+Ref.seqDisp.RUN_ARGS("{grandchild_path}", Fw.Wait.NO_WAIT, val)
 """
             _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, 123)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 123)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -418,7 +422,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT)
 if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
@@ -437,7 +441,7 @@ assert 1 == 0
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT)
 if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
@@ -457,7 +461,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 42)
 if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
@@ -477,7 +481,7 @@ assert x == 999
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 1)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 1)
 if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
@@ -501,7 +505,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, x=42)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -519,7 +523,7 @@ assert b == 7
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.BLOCK, a=100, b=7)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, a=100, b=7)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -537,7 +541,7 @@ assert second == 2
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, second=2, first=1)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, second=2, first=1)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -556,7 +560,7 @@ assert c == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 10, c=30, b=20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 10, c=30, b=20)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -574,7 +578,7 @@ assert val == 55
 
             parent_seq = f"""\
 val: U32 = 55
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, val=val)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, val=val)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -591,7 +595,7 @@ assert result == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, result=10 + 20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, result=10 + 20)
 """
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -612,7 +616,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, z=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, z=42)
 """
             with pytest.raises(CompilationFailed, match="Unknown argument 'z'"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -630,7 +634,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=1, x=2)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, x=1, x=2)
 """
             with pytest.raises(CompilationFailed, match="specified multiple times"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -648,7 +652,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 42, x=99)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, 42, x=99)
 """
             with pytest.raises(CompilationFailed, match="specified multiple times"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -666,7 +670,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, x=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.NO_WAIT, x=42)
 """
             with pytest.raises(CompilationFailed, match="Missing sequence argument 'y'"):
                 compile_seq(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
@@ -712,7 +716,7 @@ assert x == 42
             # Parent references child via an absolute flight path;
             # compiler strips the prefix to find child.bin in ground_binary_dir
             parent_seq = """\
-Ref.cmdSeq.RUN_ARGS("/seq/bin/child.bin", Svc.FpySequencer.BlockState.NO_BLOCK, 42)
+Ref.seqDisp.RUN_ARGS("/seq/bin/child.bin", Fw.Wait.NO_WAIT, 42)
 """
             compile_seq(
                 fprime_test_api, parent_seq,
@@ -733,7 +737,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = """\
-Ref.cmdSeq.RUN_ARGS("child.bin", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.NO_WAIT)
 """
             _compile_and_run_parent(
                 fprime_test_api, parent_seq,
@@ -752,7 +756,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = """\
-Ref.cmdSeq.RUN_ARGS("/seq/bin/child.bin", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.seqDisp.RUN_ARGS("/seq/bin/child.bin", Fw.Wait.NO_WAIT)
 """
             compile_seq(
                 fprime_test_api, parent_seq,

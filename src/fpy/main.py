@@ -86,7 +86,7 @@ def compile_main(args: list[str] = None):
         help="Pass this to print out compiler debugging information",
     )
     arg_parser.add_argument(
-        "-B",
+        "-g",
         "--ground-binary-dir",
         type=Path,
         required=False,
@@ -94,6 +94,7 @@ def compile_main(args: list[str] = None):
         help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
     )
     arg_parser.add_argument(
+        "-f",
         "--flight-binary-dir",
         type=str,
         required=False,
@@ -334,7 +335,7 @@ def run_main(args: list[str] = None):
         "--command",
         type=str,
         required=True,
-        help="The sequence run command name (e.g., Ref.cmdSeq.RUN_ARGS)",
+        help="The sequence run command name (e.g., Ref.cmdSeq0.RUN_ARGS)",
     )
     arg_parser.add_argument(
         "-i",
@@ -351,7 +352,7 @@ def run_main(args: list[str] = None):
         help="The FPrime dictionary .json file",
     )
     arg_parser.add_argument(
-        "-B",
+        "-g",
         "--ground-binary-dir",
         type=Path,
         required=False,
@@ -359,6 +360,7 @@ def run_main(args: list[str] = None):
         help="Local directory to resolve .bin file paths for sequence calls",
     )
     arg_parser.add_argument(
+        "-f",
         "--flight-binary-dir",
         type=str,
         required=False,
