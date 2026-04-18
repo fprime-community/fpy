@@ -51,6 +51,7 @@ fprime-fpyc = "fpy.main:compile_main"
 fprime-fpy-model = "fpy.main:model_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
+fprime-fpy-run = "fpy.main:run_main"
 
 ####
 # setuptools_scm dynamically generates version number from git, as well as automatically

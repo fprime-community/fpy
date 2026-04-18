@@ -68,8 +68,9 @@ def run_seq(
         tlm = {}
 
     if fprime_test_api is not None:
+        arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
         seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-        Path(seq_file.name).write_bytes(serialize_directives(directives)[0])
+        Path(seq_file.name).write_bytes(serialize_directives(directives, arg_specs=arg_specs)[0])
         fprime_test_api.send_and_assert_command("Ref.cmdSeq.RUN", [seq_file.name, "BLOCK"], timeout=timeout_s)
         return
 

@@ -56,6 +56,7 @@ def _compile_and_run_parent(
     seq_run_opcodes: set[int] = None,
     failing_opcodes: set[int] = None,
     flight_binary_dir: str = None,
+    timeout_s: int = 8,
 ):
     """Compile and run a parent sequence that may call child sequences."""
     fpy.error.file_name = "<test-parent>"
@@ -66,6 +67,18 @@ def _compile_and_run_parent(
     )
     if seq_run_opcodes is None:
         seq_run_opcodes = {_get_seq_run_opcode()}
+
+    if fprime_test_api is not None:
+        # GDS path: serialize parent to .bin and send via Ref.cmdSeq.RUN
+        arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
+        data, _ = serialize_directives(directives, arg_specs=arg_specs)
+        parent_bin = Path(ground_binary_dir) / "_test_parent.bin"
+        parent_bin.write_bytes(data)
+        fprime_test_api.send_and_assert_command(
+            "Ref.cmdSeq.RUN", [str(parent_bin), "BLOCK"], timeout=timeout_s,
+        )
+        return
+
     # Run from ground_binary_dir so relative paths resolve correctly,
     # mimicking the real sequencer resolving paths relative to its cwd
     import os
@@ -248,7 +261,14 @@ Ref.cmdSeq.RUN_ARGS("{child_path}", Svc.FpySequencer.BlockState.NO_BLOCK, 3.14)
             _compile_and_run_parent(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
     def test_wrong_value_causes_failure(self, fprime_test_api):
-        """Child assert fails when the wrong value is passed."""
+        """Child assert fails when the wrong value is passed.
+
+        This test relies on the model running the child synchronously inline,
+        which doesn't match GDS behavior for NO_BLOCK calls.  The GDS equivalent
+        is tested in TestSeqCallingReturnStatus.test_branch_on_failure_wrong_arg.
+        """
+        if fprime_test_api is not None:
+            pytest.skip("Model-only test: NO_BLOCK child failure is async on GDS")
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
             child_seq = """\
@@ -702,6 +722,8 @@ Ref.cmdSeq.RUN_ARGS("/seq/bin/child.bin", Svc.FpySequencer.BlockState.NO_BLOCK, 
 
     def test_prefix_not_matching_uses_path_as_is(self, fprime_test_api):
         """A path that doesn't start with the prefix should resolve normally."""
+        if fprime_test_api is not None:
+            pytest.skip("Model-only: FSW can't resolve relative child paths from tmpdir")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
             child_path = str(Path(tmpdir) / "child.bin")
