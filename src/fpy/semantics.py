@@ -3,8 +3,11 @@ from dataclasses import fields
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
+from pathlib import Path
 import struct
 from typing import Union
+
+from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
 
 from fpy.error import CompileError
 from fpy.macros import TIME_MACRO
@@ -932,9 +935,6 @@ class ResolveSequenceDependencies(TopDownVisitor):
                 node,
             )
             return
-
-        from pathlib import Path
-        from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
 
         resolve_name = bin_name
         if state.flight_binary_dir is not None and bin_name.startswith(state.flight_binary_dir):
