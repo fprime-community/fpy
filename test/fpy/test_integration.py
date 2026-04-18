@@ -203,7 +203,8 @@ parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.
 # Logging
 log("hello world!")
 log("uh oh", Fw.LogSeverity.WARNING_HI)
-log("oh no!", Fw.LogSeverity.FATAL)
+# SKIP because it causes fsw to crash
+#log("oh no!", Fw.LogSeverity.FATAL)
 
 assert 1 > 0
 exit(0)
