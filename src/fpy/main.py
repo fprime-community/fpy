@@ -19,7 +19,7 @@ from fpy.bytecode.assembler import (
     resolve_arg_specs,
     serialize_directives,
 )
-from fpy.bytecode.directives import ConstCmdDirective
+from fpy.bytecode.directives import ConstCmdDirective, StackCmdDirective
 import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
@@ -406,10 +406,22 @@ def cmd_main(args: list[str] = None):
 
     directives, _ = result
 
+    stack_cmds = [d for d in directives if isinstance(d, StackCmdDirective)]
+    if stack_cmds:
+        print(
+            "Command arguments must be constant expressions",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     cmd_directives = [d for d in directives if isinstance(d, ConstCmdDirective)]
-    assert len(cmd_directives) == 1, (
-        f"Expected exactly 1 ConstCmdDirective, got {len(cmd_directives)}"
-    )
+    if len(cmd_directives) != 1:
+        print(
+            f"Expected 1 command with constant arguments, "
+            f"but got {len(cmd_directives)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     directive = cmd_directives[0]
 

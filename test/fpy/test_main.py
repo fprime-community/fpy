@@ -372,7 +372,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
 
 
 def test_cmd_main_non_const_arg(monkeypatch, capsys):
-    """AssertionError when compilation produces a non-const command."""
+    """Exit 1 when compilation produces a non-const (stack) command."""
     from fpy.bytecode.directives import StackCmdDirective
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
@@ -384,11 +384,14 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
         ),
     )
 
-    with pytest.raises(AssertionError, match="Expected exactly 1 ConstCmdDirective"):
+    with pytest.raises(SystemExit) as exc:
         fpy_main.cmd_main([
             'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, some_tlm)',
             "-d", "dict.json",
         ])
+
+    assert exc.value.code == 1
+    assert "Command arguments must be constants" in capsys.readouterr().err
 
 
 def test_cmd_main_send_failure(monkeypatch, capsys):
