@@ -366,7 +366,7 @@ class CompileState:
     """Ordered list of (arg_name, arg_type) for sequence parameters.
     Populated during semantic analysis."""
 
-    seq_dependencies: dict[str, list[tuple[str, FpyType]]] = field(default_factory=dict)
+    seq_arg_specs: dict[str, list[tuple[str, FpyType]]] = field(default_factory=dict)
     """Map of .bin filename to resolved (arg_name, arg_type) pairs, populated by ResolveSequenceDependencies."""
 
     errors: list[CompileError] = field(default_factory=list)

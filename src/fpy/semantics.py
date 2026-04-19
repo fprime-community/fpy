@@ -39,6 +39,7 @@ from fpy.types import (
     I64,
     F32,
     F64,
+    SEQ_ARGS,
     is_instance_compat,
 )
 from fpy.state import (
@@ -924,7 +925,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
             return
 
         bin_name = file_name_arg.value
-        if bin_name in state.seq_dependencies:
+        if bin_name in state.seq_arg_specs:
             # Already resolved (e.g. same sequence called twice)
             return
 
@@ -966,7 +967,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
             )
             return
 
-        state.seq_dependencies[bin_name] = target_arg_types
+        state.seq_arg_specs[bin_name] = target_arg_types
 
         # Build an extended CommandSymbol that includes the target sequence's
         # parameters so that standard arg resolution works in PickTypes.
@@ -2731,6 +2732,7 @@ class CheckSequenceArgs(Visitor):
                 f"Too many sequence arguments ({len(node.parameters)}); max is 255",
                 node,
             )
+            return
 
         for arg_name_var, arg_type_name in node.parameters:
             arg_var = state.resolved_symbols[arg_name_var]
@@ -2743,6 +2745,7 @@ class CheckSequenceArgs(Visitor):
                     f"({name_len} UTF-8 bytes); max is 255",
                     arg_name_var,
                 )
+                return
 
             type_name_len = len(arg_type.name.encode("utf-8"))
             if type_name_len > 255:
@@ -2751,16 +2754,15 @@ class CheckSequenceArgs(Visitor):
                     f"({type_name_len} UTF-8 bytes); max is 255",
                     arg_type_name,
                 )
+                return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
         if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run:
             return
 
-        from fpy.types import SEQ_ARGS
-
         bin_name = state.resolved_args[node][0].value
-        seq_arg_types = [t for _, t in state.seq_dependencies[bin_name]]
+        seq_arg_types = [t for _, t in state.seq_arg_specs[bin_name]]
         vararg_data_size = sum(t.max_size for t in seq_arg_types)
         buffer_size = SEQ_ARGS.members[1].type.length
         if vararg_data_size > buffer_size:
@@ -2769,3 +2771,4 @@ class CheckSequenceArgs(Visitor):
                 f"Svc.SeqArgs buffer capacity ({buffer_size} bytes)",
                 node,
             )
+            return

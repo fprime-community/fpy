@@ -278,7 +278,7 @@ class GenerateFunctionBody(Emitter):
         # ResolveSequenceDependencies extended func.args to include the
         # target sequence's parameters.
         bin_name = resolved_args[0].value
-        seq_dep = state.seq_dependencies[bin_name]
+        seq_dep = state.seq_arg_specs[bin_name]
         seq_arg_types = [t for _, t in seq_dep]
         n_fixed = len(func.args) - len(seq_dep)
         fixed_args = resolved_args[:n_fixed]

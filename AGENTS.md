@@ -4,3 +4,4 @@ Guidelines:
 * Use pytest to run tests.
 * If no tests are found, that usually means that there is an import error in the test files
 * If something should never happen, assert. Don't silently return or use defensive `if x is None: return` guards for cases that represent bugs or invariant violations—crash instead so bugs surface immediately.
+* Compile errors in semantics passes should always return ASAP. No continuing on if an error has been discovered.
