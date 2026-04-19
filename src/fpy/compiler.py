@@ -406,7 +406,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
             # Strip the SeqArgs param; user provides varargs instead
             fixed_args = args[:2]
             callable_name_dict[name] = CommandSymbol(
-                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run=True
+                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run_with_args=True
             )
         else:
             callable_name_dict[name] = CommandSymbol(

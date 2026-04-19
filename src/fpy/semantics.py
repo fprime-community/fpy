@@ -909,7 +909,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run:
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
             return
 
         if not node.args or len(node.args) < 1:
@@ -2758,7 +2758,7 @@ class CheckSequenceArgs(Visitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run:
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
             return
 
         bin_name = state.resolved_args[node][0].value

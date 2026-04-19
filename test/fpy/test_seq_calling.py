@@ -60,7 +60,7 @@ class TestSeqRunDetection:
         # Navigate to Ref.seqDisp.RUN_ARGS
         sym = callable_scope["Ref"]["seqDisp"]["RUN_ARGS"]
         assert isinstance(sym, CommandSymbol)
-        assert sym.is_seq_run
+        assert sym.is_seq_run_with_args
         # Fixed args should be (fileName, block) only
         assert len(sym.args) == 2
         assert sym.args[0][0] == "fileName"
@@ -77,7 +77,7 @@ class TestSeqRunDetection:
 
         sym = callable_scope["Ref"]["seqDisp"]["RUN"]
         assert isinstance(sym, CommandSymbol)
-        assert not sym.is_seq_run
+        assert not sym.is_seq_run_with_args
 
 
 class TestSeqCallingNoArgs:

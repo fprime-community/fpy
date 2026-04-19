@@ -46,7 +46,7 @@ class CallableSymbol:
 @dataclass
 class CommandSymbol(CallableSymbol):
     cmd: CmdDef
-    is_seq_run: bool = False
+    is_seq_run_with_args: bool = False
 
 
 @dataclass

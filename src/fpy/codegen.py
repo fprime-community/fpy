@@ -1017,7 +1017,7 @@ class GenerateFunctionBody(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         dirs = []
-        if is_instance_compat(func, CommandSymbol) and func.is_seq_run:
+        if is_instance_compat(func, CommandSymbol) and func.is_seq_run_with_args:
             dirs = self._emit_seq_run_cmd(node, func, state)
         elif is_instance_compat(func, CommandSymbol):
             const_args = all(
