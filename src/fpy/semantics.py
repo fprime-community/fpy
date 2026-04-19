@@ -1625,14 +1625,15 @@ class PickTypesAndResolveFields(Visitor):
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         # Synthesize an anonymous array type from the element expressions
         elem_types = [state.synthesized_types[elem] for elem in node.elements]
-        # Compute common element type (needed for index access on anon arrays)
+        # Compute common element type
         common_elem_type = None
         if len(elem_types) > 0:
             common_elem_type = elem_types[0]
             for et in elem_types[1:]:
                 common_elem_type = self.find_common_type(common_elem_type, et)
                 if common_elem_type is None:
-                    break
+                    state.err("Array elements have no common type", node)
+                    return
         anon_type = FpyType(
             TypeKind.ANON_ARRAY,
             f"$AnonArray[{len(elem_types)}]",
@@ -1647,11 +1648,13 @@ class PickTypesAndResolveFields(Visitor):
         node: AstFuncCall,
         func: CallableSymbol,
         node_args: list,
+        state: CompileState,
     ) -> list[AstExpr] | CompileError:
-        """Build a complete list of argument expressions for a function call.
+        """Resolve a function call's arguments.
 
         Reorders named arguments to positional order, fills in default values
-        for missing optional arguments, and checks for missing required arguments.
+        for missing optional arguments, checks for missing required arguments,
+        and validates argument types are compatible.
 
         Returns assigned_args on success.
         Returns a CompileError if there's an issue with the arguments.
@@ -1713,28 +1716,11 @@ class PickTypesAndResolveFields(Visitor):
                         node,
                     )
 
-        return assigned
-
-    def check_arg_types_compatible_with_func(
-        self,
-        node: AstFuncCall,
-        func: CallableSymbol,
-        resolved_args: list[AstExpr],
-        state: CompileState,
-    ) -> CompileError | None:
-        """Check if a function call's arguments have compatible types.
-
-        Given args must be coercible to expected args, with a special case for casting
-        where any numeric type is accepted.
-        resolved_args must be in positional order with all values present (defaults filled in).
-        Returns a compile error if types don't match, otherwise None.
-        """
-        func_args = func.args
-
+        # Type check resolved args against the function signature
         if is_instance_compat(func, CastSymbol):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
-            node_arg = resolved_args[0]
+            node_arg = assigned[0]
             input_type = state.synthesized_types[node_arg]
             output_type = func.to_type
             # right now we only have casting to numbers
@@ -1744,36 +1730,33 @@ class PickTypesAndResolveFields(Visitor):
                 return CompileError(
                     f"Expected a number, found {input_type.display_name}", node_arg
                 )
-            # no error! looks good to me
-            return
+        else:
+            for value_expr, arg in zip(assigned, func_args):
+                arg_type = arg[1]
 
-        # Check provided args against expected
-        for value_expr, arg in zip(resolved_args, func_args):
-            arg_type = arg[1]
+                # Skip type check for default values that are FpyValue instances
+                # this can happen if the value is hardcoded from a builtin func
+                # or from dictionary defaults for type constructors
+                if not is_instance_compat(value_expr, Ast):
+                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
+                    assert is_instance_compat(value_expr, FpyValue), value_expr
+                    continue
 
-            # Skip type check for default values that are FpyValue instances
-            # this can happen if the value is hardcoded from a builtin func
-            # or from dictionary defaults for type constructors
-            if not is_instance_compat(value_expr, Ast):
-                assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
-                assert is_instance_compat(value_expr, FpyValue), value_expr
-                continue
+                # Skip type check for default values from forward-called functions.
+                # These expressions haven't been visited yet, so they're not in
+                # synthesized_types. Their type compatibility is verified when
+                # the function definition is visited.
+                if value_expr not in state.synthesized_types:
+                    continue
 
-            # Skip type check for default values from forward-called functions.
-            # These expressions haven't been visited yet, so they're not in
-            # synthesized_types. Their type compatibility is verified when
-            # the function definition is visited.
-            if value_expr not in state.synthesized_types:
-                continue
+                unconverted_type = state.synthesized_types[value_expr]
+                if not self.can_coerce_type(unconverted_type, arg_type):
+                    return CompileError(
+                        f"Expected {arg_type.display_name}, found {unconverted_type.display_name}",
+                        value_expr if is_instance_compat(value_expr, Ast) else node,
+                    )
 
-            unconverted_type = state.synthesized_types[value_expr]
-            if not self.can_coerce_type(unconverted_type, arg_type):
-                return CompileError(
-                    f"Expected {arg_type.display_name}, found {unconverted_type.display_name}",
-                    value_expr if is_instance_compat(value_expr, Ast) else node,
-                )
-        # all args r good
-        return
+        return assigned
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
@@ -1795,21 +1778,14 @@ class PickTypesAndResolveFields(Visitor):
 
         node_args = node.args if node.args else []
 
-        # Build resolved args: reorder named args, fill in defaults, check for missing required
-        result = self.resolve_args(node, func, node_args)
+        # Resolve args: reorder named args, fill in defaults, check types
+        result = self.resolve_args(node, func, node_args, state)
         if is_instance_compat(result, CompileError):
             state.errors.append(result)
             return
 
         resolved_args = result
         state.resolved_args[node] = resolved_args
-
-        error_or_none = self.check_arg_types_compatible_with_func(
-            node, func, resolved_args, state
-        )
-        if is_instance_compat(error_or_none, CompileError):
-            state.errors.append(error_or_none)
-            return
 
         # go handle coercion/casting
         if is_instance_compat(func, CastSymbol):
@@ -1832,8 +1808,7 @@ class PickTypesAndResolveFields(Visitor):
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
-                if not self.coerce_expr_type(value_expr, target_type, state):
-                    return
+                assert self.coerce_expr_type(value_expr, target_type, state)
 
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
