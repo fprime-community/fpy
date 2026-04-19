@@ -14,6 +14,7 @@ cls
 codegen
 ctx
 cuz
+deframer
 downcasted
 downcasting
 elifs
@@ -35,6 +36,7 @@ fptrunc
 fpy
 fpybc
 fqn
+fsw
 getcontext
 getfixturevalue
 getoption
@@ -78,6 +80,7 @@ smod
 smth
 subcls
 sus
+tcp
 td
 timebase
 tlm
@@ -97,3 +100,4 @@ wx
 xl
 xy
 ziext
+zmq
