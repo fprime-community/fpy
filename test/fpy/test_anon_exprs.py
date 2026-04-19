@@ -173,6 +173,13 @@ val: U32 = [1, 2, 3]
 """
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_anon_array_incompatible_element_types(self, fprime_test_api):
+        """Anonymous array with incompatible element types should fail."""
+        seq = """
+[1, "hello"]
+"""
+        assert_compile_failure(fprime_test_api, seq, match="common type")
+
 
 class TestAnonArrayAdvanced:
     def test_anon_array_as_func_arg(self, fprime_test_api):

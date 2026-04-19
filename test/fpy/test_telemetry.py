@@ -44,7 +44,7 @@ exit(1)
 
     def test_assign_tlm_struct_member_bad(self, fprime_test_api):
         seq = """
-Ref.cmdSeq.Debug.nextStatementOpcode = 0
+Ref.cmdSeq0.Debug.nextStatementOpcode = 0
 """
 
         assert_compile_failure(fprime_test_api, seq)

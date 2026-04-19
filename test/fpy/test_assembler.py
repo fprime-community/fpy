@@ -989,20 +989,20 @@ class TestArgSpecs:
 
     def test_single_primitive_type(self):
         dirs = [NoOpDirective()]
-        serialized, _ = serialize_directives(dirs, arg_specs=[("U32", 4)])
+        serialized, _ = serialize_directives(dirs, arg_specs=[("x", "U32", 4)])
         _, arg_specs = deserialize_directives(serialized)
-        assert arg_specs == [("U32", 4)]
+        assert arg_specs == [("x", "U32", 4)]
 
     def test_multiple_primitive_types(self):
         dirs = [NoOpDirective()]
-        specs = [("U8", 1), ("U16", 2), ("U32", 4), ("U64", 8), ("I8", 1), ("I16", 2), ("I32", 4), ("I64", 8), ("F32", 4), ("F64", 8), ("bool", 1)]
+        specs = [("a", "U8", 1), ("b", "U16", 2), ("c", "U32", 4), ("d", "U64", 8), ("e", "I8", 1), ("f", "I16", 2), ("g", "I32", 4), ("h", "I64", 8), ("i", "F32", 4), ("j", "F64", 8), ("k", "bool", 1)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
         _, arg_specs = deserialize_directives(serialized)
         assert arg_specs == specs
 
     def test_qualified_type_names(self):
         dirs = [NoOpDirective()]
-        specs = [("U32", 4), ("Svc.DpRecord", 128), ("Ref.DpDemo.U32Array", 256), ("Fw.Enabled", 1)]
+        specs = [("x", "U32", 4), ("rec", "Svc.DpRecord", 128), ("arr", "Ref.DpDemo.U32Array", 256), ("en", "Fw.Enabled", 1)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
         _, arg_specs = deserialize_directives(serialized)
         assert arg_specs == specs
@@ -1013,7 +1013,7 @@ class TestArgSpecs:
             PushValDirective(val=b"\x01\x02\x03\x04"),
             ExitDirective(),
         ]
-        specs = [("U32", 4), ("F64", 8)]
+        specs = [("x", "U32", 4), ("y", "F64", 8)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
         deserialized, arg_specs = deserialize_directives(serialized)
         assert arg_specs == specs
@@ -1028,7 +1028,7 @@ class TestArgSpecsBinaryFormat:
     def test_header_argument_count(self):
         """argumentCount in the header should match the number of arg specs."""
         dirs = [NoOpDirective()]
-        specs = [("U32", 4), ("U8", 1)]
+        specs = [("x", "U32", 4), ("y", "U8", 1)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
         header = struct.unpack_from(HEADER_FORMAT, serialized)
         argument_count = header[4]  # argumentCount is 5th field
@@ -1044,21 +1044,26 @@ class TestArgSpecsBinaryFormat:
     def test_args_section_follows_header(self):
         """The arg specs section should begin immediately after the header."""
         dirs = [NoOpDirective()]
-        specs = [("U32", 4)]
+        specs = [("x", "U32", 4)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
-        # After header: 1 byte name_len + "U32" (3 bytes) + U32 size (4 bytes)
+        # After header: 1 byte arg_name_len + "x" (1 byte) + 1 byte type_name_len + "U32" (3 bytes) + U32 size (4 bytes)
         offset = HEADER_SIZE
-        name_len = serialized[offset]
-        assert name_len == 3
-        name = serialized[offset + 1 : offset + 1 + 3].decode("utf-8")
-        assert name == "U32"
+        arg_name_len = serialized[offset]
+        assert arg_name_len == 1
+        arg_name = serialized[offset + 1 : offset + 2].decode("utf-8")
+        assert arg_name == "x"
+        offset += 2
+        type_name_len = serialized[offset]
+        assert type_name_len == 3
+        type_name = serialized[offset + 1 : offset + 4].decode("utf-8")
+        assert type_name == "U32"
         size = struct.unpack_from("!I", serialized, offset + 4)[0]
         assert size == 4
 
     def test_large_type_size_roundtrip(self):
         """Sizes up to 2^32-1 should survive round-trip."""
         dirs = [NoOpDirective()]
-        specs = [("BigStruct", 65535)]
+        specs = [("big", "BigStruct", 65535)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
         _, arg_specs = deserialize_directives(serialized)
         assert arg_specs == specs

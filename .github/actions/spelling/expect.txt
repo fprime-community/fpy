@@ -14,6 +14,7 @@ cls
 codegen
 ctx
 cuz
+Deframer
 downcasted
 downcasting
 elifs
@@ -35,12 +36,14 @@ fptrunc
 fpy
 fpybc
 fqn
+fsw
 getcontext
 getfixturevalue
 getoption
 github
 gz
 hh
+HLTH
 iabs
 idx
 ieq
@@ -77,6 +80,7 @@ smod
 smth
 subcls
 sus
+tcp
 td
 timebase
 tlm
@@ -88,6 +92,7 @@ ul
 umod
 usec
 useconds
+vararg
 vh
 vw
 wrt
@@ -95,3 +100,4 @@ wx
 xl
 xy
 ziext
+zmq
