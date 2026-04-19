@@ -14,7 +14,7 @@ cls
 codegen
 ctx
 cuz
-deframer
+Deframer
 downcasted
 downcasting
 elifs
