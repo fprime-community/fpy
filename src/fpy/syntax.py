@@ -1,11 +1,58 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Iterator, List, Literal as TypingLiteral, Union
 from lark import Token, Transformer, v_args
 from lark.tree import Meta
 from lark.lark import PostLex
 from lark.indenter import DedentError
 from decimal import Decimal
+
+
+class UnaryStackOp(str, Enum):
+    NOT = "not"
+    IDENTITY = "+"
+    NEGATE = "-"
+
+
+class BinaryStackOp(str, Enum):
+    EXPONENT = "**"
+    MODULUS = "%"
+    ADD = "+"
+    SUBTRACT = "-"
+    MULTIPLY = "*"
+    DIVIDE = "/"
+    FLOOR_DIVIDE = "//"
+    GREATER_THAN = ">"
+    GREATER_THAN_OR_EQUAL = ">="
+    LESS_THAN_OR_EQUAL = "<="
+    LESS_THAN = "<"
+    EQUAL = "=="
+    NOT_EQUAL = "!="
+    OR = "or"
+    AND = "and"
+
+
+NUMERIC_OPERATORS = {
+    UnaryStackOp.IDENTITY,
+    UnaryStackOp.NEGATE,
+    BinaryStackOp.ADD,
+    BinaryStackOp.SUBTRACT,
+    BinaryStackOp.MULTIPLY,
+    BinaryStackOp.DIVIDE,
+    BinaryStackOp.MODULUS,
+    BinaryStackOp.EXPONENT,
+    BinaryStackOp.FLOOR_DIVIDE,
+}
+BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+COMPARISON_OPS = {
+    BinaryStackOp.LESS_THAN,
+    BinaryStackOp.GREATER_THAN,
+    BinaryStackOp.LESS_THAN_OR_EQUAL,
+    BinaryStackOp.GREATER_THAN_OR_EQUAL,
+    BinaryStackOp.EQUAL,
+    BinaryStackOp.NOT_EQUAL,
+}
 
 
 class PythonIndenter(PostLex):
@@ -24,6 +71,9 @@ class PythonIndenter(PostLex):
     INDENT_type = "_INDENT"
     DEDENT_type = "_DEDENT"
     tab_len = 8
+    # Tell the contextual lexer to always accept _NEWLINE so we can
+    # suppress it inside parentheses/brackets/braces (paren_level > 0).
+    always_accept = ("_NEWLINE",)
 
     def __init__(self) -> None:
         self.paren_level = 0
@@ -40,7 +90,16 @@ class PythonIndenter(PostLex):
             return
 
         indent_str = token.rsplit("\n", 1)[1]  # Tabs and spaces
-        indent = indent_str.count(" ") + indent_str.count("\t") * self.tab_len
+        # Only count leading whitespace; a trailing comment may appear
+        # at end-of-file when there is no final newline.
+        indent = 0
+        for ch in indent_str:
+            if ch == " ":
+                indent += 1
+            elif ch == "\t":
+                indent += self.tab_len
+            else:
+                break
 
         if indent > self.indent_level[-1]:
             self.indent_level.append(indent)
@@ -69,6 +128,9 @@ class PythonIndenter(PostLex):
                 self.paren_level -= 1
                 assert self.paren_level >= 0
 
+        # At EOF, always inject a NEWLINE so the grammar can require
+        # NEWLINE after small statements without requiring trailing newlines in input
+        yield Token(self.NL_type, "\n")
         while len(self.indent_level) > 1:
             self.indent_level.pop()
             yield Token(self.DEDENT_type, "")
@@ -97,14 +159,8 @@ class Ast:
 
 
 @dataclass
-class AstVar(Ast):
-    var: str
-
-
-@dataclass
-class AstTypeExpr(Ast):
-    """A qualified name like A.b.c - used for type annotations"""
-    parts: list[str]
+class AstIdent(Ast):
+    name: str
 
 
 @dataclass()
@@ -126,7 +182,7 @@ AstLiteral = Union[AstString, AstNumber, AstBoolean]
 
 
 @dataclass
-class AstMemberAccess(Ast):
+class AstGetAttr(Ast):
     parent: "AstExpr"
     attr: str
 
@@ -175,44 +231,64 @@ class AstRange(Ast):
     upper_bound: AstExpr
 
 
+@dataclass
+class AstAnonStruct(Ast):
+    members: list[tuple[str, "AstExpr"]]
+
+
+@dataclass
+class AstAnonArray(Ast):
+    elements: list["AstExpr"]
+
+
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
-AstReference = Union[AstMemberAccess, AstIndexExpr, AstVar]
-AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange]
+AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
+AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray]
 
 
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
-    type_ann: AstTypeExpr | None
+    type_ann: AstExpr | None
     rhs: AstExpr
 
 
 @dataclass
 class AstElif(Ast):
     condition: AstExpr
-    body: "AstStmtList"
+    body: "AstBlock"
 
 
 @dataclass()
 class AstIf(Ast):
     condition: AstExpr
-    body: "AstStmtList"
+    body: "AstBlock"
     elifs: list[AstElif]
-    els: Union["AstStmtList", None]
+    els: Union["AstBlock", None]
 
 
 @dataclass
 class AstFor(Ast):
-    loop_var: AstVar
+    loop_var: AstIdent
     range: AstExpr
-    body: AstStmtList
+    body: AstBlock
 
 
 @dataclass
 class AstWhile(Ast):
     condition: AstExpr
-    body: AstStmtList
+    body: AstBlock
+
+
+@dataclass
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: Union[AstExpr, None]  # Default: no timeout
+    persist: Union[AstExpr, None]  # Default: 0 second interval
+    period: Union[AstExpr, None]    # Default: 1 second interval
+    body: Union["AstBlock", None]  # None for body-less check
+    timeout_body: Union["AstBlock", None] = None
 
 
 @dataclass
@@ -238,12 +314,16 @@ class AstReturn(Ast):
 
 @dataclass
 class AstDef(Ast):
-    name: AstVar
-    # parameters is a list of (name, type, default_value) tuples
+    name: AstIdent
+    # parameters is a list of (ident, type, default_value) tuples
     # default_value is None if no default is provided
-    parameters: list[tuple[AstVar, AstTypeExpr, AstExpr | None]]
-    return_type: Union[AstTypeExpr, None]
+    parameters: Union[list[tuple[AstIdent, AstExpr, AstExpr | None]], None]
+    return_type: Union[AstExpr, None]
     body: AstBlock
+
+@dataclass
+class AstSequenceMetadata(Ast):
+    parameters: Union[list[tuple[AstIdent, AstExpr]], None]
 
 
 AstStmt = Union[
@@ -256,12 +336,14 @@ AstStmt = Union[
     AstBreak,
     AstContinue,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstDef,
+    AstSequenceMetadata,
     AstReturn
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstAssert, AstDef, AstReturn
+    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
@@ -270,17 +352,13 @@ AstNodeWithSideEffects = Union[
     AstElif,
     AstFor,
     AstWhile,
+    AstCheck,
     AstAssert,
     AstBreak,
     AstContinue,
     AstDef,
     AstReturn
 ]
-
-
-@dataclass
-class AstStmtList(Ast):
-    stmts: list[AstStmt]
 
 
 @dataclass
@@ -326,6 +404,88 @@ def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
 
+# Check statement clause handlers.
+# The check_stmt grammar has multiple optional clauses (timeout, persist, period).
+# We use separate grammar rules for each clause so we can tag them and identify
+# which optional clauses were provided, regardless of how many are present.
+def handle_check_clause(tag):
+    """Create a handler that tags an expression with the given clause name."""
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta, expr):
+        return (tag, expr)
+    return wrapper
+
+
+def handle_check_clauses(meta, children):
+    """Parse multi-line check clauses and body statements.
+    
+    Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
+    (clause_type, expr) tuples and body_stmts is an AstBlock or None (body-less).
+    """
+    clauses = []
+    stmts = []
+    
+    for child in children:
+        if isinstance(child, tuple) and len(child) == 2:
+            # This is a clause: (clause_type, expr)
+            clauses.append(child)
+        else:
+            # This is a statement AST node
+            stmts.append(child)
+    
+    # Return as a special tuple that handle_check_stmt can recognize
+    body = AstBlock(meta, stmts) if stmts else None
+    return ("check_clauses_result", clauses, body)
+
+
+def handle_check_stmt(meta, children):
+    """Parse check statement with optional timeout/persist/period clauses."""
+    from fpy.error import SyntaxErrorDuringTransform
+    
+    condition = children[0]
+    timeout = None
+    persist = None
+    period = None
+    body = None
+    timeout_body = None
+    body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
+    
+    def set_clause(clause_type, expr):
+        nonlocal timeout, persist, period
+        if clause_type == "timeout":
+            if timeout is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
+            timeout = expr
+        elif clause_type == "persist":
+            if persist is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
+            persist = expr
+        elif clause_type == "period":
+            if period is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'period' clause in check statement", expr)
+            period = expr
+    
+    for child in children[1:]:
+        # Handle check_clauses which returns ("check_clauses_result", clauses, body)
+        if isinstance(child, tuple) and len(child) == 3 and child[0] == "check_clauses_result":
+            _, clauses, stmts = child
+            for clause_type, expr in clauses:
+                set_clause(clause_type, expr)
+            body = stmts  # May be None for body-less multi-line check
+            body_set = True
+        elif isinstance(child, tuple) and len(child) == 2:
+            clause_type, expr = child
+            set_clause(clause_type, expr)
+        elif isinstance(child, AstBlock):
+            if not body_set:
+                body = child
+                body_set = True
+            else:
+                timeout_body = child
+    
+    return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
+
+
 def handle_parameter(meta, args):
     """Parse a single parameter: (name, type, default_value or None)"""
     assert len(args) in (2, 3), f"Expected 2 or 3 args, got {len(args)}: {args}"
@@ -333,13 +493,19 @@ def handle_parameter(meta, args):
     default_value = args[2] if len(args) == 3 else None
     return (name, type_expr, default_value)
 
+def handle_sequence_argument(meta, args):
+    """Parse a sequence argument: (name, type)"""
+    assert len(args) == 2, f"Expected 2 args, got {len(args)}: {args}"
+    name, type_expr = args[0], args[1]
+    return (name, type_expr)
+
 
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
     pass_stmt = AstPass
 
-    assign = AstAssign
+    assign_stmt = AstAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -350,9 +516,28 @@ class FpyTransformer(Transformer):
     assert_stmt = AstAssert
 
     if_stmt = AstIf
+
+    check_timeout = handle_check_clause("timeout")
+    check_persist = handle_check_clause("persist")
+    check_period = handle_check_clause("period")
+    check_timeout_final = handle_check_clause("timeout")
+    check_persist_final = handle_check_clause("persist")
+    check_period_final = handle_check_clause("period")
+
+    @v_args(meta=True, inline=True)
+    def check_clause(self, meta, x):
+        return x  # pass through
+
+    @v_args(meta=True, inline=True)
+    def check_clause_final(self, meta, x):
+        return x  # pass through
+
+    check_clauses = no_inline(handle_check_clauses)
+    check_stmt = no_inline(handle_check_stmt)
+
     elifs = no_inline_or_meta(list)
     elif_ = AstElif
-    stmt_list = no_inline(AstStmtList)
+    block = no_inline(AstBlock)
     binary_op = AstBinaryOp
     unary_op = AstUnaryOp
 
@@ -368,22 +553,28 @@ class FpyTransformer(Transformer):
     string = AstString
     number = AstNumber
     boolean = AstBoolean
-    name = no_meta(str)
-    member_access = AstMemberAccess
+    name = AstIdent
+    get_attr = AstGetAttr
     index_expr = AstIndexExpr
-    var = AstVar
     range = AstRange
 
-    type_expr = no_inline(AstTypeExpr)
+    anon_struct = no_inline(AstAnonStruct)
+    anon_struct_member = no_inline_or_meta(tuple)
+    anon_array = no_inline(AstAnonArray)
 
     def_stmt = AstDef
     parameter = no_inline(handle_parameter)
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
 
-    NAME = str
+    meta_stmt = AstSequenceMetadata
+    sequence_stmt_parameters = no_inline_or_meta(list)
+    sequence_stmt_parameter = no_inline(handle_sequence_argument)
+
+    NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
+    HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
     RANGE_OP = str
     STRING = handle_str

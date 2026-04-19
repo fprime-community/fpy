@@ -1,0 +1,5 @@
+# Test that used functions are included in codegen
+def add_one(x: U32) -> U32:
+    return U32(x + 1)
+
+result: U32 = add_one(5)

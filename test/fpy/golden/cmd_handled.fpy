@@ -1,0 +1,4 @@
+ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+if ret == Fw.CmdResponse.OK:
+    exit(0)
+exit(1)

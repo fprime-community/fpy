@@ -1,0 +1,253 @@
+goto 160
+allocate 16
+load_rel -30 11
+push_val 0 0 0 0
+get_field 11 2
+load_rel -19 11
+push_val 0 0 0 0
+get_field 11 2
+memcmp 2
+not
+if 14
+push_val 0 0 0 2
+return 4 22
+goto 14
+load_rel -30 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -30 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 0 8
+load_rel -19 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -19 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
+ult
+if 45
+push_val 255 255 255 255
+return 4 22
+goto 52
+load_rel 0 8
+load_rel 8 8
+ieq
+if 52
+push_val 0 0 0 0
+return 4 22
+goto 52
+push_val 0 0 0 1
+return 4 22
+allocate 16
+load_rel -24 8
+push_val 0 0 0 0
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -24 8
+push_val 0 0 0 4
+get_field 8 4
+ziext_32_64
+add
+store_rel_const_offset 0 8
+load_rel -16 8
+push_val 0 0 0 0
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -16 8
+push_val 0 0 0 4
+get_field 8 4
+ziext_32_64
+add
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
+ult
+if 86
+push_val 255 255 255 255
+return 4 16
+goto 93
+load_rel 0 8
+load_rel 8 8
+ieq
+if 93
+push_val 0 0 0 0
+return 4 16
+goto 93
+push_val 0 0 0 1
+return 4 16
+allocate 32
+load_rel -30 11
+push_val 0 0 0 0
+get_field 11 2
+load_rel -19 11
+push_val 0 0 0 0
+get_field 11 2
+memcmp 2
+not
+if 107
+push_val 1
+exit
+load_rel -30 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -30 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 0 8
+load_rel -19 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -19 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
+uge
+not
+if 138
+push_val 1
+exit
+load_rel 0 8
+load_rel 8 8
+sub
+store_rel_const_offset 16 8
+load_rel 16 8
+push_val 0 0 0 0 0 15 66 64
+udiv
+store_rel_const_offset 24 8
+load_rel 24 8
+push_val 0 0 0 0 255 255 255 255
+ule
+not
+if 153
+push_val 1
+exit
+load_rel 24 8
+itrunc_64_32
+load_rel 16 8
+push_val 0 0 0 0 0 15 66 64
+umod
+itrunc_64_32
+return 8 22
+push_val 255
+allocate 70
+push_val 0 0 0 0 0 0 0 0
+push_val 0 0 0 0 0 0 1 0 0 0 0
+push_val 0 0 0 0 0 1 134 160
+push_val 0
+push_val 0
+push_val 0 0 0 0 0 0 0 0 0 0 0
+push_time
+store_rel_const_offset 1 51
+push_val 255
+if 248
+push_time
+store_rel_const_offset 52 11
+load_rel 52 11
+load_rel 1 51
+push_val 0 0 0 8
+get_field 51 11
+push_val 0 0 0 1
+call
+store_rel_const_offset 63 4
+load_rel 63 4
+push_val 0 0 0 2
+memcmp 4
+not
+not
+if 189
+push_val 1
+exit
+load_rel 63 4
+push_val 0 0 0 1
+memcmp 4
+if 195
+goto 248
+goto 195
+push_val 255
+if 234
+load_rel 1 51
+push_val 0 0 0 28
+get_field 51 1
+not
+if 207
+load_rel 52 11
+store_rel_const_offset 30 11
+push_val 255
+store_rel_const_offset 29 1
+goto 207
+load_rel 52 11
+load_rel 1 51
+push_val 0 0 0 29
+get_field 51 11
+push_val 0 0 0 95
+call
+load_rel 1 51
+push_val 0 0 0 0
+get_field 51 8
+push_val 0 0 0 54
+call
+store_rel_const_offset 67 4
+load_rel 67 4
+push_val 0 0 0 1
+memcmp 4
+if 225
+push_val 255
+goto 228
+load_rel 67 4
+push_val 0 0 0 0
+memcmp 4
+if 233
+push_val 255
+store_rel_const_offset 28 1
+goto 248
+goto 233
+goto 236
+push_val 0
+store_rel_const_offset 29 1
+load_rel 1 51
+push_val 0 0 0 19
+get_field 51 8
+push_val 0 0 0 0
+get_field 8 4
+load_rel 1 51
+push_val 0 0 0 19
+get_field 51 8
+push_val 0 0 0 4
+get_field 8 4
+wait_rel
+goto 170
+load_rel 1 51
+push_val 0 0 0 27
+get_field 51 1
+if 253
+goto 253

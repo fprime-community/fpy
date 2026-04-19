@@ -1,0 +1,5 @@
+# Test that unused functions are excluded from codegen
+def unused_func() -> U32:
+    return 42
+
+result: U32 = 5

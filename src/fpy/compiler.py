@@ -2,24 +2,11 @@ from __future__ import annotations
 import sys
 from functools import lru_cache
 from pathlib import Path
-from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.enum_type import EnumType as EnumValue
-from fprime_gds.common.models.serialize.serializable_type import (
-    SerializableType as StructValue,
-)
-from fprime_gds.common.models.serialize.array_type import ArrayType as ArrayValue
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    NumericalType as NumericalValue,
-)
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from lark import Lark
+from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen import (
-    AssignVariableOffsets,
+    CalculateFrameSizes,
+    CollectUsedFunctions,
     FinalChecks,
     GenerateFunctionEntryPoints,
     GenerateFunctions,
@@ -27,43 +14,59 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops
+from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
+from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
-    AssignLocalScopes,
+    CreateScopes,
+    CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
     CheckConstArrayAccesses,
     CheckFunctionReturns,
     CheckReturnInFunc,
-    CheckUseBeforeDeclare,
+    CheckUseBeforeDefine,
+    CheckSequenceArgs,
     CreateVariablesAndFuncs,
-    PickTypesAndResolveAttrsAndItems,
-    ResolveTypeNames,
-    ResolveVars,
+    PickTypesAndResolveFields,
+    ResolveQualifiedNames,
+    ResolveSequenceDependencies,
+    UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
 from fpy.macros import MACROS
 from fpy.types import (
+    DEFAULT_MAX_DIRECTIVE_SIZE,
+    DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
-    CompileState,
-    FppType,
+    CHECK_STATE,
+    CMD_RESPONSE,
+    FLAGS_TYPE,
+    LOG_SEVERITY,
+    SEQ_ARGS,
+    TIME_COMPARISON,
+    TIME_INTERVAL,
+    TIME_BASE,
+    FpyType,
+    FpyValue,
+    TypeKind,
+    TIME,
+    BOOL,
+    I64,
+)
+from fpy.state import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    CompileState,
     TypeCtorSymbol,
-    Visitor,
+    VariableSymbol,
     create_symbol_table,
+    merge_symbol_tables,
 )
-from fprime_gds.common.loaders.ch_json_loader import ChJsonLoader
-from fprime_gds.common.loaders.cmd_json_loader import CmdJsonLoader
-from fprime_gds.common.loaders.event_json_loader import EventJsonLoader
-from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
-from fprime_gds.common.templates.cmd_template import CmdTemplate
-from pathlib import Path
-from lark import Lark, LarkError
+from fpy.visitors import Visitor
 
 from fpy.error import BackendError, CompileError, handle_lark_error
 import fpy.error
@@ -85,6 +88,35 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+# Load builtin time.fpy functions at module level
+_builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
+_builtin_time_text = _builtin_time_path.read_text()
+_builtin_library_ast = None  # Lazily initialized
+
+
+def _get_builtin_library_ast():
+    """Parse and cache the builtin library AST."""
+    global _builtin_library_ast
+    if _builtin_library_ast is None:
+        # Save current error state
+        old_input_text = fpy.error.input_text
+        old_input_lines = fpy.error.input_lines
+        old_file_name = fpy.error.file_name
+        
+        fpy.error.file_name = str(_builtin_time_path)
+        fpy.error.input_text = _builtin_time_text
+        fpy.error.input_lines = _builtin_time_text.splitlines()
+        
+        tree = _fpy_parser.parse(_builtin_time_text)
+        _builtin_library_ast = FpyTransformer().transform(tree)
+        
+        # Restore error state
+        fpy.error.input_text = old_input_text
+        fpy.error.input_lines = old_input_lines
+        fpy.error.file_name = old_file_name
+    
+    return _builtin_library_ast
+
 
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
@@ -99,171 +131,411 @@ def text_to_ast(text: str):
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
-        print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+        print(
+            fpy.error.CompileError(
+                "Maximum recursion depth exceeded (code is too deeply nested)"
+            ),
+            file=sys.stderr,
+        )
         exit(1)
     except VisitError as e:
         # VisitError wraps exceptions that occur during tree transformation
         if isinstance(e.orig_exc, RecursionError):
-            print(fpy.error.CompileError("Maximum recursion depth exceeded (code is too deeply nested)"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(
+                    "Maximum recursion depth exceeded (code is too deeply nested)"
+                ),
+                file=sys.stderr,
+            )
+        elif isinstance(e.orig_exc, fpy.error.SyntaxErrorDuringTransform):
+            print(
+                fpy.error.CompileError(e.orig_exc.msg, e.orig_exc.node),
+                file=sys.stderr,
+            )
         else:
-            print(fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"), file=sys.stderr)
+            print(
+                fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),
+                file=sys.stderr,
+            )
         exit(1)
     return transformed
 
 
+
+def _validate_and_replace_type(
+    type_dict: dict[str, FpyType],
+    name: str,
+    canonical: FpyType,
+) -> None:
+    """Validate that a required type exists in the dictionary and matches the
+    canonical definition, then replace it with the canonical version."""
+    if name not in type_dict:
+        raise ValueError(f"Dictionary must contain {name} type")
+    dict_type = type_dict[name]
+    if dict_type.kind != canonical.kind:
+        raise ValueError(
+            f"Dictionary {name} has kind {dict_type.kind}, expected {canonical.kind}"
+        )
+    if canonical.kind == TypeKind.STRUCT:
+        if dict_type.members != canonical.members:
+            raise ValueError(
+                f"Dictionary {name} has members {dict_type.members}, "
+                f"expected {canonical.members}"
+            )
+    elif canonical.kind == TypeKind.ENUM:
+        if dict_type.enum_dict != canonical.enum_dict:
+            raise ValueError(
+                f"Dictionary {name} has enum dict {dict_type.enum_dict}, "
+                f"expected {canonical.enum_dict}"
+            )
+        if dict_type.rep_type != canonical.rep_type:
+            raise ValueError(
+                f"Dictionary {name} has rep type {dict_type.rep_type}, "
+                f"expected {canonical.rep_type}"
+            )
+    elif canonical.kind == TypeKind.ARRAY:
+        if dict_type.elem_type != canonical.elem_type:
+            raise ValueError(
+                f"Dictionary {name} has elem type {dict_type.elem_type}, "
+                f"expected {canonical.elem_type}"
+            )
+        if dict_type.length != canonical.length:
+            raise ValueError(
+                f"Dictionary {name} has length {dict_type.length}, "
+                f"expected {canonical.length}"
+            )
+    type_dict[name] = canonical
+    # Preserve raw JSON defaults from the dictionary definition on the canonical type
+    canonical.json_default = dict_type.json_default
+
+
+def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
+    """Update the canonical TIME_BASE singleton from the dictionary's TimeBase.
+
+    The dictionary's TimeBase enum supercedes the hardcoded placeholder.
+    We only require that TB_NONE exists with value 0.  The full set of enum
+    constants and the representation type (FwTimeBaseStoreType) come from the
+    dictionary.
+    """
+    if "TimeBase" not in dict_type_name_dict:
+        raise ValueError("Dictionary must contain TimeBase enum type")
+    dict_tb = dict_type_name_dict["TimeBase"]
+    if dict_tb.kind != TypeKind.ENUM:
+        raise ValueError(
+            f"Dictionary TimeBase has kind {dict_tb.kind}, expected enum"
+        )
+    if "TB_NONE" not in dict_tb.enum_dict:
+        raise ValueError("Dictionary TimeBase enum must contain TB_NONE constant")
+    if dict_tb.enum_dict["TB_NONE"] != 0:
+        raise ValueError(
+            f"TimeBase.TB_NONE must have value 0, got {dict_tb.enum_dict['TB_NONE']}"
+        )
+
+    # Adopt the dictionary's enum constants and representation type
+    TIME_BASE.enum_dict = dict_tb.enum_dict
+    TIME_BASE.rep_type = dict_tb.rep_type
+    TIME_BASE.json_default = dict_tb.json_default
+
+    # Replace the dict entry with the canonical singleton
+    dict_type_name_dict["TimeBase"] = TIME_BASE
+
+
+def _update_time_context_type_from_dict(
+    dict_type_name_dict: dict[str, FpyType],
+) -> None:
+    """Update TIME's timeContext member type from FwTimeContextStoreType."""
+    if "FwTimeContextStoreType" not in dict_type_name_dict:
+        return  # Keep the default U8
+    ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
+    assert ctx_type.is_primitive, (
+        f"FwTimeContextStoreType must resolve to a primitive type, got {ctx_type}"
+    )
+    TIME.members[1].type = ctx_type
+
+
+def _get_elem_type_default(elem_type: FpyType) -> FpyValue:
+    """Return the zero/default FpyValue for a primitive, enum, or other element type."""
+    if elem_type.kind == TypeKind.BOOL:
+        return FpyValue(elem_type, False)
+    if elem_type.is_integer:
+        return FpyValue(elem_type, 0)
+    if elem_type.is_float:
+        return FpyValue(elem_type, 0.0)
+    if elem_type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+        return FpyValue(elem_type, "")
+    assert elem_type.json_default is not None, (
+        f"Element type {elem_type.name} must have json_default"
+    )
+    return json_default_to_fpy_value(elem_type.json_default, elem_type)
+
+
+def _derive_elem_defaults(typ: FpyType) -> list[FpyValue]:
+    """Derive elem_defaults for a struct member array type (no json_default)."""
+    elem_default = _get_elem_type_default(typ.elem_type)
+    return [elem_default] * typ.length
+
+
+def _populate_type_defaults(typ: FpyType) -> None:
+    """Populate per-member/per-element defaults on an FpyType from its json_default.
+
+    Sets FpyType.member_defaults for structs and FpyType.elem_defaults for arrays.
+    Every type is guaranteed to have a default value.
+    """
+    if typ.kind == TypeKind.STRUCT:
+        if typ.member_defaults is not None:
+            return  # Already populated (e.g., built-in FLAGS_TYPE)
+        assert typ.json_default is not None, (
+            f"Struct {typ.name} must have json_default"
+        )
+        struct_defaults: dict[str, FpyValue] = {}
+        for m in typ.members:
+            raw_val = typ.json_default.get(m.name)
+            assert raw_val is not None, (
+                f"Missing default for member '{m.name}' of struct {typ.name}"
+            )
+            if m.type.kind == TypeKind.ARRAY and not (
+                isinstance(raw_val, list) and len(raw_val) == m.type.length
+            ):
+                # Struct member arrays (members with a "size" key in the JSON)
+                # get wrapped in a struct member array type, but the dictionary's
+                # raw default is a single element value rather than an
+                # array-shaped value.  Per FPP's spec
+                # (see https://github.com/nasa/fpp/issues/925), this single
+                # value initializes every element of the member array.
+                # We replicate it to build the full array-shaped FpyValue.
+                elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
+                struct_defaults[m.name] = FpyValue(
+                    m.type, [elem_val] * m.type.length
+                )
+            else:
+                struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
+        typ.member_defaults = struct_defaults
+    elif typ.kind == TypeKind.ARRAY:
+        if typ.json_default is not None:
+            default_val = json_default_to_fpy_value(typ.json_default, typ)
+            array_defaults = default_val.val  # list of FpyValue
+            assert len(array_defaults) == typ.length, (
+                f"Dictionary array type {typ.name} has default with "
+                f"{len(array_defaults)} elements but declared length {typ.length}"
+            )
+        else:
+            # Struct member array type (no json_default of its own) —
+            # derive element defaults from the element type.
+            array_defaults = _derive_elem_defaults(typ)
+        typ.elem_defaults = tuple(array_defaults)
+
+
+def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
+    """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor.
+    """
+    if typ.kind == TypeKind.STRUCT:
+        args = [(m.name, m.type, typ.member_defaults[m.name]) for m in typ.members]
+    elif typ.kind == TypeKind.ARRAY:
+        args = [
+            ("e" + str(i), typ.elem_type, typ.elem_defaults[i])
+            for i in range(typ.length)
+        ]
+    else:
+        return None
+    return TypeCtorSymbol(name, typ, args, typ)
+
+
 @lru_cache(maxsize=4)
-def _load_dictionary(dictionary: str) -> tuple:
+def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Load and parse the dictionary file once, caching the results.
-    Returns a tuple of (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict).
+    Build and cache the 3 global scopes and type_name_dict for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope, type_name_dict).
     """
-    cmd_json_dict_loader = CmdJsonLoader(dictionary)
-    (_, cmd_name_dict, _) = cmd_json_dict_loader.construct_dicts(dictionary)
+    d = load_dictionary(dictionary)
+    cmd_name_dict = d["cmd_name_dict"]
+    ch_name_dict = d["ch_name_dict"]
+    prm_name_dict = d["prm_name_dict"]
+    dict_type_name_dict = d["type_defs"]
 
-    ch_json_dict_loader = ChJsonLoader(dictionary)
-    (_, ch_name_dict, _) = ch_json_dict_loader.construct_dicts(dictionary)
-    prm_json_dict_loader = PrmJsonLoader(dictionary)
-    (_, prm_name_dict, _) = prm_json_dict_loader.construct_dicts(dictionary)
-    event_json_dict_loader = EventJsonLoader(dictionary)
-    (_, _, _) = event_json_dict_loader.construct_dicts(dictionary)
+    # Validate required dictionary types
+    _update_time_base_from_dict(dict_type_name_dict)
+    _update_time_context_type_from_dict(dict_type_name_dict)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
+    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
+    _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
 
-    # the type name dict is a mapping of a fully qualified name to an fprime type
-    # here we put into it all types found while parsing all cmds, params and tlm channels
-    type_name_dict: dict[str, FppType] = dict(cmd_json_dict_loader.parsed_types)
-    type_name_dict.update(ch_json_dict_loader.parsed_types)
-    type_name_dict.update(prm_json_dict_loader.parsed_types)
-    type_name_dict.update(event_json_dict_loader.parsed_types)
+    # Build the full type dict: start from (now-validated) dictionary types,
+    # then layer on builtins and internal types.  Later entries win, so
+    # canonical replacements from _validate_and_replace_type are preserved.
+    type_name_dict: dict[str, FpyType] = {
+        **dict_type_name_dict,
+        # Aliases: Fw.Time -> Fw.TimeValue, Fw.TimeInterval -> Fw.TimeIntervalValue
+        "Fw.Time": TIME,
+        "Fw.TimeInterval": TIME_INTERVAL,
+        **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
+        BOOL.name: BOOL,
+        CHECK_STATE.name: CHECK_STATE,
+        FLAGS_TYPE.name: FLAGS_TYPE,
+        LOG_SEVERITY.name: LOG_SEVERITY,
+    }
 
-    return (cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict)
-
-
-@lru_cache(maxsize=4)
-def _build_scopes(dictionary: str) -> tuple:
-    """
-    Build and cache the scopes for a dictionary.
-    Returns tuple of (tlm_scope, prm_scope, type_scope, callable_scope, const_scope).
-    """
-    cmd_name_dict, ch_name_dict, prm_name_dict, type_name_dict = _load_dictionary(dictionary)
-    
-    # Make a copy of type_name_dict since we'll mutate it
-    type_name_dict = dict(type_name_dict)
-
-    # enum const dict is a dict of fully qualified enum const name (like Ref.Choice.ONE) to its fprime value
-    enum_const_name_dict: dict[str, FppValue] = {}
-
-    # find each enum type, and put each of its values in the enum const dict
+    # Collect enum constants from the final type dict (after builtins and
+    # canonical replacements are in place).
+    enum_const_name_dict: dict[str, FpyValue] = {}
     for name, typ in type_name_dict.items():
-        if issubclass(typ, EnumValue):
-            for enum_const_name, val in typ.ENUM_DICT.items():
-                enum_const_name_dict[name + "." + enum_const_name] = typ(
-                    enum_const_name
+        if typ.kind == TypeKind.ENUM:
+            for enum_const_name in typ.enum_dict:
+                enum_const_name_dict[name + "." + enum_const_name] = FpyValue(
+                    typ, enum_const_name
                 )
 
-    # insert the builtin types into the dict
-    type_name_dict["Fw.Time"] = TimeValue
-    for typ in SPECIFIC_NUMERIC_TYPES:
-        type_name_dict[typ.get_canonical_name()] = typ
-    type_name_dict["bool"] = BoolValue
-    # note no string type at the moment
+    # Populate per-member/per-element defaults on types before building ctors
+    for typ in type_name_dict.values():
+        _populate_type_defaults(typ)
 
-    cmd_response_type = type_name_dict["Fw.CmdResponse"]
+    # Build callable dict: commands, numeric casts, type constructors, macros
     callable_name_dict: dict[str, CallableSymbol] = {}
-    # add all cmds to the callable dict
+
     for name, cmd in cmd_name_dict.items():
-        cmd: CmdTemplate
-        args = []
-        for arg_name, _, arg_type in cmd.arguments:
-            args.append((arg_name, arg_type, None))  # No default values for cmds
-        # cmds are thought of as callables with a Fw.CmdResponse return value
-        callable_name_dict[name] = CommandSymbol(
-            cmd.get_full_name(), cmd_response_type, args, cmd
-        )
-
-    # add numeric type casts to callable dict
-    for typ in SPECIFIC_NUMERIC_TYPES:
-        callable_name_dict[typ.get_canonical_name()] = CastSymbol(
-            typ.get_canonical_name(), typ, [("value", NumericalValue, None)], typ
-        )
-
-    # for each type in the dict, if it has a constructor, create an TypeCtorSymbol
-    # object to track the constructor and put it in the callable name dict
-    for name, typ in type_name_dict.items():
-        args = []
-        if issubclass(typ, StructValue):
-            for arg_name, arg_type, _, _ in typ.MEMBER_LIST:
-                args.append(
-                    (arg_name, arg_type, None)
-                )  # No default values for struct ctors
-        elif issubclass(typ, ArrayValue):
-            for i in range(0, typ.LENGTH):
-                args.append(("e" + str(i), typ.MEMBER_TYPE, None))
-        elif issubclass(typ, TimeValue):
-            args.append(("time_base", U16Value, None))
-            args.append(("time_context", U8Value, None))
-            args.append(("seconds", U32Value, None))
-            args.append(("useconds", U32Value, None))
+        args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
+        # Detect sequence-run commands by matching the 3-arg signature:
+        # (fileName: string, block: <any enum>, args: Svc.SeqArgs)
+        if (
+            len(args) == 3
+            and args[0][1].is_string
+            and args[1][1].kind == TypeKind.ENUM
+            and args[2][1].name == "Svc.SeqArgs"
+        ):
+            # Strip the SeqArgs param; user provides varargs instead
+            fixed_args = args[:2]
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run_with_args=True
+            )
         else:
-            # bool, enum, string or numeric type
-            # none of these have callable ctors
-            continue
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, args, cmd
+            )
 
-        callable_name_dict[name] = TypeCtorSymbol(name, typ, args, typ)
+    for typ in SPECIFIC_NUMERIC_TYPES:
+        callable_name_dict[typ.name] = CastSymbol(
+            typ.name, typ, [("value", I64, None)], typ
+        )
 
-    # for each macro function, add it to the callable dict
+    for name, typ in type_name_dict.items():
+        ctor = _make_type_ctor(name, typ)
+        if ctor is not None:
+            callable_name_dict[name] = ctor
+
     for macro_name, macro in MACROS.items():
         callable_name_dict[macro_name] = macro
 
-    return (
+    # Build the 3 global scopes per SPEC:
+    # 1. global type scope - leaf nodes are types
+    type_scope = create_symbol_table(type_name_dict)
+    # 2. global callable scope - leaf nodes are callables
+    callable_scope = create_symbol_table(callable_name_dict)
+    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants, FPP constants)
+    fpp_constants = d["constants"]
+    values_scope = merge_symbol_tables(
         create_symbol_table(ch_name_dict),
-        create_symbol_table(prm_name_dict),
-        create_symbol_table(type_name_dict),
-        create_symbol_table(callable_name_dict),
-        create_symbol_table(enum_const_name_dict),
+        merge_symbol_tables(
+            create_symbol_table(prm_name_dict),
+            merge_symbol_tables(
+                create_symbol_table(enum_const_name_dict),
+                create_symbol_table(fpp_constants),
+            ),
+        ),
     )
 
+    return (type_scope, callable_scope, values_scope, type_name_dict)
 
-def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
+
+def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None, flight_binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    tlm_scope, prm_scope, type_scope, callable_scope, const_scope = _build_scopes(dictionary)
+    type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
+    constants = load_dictionary(dictionary)["constants"]
 
+    def _const_int(key: str, default: int) -> int:
+        """Extract an integer constant value, falling back to *default*."""
+        val = constants.get(key)
+        if val is None:
+            return default
+        assert isinstance(val.val, int), (
+            f"Expected int for constant {key}, got {type(val.val)}"
+        )
+        return val.val
+
+    # Make copies of the scopes since we'll mutate them during compilation
+    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
+    # if we don't make copies, then the lru cache will return the modified versions, causing
+    # two runs of the compiler to conflict
     state = CompileState(
-        tlms=tlm_scope,
-        prms=prm_scope,
-        types=type_scope,
-        callables=callable_scope,
-        consts=const_scope,
-        compile_args=compile_args or dict(),
+        global_type_scope=type_scope,  # types are not mutated
+        global_callable_scope=callable_scope.copy(),
+        global_value_scope=values_scope.copy(),
+        type_defs=type_defs,
+        ground_binary_dir=ground_binary_dir,
+        flight_binary_dir=flight_binary_dir,
+        max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
+        max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
+
+    # Create the built-in 'flags' variable ($Flags struct).
+    # declaration=None marks it as a built-in that is always defined.
+    flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
+    state.global_value_scope["flags"] = flags_var
+    state.flags_var = flags_var
+
     return state
 
 
 def ast_to_directives(
     body: AstBlock,
     dictionary: str,
-    compile_args: dict | None = None,
-) -> list[Directive] | CompileError | BackendError:
-    compile_args = compile_args or dict()
-    state = get_base_compile_state(dictionary, compile_args)
+    ground_binary_dir: str | None = None,
+    flight_binary_dir: str | None = None,
+) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
+    # Create initial compile state (without builtins yet)
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
     state.root = body
+
+    # Run pre-builtin validation passes
+    pre_builtin_passes = [
+        CheckSequenceMetadataDefinedAtTop(),
+    ]
+
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
+
+    # Now prepend builtin library functions to user code - always available.
+    # will be elided if unused
+    import copy
+    builtin_library_ast = _get_builtin_library_ast()
+    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
+
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements()
+    ]
+    
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
-        AssignLocalScopes(),
-        # based on assignment syntax nodes, we know which variables exist where
+        CreateScopes(),
+        # based on assignment syntax nodes, we know which variables exist where.
+        # Function bodies are deferred so that globals declared later in
+        # the source are visible inside functions.
         CreateVariablesAndFuncs(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        # resolve type annotations first, since they use a restricted syntax (AstTypeExpr)
-        # and we need to know variable types before resolving other references
-        ResolveTypeNames(),
-        # resolve all variable and function references
-        ResolveVars(),
+        ResolveQualifiedNames(),
+        UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
-        CheckUseBeforeDeclare(),
+        CheckUseBeforeDefine(),
+        # discover sequence-run dependencies (.bin files) before type checking
+        ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
-        PickTypesAndResolveAttrsAndItems(),
+        PickTypesAndResolveFields(),
         # Calculate const values for default arguments first (and check they're const).
         # This must happen before CalculateConstExprValues because call sites may
         # reference functions defined later in the source, and we need the default
@@ -275,17 +547,22 @@ def ast_to_directives(
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
+        CheckSequenceArgs(),
     ]
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
+        # Desugar time operators before for loops (time ops may be in loop conditions)
+        DesugarTimeOperators(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]
     codegen_passes = [
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
-        AssignVariableOffsets(),
+        CalculateFrameSizes(),
+        # Collect which functions are called anywhere in the code
+        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),
@@ -293,6 +570,11 @@ def ast_to_directives(
     module_generator = GenerateModule()
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
+
+    for compile_pass in pre_semantic_desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
 
     for compile_pass in semantics_passes:
         compile_pass.run(body, state)
@@ -321,5 +603,5 @@ def ast_to_directives(
     for warning in state.warnings:
         print(warning)
 
-    # all the ir is guaranteed to have been converted to directives by now
-    return ir
+    # all the ir is guaranteed to have been converted to directives by now by FinalChecks
+    return ir, state.this_seq_arg_specs

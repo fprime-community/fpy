@@ -1,16 +1,18 @@
 from __future__ import annotations
-from dataclasses import dataclass, field, fields
+import struct
+import zlib
+from dataclasses import astuple, dataclass, field, fields
+from importlib.metadata import version
 from numbers import Number
 from pathlib import Path
 from typing import Union
 from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
-from fpy.bytecode.directives import Directive, StackOpDirective
-from fprime_gds.common.models.serialize.type_base import BaseType as FppValue
-from fprime_gds.common.models.serialize.string_type import StringType as StringValue
-from fprime_gds.common.models.serialize.bool_type import BoolType as BoolValue
-from fprime_gds.common.models.serialize.numerical_types import NumericalType as NumericalValue
+from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
+from fpy.types import FpyValue
+
+from fpy.error import CompileError
 
 fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text()
 
@@ -206,8 +208,7 @@ def directives_to_fpybc(dirs: list[Directive]) -> str:
             field_value = getattr(dir, field.name)
             val = None
 
-            if isinstance(field_value, FppValue):
-                assert isinstance(field_value, (NumericalValue, StringValue, BoolValue)), field_value
+            if isinstance(field_value, FpyValue):
                 val = field_value.val
             else:
                 val = field_value
@@ -225,3 +226,224 @@ def directives_to_fpybc(dirs: list[Directive]) -> str:
         out += "\n"
 
     return out
+
+
+def _get_version_tuple() -> tuple[int, int, int]:
+    try:
+        import re
+        v = version("fprime-fpy")
+        # Handle versions like "0.0.1a3.dev103+g244fdeadc"
+        # Extract just the major.minor.patch part
+        match = re.match(r"(\d+)\.(\d+)\.(\d+)", v)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+        return (0, 0, 0)
+    except Exception:
+        return (0, 0, 0)
+
+
+MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION = _get_version_tuple()
+SCHEMA_VERSION = 6
+
+HEADER_FORMAT = "!BBBBBHI"
+HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+
+
+@dataclass
+class Header:
+    majorVersion: int
+    minorVersion: int
+    patchVersion: int
+    schemaVersion: int
+    argumentCount: int
+    statementCount: int
+    bodySize: int
+
+    def pack(self) -> bytes:
+        return struct.pack(
+            HEADER_FORMAT,
+            self.majorVersion,
+            self.minorVersion,
+            self.patchVersion,
+            self.schemaVersion,
+            self.argumentCount,
+            self.statementCount,
+            self.bodySize,
+        )
+
+    @staticmethod
+    def unpack(data: bytes) -> Header:
+        (major, minor, patch, schema, arg_count, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
+        return Header(major, minor, patch, schema, arg_count, stmt_count, body_size)
+
+
+FOOTER_FORMAT = "!I"
+FOOTER_SIZE = struct.calcsize(FOOTER_FORMAT)
+
+
+@dataclass
+class Footer:
+    crc: int
+
+
+def _serialize_arg_specs(arg_specs: list[tuple[str, str, int]]) -> bytes:
+    """Serialize arg specs as (arg_name, type_name, size) triples.
+
+    Binary format per arg_spec:
+        [1 byte: arg_name UTF-8 length] [N bytes: arg_name]
+        [1 byte: type_name UTF-8 length] [N bytes: type_name]
+        [StackSizeType bytes: size]
+    """
+    result = bytes()
+    for arg_name, type_name, size in arg_specs:
+        for name in (arg_name, type_name):
+            encoded = name.encode("utf-8")
+            assert len(encoded) <= 255, f"Name too long: {name}; should have been caught by semantics"
+            result += struct.pack("!B", len(encoded)) + encoded
+        result += FpyValue(StackSizeType, size).serialize()
+    return result
+
+
+def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, list[tuple[str, str, int]]]:
+    """Deserialize arg specs from (arg_name, type_name, size) triples.
+    Returns (new_offset, list_of_(arg_name, type_name, size)_tuples)."""
+    specs = []
+    for _ in range(count):
+        # Read arg_name
+        name_len = struct.unpack_from("!B", data, offset)[0]
+        offset += 1
+        arg_name = data[offset:offset + name_len].decode("utf-8")
+        offset += name_len
+        # Read type_name
+        name_len = struct.unpack_from("!B", data, offset)[0]
+        offset += 1
+        type_name = data[offset:offset + name_len].decode("utf-8")
+        offset += name_len
+        # Read size
+        size_val, offset = FpyValue.deserialize(StackSizeType, data, offset)
+        specs.append((arg_name, type_name, size_val.val))
+    return offset, specs
+
+
+def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, str, int]]]:
+    header = _unpack_and_check_header(data)
+
+    # Deserialize arg specs section (immediately after fixed header)
+    offset, arg_specs = _deserialize_arg_specs(data, HEADER_SIZE, header.argumentCount)
+
+    dirs = []
+    idx = 0
+    while idx < header.statementCount:
+        offset_and_dir = Directive.deserialize(data, offset)
+        if offset_and_dir is None:
+            raise RuntimeError("Unable to deserialize sequence")
+        offset, dir = offset_and_dir
+        dirs.append(dir)
+        idx += 1
+
+    if offset != len(data) - FOOTER_SIZE:
+        raise RuntimeError(
+            f"{len(data) - FOOTER_SIZE - offset} extra bytes at end of sequence"
+        )
+
+    # Verify CRC
+    expected_crc = struct.unpack_from(FOOTER_FORMAT, data, offset)[0]
+    actual_crc = zlib.crc32(data[:offset]) % (1 << 32)
+    if expected_crc != actual_crc:
+        raise RuntimeError(
+            f"CRC mismatch (expected {hex(expected_crc)}, computed {hex(actual_crc)})"
+        )
+
+    return dirs, arg_specs
+
+
+def _unpack_and_check_header(data: bytes) -> Header:
+    """Unpack binary header and validate schema version."""
+    header = Header.unpack(data)
+    if header.schemaVersion != SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Schema version mismatch: expected {SCHEMA_VERSION}, found {header.schemaVersion}"
+        )
+    return header
+
+
+def read_bin_arg_specs(path: Path) -> list[tuple[str, str, int]]:
+    """Read the arg specs section of a compiled .bin file.
+
+    This is used at compile time to discover the expected argument types of a
+    called sequence without deserializing the full directive body.
+    """
+    data = path.read_bytes()
+    header = _unpack_and_check_header(data)
+    _, arg_specs = _deserialize_arg_specs(data, HEADER_SIZE, header.argumentCount)
+    return arg_specs
+
+
+def resolve_arg_specs(
+    arg_specs: list[tuple[str, str, int]],
+    type_defs: dict[str, "FpyType"],
+) -> list[tuple[str, "FpyType"]]:
+    """Resolve (arg_name, type_name, size) arg_spec triples into (arg_name, FpyType) pairs.
+
+    Looks up each type name in PRIMITIVE_TYPE_MAP first, then in *type_defs*.
+    Raises RuntimeError if a type is not found or the size doesn't match.
+    """
+    from fpy.types import PRIMITIVE_TYPE_MAP
+
+    arg_types = []
+    for arg_name, type_name, size in arg_specs:
+        if type_name in PRIMITIVE_TYPE_MAP:
+            fpy_type = PRIMITIVE_TYPE_MAP[type_name]
+        elif type_name in type_defs:
+            fpy_type = type_defs[type_name]
+        else:
+            raise RuntimeError(f"Unknown type '{type_name}' (size {size})")
+        if fpy_type.max_size != size:
+            raise RuntimeError(
+                f"Type '{type_name}' size mismatch: binary says {size}, dictionary says {fpy_type.max_size}"
+            )
+        arg_types.append((arg_name, fpy_type))
+    return arg_types
+
+
+def serialize_directives(
+    dirs: list[Directive],
+    arg_specs: list[tuple[str, str, int]] | None = None,
+    max_directive_size: int = 2048,
+) -> tuple[bytes, int]:
+    if arg_specs is None:
+        arg_specs = []
+
+    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by CheckSeqRunArgs"
+
+    body_bytes = bytes()
+
+    for dir in dirs:
+        dir_bytes = dir.serialize()
+        if len(dir_bytes) > max_directive_size:
+            print(
+                CompileError(
+                    f"Directive {dir} in sequence too large (expected less than {max_directive_size}, was {len(dir_bytes)})"
+                )
+            )
+            exit(1)
+        body_bytes += dir_bytes
+
+    arg_specs_bytes = _serialize_arg_specs(arg_specs)
+
+    header = Header(
+        MAJOR_VERSION,
+        MINOR_VERSION,
+        PATCH_VERSION,
+        SCHEMA_VERSION,
+        len(arg_specs),
+        len(dirs),
+        len(arg_specs_bytes) + len(body_bytes),
+    )
+    output_bytes = header.pack() + arg_specs_bytes + body_bytes
+
+    crc = zlib.crc32(output_bytes) % (1 << 32)
+    footer = Footer(crc)
+    output_bytes += struct.pack(FOOTER_FORMAT, *astuple(footer))
+
+    return output_bytes, crc

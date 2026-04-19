@@ -2,22 +2,17 @@ from __future__ import annotations
 from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
+    PopEventDirective,
     PushTimeDirective,
+    PushValDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
     WaitRelDirective,
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import BuiltinSymbol, FpyStringValue, NothingValue
-from fprime_gds.common.models.serialize.time_type import TimeType as TimeValue
-from fprime_gds.common.models.serialize.numerical_types import (
-    U8Type as U8Value,
-    U16Type as U16Value,
-    U32Type as U32Value,
-    I64Type as I64Value,
-    F64Type as F64Value,
-)
+from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
     FloatMultiplyDirective,
@@ -40,21 +35,21 @@ from fpy.bytecode.directives import (
 )
 
 
-def generate_abs_float(node: Ast) -> list[Directive | Ir]:
+def generate_abs_float(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
     # if input is < 0 multiply by -1
     leave_unmodified = IrLabel(node, "else")
     dirs = [
         # copy the f64
-        PushValDirective(StackSizeType(8).serialize()),
-        PushValDirective(StackSizeType(0).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
         PeekDirective(),
         # push 0
-        PushValDirective(F64Value(0.0).serialize()),
+        PushValDirective(FpyValue(F64, 0.0).serialize()),
         # check <
         FloatLessThanDirective(),
         IrIf(leave_unmodified),
         # push -1
-        PushValDirective(F64Value(-1.0).serialize()),
+        PushValDirective(FpyValue(F64, -1.0).serialize()),
         # and multiply
         FloatMultiplyDirective(),
         # otherwise do nothing
@@ -63,24 +58,24 @@ def generate_abs_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_FLOAT = BuiltinSymbol("abs", F64Value, [("value", F64Value, None)], generate_abs_float)
+MACRO_ABS_FLOAT = BuiltinFuncSymbol("abs", F64, [("value", F64, None)], generate_abs_float)
 
 
-def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
+def generate_abs_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
     # if input is < 0 multiply by -1
     leave_unmodified = IrLabel(node, "else")
     dirs = [
         # copy the I64
-        PushValDirective(StackSizeType(8).serialize()),
-        PushValDirective(StackSizeType(0).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
         PeekDirective(),
         # push 0
-        PushValDirective(I64Value(0).serialize()),
+        PushValDirective(FpyValue(I64, 0).serialize()),
         # check <
         SignedLessThanDirective(),
         IrIf(leave_unmodified),
         # push -1
-        PushValDirective(I64Value(-1).serialize()),
+        PushValDirective(FpyValue(I64, -1).serialize()),
         # and multiply
         IntMultiplyDirective(),
         # otherwise do nothing
@@ -89,32 +84,32 @@ def generate_abs_signed_int(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_ABS_SIGNED_INT = BuiltinSymbol(
-    "abs", I64Value, [("value", I64Value, None)], generate_abs_signed_int
+MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
+    "abs", I64, [("value", I64, None)], generate_abs_signed_int
 )
 
-MACRO_SLEEP_SECONDS_USECONDS = BuiltinSymbol(
+MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     "sleep",
-    NothingValue,
+    NOTHING,
     [
         (
             "seconds",
-            U32Value,
-            U32Value(0),
+            U32,
+            FpyValue(U32, 0),
         ),
-        ("useconds", U32Value, U32Value(0)),
+        ("useconds", U32, FpyValue(U32, 0)),
     ],
-    lambda n: [WaitRelDirective()],
+    lambda n, c: [WaitRelDirective()],
 )
 
 
-def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
+def generate_sleep_float(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
     # convert F64 to seconds and microseconds
     dirs = [
         # first do seconds
         # copy the f64
-        PushValDirective(StackSizeType(8).serialize()),
-        PushValDirective(StackSizeType(0).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
         PeekDirective(),
         # convert to U64
         FloatToUnsignedIntDirective(),
@@ -123,8 +118,8 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
         # now we have f64, u32 (seconds) on stack
         # now do microseconds
         # copy the f64 and u32
-        PushValDirective(StackSizeType(12).serialize()),
-        PushValDirective(StackSizeType(0).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 12).serialize()),
+        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
         PeekDirective(),
         # turn the u32 into a float
         IntegerZeroExtend32To64Directive(),
@@ -132,7 +127,7 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
         # subtract, this should give us the frac
         FloatSubtractDirective(),
         # okay now multiply by 1000000
-        PushValDirective(F64Value(1_000_000.0).serialize()),
+        PushValDirective(FpyValue(F64, 1_000_000.0).serialize()),
         # now convert to u32
         FloatToUnsignedIntDirective(),
         IntegerTruncate64To32Directive(),
@@ -141,46 +136,61 @@ def generate_sleep_float(node: Ast) -> list[Directive | Ir]:
     return dirs
 
 
-MACRO_SLEEP_FLOAT = BuiltinSymbol(
-    "sleep", NothingValue, [("seconds", F64Value, None)], generate_sleep_float
+MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
+    "sleep", NOTHING, [("seconds", F64, None)], generate_sleep_float
 )
 
 
-def generate_log_signed_int(node: Ast) -> list[Directive | Ir]:
+def generate_log_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
     return [
         # convert int to float
         SignedIntToFloatDirective(),
         FloatLogDirective(),
     ]
 
+TIME_MACRO = BuiltinFuncSymbol(
+        "time",
+        TIME,
+        [
+            ("timestamp", INTERNAL_STRING, None),
+            ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
+            ("timeContext", U8, FpyValue(U8, 0)),
+        ],
+        lambda n, c: [],  # placeholder - const eval handles this
+    )
 
-MACROS: dict[str, BuiltinSymbol] = {
+MACROS: dict[str, BuiltinFuncSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
-    "sleep_until": BuiltinSymbol(
+    "sleep_until": BuiltinFuncSymbol(
         "sleep_until",
-        NothingValue,
-        [("wakeup_time", TimeValue, None)],
-        lambda n: [WaitAbsDirective()],
+        NOTHING,
+        [("wakeup_time", TIME, None)],
+        lambda n, c: [WaitAbsDirective()],
     ),
-    "exit": BuiltinSymbol(
-        "exit", NothingValue, [("exit_code", U8Value, None)], lambda n: [ExitDirective()]
+    "exit": BuiltinFuncSymbol(
+        "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
     ),
-    "log": BuiltinSymbol(
-        "log", F64Value, [("operand", F64Value, None)], lambda n: [FloatLogDirective()]
+    "ln": BuiltinFuncSymbol(
+        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
-    "now": BuiltinSymbol("now", TimeValue, [], lambda n: [PushTimeDirective()]),
+    "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
     # The generate function should never be called since this is always const-evaluated
-    "time": BuiltinSymbol(
-        "time",
-        TimeValue,
-        [
-            ("timestamp", FpyStringValue, None),
-            ("time_base", U16Value, U16Value(0)),
-            ("time_context", U8Value, U8Value(0)),
+    "time": TIME_MACRO,
+    # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
+    "log": BuiltinFuncSymbol(
+        "log", NOTHING, [
+            ("message", INTERNAL_STRING, None),
+            ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
         ],
-        lambda n: [],  # placeholder - const eval handles this
+        lambda n, c: [
+            PushValDirective(c[1].serialize()),
+            PushValDirective(c[0].val.encode("utf-8")),
+            PushValDirective(FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()),
+            PopEventDirective(),
+        ],
+        const_arg_indices=frozenset({0, 1}),
     ),
 }

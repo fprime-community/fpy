@@ -1,0 +1,10 @@
+push_val 255
+const_cmd 16777216
+push_val 0
+memcmp 1
+if 6
+goto 10
+load_abs 0 1
+if 10
+push_val 17
+exit

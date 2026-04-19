@@ -32,7 +32,6 @@ classifiers = [
 ]
 dependencies = [
     "pytest>=6.2.4",
-    "fprime-gds>=4.1.0",
     "lark>=1.2.2",
 ]
 
@@ -52,6 +51,7 @@ fprime-fpyc = "fpy.main:compile_main"
 fprime-fpy-model = "fpy.main:model_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
+fprime-fpy-cmd = "fpy.main:cmd_main"
 
 ####
 # setuptools_scm dynamically generates version number from git, as well as automatically
