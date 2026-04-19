@@ -362,11 +362,11 @@ class CompileState:
     flags_var: VariableSymbol = None
     """The built-in 'flags' variable ($Flags struct) that controls sequencer behavior."""
 
-    sequence_args: list[tuple[str, FpyType]] = field(default_factory=list)
+    this_seq_arg_specs: list[tuple[str, FpyType]] = field(default_factory=list)
     """Ordered list of (arg_name, arg_type) for sequence parameters.
     Populated during semantic analysis."""
 
-    seq_arg_specs: dict[str, list[tuple[str, FpyType]]] = field(default_factory=dict)
+    called_seq_arg_specs: dict[str, list[tuple[str, FpyType]]] = field(default_factory=dict)
     """Map of .bin filename to resolved (arg_name, arg_type) pairs, populated by ResolveSequenceDependencies."""
 
     errors: list[CompileError] = field(default_factory=list)

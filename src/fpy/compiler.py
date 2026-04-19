@@ -604,4 +604,4 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir, state.sequence_args
+    return ir, state.this_seq_arg_specs

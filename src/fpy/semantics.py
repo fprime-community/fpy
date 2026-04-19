@@ -808,7 +808,7 @@ class UpdateTypesAndFuncs(Visitor):
             arg_var.type = arg_type
             arg_var.frame_offset = arg_offset
             arg_offset += arg_type.max_size
-            state.sequence_args.append((arg_var.name, arg_type))
+            state.this_seq_arg_specs.append((arg_var.name, arg_type))
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
@@ -925,7 +925,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
             return
 
         bin_name = file_name_arg.value
-        if bin_name in state.seq_arg_specs:
+        if bin_name in state.called_seq_arg_specs:
             # Already resolved (e.g. same sequence called twice)
             return
 
@@ -967,7 +967,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
             )
             return
 
-        state.seq_arg_specs[bin_name] = target_arg_types
+        state.called_seq_arg_specs[bin_name] = target_arg_types
 
         # Build an extended CommandSymbol that includes the target sequence's
         # parameters so that standard arg resolution works in PickTypes.
@@ -2762,7 +2762,7 @@ class CheckSequenceArgs(Visitor):
             return
 
         bin_name = state.resolved_args[node][0].value
-        seq_arg_types = [t for _, t in state.seq_arg_specs[bin_name]]
+        seq_arg_types = [t for _, t in state.called_seq_arg_specs[bin_name]]
         vararg_data_size = sum(t.max_size for t in seq_arg_types)
         buffer_size = SEQ_ARGS.members[1].type.length
         if vararg_data_size > buffer_size:

@@ -169,7 +169,7 @@ class CalculateFrameSizes(TopDownVisitor):
     def run(self, start: Ast, state: CompileState):
         # For the global frame, start after sequence args (already on stack)
         if start is state.root:
-            self.offset = sum(t.max_size for _, t in state.sequence_args)
+            self.offset = sum(t.max_size for _, t in state.this_seq_arg_specs)
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
@@ -278,7 +278,7 @@ class GenerateFunctionBody(Emitter):
         # ResolveSequenceDependencies extended func.args to include the
         # target sequence's parameters.
         bin_name = resolved_args[0].value
-        seq_dep = state.seq_arg_specs[bin_name]
+        seq_dep = state.called_seq_arg_specs[bin_name]
         seq_arg_types = [t for _, t in seq_dep]
         n_fixed = len(func.args) - len(seq_dep)
         fixed_args = resolved_args[:n_fixed]
@@ -1275,7 +1275,7 @@ class GenerateModule(Emitter):
         # for user-defined lvars, we will have to write zeroes with Allocate
 
         flags_type = state.flags_var.type
-        args_size = sum(t.max_size for _, t in state.sequence_args)
+        args_size = sum(t.max_size for _, t in state.this_seq_arg_specs)
         assert state.flags_var.frame_offset == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))

@@ -431,7 +431,7 @@ def add_vals(a: U64, b: U64) -> U64:
 assert add_vals(1, 2) == 3
 ```
 
-Trailing commas are allowed in the argument list.
+Function arguments are passed by value. Trailing commas are allowed in the argument list.
 
 Functions can have default argument values:
 ```py
@@ -468,7 +468,47 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 ```
 
-Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
+Functions can only be defined at the top level, so not inside loops, conditionals, or other functions.
+
+## Sequence arguments
+
+You can define arguments for a sequence similarly to function arguments:
+```py
+# in "example.fpy"
+
+# sequence() must be the first statement in the file
+sequence(foo: U32, bar: bool)
+
+if foo == 123 and bar:
+    log("foobar!")
+```
+Sequence arguments cannot have default values. They are always passed by value.
+
+There are two ways of calling sequences, each of which supports passing sequence arguments: from another sequence, or from the ground.
+
+When you call a sequence from another sequence, you can provide argument values in the command:
+```py
+# call the example.bin sequence, in blocking mode, with the argument values 123 and True
+# passing args by name is supported
+Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=True)
+```
+
+To call a sequence from the ground, use the `fprime-fpy-cmd` CLI:
+```
+# this does the same thing as the previous example
+$ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=True)' -d TopologyDictionary.json
+```
+To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
+
+In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. See [Resolving sequence binary paths](#resolving-sequence-binary-paths) for info on how `example.bin` is resolved at compile time.
+
+**Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
+
+### Resolving sequence binary paths
+
+At runtime, the sequence needs to know the path to the binary on the flight vehicle, but at compile time, it needs to know the path to the binary on the ground, to do type checking.
+
+The Fpy compiler accepts the `-g/--ground-binary-dir` and `-f/--flight-binary-dir` arguments. At compile time, all sequence paths are resolved relative to the ground binary dir. If a sequence path starts with the provided flight binary dir, it will be stripped from the path first. This means that the ground binary dir should be a mirror of the flight binary dir.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
@@ -581,6 +621,8 @@ assert 1 > 2, 123
 
 ## Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
+
+## fprime-fpy-cmd
 
 
 # Developer's Guide
