@@ -1642,21 +1642,26 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = anon_type
         state.contextual_types[node] = anon_type
 
-    def _resolve_args_positional_order(
+    def resolve_args(
         self,
-        args: list,
-        param_names: list[str],
-        node: Ast,
-    ) -> list[AstExpr | None] | CompileError:
-        """Resolve a mix of positional and named arguments into positional slots.
+        node: AstFuncCall,
+        func: CallableSymbol,
+        node_args: list,
+    ) -> list[AstExpr] | CompileError:
+        """Build a complete list of argument expressions for a function call.
 
-        Returns assigned_slots where slots may be None if unfilled.
+        Reorders named arguments to positional order, fills in default values
+        for missing optional arguments, and checks for missing required arguments.
+
+        Returns assigned_args on success.
+        Returns a CompileError if there's an issue with the arguments.
         """
-        param_name_to_idx = {name: i for i, name in enumerate(param_names)}
+        func_args = func.args
+        param_name_to_idx = {a[0]: i for i, a in enumerate(func_args)}
 
         # Validate: no positional args after named args
         seen_named = False
-        for arg in args:
+        for arg in node_args:
             if is_instance_compat(arg, AstNamedArgument):
                 seen_named = True
             elif seen_named:
@@ -1665,22 +1670,22 @@ class PickTypesAndResolveFields(Visitor):
                     arg if is_instance_compat(arg, Ast) else node,
                 )
 
-        assigned: list[AstExpr | None] = [None] * len(param_names)
+        assigned: list[AstExpr | None] = [None] * len(func_args)
 
         # Process positional args (guaranteed to come before any named args)
-        for i, arg in enumerate(args):
+        for i, arg in enumerate(node_args):
             if is_instance_compat(arg, AstNamedArgument):
                 break
-            if i < len(param_names):
+            if i < len(func_args):
                 assigned[i] = arg
             else:
                 return CompileError(
-                    f"Too many arguments (expected {len(param_names)})",
+                    f"Too many arguments (expected {len(func_args)})",
                     node,
                 )
 
         # Process named args
-        for arg in args:
+        for arg in node_args:
             if not is_instance_compat(arg, AstNamedArgument):
                 continue
             if arg.name not in param_name_to_idx:
@@ -1696,46 +1701,19 @@ class PickTypesAndResolveFields(Visitor):
                 )
             assigned[idx] = arg.value
 
-        return assigned
-
-    def build_resolved_call_args(
-        self,
-        node: AstFuncCall,
-        func: CallableSymbol,
-        node_args: list,
-    ) -> list[AstExpr] | CompileError:
-        """Build a complete list of argument expressions for a function call.
-
-        This function:
-        1. Reorders named arguments to positional order
-        2. Fills in default values for missing optional arguments
-        3. Checks for missing required arguments
-
-        Returns assigned_args on success.
-        Returns a CompileError if there's an issue with the arguments.
-        """
-        func_args = func.args
-
-        result = self._resolve_args_positional_order(
-            node_args, [a[0] for a in func_args], node,
-        )
-        if isinstance(result, CompileError):
-            return result
-        assigned_args = result
-
         # Fill in default values for missing arguments, error on missing required args
-        for i, arg_expr in enumerate(assigned_args):
+        for i, arg_expr in enumerate(assigned):
             if arg_expr is None:
                 default_value = func_args[i][2]
                 if default_value is not None:
-                    assigned_args[i] = default_value
+                    assigned[i] = default_value
                 else:
                     return CompileError(
                         f"Missing required argument '{func_args[i][0]}'",
                         node,
                     )
 
-        return assigned_args
+        return assigned
 
     def check_arg_types_compatible_with_func(
         self,
@@ -1818,7 +1796,7 @@ class PickTypesAndResolveFields(Visitor):
         node_args = node.args if node.args else []
 
         # Build resolved args: reorder named args, fill in defaults, check for missing required
-        result = self.build_resolved_call_args(node, func, node_args)
+        result = self.resolve_args(node, func, node_args)
         if is_instance_compat(result, CompileError):
             state.errors.append(result)
             return
