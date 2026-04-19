@@ -102,7 +102,6 @@ def run_seq(
     # on the same sequencer instance; mark them as failing for the model.
     always_failing = {
         cmd_name_dict["Ref.cmdSeq0.RUN"].opcode,
-        cmd_name_dict["Ref.seqDisp.RUN"].opcode,
     }
     if failing_opcodes:
         always_failing |= failing_opcodes

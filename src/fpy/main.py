@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from importlib.metadata import version
 from pathlib import Path
+import socket
 import struct
 import sys
 import time
@@ -322,6 +323,27 @@ def send_command_zmq(cmd_opcode: int, args: bytes, zmq_addr: str):
         context.term()
 
 
+def send_command_tcp(cmd_opcode: int, args: bytes, tcp_addr: str, tcp_port: int):
+    """Send a pre-serialized command to the GDS via the TCP server.
+
+    Protocol:
+      1. Connect and register as a GUI client: b"Register GUI\\n"
+      2. Send command: b"A5A5 FSW " + b"ZZZZ" + size(4B) + payload
+         where the ZZZZ frame is what TcpServerFramerDeframer expects.
+    """
+    packet = build_command_packet(cmd_opcode, args)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect((tcp_addr, tcp_port))
+        sock.sendall(b"Register GUI\n")
+        sock.sendall(b"A5A5 FSW " + b"ZZZZ" + packet)
+        # Brief delay to let the server process before we close
+        time.sleep(0.1)
+    finally:
+        sock.close()
+
+
 def cmd_main(args: list[str] = None):
     arg_parser = argparse.ArgumentParser(
         description=f"Run an Fpy command via the GDS {get_version_str()}",
@@ -363,6 +385,12 @@ def cmd_main(args: list[str] = None):
         type=str,
         default="ipc:///tmp/fprime-server-in",
         help="ZMQ address for the GDS uplink (default: ipc:///tmp/fprime-server-in)",
+    )
+    arg_parser.add_argument(
+        "--tcp-addr",
+        type=str,
+        default=None,
+        help="TCP server address as host:port (e.g. 127.0.0.1:50050). If provided, use TCP instead of ZMQ.",
     )
 
     if args is not None:
@@ -425,10 +453,33 @@ def cmd_main(args: list[str] = None):
 
     directive = cmd_directives[0]
 
-    print(f"Sending {source.strip()} via {parsed_args.zmq_addr}")
-
-    try:
-        send_command_zmq(directive.cmd_opcode, directive.args, parsed_args.zmq_addr)
-    except Exception as e:
-        print(f"Failed to send command: {e}", file=sys.stderr)
-        sys.exit(1)
+    if parsed_args.tcp_addr is not None:
+        parts = parsed_args.tcp_addr.rsplit(":", 1)
+        if len(parts) != 2:
+            print(
+                f"Invalid --tcp-addr format: {parsed_args.tcp_addr!r} (expected host:port)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        tcp_host = parts[0]
+        try:
+            tcp_port = int(parts[1])
+        except ValueError:
+            print(
+                f"Invalid port in --tcp-addr: {parts[1]!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"Sending {source.strip()} via TCP {parsed_args.tcp_addr}")
+        try:
+            send_command_tcp(directive.cmd_opcode, directive.args, tcp_host, tcp_port)
+        except Exception as e:
+            print(f"Failed to send command: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"Sending {source.strip()} via {parsed_args.zmq_addr}")
+        try:
+            send_command_zmq(directive.cmd_opcode, directive.args, parsed_args.zmq_addr)
+        except Exception as e:
+            print(f"Failed to send command: {e}", file=sys.stderr)
+            sys.exit(1)

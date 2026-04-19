@@ -391,7 +391,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
         ])
 
     assert exc.value.code == 1
-    assert "Command arguments must be constants" in capsys.readouterr().err
+    assert "Command arguments must be constant expressions" in capsys.readouterr().err
 
 
 def test_cmd_main_send_failure(monkeypatch, capsys):
