@@ -438,7 +438,7 @@ def serialize_directives(
         SCHEMA_VERSION,
         len(arg_specs),
         len(dirs),
-        len(body_bytes)#len(arg_specs_bytes) + len(body_bytes), TODO Fixme
+        len(arg_specs_bytes) + len(body_bytes),
     )
     output_bytes = header.pack() + arg_specs_bytes + body_bytes
 
