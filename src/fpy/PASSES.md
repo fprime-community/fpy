@@ -8,8 +8,7 @@ Otherwise, the parent scope of scope S is the scope at one indentation level low
 If the scope is part of a function definition, it is a function scope.
 
 To determine the enclosing scope of an expression E:
-1. If E is the loop variable of a for loop, its enclosing scope is the scope inside the for loop.
-2. If E is a parameter identifier of a function, its enclosing scope is the scope inside the function definition.
+# TODO remove the special casing of func prms/loop vars
 3. Otherwise, the enclosing scope of E is the nearest parent scope of E.
 
 # CheckSequenceMetadataDefinedAtTop
@@ -34,7 +33,8 @@ For each sequence metadata statement:
 
 For each function definition statement:
 1. The function identifier becomes the name N of the function F.
-2. N is associated with F in the enclosing scope of the function definition statement.
+2. If N is already assigned in the enclosing scope S of the function definition statement, raise an error.
+3. N is assigned to F in S.
 
 # DefineVariables
 
@@ -45,11 +45,32 @@ For each statement:
 If the statement is an assignment statement:
 1. If the assignment doesn't have a type annotation, skip it.
 2. Otherwise, the lhs must be an unqualified identifier by CheckAssignSyntax.
-3. The lhs becomes the name N of the variable V.
-4. If N is already associated with a definition in the enclosing scope S of the assignment statement, raise an error.
-5. N is associated with V in S.
+3. Create variable V of a type to be determined later.
+4. The lhs is the name N of V.
+5. If N is already assigned in the enclosing scope S of the assignment statement, raise an error.
+6. N is assigned to V in S.
 
 If the statement is a for loop statement:
-1. The loop var identifier becomes the name N of the loop variable V.
-2. N is associated with V in the scope inside the for loop.
-3. An anonymous variable U is defined to be the for loop upper bound variable.
+1. Create the loop variable V of LoopVarType.
+2. The loop var identifier is the name N of the loop variable V.
+3. N must be undefined in the scope inside the for loop, as the statements in that scope have yet to be visited.
+4. N is assigned to V in the scope inside the for loop.
+5. Create the anonymous upper bound variable U of LoopVarType.
+6. U is mapped to the for loop statement.
+
+If the statement is a function definition statement:
+1. For each parameter P_i = (ident_i, type_i, default_i):
+  1. Create variable V_i of a type to be determined later.
+  2. The identifier ident_i is the name N_i of V_i.
+  2. If the identifier ident_i is already assigned in the scope S inside the function definition statement, raise an error.
+  4. N_i is assigned to V_i in S.
+
+If the statement is a sequence metadata statement:
+1. For each parameter P_i = (ident_i, type_i, default_i):
+  1. Create variable V_i of a type to be determined later.
+  2. The identifier ident_i is the name N_i of V_i.
+  2. If the identifier ident_i is already assigned in the enclosing scope S of the sequence metadata statement, raise an error.
+  4. N_i is assigned to V_i in S.
+
+
+# CheckBreakAndContinueInLoop

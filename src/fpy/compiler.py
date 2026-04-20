@@ -19,6 +19,7 @@ from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
+    CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
@@ -28,7 +29,8 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDefine,
     CheckSequenceArgs,
-    CreateVariablesAndFuncs,
+    DefineFunctions,
+    DefineVariables,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
     ResolveSequenceDependencies,
@@ -521,10 +523,14 @@ def ast_to_directives(
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
         CreateScopes(),
-        # based on assignment syntax nodes, we know which variables exist where.
+        # check that assignment targets are valid
+        CheckAssignSyntax(),
+        # register all user-defined functions in the global callable scope
+        DefineFunctions(),
+        # register all variable declarations in their enclosing scopes.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
-        CreateVariablesAndFuncs(),
+        DefineVariables(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),

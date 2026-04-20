@@ -143,12 +143,11 @@ class CreateScopes:
             return
 
         if isinstance(node, AstDef):
-            self._walk_def(node, state, scope)
-            return
-
-        if isinstance(node, AstFor):
-            self._walk_for(node, state, scope)
-            return
+            # Pre-set the function body scope with in_function=True
+            # before the generic walk creates it.
+            func_body_scope = SymbolTable(parent=scope)
+            func_body_scope.in_function = True
+            state.enclosing_value_scope[node.body] = func_body_scope
 
         if isinstance(node, AstBlock):
             self._walk_block(node, state, scope)
@@ -157,53 +156,6 @@ class CreateScopes:
         # For all other nodes, set the scope and walk children
         state.enclosing_value_scope[node] = scope
         self._walk_children(node, state, scope)
-
-    def _walk_def(self, node: AstDef, state: CompileState, scope: SymbolTable):
-        # Per grammar, defs only appear at the top level, so scope is always global.
-        assert scope is state.global_value_scope
-        state.enclosing_value_scope[node] = scope
-
-        # Name reference is in the enclosing scope
-        self._walk(node.name, state, scope)
-
-        # Return type annotation is in the enclosing scope
-        if node.return_type is not None:
-            self._walk(node.return_type, state, scope)
-
-        # Create the function body scope
-        func_body_scope = SymbolTable(parent=scope)
-        func_body_scope.in_function = True
-
-        # Parameters are in the function body scope
-        if node.parameters is not None:
-            for arg_name_var, arg_type_name, default_value in node.parameters:
-                self._walk(arg_name_var, state, func_body_scope)
-                self._walk(arg_type_name, state, func_body_scope)
-                # Default values are evaluated at definition site (enclosing scope)
-                if default_value is not None:
-                    self._walk(default_value, state, scope)
-
-        # Set the body scope directly (don't create a child scope for it)
-        state.enclosing_value_scope[node.body] = func_body_scope
-        for stmt in node.body.stmts:
-            self._walk(stmt, state, func_body_scope)
-
-    def _walk_for(self, node: AstFor, state: CompileState, scope: SymbolTable):
-        state.enclosing_value_scope[node] = scope
-
-        # Range is evaluated in the parent scope
-        self._walk(node.range, state, scope)
-
-        # Body creates a new scope; loop_var lives inside it
-        body_scope = SymbolTable(parent=scope)
-        state.enclosing_value_scope[node.body] = body_scope
-
-        # Loop variable is in the body scope
-        self._walk(node.loop_var, state, body_scope)
-
-        # Walk body statements
-        for stmt in node.body.stmts:
-            self._walk(stmt, state, body_scope)
 
     def _walk_block(self, node: AstBlock, state: CompileState, scope: SymbolTable):
         # Check if the scope was pre-set (e.g., function body)
@@ -370,11 +322,14 @@ class DefineVariables(TopDownVisitor):
         scope: SymbolTable,
         state: CompileState,
         variable_kind: str,
+        assert_undeclared: bool=False
     ):
         # make sure it isn't defined in this scope (shadowing parent scopes is ok)
         existing_local = scope.get(sym.name)
 
         if existing_local is not None:
+            if assert_undeclared:
+                assert False, f"{variable_kind} '{sym.name}' has already been defined"
             # redeclaring an existing variable in the SAME scope
             state.err(
                 f"{variable_kind} '{sym.name}' has already been defined",
@@ -395,51 +350,50 @@ class DefineVariables(TopDownVisitor):
 
         scope = state.enclosing_value_scope[node]
         # yes a variable definition
-        self.define_variable(VariableSymbol(node.lhs.name, node.type_ann, node), scope)
+        self.define_variable(VariableSymbol(node.lhs.name, node.type_ann, node), scope, state, "Variable")
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.
         body_scope = state.enclosing_value_scope[node.body]
 
         self.define_variable(
-            VariableSymbol(node.loop_var.name, None, node, LoopVarType), body_scope
+            loop_var := VariableSymbol(
+                node.loop_var.name, None, node, LoopVarType
+            ),
+            body_scope,
+            state,
+            "Loop variable",
+            assert_undeclared=True
         )
+        # Pre-resolve the loop var ident — it's a definition, not a reference
+        state.resolved_symbols[node.loop_var] = loop_var
 
         # Each loop also defines an implicit upper-bound variable
         self.define_variable(
-            VariableSymbol(
+            upper_bound_var := VariableSymbol(
                 state.new_anonymous_variable_name(),
                 None,
                 node,
                 LoopVarType,
-                is_global=False,
             ),
             body_scope,
+            state,
+            "Loop variable",
+            assert_undeclared=True
         )
         analysis = ForLoopAnalysis(loop_var, upper_bound_var)
         state.for_loops[node] = analysis
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if node.parameters is None:
-            # no arguments
-            self._deferred_defs.append(node)
-            return STOP_DESCENT
-
         # Parameters go in the function's enclosing scope
-        func_scope = state.enclosing_value_scope[node.body]
+        body_scope = state.enclosing_value_scope[node.body]
 
-        for arg in node.parameters:
+        for arg in node.parameters or []:
             arg_name_var, arg_type_name, _ = arg
-            existing_local = func_scope.get(arg_name_var.name)
-            if existing_local is not None:
-                # two args with the same name
-                state.err(
-                    f"Parameter '{arg_name_var.name}' has already been defined",
-                    arg_name_var,
-                )
-                return
-            arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node)
-            func_scope[arg_name_var.name] = arg_var
+            sym = VariableSymbol(arg_name_var.name, arg_type_name, node)
+            self.define_variable(sym, body_scope, state, "Parameter")
+            # Pre-resolve the param ident — it's a definition, not a reference
+            state.resolved_symbols[arg_name_var] = sym
 
         # Defer traversal of the function body to phase 2, so that all
         # global-scope declarations are visible inside functions regardless
@@ -449,23 +403,13 @@ class DefineVariables(TopDownVisitor):
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         scope = state.enclosing_value_scope[node]
-        if node.parameters is None:
-            return
 
-        for arg in node.parameters:
+        for arg in node.parameters or []:
             arg_name_var, arg_type_name = arg
-            existing_arg = scope.lookup(arg_name_var.name)
-            if existing_arg is not None:
-                # two sequence parameters with the same name
-                state.err(
-                    f"Parameter '{arg_name_var.name}' has already been defined",
-                    arg_name_var,
-                )
-                return
-            arg_var = VariableSymbol(
-                arg_name_var.name, arg_type_name, node, is_global=True
-            )
-            scope[arg_name_var.name] = arg_var
+            sym = VariableSymbol(arg_name_var.name, arg_type_name, node)
+            self.define_variable(sym, scope, state, "Sequence argument")
+            # Pre-resolve the param ident — it's a definition, not a reference
+            state.resolved_symbols[arg_name_var] = sym
 
 
 class SetEnclosingLoops(Visitor):
@@ -605,9 +549,7 @@ class ResolveQualifiedNames(TopDownVisitor):
             for arg_name_var, arg_type_name, default_value in node.parameters:
                 if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
                     return
-                # arg names become vars in func scope, so resolve them in func scope
-                if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
-                    return
+                # arg_name_var is already resolved by DefineVariables
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
@@ -631,8 +573,7 @@ class ResolveQualifiedNames(TopDownVisitor):
         for arg_name_var, arg_type_name in node.parameters:
             if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
                 return
-            if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
-                return
+            # arg_name_var is already resolved by DefineVariables
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
@@ -665,8 +606,7 @@ class ResolveQualifiedNames(TopDownVisitor):
             return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        if not self.try_resolve_name(node.loop_var, NameGroup.VALUE, state):
-            return
+        # loop_var is already resolved by DefineVariables
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
