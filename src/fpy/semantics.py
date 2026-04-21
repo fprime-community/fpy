@@ -3,6 +3,7 @@ from dataclasses import fields, replace as dc_replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
+import itertools
 from pathlib import Path
 import struct
 from typing import Union
@@ -121,70 +122,64 @@ from fpy.syntax import (
 
 
 class AssignIds(TopDownVisitor):
-    """assigns a unique id to each node to allow it to be indexed in a dict"""
+    """Assigns a unique id to each node and builds the parent map."""
+
+    def run(self, start: Ast, state: CompileState):
+        self._visit(start, state)
+
+        def _descend(node: Ast):
+            if not isinstance(node, Ast):
+                return
+            children = []
+            for field in fields(node):
+                field_val = getattr(node, field.name)
+                if isinstance(field_val, list):
+                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
+                        field_val = itertools.chain.from_iterable(field_val)
+                    children.extend(field_val)
+                else:
+                    children.append(field_val)
+
+            for child in children:
+                if not isinstance(child, Ast):
+                    continue
+                self._visit(child, state)
+                state.parent_map[child] = node
+                if len(state.errors) != 0:
+                    break
+                _descend(child)
+                if len(state.errors) != 0:
+                    break
+
+        _descend(start)
 
     def visit_default(self, node, state: CompileState):
         node.id = state.next_node_id
         state.next_node_id += 1
 
 
-class CreateScopes:
+class CreateScopes(TopDownVisitor):
     """Creates block-level scopes for all AstBlocks.
 
     Each AstBlock creates a new scope that is a child of the enclosing scope.
-    Function bodies create a scope with in_function=True.
+    Non-block nodes inherit the scope of their enclosing block.
     """
 
-    def run(self, start: Ast, state: CompileState):
-        self._walk(start, state, state.global_value_scope)
+    def visit_default(self, node: Ast, state: CompileState):
+        parent = state.parent_map.get(node)
+        if parent is not None:
+            state.enclosing_value_scope[node] = state.enclosing_value_scope[parent]
 
-    def _walk(self, node, state: CompileState, scope: SymbolTable):
-        if not isinstance(node, Ast):
-            return
-
-        if isinstance(node, AstDef):
-            # Pre-set the function body scope with in_function=True
-            # before the generic walk creates it.
-            func_body_scope = SymbolTable(parent=scope)
-            func_body_scope.in_function = True
-            state.enclosing_value_scope[node.body] = func_body_scope
-
-        if isinstance(node, AstBlock):
-            self._walk_block(node, state, scope)
-            return
-
-        # For all other nodes, set the scope and walk children
-        state.enclosing_value_scope[node] = scope
-        self._walk_children(node, state, scope)
-
-    def _walk_block(self, node: AstBlock, state: CompileState, scope: SymbolTable):
-        # Check if the scope was pre-set (e.g., function body)
-        pre_set = state.enclosing_value_scope.get(node)
-        if pre_set is not None:
-            block_scope = pre_set
-        elif node is state.root:
-            block_scope = scope
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        if node is state.root:
+            state.enclosing_value_scope[node] = state.global_value_scope
         else:
-            # Each indentation block creates a new child scope
-            block_scope = SymbolTable(parent=scope)
-
-        state.enclosing_value_scope[node] = block_scope
-        for stmt in node.stmts:
-            self._walk(stmt, state, block_scope)
-
-    def _walk_children(self, node, state: CompileState, scope: SymbolTable):
-        for f in fields(node):
-            val = getattr(node, f.name)
-            if isinstance(val, list):
-                for item in val:
-                    if isinstance(item, Ast):
-                        self._walk(item, state, scope)
-                    elif isinstance(item, tuple):
-                        for elem in item:
-                            if isinstance(elem, Ast):
-                                self._walk(elem, state, scope)
-            elif isinstance(val, Ast):
-                self._walk(val, state, scope)
+            parent = state.parent_map[node]
+            parent_scope = state.enclosing_value_scope[parent]
+            block_scope = SymbolTable(parent=parent_scope)
+            if isinstance(parent, AstDef):
+                block_scope.in_function = True
+            state.enclosing_value_scope[node] = block_scope
 
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):

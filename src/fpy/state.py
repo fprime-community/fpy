@@ -294,6 +294,8 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
+    parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
+    """map of each node to its parent node in the AST"""
     enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )

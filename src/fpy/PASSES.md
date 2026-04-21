@@ -59,14 +59,14 @@ If the statement is a for loop statement:
 6. U is mapped to the for loop statement.
 
 If the statement is a function definition statement:
-1. For each parameter P_i = (ident_i, type_i, default_i):
+1. For each function parameter P_i = (ident_i, type_i, default_i):
   1. Create variable V_i of a type to be determined later.
   2. The identifier ident_i is the name N_i of V_i.
   2. If the identifier ident_i is already assigned in the scope S inside the function definition statement, raise an error.
   4. N_i is assigned to V_i in S.
 
 If the statement is a sequence metadata statement:
-1. For each parameter P_i = (ident_i, type_i, default_i):
+1. For each sequence parameter P_i = (ident_i, type_i):
   1. Create variable V_i of a type to be determined later.
   2. The identifier ident_i is the name N_i of V_i.
   2. If the identifier ident_i is already assigned in the enclosing scope S of the sequence metadata statement, raise an error.
