@@ -500,15 +500,9 @@ $ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=Tru
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 
-In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. See [Resolving sequence binary paths](#resolving-sequence-binary-paths) for info on how `example.bin` is resolved at compile time.
+In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument.   
 
 **Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
-
-### Resolving sequence binary paths
-
-At runtime, the sequence needs to know the path to the binary on the flight vehicle, but at compile time, it needs to know the path to the binary on the ground, to do type checking.
-
-The Fpy compiler accepts the `-g/--ground-binary-dir` and `-f/--flight-binary-dir` arguments. At compile time, all sequence paths are resolved relative to the ground binary dir. If a sequence path starts with the provided flight binary dir, it will be stripped from the path first. This means that the ground binary dir should be a mirror of the flight binary dir.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
