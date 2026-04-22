@@ -93,17 +93,6 @@ def compile_main(args: list[str] = None):
         default=None,
         help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
     )
-    arg_parser.add_argument(
-        "-f",
-        "--flight-binary-dir",
-        type=str,
-        required=False,
-        default=None,
-        help="Absolute path prefix for .bin files on the spacecraft. "
-             "Sequence paths starting with this prefix will have it stripped "
-             "and be resolved relative to --ground-binary-dir.",
-    )
-
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
     else:
@@ -126,7 +115,7 @@ def compile_main(args: list[str] = None):
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
     try:
-        result = ast_to_directives(body, parsed_args.dictionary, ground_binary_dir=str(ground_binary_dir.resolve()), flight_binary_dir=parsed_args.flight_binary_dir)
+        result = ast_to_directives(body, parsed_args.dictionary, ground_binary_dir=str(ground_binary_dir.resolve()))
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
@@ -373,14 +362,6 @@ def cmd_main(args: list[str] = None):
         help="Local directory to resolve .bin file paths for sequence calls",
     )
     arg_parser.add_argument(
-        "-f",
-        "--flight-binary-dir",
-        type=str,
-        required=False,
-        default=None,
-        help="Absolute path prefix for .bin files on the spacecraft",
-    )
-    arg_parser.add_argument(
         "--zmq-addr",
         type=str,
         default="ipc:///tmp/fprime-server-in",
@@ -422,7 +403,6 @@ def cmd_main(args: list[str] = None):
             body,
             parsed_args.dictionary,
             ground_binary_dir=str(ground_binary_dir.resolve()),
-            flight_binary_dir=parsed_args.flight_binary_dir,
         )
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)

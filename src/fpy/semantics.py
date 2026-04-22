@@ -937,11 +937,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
             )
             return
 
-        resolve_name = bin_name
-        if state.flight_binary_dir is not None and bin_name.startswith(state.flight_binary_dir):
-            resolve_name = bin_name[len(state.flight_binary_dir):].lstrip("/")
-
-        bin_path = Path(ground_binary_dir) / resolve_name
+        bin_path = Path(ground_binary_dir) / bin_name
         if not bin_path.exists():
             state.err(
                 f"Compiled sequence binary not found: {bin_path}",
