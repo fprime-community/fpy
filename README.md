@@ -500,7 +500,7 @@ $ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=Tru
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 
-In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument.   
+In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
 
 **Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
 
