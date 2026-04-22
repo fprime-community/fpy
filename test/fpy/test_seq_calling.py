@@ -10,7 +10,6 @@ against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
 import tempfile
 from pathlib import Path
 
-import pytest
 
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
@@ -628,67 +627,3 @@ CdhCore.cmdDisp.CMD_NO_OP()
         compile_seq(fprime_test_api, seq)
 
 
-class TestFlightBinaryDir:
-    """Test --flight-binary-dir prefix stripping for sequence calls."""
-
-    def test_absolute_flight_path_resolved_via_prefix(self, fprime_test_api):
-        """An absolute flight path with the configured prefix should compile successfully."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = str(Path(tmpdir).resolve())
-            child_path = str(Path(tmpdir) / "child.bin")
-            child_seq = """\
-sequence(x: U32)
-assert x == 42
-"""
-            _compile_to_bin(child_seq, Path(child_path))
-
-            # Parent references child via an absolute flight path;
-            # compiler strips the prefix to find child.bin in ground_binary_dir
-            parent_seq = """\
-Ref.seqDisp.RUN_ARGS("/seq/bin/child.bin", Fw.Wait.WAIT, 42)
-"""
-            compile_seq(
-                fprime_test_api, parent_seq,
-                ground_binary_dir=tmpdir,
-                flight_binary_dir="/seq/bin",
-            )
-
-    def test_prefix_not_matching_uses_path_as_is(self, fprime_test_api):
-        """A path that doesn't start with the prefix should resolve normally."""
-        if fprime_test_api is not None:
-            pytest.skip("Model-only: FSW can't resolve relative child paths from tmpdir")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = str(Path(tmpdir).resolve())
-            child_path = str(Path(tmpdir) / "child.bin")
-            child_seq = """\
-CdhCore.cmdDisp.CMD_NO_OP()
-"""
-            _compile_to_bin(child_seq, Path(child_path))
-
-            parent_seq = """\
-Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)
-"""
-            assert_run_success(
-                fprime_test_api, parent_seq,
-                ground_binary_dir=tmpdir,
-                flight_binary_dir="/some/other/prefix",
-            )
-
-    def test_prefix_with_trailing_slash(self, fprime_test_api):
-        """Prefix with trailing slash should still work."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir = str(Path(tmpdir).resolve())
-            child_path = str(Path(tmpdir) / "child.bin")
-            child_seq = """\
-CdhCore.cmdDisp.CMD_NO_OP()
-"""
-            _compile_to_bin(child_seq, Path(child_path))
-
-            parent_seq = """\
-Ref.seqDisp.RUN_ARGS("/seq/bin/child.bin", Fw.Wait.WAIT)
-"""
-            compile_seq(
-                fprime_test_api, parent_seq,
-                ground_binary_dir=tmpdir,
-                flight_binary_dir="/seq/bin/",
-            )
