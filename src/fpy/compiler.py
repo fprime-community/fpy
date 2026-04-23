@@ -642,6 +642,8 @@ def ast_to_dependencies(
 
     discover = CollectSequenceDependencies()
     discover.run(body, state)
+    if state.errors:
+        return state.errors[0]
 
     if ground_binary_dir is not None:
         return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
