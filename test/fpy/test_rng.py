@@ -25,9 +25,18 @@ assert rng() == 1
     def test_rng_seeded_sequence_gds(self, fprime_test_api):
         seq = """
 set_seed(123456789)
-assert rng() == 184
-assert rng() == 156
+assert rng() == 2288500408
+assert rng() == 4254805660
 set_seed(123456789)
-assert rng() == 184
+assert rng() == 2288500408
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    @pytest.mark.skipif("not config.getoption('--use-gds')", reason="requires live GDS RNG implementation")
+    def test_set_seed_overrides_time_initialized_rng_gds(self, fprime_test_api):
+        seq = """
+ignored: U32 = rng()
+set_seed(123456789)
+assert rng() == 2288500408
 """
         assert_run_success(fprime_test_api, seq)
