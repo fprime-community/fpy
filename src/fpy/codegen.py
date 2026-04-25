@@ -32,6 +32,7 @@ from fpy.types import (
     I64,
     F32,
     F64,
+    SEQ_ARGS,
     is_instance_compat,
 )
 from fpy.state import (
@@ -166,13 +167,14 @@ class CalculateFrameSizes(TopDownVisitor):
         self.offset = 0
 
     def run(self, start: Ast, state: CompileState):
+        # For the global frame, start after sequence args (already on stack)
+        if start is state.root:
+            self.offset = sum(t.max_size for _, t in state.this_seq_arg_specs)
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        scope = state.enclosing_value_scope.get(node)
-        if scope is None:
-            return
+        scope = state.enclosing_value_scope[node]
         for _name, sym in scope.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
@@ -238,6 +240,122 @@ class GenerateFunctionBody(Emitter):
         if isinstance(arg, FpyValue):
             return [PushValDirective(arg.serialize())]
         return self.emit(arg, state)
+
+    def _emit_cmd_arg(
+        self, arg, state: CompileState
+    ) -> tuple[list[Directive | Ir], int]:
+        """Emit a command argument, returning (directives, actual_byte_count).
+
+        For compile-time constants the actual serialized size may be smaller
+        than the type's max_size (e.g. strings serialize compactly).
+        The caller must use the returned byte count for StackCmdDirective
+        accounting so it matches the bytes actually placed on the stack.
+        """
+        const_val = (
+            arg if isinstance(arg, FpyValue)
+            else state.const_expr_values.get(arg)
+        )
+        if const_val is not None:
+            serialized = const_val.serialize()
+            return [PushValDirective(serialized)], len(serialized)
+        dirs = self.emit(arg, state)
+        return dirs, state.contextual_types[arg].max_size
+
+    def _emit_seq_run_cmd(
+        self,
+        node: AstFuncCall,
+        func: CommandSymbol,
+        state: CompileState,
+    ) -> list[Directive | Ir]:
+        """Emit a sequence-run command.
+
+        Serializes the two fixed args (fileName, blockState) plus a SeqArgs
+        struct containing the vararg values packed into its buffer.
+        """
+        resolved_args = state.resolved_args[node]
+
+        # Split resolved args into fixed (command) args and seq args.
+        # ResolveSequenceDependencies extended func.args to include the
+        # target sequence's parameters.
+        bin_name = resolved_args[0].value
+        seq_dep = state.called_seq_arg_specs[bin_name]
+        seq_arg_types = [t for _, t in seq_dep]
+        n_fixed = len(func.args) - len(seq_dep)
+        fixed_args = resolved_args[:n_fixed]
+        seq_args = resolved_args[n_fixed:]
+
+        # Compute the actual data size in the SeqArgs buffer
+        # vararg data guaranteed no strings
+        vararg_data_size = sum(t.max_size for t in seq_arg_types)
+        buffer_size = SEQ_ARGS.members[1].type.length
+        padding_size = buffer_size - vararg_data_size
+        size_type = SEQ_ARGS.members[0].type
+        size_bytes = FpyValue(size_type, vararg_data_size).serialize()
+
+        # Check if all args (fixed + seq) are compile-time constants
+        # fixed args may have strings (almost certainly does of course)
+        # but we don't need to know the actual byte count. just push as a byte array
+        # as part of const cmd
+        all_fixed_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in fixed_args
+        )
+        all_seq_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in seq_args
+        )
+
+        if all_fixed_const and all_seq_const:
+            # All constant: build the full command payload at compile time
+            arg_bytes = bytes()
+            # Fixed args
+            for a in fixed_args:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            # SeqArgs struct: $size + buffer (seq arg data + padding)
+            arg_bytes += size_bytes
+            for a in seq_args:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            arg_bytes += bytes(padding_size)
+            return [ConstCmdDirective(func.cmd.opcode, arg_bytes)]
+        else:
+            dirs = []
+            arg_byte_count = 0
+
+            # Push fixed args
+            # okay, for StackCmd we actually need to know at compile time the size of
+            # the args we pushed. so we use this emit cmd arg func which tells us the
+            # size (if the arg is a const value, which is always the case for strings rn, which
+            # are the only type which are not always their max_size when serialized)
+            for a in fixed_args:
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push SeqArgs struct: $size field
+            # size_bytes is guaranteed to represent the real size, because the
+            # sequence args cannot contain strings
+            dirs.append(PushValDirective(size_bytes))
+            arg_byte_count += size_type.max_size
+
+            # Push seq arg values
+            for a in seq_args:
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push zero padding to fill the rest of the buffer
+            if padding_size > 0:
+                dirs.append(AllocateDirective(size=padding_size))
+                arg_byte_count += padding_size
+
+            # Push opcode, then emit stack command
+            dirs.append(
+                PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+            )
+            dirs.append(StackCmdDirective(arg_byte_count))
+            return dirs
 
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
@@ -900,7 +1018,9 @@ class GenerateFunctionBody(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         dirs = []
-        if is_instance_compat(func, CommandSymbol):
+        if is_instance_compat(func, CommandSymbol) and func.is_seq_run_with_args:
+            dirs = self._emit_seq_run_cmd(node, func, state)
+        elif is_instance_compat(func, CommandSymbol):
             const_args = all(
                 isinstance(arg_node, FpyValue) or 
                 (state.const_expr_values[arg_node] is not None)
@@ -918,9 +1038,9 @@ class GenerateFunctionBody(Emitter):
                 # push all args to the stack
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
-                    arg_converted_type = arg_node.type if isinstance(arg_node, FpyValue) else state.contextual_types[arg_node]
-                    arg_byte_count += arg_converted_type.max_size
+                    arg_dirs, actual_size = self._emit_cmd_arg(arg_node, state)
+                    dirs.extend(arg_dirs)
+                    arg_byte_count += actual_size
                 # then push cmd opcode to stack as u32
                 dirs.append(
                     PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
@@ -1146,20 +1266,32 @@ class GenerateModule(Emitter):
         if node is not state.root:
             return []
 
-        # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
-        
-        # Push the flags struct default value onto the stack (it's the first
-        # variable, so push_val places it at the right offset), then allocate
-        # the remaining space for other top-level locals.
+
+        # the structure of the lvar section of the main stack frame is:
+        # (sequence args) (flags struct) (user-defined lvars)
+
+        # sequence args will be pushed to stack before the first instruction is
+        # executed. flags struct, we will push a value (won't just write zeroes)
+        # for user-defined lvars, we will have to write zeroes with Allocate
+
         flags_type = state.flags_var.type
-        assert state.flags_var.frame_offset == 0
+        args_size = sum(t.max_size for _, t in state.this_seq_arg_specs)
+        assert state.flags_var.frame_offset == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))
-        remaining = state.frame_sizes[node] - flags_type.max_size
+        
+        # we can calc how much space the user-defined lvars take by subtracting
+        # the sequence args size, and the flags size, from the frame size
+
+        remaining = state.frame_sizes[node] - flags_type.max_size - args_size
+        assert remaining >= 0, remaining
+
+        # allocate space for local variables
         if remaining > 0:
             main_body.append(AllocateDirective(remaining))
         
+        # generate the main function using GenerateTopLevel (not in a function context)
         main_body.extend(GenerateTopLevel().emit(node, state))
 
         # if there are functions, emit them at the top with a goto to skip past them

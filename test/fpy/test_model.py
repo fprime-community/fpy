@@ -3,9 +3,11 @@ Tests for fpy.model - FpySequencerModel directive handlers and error conditions.
 """
 
 import math
+import pytest
 from fpy.model import (
     DirectiveErrorCode,
     FpySequencerModel,
+    ValidationError,
     overflow_check,
     MAX_INT64,
     MIN_INT64,
@@ -924,3 +926,125 @@ class TestFdivNegativeZero:
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
         assert math.isnan(val)
+
+
+from fpy.types import U8, U16, U32, U64, I32, F32, F64, BOOL
+
+
+class TestArgPassing:
+    """Test sequence argument passing and validation in the model."""
+
+    def test_no_args_no_types(self):
+        """Running with no args and no arg_types should succeed."""
+        model = FpySequencerModel()
+        result = model.run([NoOpDirective()])
+        assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_correct_single_arg(self):
+        """Passing correct-size bytes for a single U32 arg should succeed."""
+        model = FpySequencerModel()
+        arg_bytes = b"\x00\x00\x00\x2a"  # 42 as big-endian U32
+        result = model.run(
+            [AllocateDirective(size=4), NoOpDirective()],
+            arg_types=[U32],
+            args=arg_bytes,
+        )
+        assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_correct_multiple_args(self):
+        """Passing correct-size bytes for multiple args should succeed."""
+        model = FpySequencerModel()
+        arg_bytes = b"\x01" + b"\x00\x2a" + b"\x00\x00\x00\x03"  # U8 + U16 + U32
+        result = model.run(
+            [AllocateDirective(size=7), NoOpDirective()],
+            arg_types=[U8, U16, U32],
+            args=arg_bytes,
+        )
+        assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_args_too_short(self):
+        """Should raise ValidationError if args bytes are shorter than expected."""
+        model = FpySequencerModel()
+        with pytest.raises(ValidationError, match="totalling 4 bytes.*got 2 bytes"):
+            model.run(
+                [NoOpDirective()],
+                arg_types=[U32],
+                args=b"\x00\x00",
+            )
+
+    def test_args_too_long(self):
+        """Should raise ValidationError if args bytes are longer than expected."""
+        model = FpySequencerModel()
+        with pytest.raises(ValidationError, match="totalling 4 bytes.*got 8 bytes"):
+            model.run(
+                [NoOpDirective()],
+                arg_types=[U32],
+                args=b"\x00" * 8,
+            )
+
+    def test_args_expected_but_none_provided(self):
+        """Should raise ValidationError if sequence expects args but none given."""
+        model = FpySequencerModel()
+        with pytest.raises(ValidationError, match="no args were provided"):
+            model.run(
+                [NoOpDirective()],
+                arg_types=[U32],
+            )
+
+    def test_args_none_with_no_types(self):
+        """Passing args=None with no arg_types should succeed."""
+        model = FpySequencerModel()
+        result = model.run(
+            [NoOpDirective()],
+            arg_types=[],
+            args=None,
+        )
+        assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_args_pushed_to_stack_before_allocate(self):
+        """Args should be on the stack at offset 0, before AllocateDirective runs."""
+        model = FpySequencerModel()
+        arg_bytes = b"\x00\x00\x00\x2a"
+        model.run(
+            [AllocateDirective(size=4), NoOpDirective()],
+            arg_types=[U32],
+            args=arg_bytes,
+        )
+        # The first 4 bytes should be our args
+        assert bytes(model.stack[0:4]) == arg_bytes
+
+    def test_args_readable_by_load(self):
+        """Sequence should be able to read arg values from the stack."""
+        model = FpySequencerModel()
+        arg_bytes = b"\x00\x00\x00\x2a"  # U32 = 42
+        result = model.run(
+            [
+                AllocateDirective(size=8),  # 4 for arg + 4 for working space
+                LoadAbsDirective(global_offset=0, size=4),  # push arg value onto stack
+                NoOpDirective(),
+            ],
+            arg_types=[U32],
+            args=arg_bytes,
+        )
+        assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_multiple_arg_types_size_mismatch(self):
+        """Size mismatch with multiple arg types should report correct totals."""
+        model = FpySequencerModel()
+        # U8(1) + U32(4) + F64(8) = 13 bytes expected
+        with pytest.raises(ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"):
+            model.run(
+                [NoOpDirective()],
+                arg_types=[U8, U32, F64],
+                args=b"\x00" * 10,
+            )
+
+    def test_empty_args_bytes_with_types(self):
+        """Empty bytes b'' is not the same as None — should fail if types expect data."""
+        model = FpySequencerModel()
+        with pytest.raises(ValidationError, match="totalling 4 bytes.*got 0 bytes"):
+            model.run(
+                [NoOpDirective()],
+                arg_types=[U32],
+                args=b"",
+            )

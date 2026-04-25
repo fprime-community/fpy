@@ -27,9 +27,12 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
+    CheckSequenceArgs,
+    CollectSequenceDependencies,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
+    ResolveSequenceDependencies,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
@@ -43,6 +46,7 @@ from fpy.types import (
     CMD_RESPONSE,
     FLAGS_TYPE,
     LOG_SEVERITY,
+    SEQ_ARGS,
     TIME_COMPARISON,
     TIME_INTERVAL,
     TIME_BASE,
@@ -340,8 +344,8 @@ def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
 @lru_cache(maxsize=4)
 def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Build and cache the 3 global scopes for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope, sequence_config).
+    Build and cache the 3 global scopes and type_name_dict for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope, type_name_dict).
     """
     d = load_dictionary(dictionary)
     cmd_name_dict = d["cmd_name_dict"]
@@ -356,6 +360,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
+    _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
 
     # Build the full type dict: start from (now-validated) dictionary types,
     # then layer on builtins and internal types.  Later entries win, so
@@ -391,9 +396,23 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
-        callable_name_dict[name] = CommandSymbol(
-            cmd.name, CMD_RESPONSE, args, cmd
-        )
+        # Detect sequence-run commands by matching the 3-arg signature:
+        # (fileName: string, block: <any enum>, args: Svc.SeqArgs)
+        if (
+            len(args) == 3
+            and args[0][1].is_string
+            and args[1][1].kind == TypeKind.ENUM
+            and args[2][1].name == "Svc.SeqArgs"
+        ):
+            # Strip the SeqArgs param; user provides varargs instead
+            fixed_args = args[:2]
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run_with_args=True
+            )
+        else:
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, args, cmd
+            )
 
     for typ in SPECIFIC_NUMERIC_TYPES:
         callable_name_dict[typ.name] = CastSymbol(
@@ -426,12 +445,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
         ),
     )
 
-    return (type_scope, callable_scope, values_scope)
+    return (type_scope, callable_scope, values_scope, type_name_dict)
 
 
-def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
+def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
+    type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
 
     def _const_int(key: str, default: int) -> int:
@@ -452,7 +471,8 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
-        compile_args=compile_args or dict(),
+        type_defs=type_defs,
+        ground_binary_dir=ground_binary_dir,
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
@@ -469,12 +489,10 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
 def ast_to_directives(
     body: AstBlock,
     dictionary: str,
-    compile_args: dict | None = None,
-) -> list[Directive] | CompileError | BackendError:
-    compile_args = compile_args or dict()
-
+    ground_binary_dir: str | None = None,
+) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
     # Create initial compile state (without builtins yet)
-    state = get_base_compile_state(dictionary, compile_args)
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
     state.root = body
 
     # Run pre-builtin validation passes
@@ -513,6 +531,8 @@ def ast_to_directives(
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
+        # discover sequence-run dependencies (.bin files) before type checking
+        ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveFields(),
         # Calculate const values for default arguments first (and check they're const).
@@ -526,6 +546,7 @@ def ast_to_directives(
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
+        CheckSequenceArgs(),
     ]
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
@@ -582,4 +603,48 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir
+    return ir, state.this_seq_arg_specs
+
+
+def ast_to_dependencies(
+    body: AstBlock,
+    dictionary: str,
+    ground_binary_dir: str | None = None,
+) -> list[str] | CompileError:
+    """Return the list of .bin paths that a sequence source file depends on.
+
+    Runs only the passes needed to resolve command symbols — does not attempt
+    to read the binary files, so this works before any binaries are compiled.
+    """
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
+    state.root = body
+
+    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    import copy
+    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+
+    discovery_passes: list[Visitor] = [
+        DesugarCheckStatements(),
+        AssignIds(),
+        CreateScopes(),
+        CreateVariablesAndFuncs(),
+        ResolveQualifiedNames(),
+    ]
+    for compile_pass in discovery_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    discover = CollectSequenceDependencies()
+    discover.run(body, state)
+    if state.errors:
+        return state.errors[0]
+
+    if ground_binary_dir is not None:
+        return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
+    return discover.bin_names

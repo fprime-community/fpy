@@ -4,6 +4,7 @@ import inspect
 import math
 import struct
 import typing
+from fpy.types import FpyType
 from fpy.bytecode.directives import (
     AllocateDirective,
     AndDirective,
@@ -111,6 +112,10 @@ def _trunc_div(a: int, b: int) -> int:
     return sign * (abs(a) // abs(b))
 
 
+class ValidationError(Exception):
+    pass
+
+
 class DirectiveErrorCode(Enum):
     NO_ERROR = 0
     STMT_OUT_OF_BOUNDS = 1
@@ -142,12 +147,16 @@ class FpySequencerModel:
         self, stack_size=4096, cmd_dict: dict[int, CmdDef] = None,
         time_base: int = 0, time_context: int = 0, initial_time_us: int = 0,
         failing_opcodes: set[int] = None,
+        seq_run_opcodes: set[int] = None,
+        arg_type_defs: dict[str, FpyType] = None,
     ) -> None:
         self.stack = bytearray()
         self.max_stack_size = stack_size
         self.stack_frame_start = 0
         self.cmd_dict = cmd_dict
         self.failing_opcodes: set[int] = failing_opcodes or set()
+        self.seq_run_opcodes: set[int] = seq_run_opcodes or set()
+        self.arg_type_defs: dict[str, FpyType] = arg_type_defs or {}
 
         self.dirs: list[Directive] = None
         self.next_dir_idx = 0
@@ -207,12 +216,38 @@ class FpySequencerModel:
             return DirectiveErrorCode.NO_ERROR
         return ret
 
-    def run(self, dirs: list[Directive], tlm: dict[int, bytearray] = None):
+    def run(
+        self,
+        dirs: list[Directive],
+        tlm: dict[int, bytearray] = None,
+        args: bytes | None = None,
+        arg_types: list[FpyType] | None = None,
+    ):
         if tlm is None:
             tlm = {}
+        if arg_types is None:
+            arg_types = []
+
+        # Validate args against arg_types
+        expected_total = sum(t.max_size for t in arg_types)
+        if args is not None:
+            if len(args) != expected_total:
+                raise ValidationError(
+                    f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
+                    f"but got {len(args)} bytes"
+                )
+        elif expected_total > 0:
+            raise ValidationError(
+                f"Sequence expects {len(arg_types)} arg(s) totalling {expected_total} bytes, "
+                f"but no args were provided"
+            )
+
         self.reset()
         self.dirs = dirs
         self.tlm_db = tlm
+        # Push args as the very first thing on the stack
+        if args is not None:
+            self.stack = bytearray(args)
         if debug:
             # begin the sequence at dir 0
             print("stack", len(self.stack), "frame", self.stack_frame_start)
@@ -494,6 +529,8 @@ class FpySequencerModel:
 
     def handle_const_cmd(self, dir: ConstCmdDirective):
         print("cmd opcode", dir.cmd_opcode, "args", dir.args)
+        if dir.cmd_opcode in self.seq_run_opcodes:
+            return self._handle_seq_run(dir.cmd_opcode, dir.args)
         if not self.validate_cmd(dir.cmd_opcode, dir.args):
             raise RuntimeError("Invalid cmd")
         return self._push_cmd_response(dir.cmd_opcode)
@@ -514,8 +551,75 @@ class FpySequencerModel:
             "args",
             cmd[:-4],
         )
-        if not self.validate_cmd(opcode, cmd[: -FwOpcodeType.max_size]):
+        args_bytes = bytes(cmd[: -FwOpcodeType.max_size])
+        if opcode in self.seq_run_opcodes:
+            return self._handle_seq_run(opcode, args_bytes)
+        if not self.validate_cmd(opcode, args_bytes):
             raise RuntimeError("Invalid cmd")
+        return self._push_cmd_response(opcode)
+
+    def _handle_seq_run(self, opcode: int, args: bytes):
+        """Handle a sequence-run command by executing the child sequence."""
+        from pathlib import Path
+        from fpy.bytecode.assembler import deserialize_directives, resolve_arg_specs
+
+        # Parse command args: fileName (string), blockState (enum), seqArgs (struct)
+        # First: read the command definition to know arg sizes
+        cmd = self.cmd_dict[opcode]
+        offset = 0
+
+        # Deserialize fileName
+        file_name_type = cmd.arguments[0][2]
+        file_name_val, offset = FpyValue.deserialize(file_name_type, args, offset)
+        file_name = file_name_val.val
+
+        # Deserialize blockState
+        block_state_type = cmd.arguments[1][2]
+        _, offset = FpyValue.deserialize(block_state_type, args, offset)
+
+        # Deserialize SeqArgs: { $size: U64, buffer: [N] U8 }
+        seq_args_type = cmd.arguments[2][2]
+        # $size is FwSizeType (U64)
+        size_val, offset = FpyValue.deserialize(seq_args_type.members[0].type, args, offset)
+        actual_size = size_val.val
+        # Extract actual arg bytes from the buffer
+        child_args = bytes(args[offset : offset + actual_size])
+
+        # Resolve the .bin file relative to cwd, just like the real sequencer
+        bin_path = Path(file_name)
+        assert bin_path.exists(), f"Child sequence binary not found: {bin_path}"
+
+        # Read and deserialize the child sequence
+        child_data = bin_path.read_bytes()
+        child_dirs, child_arg_specs = deserialize_directives(child_data)
+
+        # Resolve child arg types
+        child_arg_types = []
+        if child_arg_specs:
+            child_arg_types = [t for _, t in resolve_arg_specs(child_arg_specs, self.arg_type_defs)]
+
+        # Create and run a child model
+        child_model = FpySequencerModel(
+            stack_size=self.max_stack_size,
+            cmd_dict=self.cmd_dict,
+            time_base=self.time_base,
+            time_context=self.time_context,
+            initial_time_us=self.simulated_time_us,
+            failing_opcodes=self.failing_opcodes,
+            seq_run_opcodes=self.seq_run_opcodes,
+            arg_type_defs=self.arg_type_defs,
+        )
+        result = child_model.run(
+            child_dirs,
+            tlm=self.tlm_db,
+            args=child_args if child_args else None,
+            arg_types=child_arg_types,
+        )
+        if result != DirectiveErrorCode.NO_ERROR:
+            # Child sequence failed
+            self.push(self.CMD_RESPONSE_EXECUTION_ERROR, size=1)
+            return None
+
         return self._push_cmd_response(opcode)
 
     def handle_goto(self, dir: GotoDirective):

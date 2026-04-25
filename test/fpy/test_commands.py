@@ -87,7 +87,7 @@ class TestCommandArguments:
 
     def test_non_const_str_arg(self, fprime_test_api):
         seq = """
-CdhCore.cmdDisp.CMD_NO_OP_STRING(Ref.cmdSeq.SeqPath)
+CdhCore.cmdDisp.CMD_NO_OP_STRING(Ref.cmdSeq0.SeqPath)
 """
         # currently can't do non const string args
         assert_compile_failure(fprime_test_api, seq)
@@ -152,6 +152,18 @@ val3: U8 = 3   # U8 -> U8 (exact match)
 CdhCore.cmdDisp.CMD_TEST_CMD_1(arg1=val1, arg2=val2, arg3=val3)
 """
 
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_string_with_non_const_arg(self, fprime_test_api):
+        """Command with a string literal and a non-const arg should work.
+
+        Regression test: the StackCmd path must account for compact string
+        serialization when counting bytes pushed on the stack.
+        """
+        seq = """
+en: Fw.Enabled = Fw.Enabled.ENABLED
+_: Fw.CmdResponse = CdhCore.health.HLTH_PING_ENABLE("task1", en)
+"""
         assert_run_success(fprime_test_api, seq)
 
 
@@ -247,7 +259,7 @@ class TestAssertCmdSuccess:
         """Bare failing command with flag=True should exit with error."""
         seq = """
 flags.assert_cmd_success = True
-Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
             fprime_test_api,
@@ -259,7 +271,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
         """Bare failing command with flag=False should not halt."""
         seq = """
 flags.assert_cmd_success = False
-Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -269,7 +281,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
         """Captured failing command with flag=True should NOT auto-assert."""
         seq = """
 flags.assert_cmd_success = True
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
+resp: Fw.CmdResponse = Ref.cmdSeq0.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
         assert_run_success(fprime_test_api, seq)
@@ -278,7 +290,7 @@ assert resp == Fw.CmdResponse.EXECUTION_ERROR
         """Captured failing command with flag=False should not halt."""
         seq = """
 flags.assert_cmd_success = False
-resp: Fw.CmdResponse = Ref.cmdSeq.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
+resp: Fw.CmdResponse = Ref.cmdSeq0.RUN("test", Svc.FpySequencer.BlockState.NO_BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
         assert_run_success(fprime_test_api, seq)
@@ -308,7 +320,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
         seq = """
 flags.assert_cmd_success = True
 flags.assert_cmd_success = False
-Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -319,7 +331,7 @@ Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
         seq = """
 flags.assert_cmd_success = True
 if True:
-    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+    Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
             fprime_test_api,
@@ -333,7 +345,7 @@ if True:
 flags.assert_cmd_success = True
 x: bool = True
 while x:
-    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+    Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
     x = False
 """
         assert_run_failure(
@@ -347,7 +359,7 @@ while x:
         seq = """
 flags.assert_cmd_success = True
 def do_cmd():
-    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+    Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 do_cmd()
 """
         assert_run_failure(
@@ -361,7 +373,7 @@ do_cmd()
         seq = """
 flags.assert_cmd_success = False
 def do_cmd():
-    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+    Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 do_cmd()
 """
         assert_run_success(fprime_test_api, seq)
@@ -371,7 +383,7 @@ do_cmd()
         seq = """
 flags.assert_cmd_success = True
 for i in 0 .. 1:
-    Ref.cmdSeq.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+    Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
 """
         assert_run_failure(
             fprime_test_api,

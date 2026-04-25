@@ -2081,12 +2081,12 @@ class TestSingleValueArrayInitIntegration:
 
     def _get_type_scope(self):
         from fpy.compiler import _build_global_scopes
-        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _get_callable_scope(self):
         from fpy.compiler import _build_global_scopes
-        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _lookup_type(self, name: str) -> FpyType:
@@ -2321,26 +2321,26 @@ class TestLoadDictionary:
 
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["type_defs"]) == 89
+        assert len(d["type_defs"]) == 93
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["cmd_id_dict"]) == 108
-        assert len(d["cmd_name_dict"]) == 108
+        assert len(d["cmd_id_dict"]) == 139
+        assert len(d["cmd_name_dict"]) == 139
 
     def test_channel_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["ch_id_dict"]) == 178
-        assert len(d["ch_name_dict"]) == 178
+        assert len(d["ch_id_dict"]) == 222
+        assert len(d["ch_name_dict"]) == 222
 
     def test_parameter_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["prm_id_dict"]) == 11
-        assert len(d["prm_name_dict"]) == 11
+        assert len(d["prm_id_dict"]) == 12
+        assert len(d["prm_name_dict"]) == 12
 
     def test_constant_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["constants"]) == 15
+        assert len(d["constants"]) == 18
 
     def test_command_attributes(self):
         """Verify CmdDef attributes match expected API."""
@@ -2684,12 +2684,12 @@ class TestTypeCtorDefaults:
 
     def _get_callable_scope(self):
         from fpy.compiler import _build_global_scopes
-        _, callable_scope, _ = _build_global_scopes(REF_DICT_PATH)
+        _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _get_type_scope(self):
         from fpy.compiler import _build_global_scopes
-        type_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
+        type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _lookup_callable(self, name: str):
