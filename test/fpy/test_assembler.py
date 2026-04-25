@@ -48,6 +48,7 @@ from fpy.bytecode.directives import (
     FloatToUnsignedIntDirective,
     UnsignedIntToFloatDirective,
     ExitDirective,
+    PushRandDirective,
     PushTimeDirective,
     CallDirective,
     PeekDirective,
@@ -118,6 +119,10 @@ class TestDirectiveSerializationRoundTrip:
 
     def test_push_time(self):
         original = PushTimeDirective()
+        self._test_roundtrip(original)
+
+    def test_push_rand(self):
+        original = PushRandDirective()
         self._test_roundtrip(original)
 
     def test_call(self):
@@ -599,7 +604,7 @@ exit
             "slt", "sle", "sgt", "sge",
             "fge", "fle", "flt", "fgt", "feq", "fne",
             "not", "fptrunc", "fpext", "fptosi", "sitofp", "fptoui", "uitofp",
-            "exit", "push_time", "call", "peek",
+            "exit", "push_time", "push_rand", "call", "peek",
         ]
         for op in ops:
             text = f"{op}\n"
@@ -718,7 +723,7 @@ exit
             "slt", "sle", "sgt", "sge",
             "fge", "fle", "flt", "fgt", "feq", "fne",
             "not", "fptrunc", "fpext", "fptosi", "sitofp", "fptoui", "uitofp",
-            "exit", "push_time", "call", "peek",
+            "exit", "push_time", "push_rand", "call", "peek",
         ]
         for op in ops:
             self._test_text_roundtrip(f"{op}\n")
@@ -965,4 +970,3 @@ class TestMultipleDirectives:
         deserialized = deserialize_directives(serialized)
         assert len(deserialized) == 100
         assert all(isinstance(d, NoOpDirective) for d in deserialized)
-

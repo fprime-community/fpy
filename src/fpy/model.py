@@ -23,6 +23,7 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     GotoDirective,
     MemCompareDirective,
+    PushRandDirective,
     PushTimeDirective,
     ReturnDirective,
     SignedIntDivideDirective,
@@ -83,7 +84,7 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     IntegerTruncate64To8Directive,
 )
-from fpy.types import FpyValue, LOG_SEVERITY, TIME
+from fpy.types import FpyValue, LOG_SEVERITY, TIME, U32
 from fpy.state import CmdDef
 
 debug = False
@@ -1089,6 +1090,13 @@ class FpySequencerModel:
             "useconds": useconds,
         })
         self.push(time_val.serialize())
+        return None
+
+    def handle_push_rand(self, dir: PushRandDirective):
+        if len(self.stack) + U32.max_size > self.max_stack_size:
+            return DirectiveErrorCode.STACK_OVERFLOW
+
+        self.push(FpyValue(U32, 1).serialize())
         return None
 
     def handle_call(self, dir: CallDirective):

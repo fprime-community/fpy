@@ -58,6 +58,7 @@ from fpy.bytecode.directives import (
     OrDirective,
     PeekDirective,
     PushPrmDirective,
+    PushRandDirective,
     PushTimeDirective,
     PushTlmValDirective,
     PushValDirective,
@@ -197,7 +198,6 @@ class TestStoreDirectives:
         result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
-
 class TestPushDirectives:
     """Tests for push directive error conditions."""
 
@@ -245,6 +245,12 @@ class TestPushDirectives:
         result = model.dispatch(PushTimeDirective())
         assert result == DirectiveErrorCode.STACK_OVERFLOW
 
+    def test_push_rand_stack_overflow(self):
+        """Test push_rand when would overflow stack."""
+        model = FpySequencerModel(stack_size=4)
+        model.stack = bytearray(4)
+        result = model.dispatch(PushRandDirective())
+        assert result == DirectiveErrorCode.STACK_OVERFLOW
 
 class TestWaitDirectives:
     """Tests for wait directive error conditions."""

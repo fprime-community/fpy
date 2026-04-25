@@ -46,7 +46,7 @@ LoopVarType = I64  # same as ArrayIndexType
 # DirectiveId enum
 # ─────────────────────────────────────────────────────────────────────────────
 
-
+# TODO: Add Directive
 class DirectiveId(Enum):
     INVALID = 0
     WAIT_REL = 1
@@ -144,6 +144,7 @@ class DirectiveId(Enum):
     STORE_ABS = 73
     STORE_ABS_CONST_OFFSET = 74
     POP_EVENT = 75
+    PUSH_RAND = 77
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -666,6 +667,10 @@ class PeekDirective(Directive):
 class PushTimeDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.PUSH_TIME
 
+
+@dataclass
+class PushRandDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.PUSH_RAND
 
 @dataclass
 class CallDirective(Directive):

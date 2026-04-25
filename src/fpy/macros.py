@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fpy.bytecode.directives import (
+    PushRandDirective,
     ExitDirective,
     FloatLogDirective,
     PopEventDirective,
@@ -174,6 +175,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
+    "rng": BuiltinFuncSymbol("rng", U32, [], lambda n, c: [PushRandDirective()]),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
