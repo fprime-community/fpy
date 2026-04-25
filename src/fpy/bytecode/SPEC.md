@@ -1115,3 +1115,21 @@ Pops a message size, message, and severity from the stack and emits an F Prime e
 | message_size | StackSizeType  | stack  | Number of bytes to pop for the message. |
 | message      | bytes          | stack  | UTF-8 encoded message string. |
 | severity     | Fw.LogSeverity | stack  | The event severity level. |
+
+## SET_SEED (76)
+Seeds the sequencer random number generator.
+
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| seed     | U32      | stack  | Seed value for subsequent random number generation |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| N/A | |
+
+## PUSH_RAND (77)
+Pushes the next random number from the sequencer random number generator to the stack.
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| U32 | The next random value |
