@@ -46,7 +46,6 @@ LoopVarType = I64  # same as ArrayIndexType
 # DirectiveId enum
 # ─────────────────────────────────────────────────────────────────────────────
 
-# TODO: Add Directive
 class DirectiveId(Enum):
     INVALID = 0
     WAIT_REL = 1
