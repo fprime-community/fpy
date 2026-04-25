@@ -28,6 +28,7 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDefine,
     CheckSequenceArgs,
+    CollectSequenceDependencies,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
@@ -603,3 +604,47 @@ def ast_to_directives(
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir, state.this_seq_arg_specs
+
+
+def ast_to_dependencies(
+    body: AstBlock,
+    dictionary: str,
+    ground_binary_dir: str | None = None,
+) -> list[str] | CompileError:
+    """Return the list of .bin paths that a sequence source file depends on.
+
+    Runs only the passes needed to resolve command symbols — does not attempt
+    to read the binary files, so this works before any binaries are compiled.
+    """
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
+    state.root = body
+
+    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    import copy
+    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+
+    discovery_passes: list[Visitor] = [
+        DesugarCheckStatements(),
+        AssignIds(),
+        CreateScopes(),
+        CreateVariablesAndFuncs(),
+        ResolveQualifiedNames(),
+    ]
+    for compile_pass in discovery_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    discover = CollectSequenceDependencies()
+    discover.run(body, state)
+    if state.errors:
+        return state.errors[0]
+
+    if ground_binary_dir is not None:
+        return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
+    return discover.bin_names

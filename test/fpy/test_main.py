@@ -428,6 +428,97 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     assert sent["addr"] == "tcp://192.168.1.1:50050"
 
 
+# ---------------------------------------------------------------------------
+# depend_main tests
+# ---------------------------------------------------------------------------
+
+
+def test_depend_main_missing_input(tmp_path, capsys):
+    missing = tmp_path / "missing.fpy"
+    dict_path = tmp_path / "dict.json"
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.depend_main([str(missing), "--dictionary", str(dict_path)])
+    assert exc.value.code == 1
+    assert "does not exist" in capsys.readouterr().err
+
+
+def test_depend_main_ground_binary_dir_resolved(monkeypatch, tmp_path):
+    """-g is resolved to an absolute path before being passed to ast_to_dependencies."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+    bin_dir = tmp_path / "bins"
+    bin_dir.mkdir()
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+
+    captured = {}
+
+    def fake_ast_to_dependencies(_body, _dictionary, ground_binary_dir=None):
+        captured["ground_binary_dir"] = ground_binary_dir
+        return []
+
+    monkeypatch.setattr(fpy_main, "ast_to_dependencies", fake_ast_to_dependencies)
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json", "-g", str(bin_dir)])
+
+    assert captured["ground_binary_dir"] == str(bin_dir.resolve())
+
+
+def test_depend_main_default_ground_binary_dir(monkeypatch, tmp_path):
+    """When -g is omitted, ground_binary_dir defaults to the input file's parent."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+
+    captured = {}
+
+    def fake_ast_to_dependencies(_body, _dictionary, ground_binary_dir=None):
+        captured["ground_binary_dir"] = ground_binary_dir
+        return []
+
+    monkeypatch.setattr(fpy_main, "ast_to_dependencies", fake_ast_to_dependencies)
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert captured["ground_binary_dir"] == str(tmp_path.resolve())
+
+
+def test_depend_main_compile_error_exits(monkeypatch, tmp_path, capsys):
+    """A compile error from ast_to_dependencies is printed to stderr and exits 1."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+    error = fpy_error.CompileError("bad syntax", None)
+    monkeypatch.setattr(
+        fpy_main, "ast_to_dependencies", lambda _body, _dictionary, ground_binary_dir=None: error
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert exc.value.code == 1
+    assert "bad syntax" in capsys.readouterr().err
+
+
+def test_depend_main_outputs_deps(monkeypatch, tmp_path, capsys):
+    """Each dependency path is printed to stdout on its own line."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+    monkeypatch.setattr(
+        fpy_main,
+        "ast_to_dependencies",
+        lambda _body, _dictionary, ground_binary_dir=None: ["/tmp/a.bin", "/tmp/b.bin"],
+    )
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert capsys.readouterr().out == "/tmp/a.bin\n/tmp/b.bin\n"
+
+
 def test_build_command_packet():
     """Command packet has correct wire format: size(4B) + descriptor(2B) + opcode(4B) + args."""
     import struct
