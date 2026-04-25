@@ -71,6 +71,7 @@ from fpy.bytecode.directives import (
     SignedLessThanOrEqualDirective,
     SignedModuloDirective,
     StackCmdDirective,
+    SetSeedDirective,
     StoreAbsConstOffsetDirective,
     StoreAbsDirective,
     StoreRelConstOffsetDirective,
@@ -251,6 +252,22 @@ class TestPushDirectives:
         model.stack = bytearray(4)
         result = model.dispatch(PushRandDirective())
         assert result == DirectiveErrorCode.STACK_OVERFLOW
+
+    def test_set_seed_sets_rng_seed(self):
+        """Test set_seed pops a U32 and updates model seed state."""
+        model = FpySequencerModel()
+        model.push(123, size=4, signed=False)
+        result = model.dispatch(SetSeedDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        assert model.rng_seed == 123
+        assert len(model.stack) == 0
+
+    def test_set_seed_stack_underflow(self):
+        """Test set_seed with insufficient stack."""
+        model = FpySequencerModel()
+        model.stack = bytearray(3)
+        result = model.dispatch(SetSeedDirective())
+        assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
 
 class TestWaitDirectives:
     """Tests for wait directive error conditions."""

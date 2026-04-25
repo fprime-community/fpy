@@ -50,6 +50,7 @@ from fpy.bytecode.directives import (
     ExitDirective,
     PushRandDirective,
     PushTimeDirective,
+    SetSeedDirective,
     CallDirective,
     PeekDirective,
     IntAddDirective,
@@ -123,6 +124,10 @@ class TestDirectiveSerializationRoundTrip:
 
     def test_push_rand(self):
         original = PushRandDirective()
+        self._test_roundtrip(original)
+
+    def test_set_seed(self):
+        original = SetSeedDirective()
         self._test_roundtrip(original)
 
     def test_call(self):
@@ -604,7 +609,7 @@ exit
             "slt", "sle", "sgt", "sge",
             "fge", "fle", "flt", "fgt", "feq", "fne",
             "not", "fptrunc", "fpext", "fptosi", "sitofp", "fptoui", "uitofp",
-            "exit", "push_time", "push_rand", "call", "peek",
+            "exit", "push_time", "push_rand", "set_seed", "call", "peek",
         ]
         for op in ops:
             text = f"{op}\n"
@@ -723,7 +728,7 @@ exit
             "slt", "sle", "sgt", "sge",
             "fge", "fle", "flt", "fgt", "feq", "fne",
             "not", "fptrunc", "fpext", "fptosi", "sitofp", "fptoui", "uitofp",
-            "exit", "push_time", "push_rand", "call", "peek",
+            "exit", "push_time", "push_rand", "set_seed", "call", "peek",
         ]
         for op in ops:
             self._test_text_roundtrip(f"{op}\n")

@@ -77,6 +77,7 @@ goto_tag: NAME ":"
   | "exit"
   | "push_time"
   | "push_rand"
+  | "set_seed"
   | "call" 
   | "peek"
 _uint: [UNARY_IDENTITY] DEC_NUMBER

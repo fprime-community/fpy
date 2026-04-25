@@ -144,7 +144,8 @@ class DirectiveId(Enum):
     STORE_ABS = 73
     STORE_ABS_CONST_OFFSET = 74
     POP_EVENT = 75
-    PUSH_RAND = 77
+    SET_SEED = 77
+    PUSH_RAND = 78
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -671,6 +672,11 @@ class PushTimeDirective(Directive):
 @dataclass
 class PushRandDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.PUSH_RAND
+
+
+@dataclass
+class SetSeedDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.SET_SEED
 
 @dataclass
 class CallDirective(Directive):

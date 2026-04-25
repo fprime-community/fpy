@@ -5,6 +5,7 @@ from fpy.bytecode.directives import (
     FloatLogDirective,
     PopEventDirective,
     PushTimeDirective,
+    SetSeedDirective,
     PushValDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
@@ -176,6 +177,9 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "rng": BuiltinFuncSymbol("rng", U32, [], lambda n, c: [PushRandDirective()]),
+    "set_seed": BuiltinFuncSymbol(
+        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c: [SetSeedDirective()]
+    ),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
