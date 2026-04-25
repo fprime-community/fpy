@@ -35,9 +35,8 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
 
     captured_kwargs = {}
 
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        captured_kwargs["flight_binary_dir"] = flight_binary_dir
         return ["directive"], []
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
@@ -55,7 +54,6 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     )
 
     assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
-    assert captured_kwargs["flight_binary_dir"] is None
 
 
 def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tmp_path, capsys):
@@ -69,7 +67,7 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
 
     captured_kwargs = {}
 
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
         return ["directive"], []
 
@@ -86,42 +84,6 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
     )
 
     assert captured_kwargs["ground_binary_dir"] == str(input_path.parent.resolve())
-
-
-def test_compile_main_flight_binary_dir(monkeypatch, tmp_path, capsys):
-    """--flight-binary-dir is passed through to ast_to_directives."""
-    input_path = tmp_path / "seq.fpy"
-    input_path.write_text("content")
-    dict_path = tmp_path / "dict.json"
-    dict_path.write_text("{}")
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
-
-    captured_kwargs = {}
-
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
-        captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        captured_kwargs["flight_binary_dir"] = flight_binary_dir
-        return ["directive"], []
-
-    monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
-    monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
-
-    fpy_main.compile_main(
-        [
-            str(input_path),
-            "--dictionary",
-            str(dict_path),
-            "--bytecode",
-            "--ground-binary-dir",
-            str(tmp_path),
-            "--flight-binary-dir",
-            "/seq/bin",
-        ]
-    )
-
-    assert captured_kwargs["ground_binary_dir"] == str(tmp_path.resolve())
-    assert captured_kwargs["flight_binary_dir"] == "/seq/bin"
 
 
 def test_compile_main_missing_input(tmp_path, capsys):
@@ -149,7 +111,7 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_error, "debug", False, raising=False)
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None):
         assert body == "AST"
         assert Path(dictionary) == dict_path
         return ["directive"], []
@@ -187,7 +149,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: (["directive"], []),
+        lambda body, dictionary, ground_binary_dir=None: (["directive"], []),
     )
     monkeypatch.setattr(fpy_main, "directives_to_fpybc", lambda directives: "FPYBC")
     monkeypatch.setattr(
@@ -327,7 +289,7 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
 
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xAB\xCD")
 
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None):
         return [directive], []
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
@@ -359,7 +321,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     error = fpy_error.CompileError("bad arg", None)
     monkeypatch.setattr(
         fpy_main, "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: error,
+        lambda body, dictionary, ground_binary_dir=None: error,
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -379,7 +341,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
 
     monkeypatch.setattr(
         fpy_main, "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: (
+        lambda body, dictionary, ground_binary_dir=None: (
             [StackCmdDirective(args_size=10)], []
         ),
     )
@@ -401,7 +363,7 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
     monkeypatch.setattr(
         fpy_main, "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: ([directive], []),
+        lambda body, dictionary, ground_binary_dir=None: ([directive], []),
     )
 
     def fail_send(*a):
@@ -425,9 +387,8 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
 
     captured_kwargs = {}
 
-    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None, flight_binary_dir=None):
+    def fake_ast_to_directives(body, dictionary, ground_binary_dir=None):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        captured_kwargs["flight_binary_dir"] = flight_binary_dir
         return [ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []
 
     monkeypatch.setattr(fpy_main, "ast_to_directives", fake_ast_to_directives)
@@ -440,11 +401,9 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
         'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
         "-d", "dict.json",
         "-g", str(bin_dir),
-        "-f", "/seq/",
     ])
 
     assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
-    assert captured_kwargs["flight_binary_dir"] == "/seq/"
 
 
 def test_cmd_main_zmq_addr(monkeypatch, capsys):
@@ -454,7 +413,7 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
     monkeypatch.setattr(
         fpy_main, "ast_to_directives",
-        lambda body, dictionary, ground_binary_dir=None, flight_binary_dir=None: ([directive], []),
+        lambda body, dictionary, ground_binary_dir=None: ([directive], []),
     )
 
     sent = {}
@@ -467,6 +426,97 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     ])
 
     assert sent["addr"] == "tcp://192.168.1.1:50050"
+
+
+# ---------------------------------------------------------------------------
+# depend_main tests
+# ---------------------------------------------------------------------------
+
+
+def test_depend_main_missing_input(tmp_path, capsys):
+    missing = tmp_path / "missing.fpy"
+    dict_path = tmp_path / "dict.json"
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.depend_main([str(missing), "--dictionary", str(dict_path)])
+    assert exc.value.code == 1
+    assert "does not exist" in capsys.readouterr().err
+
+
+def test_depend_main_ground_binary_dir_resolved(monkeypatch, tmp_path):
+    """-g is resolved to an absolute path before being passed to ast_to_dependencies."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+    bin_dir = tmp_path / "bins"
+    bin_dir.mkdir()
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+
+    captured = {}
+
+    def fake_ast_to_dependencies(_body, _dictionary, ground_binary_dir=None):
+        captured["ground_binary_dir"] = ground_binary_dir
+        return []
+
+    monkeypatch.setattr(fpy_main, "ast_to_dependencies", fake_ast_to_dependencies)
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json", "-g", str(bin_dir)])
+
+    assert captured["ground_binary_dir"] == str(bin_dir.resolve())
+
+
+def test_depend_main_default_ground_binary_dir(monkeypatch, tmp_path):
+    """When -g is omitted, ground_binary_dir defaults to the input file's parent."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+
+    captured = {}
+
+    def fake_ast_to_dependencies(_body, _dictionary, ground_binary_dir=None):
+        captured["ground_binary_dir"] = ground_binary_dir
+        return []
+
+    monkeypatch.setattr(fpy_main, "ast_to_dependencies", fake_ast_to_dependencies)
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert captured["ground_binary_dir"] == str(tmp_path.resolve())
+
+
+def test_depend_main_compile_error_exits(monkeypatch, tmp_path, capsys):
+    """A compile error from ast_to_dependencies is printed to stderr and exits 1."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+    error = fpy_error.CompileError("bad syntax", None)
+    monkeypatch.setattr(
+        fpy_main, "ast_to_dependencies", lambda _body, _dictionary, ground_binary_dir=None: error
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert exc.value.code == 1
+    assert "bad syntax" in capsys.readouterr().err
+
+
+def test_depend_main_outputs_deps(monkeypatch, tmp_path, capsys):
+    """Each dependency path is printed to stdout on its own line."""
+    fpy_path = tmp_path / "seq.fpy"
+    fpy_path.write_text("content")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
+    monkeypatch.setattr(
+        fpy_main,
+        "ast_to_dependencies",
+        lambda _body, _dictionary, ground_binary_dir=None: ["/tmp/a.bin", "/tmp/b.bin"],
+    )
+
+    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
+
+    assert capsys.readouterr().out == "/tmp/a.bin\n/tmp/b.bin\n"
 
 
 def test_build_command_packet():

@@ -31,6 +31,7 @@ from fpy.semantics import (
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
+    CollectSequenceDependencies,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
     ResolveSequenceDependencies,
@@ -449,7 +450,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     return (type_scope, callable_scope, values_scope, type_name_dict)
 
 
-def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None, flight_binary_dir: str | None = None) -> CompileState:
+def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
@@ -474,7 +475,6 @@ def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None
         global_value_scope=values_scope.copy(),
         type_defs=type_defs,
         ground_binary_dir=ground_binary_dir,
-        flight_binary_dir=flight_binary_dir,
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
@@ -492,10 +492,9 @@ def ast_to_directives(
     body: AstBlock,
     dictionary: str,
     ground_binary_dir: str | None = None,
-    flight_binary_dir: str | None = None,
 ) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
     # Create initial compile state (without builtins yet)
-    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
     state.root = body
 
     # Run pre-builtin validation passes
@@ -611,3 +610,47 @@ def ast_to_directives(
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir, state.this_seq_arg_specs
+
+
+def ast_to_dependencies(
+    body: AstBlock,
+    dictionary: str,
+    ground_binary_dir: str | None = None,
+) -> list[str] | CompileError:
+    """Return the list of .bin paths that a sequence source file depends on.
+
+    Runs only the passes needed to resolve command symbols — does not attempt
+    to read the binary files, so this works before any binaries are compiled.
+    """
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
+    state.root = body
+
+    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    import copy
+    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+
+    discovery_passes: list[Visitor] = [
+        DesugarCheckStatements(),
+        AssignIds(),
+        CreateScopes(),
+        CreateVariablesAndFuncs(),
+        ResolveQualifiedNames(),
+    ]
+    for compile_pass in discovery_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    discover = CollectSequenceDependencies()
+    discover.run(body, state)
+    if state.errors:
+        return state.errors[0]
+
+    if ground_binary_dir is not None:
+        return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
+    return discover.bin_names

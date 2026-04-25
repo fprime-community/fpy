@@ -24,7 +24,7 @@ from fpy.bytecode.directives import ConstCmdDirective, StackCmdDirective
 import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.compiler import text_to_ast, ast_to_directives, ast_to_dependencies
 from fpy.dictionary import load_dictionary
 
 
@@ -93,17 +93,6 @@ def compile_main(args: list[str] = None):
         default=None,
         help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
     )
-    arg_parser.add_argument(
-        "-f",
-        "--flight-binary-dir",
-        type=str,
-        required=False,
-        default=None,
-        help="Absolute path prefix for .bin files on the spacecraft. "
-             "Sequence paths starting with this prefix will have it stripped "
-             "and be resolved relative to --ground-binary-dir.",
-    )
-
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
     else:
@@ -126,7 +115,7 @@ def compile_main(args: list[str] = None):
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
     try:
-        result = ast_to_directives(body, parsed_args.dictionary, ground_binary_dir=str(ground_binary_dir.resolve()), flight_binary_dir=parsed_args.flight_binary_dir)
+        result = ast_to_directives(body, parsed_args.dictionary, ground_binary_dir=str(ground_binary_dir.resolve()))
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
@@ -373,14 +362,6 @@ def cmd_main(args: list[str] = None):
         help="Local directory to resolve .bin file paths for sequence calls",
     )
     arg_parser.add_argument(
-        "-f",
-        "--flight-binary-dir",
-        type=str,
-        required=False,
-        default=None,
-        help="Absolute path prefix for .bin files on the spacecraft",
-    )
-    arg_parser.add_argument(
         "--zmq-addr",
         type=str,
         default="ipc:///tmp/fprime-server-in",
@@ -422,7 +403,6 @@ def cmd_main(args: list[str] = None):
             body,
             parsed_args.dictionary,
             ground_binary_dir=str(ground_binary_dir.resolve()),
-            flight_binary_dir=parsed_args.flight_binary_dir,
         )
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
@@ -483,3 +463,64 @@ def cmd_main(args: list[str] = None):
         except Exception as e:
             print(f"Failed to send command: {e}", file=sys.stderr)
             sys.exit(1)
+
+
+def depend_main(args: list[str] = None):
+    arg_parser = argparse.ArgumentParser(
+        description=f"Fpy dependency tool {get_version_str()}"
+    )
+    arg_parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {get_version_str()}"
+    )
+    arg_parser.add_argument("input", type=Path, help="The input .fpy file")
+    arg_parser.add_argument(
+        "-d",
+        "--dictionary",
+        type=Path,
+        required=True,
+        help="The FPrime dictionary .json file",
+    )
+    arg_parser.add_argument(
+        "-g",
+        "--ground-binary-dir",
+        type=Path,
+        required=False,
+        default=None,
+        help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
+    )
+    if args is not None:
+        parsed_args = arg_parser.parse_args(args)
+    else:
+        parsed_args = arg_parser.parse_args()
+
+    if not parsed_args.input.exists():
+        print(f"Input file {parsed_args.input} does not exist", file=sys.stderr)
+        sys.exit(1)
+    fpy.error.file_name = str(parsed_args.input)
+
+    ground_binary_dir = parsed_args.ground_binary_dir
+    if ground_binary_dir is None:
+        ground_binary_dir = parsed_args.input.parent
+
+    try:
+        body = text_to_ast(parsed_args.input.read_text())
+    except RecursionError:
+        print("Recursion limit exceeded in parsing", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        result = ast_to_dependencies(
+            body,
+            parsed_args.dictionary,
+            ground_binary_dir=str(ground_binary_dir.resolve()),
+        )
+    except RecursionError:
+        print("Recursion limit exceeded in compiling", file=sys.stderr)
+        sys.exit(1)
+
+    if isinstance(result, fpy.error.CompileError):
+        print(result, file=sys.stderr)
+        sys.exit(1)
+
+    for dep in result:
+        print(dep)

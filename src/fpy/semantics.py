@@ -861,30 +861,33 @@ class ResolveSequenceDependencies(TopDownVisitor):
 
     For each call to a seq-run command with a string-literal filename,
     reads the target .bin header and resolves its argument types.
-    Results are stored in state.seq_dependencies so that later passes
-    (and external tools) can access them without file I/O.
+    Results are stored in state.called_seq_arg_specs so that later passes
+    can use them without file I/O.
     """
 
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+    def _get_bin_name(self, node: AstFuncCall, state: CompileState) -> str | None:
+        """Return the .bin filename for a seq-run-with-args call, or None.
+
+        Reports a compile error if the filename argument is not a string literal.
+        """
         func = state.resolved_symbols.get(node.func)
         if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
-            return
-
+            return None
         if not node.args or len(node.args) < 1:
             # Missing args will be caught by build_resolved_call_args (too few arguments)
-            return
-
+            return None
         file_name_arg = node.args[0]
         if not is_instance_compat(file_name_arg, AstString):
             state.err(
                 "Sequence file name must be a string literal",
                 file_name_arg,
             )
-            return
+            return None
+        return file_name_arg.value
 
-        bin_name = file_name_arg.value
-        if bin_name in state.called_seq_arg_specs:
-            # Already resolved (e.g. same sequence called twice)
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        bin_name = self._get_bin_name(node, state)
+        if bin_name is None or bin_name in state.called_seq_arg_specs:
             return
 
         ground_binary_dir = state.ground_binary_dir
@@ -895,17 +898,11 @@ class ResolveSequenceDependencies(TopDownVisitor):
             )
             return
 
-        resolve_name = bin_name
-        if state.flight_binary_dir is not None and bin_name.startswith(
-            state.flight_binary_dir
-        ):
-            resolve_name = bin_name[len(state.flight_binary_dir) :].lstrip("/")
-
-        bin_path = Path(ground_binary_dir) / resolve_name
+        bin_path = Path(ground_binary_dir) / bin_name
         if not bin_path.exists():
             state.err(
                 f"Compiled sequence binary not found: {bin_path}",
-                file_name_arg,
+                node.args[0],
             )
             return
 
@@ -914,7 +911,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
         except Exception as e:
             state.err(
                 f"Failed to read sequence binary {bin_path}: {e}",
-                file_name_arg,
+                node.args[0],
             )
             return
 
@@ -923,7 +920,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
         except RuntimeError as e:
             state.err(
                 f"Failed to resolve argument types from {bin_path}: {e}",
-                file_name_arg,
+                node.args[0],
             )
             return
 
@@ -931,9 +928,31 @@ class ResolveSequenceDependencies(TopDownVisitor):
 
         # Build an extended CommandSymbol that includes the target sequence's
         # parameters so that standard arg resolution works in PickTypes.
+        func = state.resolved_symbols.get(node.func)
         extra_args = [(name, t, None) for name, t in target_arg_types]
         extended_func = dc_replace(func, args=func.args + extra_args)
         state.resolved_symbols[node.func] = extended_func
+
+
+class CollectSequenceDependencies(ResolveSequenceDependencies):
+    """Collect .bin filenames from seq-run-with-args calls without reading binaries.
+
+    Use this instead of ResolveSequenceDependencies when you only need the
+    dependency list (e.g. the fprime-fpy-depend tool) and the binaries may
+    not exist yet.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.bin_names: list[str] = []
+        self._seen: set[str] = set()
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        bin_name = self._get_bin_name(node, state)
+        if bin_name is None or bin_name in self._seen:
+            return
+        self._seen.add(bin_name)
+        self.bin_names.append(bin_name)
 
 
 class PickTypesAndResolveFields(Visitor):

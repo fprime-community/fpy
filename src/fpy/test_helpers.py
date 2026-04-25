@@ -22,16 +22,16 @@ class CompilationFailed(Exception):
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None, flight_binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
+def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
-    
+
     body = text_to_ast(seq)
     if body is None:
         # This shouldn't happen - text_to_ast calls exit(1) on parse errors
         raise CompilationFailed("Parsing failed")
-    
-    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+
+    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{result}")
     
@@ -165,10 +165,9 @@ def assert_run_success(
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
-    flight_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
 ):
-    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
@@ -179,9 +178,9 @@ def assert_run_success(
     run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types, arg_name_types=arg_name_types, seq_run_opcodes=seq_run_opcodes, ground_binary_dir=ground_binary_dir)
 
 
-def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None, flight_binary_dir: str = None):
+def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None):
     try:
-        compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+        compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
@@ -203,7 +202,6 @@ def assert_run_failure(
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
-    flight_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
 ):
     assert not (error_code is not None and validation_error), \
@@ -211,7 +209,7 @@ def assert_run_failure(
     assert error_code is not None or validation_error, \
         "Must specify either error_code or validation_error"
 
-    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir, flight_binary_dir=flight_binary_dir)
+    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
