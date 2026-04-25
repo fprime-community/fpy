@@ -20,3 +20,14 @@ set_seed(123)
 assert rng() == 1
 """
         assert_run_success(fprime_test_api, seq)
+
+    @pytest.mark.skipif("not config.getoption('--use-gds')", reason="requires live GDS RNG implementation")
+    def test_rng_seeded_sequence_gds(self, fprime_test_api):
+        seq = """
+set_seed(123456789)
+assert rng() == 184
+assert rng() == 156
+set_seed(123456789)
+assert rng() == 184
+"""
+        assert_run_success(fprime_test_api, seq)
