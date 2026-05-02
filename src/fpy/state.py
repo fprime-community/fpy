@@ -14,6 +14,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
+    AstIdent,
     AstOp,
     AstReference,
     AstReturn,

@@ -450,128 +450,89 @@ class CheckReturnInFunc(TopDownVisitor):
             state.err("Cannot return outside of a function", node)
             return
 
+class ResolveUnqualifiedIdentifiers(TopDownVisitor):
 
-class ResolveQualifiedNames(TopDownVisitor):
-
-    def try_resolve_name(
-        self, node: Ast, group: NameGroup, state: CompileState
-    ) -> bool:
-        """resolves the root name of a qualified name, return True if able to resolve, False
-        if an error was raised.
-        if the node is not a qualified name, return True"""
-        # first check that this is a fully qualified name
-        # list of attrs, most specific attrs first
-        attrs = []
-        leaf_node = node
-        root_node = node
-        while is_instance_compat(root_node, AstGetAttr):
-            attrs.append(root_node)
-            root_node = root_node.parent
-
-        if not is_instance_compat(root_node, AstIdent):
-            # not a qualified name
-            if group == NameGroup.TYPE:
-                # types must be identifiers or qualified names
-                state.err(f"Expected a type name", node)
-                return False
-            # for values/callables, non-identifier expressions are fine
+    def resolve_ident(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+        while is_instance_compat(node, AstGetAttr):
+            node = node.parent
+        if not is_instance_compat(node, AstIdent):
             return True
 
-        root_symbol = None
-        # it is a qualified name
-        # look up the root name in the appropriate scope
-        if group == NameGroup.CALLABLE:
-            root_symbol = state.global_callable_scope.get(root_node.name)
-        elif group == NameGroup.TYPE:
-            root_symbol = state.global_type_scope.get(root_node.name)
+        # an unqualified identifier should always refer to something, right?
+        # except if it's like on a line by itself. in which case i guess
+        # we should default to value?
+        # but what about like the param names? i guess they're already associated
+        # with a definition (because they are a definition). we don't really
+        # even want to try to resolve them
+        # if it has no name group to resolve it in, and it isn't already in the resolved map (b/c it was a defn)
+        # , then error?
+
+        if node in state.resolved_symbols:
+            # node is a defining use--that is the only
+            # way it can have been resolved by now
+            return True
+
+        # okay, so unresolved but have a name group. should be easy.
+        if ng == NameGroup.CALLABLE:
+            scope = state.global_callable_scope
+        elif ng == NameGroup.TYPE:
+            scope = state.global_type_scope
         else:
-            # Walk up the scope chain to find the value
-            root_symbol = state.enclosing_value_scope[root_node].lookup(root_node.name)
+            scope = state.enclosing_value_scope[node]
 
-        # the node which corresponds to the entire qualified name
-        # note this does not include nodes which are member accesses
-        qualified_name_node = root_node
+        while scope is not None:
+            resolved = scope.get(node.name)
+            if resolved is not None:
+                state.resolved_symbols[node] = resolved
+                return True
 
-        # the parent of the attr that we're about to resolve, as we iterate
-        # through the list of attrs
-        current_parent_symbol = root_symbol
+            scope = scope.parent
 
-        # okay, now we just have to perform attribute resolution
-        while len(attrs) > 0:
-            if current_parent_symbol is None:
-                state.err(f"Unknown {group}", leaf_node)
-                return False
-
-            state.resolved_symbols[qualified_name_node] = current_parent_symbol
-
-            if is_symbol_an_expr(current_parent_symbol):
-                # this is member access
-                # stop here
-                break
-
-            if not is_instance_compat(current_parent_symbol, SymbolTable):
-                # it's not member access and it's not namespace access
-                state.err(f"Unknown {group}", leaf_node)
-                return False
-
-            attr = attrs.pop()
-            qualified_name_node = attr
-            current_parent_symbol = current_parent_symbol.get(attr.attr)
-
-        # has it resolved?
-        if current_parent_symbol is None:
-            state.err(f"Unknown {group}", leaf_node)
-            return False
-
-        # but has it actually resolved to a non-namespace symbol?
-        if is_instance_compat(current_parent_symbol, SymbolTable):
-            state.err(f"Unknown {group}", leaf_node)
-            return False
-
-        state.resolved_symbols[qualified_name_node] = current_parent_symbol
-        return True
+        state.err(f"Expected a {ng}", node)
+        return False
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # all callables are always resolved in callable scope
-        if not self.try_resolve_name(node.name, NameGroup.CALLABLE, state):
+        # all callables are always resolved in callable ng
+        if not self.resolve_ident(node.name, NameGroup.CALLABLE, state):
             return
         if node.return_type is not None:
-            # all types always in type scope
-            if not self.try_resolve_name(node.return_type, NameGroup.TYPE, state):
+            # all types always in type ng
+            if not self.resolve_ident(node.return_type, NameGroup.TYPE, state):
                 return
 
         if node.parameters is not None:
-            for arg_name_var, arg_type_name, default_value in node.parameters:
-                if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+            for _, arg_type_name, default_value in node.parameters:
+                if not self.resolve_ident(arg_type_name, NameGroup.TYPE, state):
                     return
-                # arg_name_var is already resolved by DefineVariables
+                # arg_name_var is a defining use and so already resolved
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
-                    if not self.try_resolve_name(default_value, NameGroup.VALUE, state):
+                    if not self.resolve_ident(default_value, NameGroup.VALUE, state):
                         return
+
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
-            if not self.try_resolve_name(node.type_ann, NameGroup.TYPE, state):
+            if not self.resolve_ident(node.type_ann, NameGroup.TYPE, state):
                 return
+        if not self.resolve_ident(node.lhs, NameGroup.VALUE, state):
+            return
+        if not self.resolve_ident(node.rhs, NameGroup.VALUE, state):
+            return
 
-        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
-            return
-        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
-            return
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         if node.parameters is None:
             return
 
         for arg_name_var, arg_type_name in node.parameters:
-            if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+            if not self.resolve_ident(arg_type_name, NameGroup.TYPE, state):
                 return
-            # arg_name_var is already resolved by DefineVariables
+            # arg_name_var is a defining use and so already resolved
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
+        if not self.resolve_ident(node.func, NameGroup.CALLABLE, state):
             return
 
         if node.args is None:
@@ -579,25 +540,28 @@ class ResolveQualifiedNames(TopDownVisitor):
 
         for arg in node.args:
             if is_instance_compat(arg, AstNamedArgument):
-                if not self.try_resolve_name(arg.value, NameGroup.VALUE, state):
+                if not self.resolve_ident(arg.value, NameGroup.VALUE, state):
                     return
             else:
-                if not self.try_resolve_name(arg, NameGroup.VALUE, state):
+                if not self.resolve_ident(arg, NameGroup.VALUE, state):
                     return
 
+
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
             return
+
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        if not self.try_resolve_name(node.lhs, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.lhs, NameGroup.VALUE, state):
             return
-        if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.rhs, NameGroup.VALUE, state):
             return
 
+
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.try_resolve_name(node.val, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.val, NameGroup.VALUE, state):
             return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
@@ -605,67 +569,95 @@ class ResolveQualifiedNames(TopDownVisitor):
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
-        if not self.try_resolve_name(node.range, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.range, NameGroup.VALUE, state):
             return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
             return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.try_resolve_name(node.condition, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
             return
         if node.exit_code is not None:
-            if not self.try_resolve_name(node.exit_code, NameGroup.VALUE, state):
+            if not self.resolve_ident(node.exit_code, NameGroup.VALUE, state):
                 return
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.try_resolve_name(node.parent, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.parent, NameGroup.VALUE, state):
             return
-        if not self.try_resolve_name(node.item, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.item, NameGroup.VALUE, state):
             return
 
+
     def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.try_resolve_name(node.lower_bound, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.lower_bound, NameGroup.VALUE, state):
             return
-        if not self.try_resolve_name(node.upper_bound, NameGroup.VALUE, state):
+        if not self.resolve_ident(node.upper_bound, NameGroup.VALUE, state):
             return
+
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         if node.value is not None:
-            if not self.try_resolve_name(node.value, NameGroup.VALUE, state):
+            if not self.resolve_ident(node.value, NameGroup.VALUE, state):
                 return
 
     def visit_AstLiteral_AstGetAttr(
         self, node: Union[AstLiteral, AstGetAttr], state: CompileState
     ):
-        # this is because they do not imply anything about the context in which an AstIdent should get
         # don't need to do anything for literals or getattr, but just have this here for completion's sake
-        # resolved
+        # this is because they do not imply anything about the context in which an AstIdent should get resolved
         pass
 
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
-        for _name, value_expr in node.members:
-            if not self.try_resolve_name(value_expr, NameGroup.VALUE, state):
+        for _, value_expr in node.members:
+            if not self.resolve_ident(value_expr, NameGroup.VALUE, state):
                 return
 
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         for elem_expr in node.elements:
-            if not self.try_resolve_name(elem_expr, NameGroup.VALUE, state):
+            if not self.resolve_ident(elem_expr, NameGroup.VALUE, state):
                 return
-
-    def visit_AstIdent(self, node: AstIdent, state: CompileState):
-        if node in state.resolved_symbols:
-            # it exists in a context where we can resolve it
-            return
-
-        # exists outside of a context where we can resolve it.
-        # probably just throw an error?
-        state.err(f"Name '{node.name}' cannot be resolved without more context", node)
 
     def visit_default(self, node, state):
         # coding error, missed an expr
         assert not is_instance_compat(node, AstStmtWithExpr), node
+
+# the difficulty is in distinguishing qualified identifiers from dot expressions
+# are all qualified identifiers qualified names? well, an identifier is a name if it refers
+# to a definition. or, rather, the name of a definition may be an identifier
+# so do all _valid_ identifiers refer to names? not always, right?
+# 
+# well here's the key--a qualified name CAN be a dot expression, if the qualified name refers to a
+# constant or enum constant
+
+# so really what we want is to try resolving all qualified identifiers. but we want to give up
+# trying to "resolve" it if the qualifier is a dot expression
+# and the qualifier is a dot expression if it refers to an enum const
+
+# okay, so all identifiers are resolved
+# now we just need to handle getattrs
+
+class ResolveQualifiedIdentifiers(Visitor):
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        parent_sym = state.resolved_symbols.get(node.parent)
+        if parent_sym is None:
+            # this must not be a qualified name
+            return
+
+        # okay, there is a parent symbol. is the parent symbol a namespace?
+        # if so, resolve it!
+        if not is_instance_compat(parent_sym, SymbolTable):
+            # otherwise, this node must be a dot expression
+            # or invalid
+            return
+
+        this_sym = parent_sym.get(node.attr)
+        if this_sym is None:
+            state.err(f"Unknown name", node)
+            return
+
+        state.resolved_symbols[node] = this_sym
 
 
 def is_type_constant_size(type: FpyType) -> bool:
@@ -687,6 +679,57 @@ def is_type_constant_size(type: FpyType) -> bool:
         return True
 
     return True
+
+
+class CheckAllTypesAndCallablesResolved(Visitor):
+
+    def check_resolved(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+        sym = state.resolved_symbols.get(node)
+        if sym is None:
+            state.err(f"Unknown {ng}", node)
+            return False
+        if ng == NameGroup.CALLABLE and not is_instance_compat(sym, CallableSymbol):
+            state.err(f"Expected a {ng}", node)
+            return False
+        if ng == NameGroup.TYPE and not is_instance_compat(sym, FpyType):
+            state.err(f"Expected a {ng}", node)
+            return False
+        return True
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        # all callables are always resolved in callable ng
+        if not self.check_resolved(node.name, NameGroup.CALLABLE, state):
+            return
+        if node.return_type is not None:
+            # all types always in type ng
+            if not self.check_resolved(node.return_type, NameGroup.TYPE, state):
+                return
+
+        if node.parameters is not None:
+            for _, arg_type_name, default_value in node.parameters:
+                if not self.check_resolved(arg_type_name, NameGroup.TYPE, state):
+                    return
+                # arg_name_var is a defining use and so already resolved
+
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        if node.type_ann is not None:
+            if not self.check_resolved(node.type_ann, NameGroup.TYPE, state):
+                return
+
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+
+        for _, arg_type_name in node.parameters:
+            if not self.check_resolved(arg_type_name, NameGroup.TYPE, state):
+                return
+            # arg_name_var is a defining use and so already resolved
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        if not self.check_resolved(node.func, NameGroup.CALLABLE, state):
+            return
 
 
 class UpdateTypesAndFuncs(Visitor):

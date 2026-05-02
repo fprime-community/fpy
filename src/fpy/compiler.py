@@ -33,7 +33,8 @@ from fpy.semantics import (
     DefineVariables,
     CollectSequenceDependencies,
     PickTypesAndResolveFields,
-    ResolveTypesAndCallables,
+    ResolveUnqualifiedIdentifiers,
+    ResolveQualifiedIdentifiers,
     ResolveSequenceDependencies,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
@@ -533,7 +534,8 @@ def ast_to_directives(
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        ResolveTypesAndCallables(),
+        ResolveUnqualifiedIdentifiers(),
+        ResolveQualifiedIdentifiers(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
@@ -640,7 +642,8 @@ def ast_to_dependencies(
         CreateScopes(),
         DefineFunctions(),
         DefineVariables(),
-        ResolveTypesAndCallables(),
+        ResolveUnqualifiedIdentifiers(),
+        ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:
         compile_pass.run(body, state)
