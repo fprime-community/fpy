@@ -74,3 +74,82 @@ If the statement is a sequence metadata statement:
 
 
 # CheckBreakAndContinueInLoop
+Visiting statements recursively in breadth-first order. 
+
+For each while or for loop statement L:
+1. Let C be any break or continue statement in the scope inside L
+2. The enclosing loop of C is mapped to L
+
+For each break or continue statement C:
+1. If no enclosing loop has been mapped to C, raise an error.
+
+# Segue on name groups
+
+The qualified names of definitions reside in the following name groups:
+* The value name group, consisting of definitions of:
+  * Variables
+  * Constants
+  * Telemetry channels
+  * Parameters
+  * Enum constants
+* The callable name group, consisting of definitions of:
+  * Casts
+  * Builtins
+  * Commands
+  * Type constructors
+  * Functions
+* The type name group, consisting of type definitions.
+
+# Segue on dictionary definitions
+
+For each type definition T in the `typeDefinitions` section of the dictionary:
+
+1. The `qualifiedName` string is assumed to consist of a series of period-separated identifiers I_0, I_1, ..., I_n, forming a qualified identifier I.
+2. I is the name of T in the global scope.
+3. I is also the name of the type constructor of T in the global scope.
+
+> These do not conflict because they are in separate name groups.
+
+<!---
+# the actual specifier is "abstract", does not refer to one specific command, but rather a command
+# which remains to be instantiated
+# in the dictionary, the commands in the commands section are all "instantiated" commands. But they do
+# not have individual definitions. But for the purpose of Fpy, we will pretend that they are individually
+# defined--therefor
+-->
+
+For each entry in the `commands` section of the dictionary:
+
+1. The entry is considered the definition of command C, as far as Fpy is concerned.
+2. The `name` string is assumed to consist of a series of period-separated identifiers I_0, I_1, ..., I_n, forming a qualified identifier I.
+3. I is the name of C in the global scope.
+
+Likewise with `telemetryChannels` and `parameters`.
+
+For each constant definition C in the `constants` section of the dictionary:
+
+1. The `qualifiedName` string is assumed to consist of a series of period-separated identifiers I_0, I_1, ..., I_n, forming a qualified identifier I.
+2. I is the name of C in the global scope.
+3. TODO on how the type and value of C are parsed
+
+In each of these dictionary definitions, if n > 0, and the qualified identifier Q formed by I_0, ..., I_x for any x < n has not been seen before in this name group, then the definition is also considered a definition of namespace N in this name group, and Q is the name of N.
+
+# ResolveTypeAndCallableUses
+
+A qualified identifier is one of the following:
+
+* An identifier.
+* Q `.` I, where Q is a qualified identifier and I is an identifier.
+
+To associate an unqualified identifier with a definition (a process called resolution), 
+
+To associate a qualified identifier with a definition (a process called resolution), 
+
+<!---
+an important diff between Fpp and Fpy is that a definition cannot have sub definitions.
+Basically, each definition is terminal.
+
+If you think about it, from the dictionary perspective again this makes sense. There's no 
+dictionary definition of modules or components. So those qualifiers really aren't
+referring to any definitions. I can't recover the definitions from the strings.
+-->

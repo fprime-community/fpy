@@ -317,7 +317,7 @@ class DefineVariables(TopDownVisitor):
         scope: SymbolTable,
         state: CompileState,
         variable_kind: str,
-        assert_undeclared: bool=False
+        assert_undeclared: bool = False,
     ):
         # make sure it isn't defined in this scope (shadowing parent scopes is ok)
         existing_local = scope.get(sym.name)
@@ -345,20 +345,20 @@ class DefineVariables(TopDownVisitor):
 
         scope = state.enclosing_value_scope[node]
         # yes a variable definition
-        self.define_variable(VariableSymbol(node.lhs.name, node.type_ann, node), scope, state, "Variable")
+        self.define_variable(
+            VariableSymbol(node.lhs.name, node.type_ann, node), scope, state, "Variable"
+        )
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.
         body_scope = state.enclosing_value_scope[node.body]
 
         self.define_variable(
-            loop_var := VariableSymbol(
-                node.loop_var.name, None, node, LoopVarType
-            ),
+            loop_var := VariableSymbol(node.loop_var.name, None, node, LoopVarType),
             body_scope,
             state,
             "Loop variable",
-            assert_undeclared=True
+            assert_undeclared=True,
         )
         # Pre-resolve the loop var ident — it's a definition, not a reference
         state.resolved_symbols[node.loop_var] = loop_var
@@ -374,7 +374,7 @@ class DefineVariables(TopDownVisitor):
             body_scope,
             state,
             "Loop variable",
-            assert_undeclared=True
+            assert_undeclared=True,
         )
         analysis = ForLoopAnalysis(loop_var, upper_bound_var)
         state.for_loops[node] = analysis
