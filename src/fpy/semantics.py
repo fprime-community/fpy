@@ -444,14 +444,18 @@ class CheckReturnInFunc(TopDownVisitor):
             state.err("Cannot return outside of a function", node)
             return
 
-class ResolveUnqualifiedIdentifiers(TopDownVisitor):
+class ResolveQualifiedIdentifiers(TopDownVisitor):
 
     def try_resolve_ident(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+        # Walk down to the leftmost identifier, collecting getattrs (outermost first)
+        attrs: list[AstGetAttr] = []
         while is_instance_compat(node, AstGetAttr):
+            attrs.append(node)
             node = node.parent
         if not is_instance_compat(node, AstIdent):
             return True
 
+        # Resolve the root identifier in the appropriate scope
         if ng == NameGroup.CALLABLE:
             scope = state.global_callable_scope
         elif ng == NameGroup.TYPE:
@@ -459,16 +463,33 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
         else:
             scope = state.enclosing_value_scope[node]
 
+        resolved = None
         while scope is not None:
             resolved = scope.get(node.name)
             if resolved is not None:
-                state.resolved_symbols[node] = resolved
-                return True
-
+                break
             scope = scope.parent
 
-        state.err(f"Unknown {ng} '{node.name}'", node)
-        return False
+        if resolved is None:
+            state.err(f"Unknown {ng} '{node.name}'", node)
+            return False
+
+        state.resolved_symbols[node] = resolved
+
+        # Walk back down the getattr chain (innermost first) resolving each.
+        # Stop when the parent isn't a namespace -- the rest is a member access
+        # (e.g. enum.MEMBER, struct.field) handled later by type checking.
+        for getattr_node in reversed(attrs):
+            parent_sym = state.resolved_symbols.get(getattr_node.parent)
+            if not is_instance_compat(parent_sym, SymbolTable):
+                break
+            attr_sym = parent_sym.get(getattr_node.attr)
+            if attr_sym is None:
+                state.err("Unknown name", getattr_node)
+                return False
+            state.resolved_symbols[getattr_node] = attr_sym
+
+        return True
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # all callables are always resolved in callable ng
@@ -618,31 +639,6 @@ class CheckAllUnqualifiedIdentifiersResolved(Visitor):
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node not in state.resolved_symbols:
             state.err("Unknown name", node)
-
-
-# okay, so all identifiers are resolved
-# now we just need to handle getattrs
-
-class ResolveQualifiedIdentifiers(Visitor):
-    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        parent_sym = state.resolved_symbols.get(node.parent)
-        if parent_sym is None:
-            # this must not be a qualified name
-            return
-
-        # okay, there is a parent symbol. is the parent symbol a namespace?
-        # if so, resolve it!
-        if not is_instance_compat(parent_sym, SymbolTable):
-            # otherwise, this node must be a dot expression
-            # or invalid
-            return
-
-        this_sym = parent_sym.get(node.attr)
-        if this_sym is None:
-            state.err(f"Unknown name", node)
-            return
-
-        state.resolved_symbols[node] = this_sym
 
 
 def is_type_constant_size(type: FpyType) -> bool:

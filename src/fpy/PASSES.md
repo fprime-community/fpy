@@ -7,9 +7,7 @@ Otherwise, the parent scope of scope S is the scope at one indentation level low
 
 If the scope is part of a function definition, it is a function scope.
 
-To determine the enclosing scope of an expression E:
-# TODO remove the special casing of func prms/loop vars
-3. Otherwise, the enclosing scope of E is the nearest parent scope of E.
+The enclosing scope of E is the nearest parent scope of E.
 
 # CheckSequenceMetadataDefinedAtTop
 
@@ -147,25 +145,73 @@ For each constant definition C in the `constants` section of the dictionary:
 
 In each of these dictionary definitions, if n > 0, and the qualified identifier Q formed by I_0, ..., I_x for any x < n has not been seen before in this name group, then the definition is also considered a definition of namespace N in this name group, and Q is the name of N.
 
-# ResolveUnqualifiedIdentifiers
-
-To associate an unqualified identifier with a definition (a process called resolution), do the following in top-down order:
-
-Define algorithm *TryResolveIdent(E: expr)*:
-1. If E is not a qualified identifier, return.
-2. Let I be the leftmost qualifying identifier of E.
-3. If I is a defining use, return.
-
-For each statement or expression N that could contain an unqualified identifier:
-
-If N is a function definition statement:
-1. 
-
+# ResolveIdentifiers
 
 A qualified identifier is one of the following:
 
 * An identifier.
 * Q `.` I, where Q is a qualified identifier and I is an identifier.
+
+To resolve a qualified identifier Q with a definition in name group N (i.e. associate Q with a definition):
+1. Let R be the leftmost identifier of Q (if Q is an identifier, R is Q; otherwise Q is of the form Q' `.` I and R is the leftmost identifier of Q').
+2. Resolve the identifier R in name group N.
+3. If R could not be resolved, raise an error.
+4. Walk the remaining identifiers of Q from leftmost to rightmost. For each Q_i `.` I_i where Q_i has been resolved:
+   1. If Q_i refers to a namespace, look up I_i within that namespace. If not found, raise an error. Otherwise, Q_i `.` I_i refers to the looked-up definition.
+   2. Otherwise, Q_i refers to a non-namespace definition (e.g. an enum or struct value); leave I_i and any subsequent identifiers unresolved -- they are member accesses, handled later by type checking.
+
+To resolve an identifier I with a definition in name group N:
+1. Let S be:
+   * The global callable scope, if N is the callable name group.
+   * The global type scope, if N is the type name group.
+   * The enclosing scope of I, if N is the value name group.
+2. If a definition D with name I exists in S, I refers to D.
+3. Otherwise, if S has no parent P, raise an error.
+4. Otherwise, go to step 2, but replace S with P.
+
+For each expression or statement N that could contain an unqualified identifier:
+
+If N is a function definition statement:
+1. Resolve the function identifier in the callable name group.
+2. Resolve the return type expression, if present, in the type name group.
+3. For each parameter P_i = (ident_i, type_i, default_i):
+   1. ident_i refers to the parameter variable defined in DefineVariables.
+   2. Resolve type_i in the type name group.
+   3. Resolve default_i, if present, in the value name group.
+
+If N is an assignment statement:
+1. Resolve the type annotation, if present, in the type name group.
+2. Resolve the lhs in the value name group.
+3. Resolve the rhs in the value name group.
+
+If N is a sequence metadata statement:
+1. For each parameter P_i = (ident_i, type_i):
+   1. ident_i refers to the parameter variable defined in DefineVariables.
+   2. Resolve type_i in the type name group.
+
+If N is a function call expression:
+1. Resolve the callable expression in the callable name group.
+2. For each argument: resolve the argument expression (or, for named arguments, the argument's value expression) in the value name group.
+
+If N is the condition of an if, elif, while, or assert statement, resolve the condition in the value name group. For an assert statement, also resolve the exit code expression, if present, in the value name group.
+
+If N is a binary or unary operator expression, resolve each operand in the value name group.
+
+If N is a for loop statement:
+1. The loop variable identifier refers to the variable defined in DefineVariables.
+2. Resolve the range expression in the value name group.
+
+If N is an index expression:
+1. Resolve the parent expression in the value name group.
+2. Resolve the index expression in the value name group.
+
+If N is a range expression, resolve the lower and upper bound expressions in the value name group.
+
+If N is a return statement, resolve the return value expression, if present, in the value name group.
+
+If N is an anonymous struct expression, resolve each member's value expression in the value name group.
+
+If N is an anonymous array expression, resolve each element expression in the value name group.
 
 <!---
 an important diff between Fpp and Fpy is that a definition cannot have sub definitions.
