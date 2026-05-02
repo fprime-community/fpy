@@ -19,6 +19,7 @@ from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
+    CheckAllTypesAndCallablesResolved,
     CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
@@ -536,6 +537,7 @@ def ast_to_directives(
         CheckReturnInFunc(),
         ResolveUnqualifiedIdentifiers(),
         ResolveQualifiedIdentifiers(),
+        CheckAllTypesAndCallablesResolved(),
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),

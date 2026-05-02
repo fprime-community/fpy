@@ -217,6 +217,16 @@ class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
 
 class CheckAssignSyntax(TopDownVisitor):
 
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        for stmt in node.stmts:
+            # bare references (idents, getattrs, indexing) as statements are
+            # always a mistake -- the user likely meant to call a function or
+            # is referring to a name that won't get resolved. literals, ops,
+            # and func calls are fine as statements.
+            if is_instance_compat(stmt, AstReference):
+                state.err("Expression has no effect", stmt)
+                return
+
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstReference):
             # trying to assign a value to some complex expression like (1 + 1) = 2
@@ -602,10 +612,11 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
             if not self.resolve_ident(node.value, NameGroup.VALUE, state):
                 return
 
-    def visit_AstLiteral_AstGetAttr(
-        self, node: Union[AstLiteral, AstGetAttr], state: CompileState
+    def visit_AstLiteral_AstGetAttr_AstIdent(
+        self, node: Union[AstLiteral, AstGetAttr, AstIdent], state: CompileState
     ):
-        # don't need to do anything for literals or getattr, but just have this here for completion's sake
+        # don't need to do anything for literals, getattrs, or bare idents -- bare idents
+        # are always reached as children and resolved (or skipped) by their parent's visit method.
         # this is because they do not imply anything about the context in which an AstIdent should get resolved
         pass
 
@@ -622,18 +633,6 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
     def visit_default(self, node, state):
         # coding error, missed an expr
         assert not is_instance_compat(node, AstStmtWithExpr), node
-
-# the difficulty is in distinguishing qualified identifiers from dot expressions
-# are all qualified identifiers qualified names? well, an identifier is a name if it refers
-# to a definition. or, rather, the name of a definition may be an identifier
-# so do all _valid_ identifiers refer to names? not always, right?
-# 
-# well here's the key--a qualified name CAN be a dot expression, if the qualified name refers to a
-# constant or enum constant
-
-# so really what we want is to try resolving all qualified identifiers. but we want to give up
-# trying to "resolve" it if the qualifier is a dot expression
-# and the qualifier is a dot expression if it refers to an enum const
 
 # okay, so all identifiers are resolved
 # now we just need to handle getattrs
