@@ -360,8 +360,6 @@ class DefineVariables(TopDownVisitor):
             "Loop variable",
             assert_undeclared=True,
         )
-        # Pre-resolve the loop var ident — it's a definition, not a reference
-        state.resolved_symbols[node.loop_var] = loop_var
 
         # Each loop also defines an implicit upper-bound variable
         self.define_variable(
@@ -387,8 +385,6 @@ class DefineVariables(TopDownVisitor):
             arg_name_var, arg_type_name, _ = arg
             sym = VariableSymbol(arg_name_var.name, arg_type_name, node)
             self.define_variable(sym, body_scope, state, "Parameter")
-            # Pre-resolve the param ident — it's a definition, not a reference
-            state.resolved_symbols[arg_name_var] = sym
 
         # Defer traversal of the function body to phase 2, so that all
         # global-scope declarations are visible inside functions regardless
@@ -403,8 +399,6 @@ class DefineVariables(TopDownVisitor):
             arg_name_var, arg_type_name = arg
             sym = VariableSymbol(arg_name_var.name, arg_type_name, node)
             self.define_variable(sym, scope, state, "Sequence argument")
-            # Pre-resolve the param ident — it's a definition, not a reference
-            state.resolved_symbols[arg_name_var] = sym
 
 
 class SetEnclosingLoops(Visitor):
@@ -452,27 +446,12 @@ class CheckReturnInFunc(TopDownVisitor):
 
 class ResolveUnqualifiedIdentifiers(TopDownVisitor):
 
-    def resolve_ident(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+    def try_resolve_ident(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
         while is_instance_compat(node, AstGetAttr):
             node = node.parent
         if not is_instance_compat(node, AstIdent):
             return True
 
-        # an unqualified identifier should always refer to something, right?
-        # except if it's like on a line by itself. in which case i guess
-        # we should default to value?
-        # but what about like the param names? i guess they're already associated
-        # with a definition (because they are a definition). we don't really
-        # even want to try to resolve them
-        # if it has no name group to resolve it in, and it isn't already in the resolved map (b/c it was a defn)
-        # , then error?
-
-        if node in state.resolved_symbols:
-            # node is a defining use--that is the only
-            # way it can have been resolved by now
-            return True
-
-        # okay, so unresolved but have a name group. should be easy.
         if ng == NameGroup.CALLABLE:
             scope = state.global_callable_scope
         elif ng == NameGroup.TYPE:
@@ -488,37 +467,39 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
 
             scope = scope.parent
 
-        state.err(f"Expected a {ng}", node)
+        state.err(f"Unknown {ng} '{node.name}'", node)
         return False
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # all callables are always resolved in callable ng
-        if not self.resolve_ident(node.name, NameGroup.CALLABLE, state):
+        if not self.try_resolve_ident(node.name, NameGroup.CALLABLE, state):
             return
         if node.return_type is not None:
             # all types always in type ng
-            if not self.resolve_ident(node.return_type, NameGroup.TYPE, state):
+            if not self.try_resolve_ident(node.return_type, NameGroup.TYPE, state):
                 return
 
         if node.parameters is not None:
-            for _, arg_type_name, default_value in node.parameters:
-                if not self.resolve_ident(arg_type_name, NameGroup.TYPE, state):
+            # Params are defined in the function body's scope by DefineVariables
+            body_scope = state.enclosing_value_scope[node.body]
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                state.resolved_symbols[arg_name_var] = body_scope[arg_name_var.name]
+                if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
                     return
-                # arg_name_var is a defining use and so already resolved
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
-                    if not self.resolve_ident(default_value, NameGroup.VALUE, state):
+                    if not self.try_resolve_ident(default_value, NameGroup.VALUE, state):
                         return
 
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
-            if not self.resolve_ident(node.type_ann, NameGroup.TYPE, state):
+            if not self.try_resolve_ident(node.type_ann, NameGroup.TYPE, state):
                 return
-        if not self.resolve_ident(node.lhs, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.lhs, NameGroup.VALUE, state):
             return
-        if not self.resolve_ident(node.rhs, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
             return
 
 
@@ -526,13 +507,14 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
         if node.parameters is None:
             return
 
+        scope = state.enclosing_value_scope[node]
         for arg_name_var, arg_type_name in node.parameters:
-            if not self.resolve_ident(arg_type_name, NameGroup.TYPE, state):
+            state.resolved_symbols[arg_name_var] = scope[arg_name_var.name]
+            if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
                 return
-            # arg_name_var is a defining use and so already resolved
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.resolve_ident(node.func, NameGroup.CALLABLE, state):
+        if not self.try_resolve_ident(node.func, NameGroup.CALLABLE, state):
             return
 
         if node.args is None:
@@ -540,66 +522,68 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
 
         for arg in node.args:
             if is_instance_compat(arg, AstNamedArgument):
-                if not self.resolve_ident(arg.value, NameGroup.VALUE, state):
+                if not self.try_resolve_ident(arg.value, NameGroup.VALUE, state):
                     return
             else:
-                if not self.resolve_ident(arg, NameGroup.VALUE, state):
+                if not self.try_resolve_ident(arg, NameGroup.VALUE, state):
                     return
 
 
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
             return
 
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        if not self.resolve_ident(node.lhs, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.lhs, NameGroup.VALUE, state):
             return
-        if not self.resolve_ident(node.rhs, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
             return
 
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.resolve_ident(node.val, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.val, NameGroup.VALUE, state):
             return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
-        # loop_var is already resolved by DefineVariables
+        # loop_var is defined in the body's scope by DefineVariables
+        body_scope = state.enclosing_value_scope[node.body]
+        state.resolved_symbols[node.loop_var] = body_scope[node.loop_var.name]
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
-        if not self.resolve_ident(node.range, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.range, NameGroup.VALUE, state):
             return
 
     def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
             return
 
     def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.resolve_ident(node.condition, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
             return
         if node.exit_code is not None:
-            if not self.resolve_ident(node.exit_code, NameGroup.VALUE, state):
+            if not self.try_resolve_ident(node.exit_code, NameGroup.VALUE, state):
                 return
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.resolve_ident(node.parent, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.parent, NameGroup.VALUE, state):
             return
-        if not self.resolve_ident(node.item, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.item, NameGroup.VALUE, state):
             return
 
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.resolve_ident(node.lower_bound, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.lower_bound, NameGroup.VALUE, state):
             return
-        if not self.resolve_ident(node.upper_bound, NameGroup.VALUE, state):
+        if not self.try_resolve_ident(node.upper_bound, NameGroup.VALUE, state):
             return
 
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         if node.value is not None:
-            if not self.resolve_ident(node.value, NameGroup.VALUE, state):
+            if not self.try_resolve_ident(node.value, NameGroup.VALUE, state):
                 return
 
     def visit_AstLiteral_AstGetAttr_AstIdent(
@@ -612,17 +596,29 @@ class ResolveUnqualifiedIdentifiers(TopDownVisitor):
 
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
         for _, value_expr in node.members:
-            if not self.resolve_ident(value_expr, NameGroup.VALUE, state):
+            if not self.try_resolve_ident(value_expr, NameGroup.VALUE, state):
                 return
 
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         for elem_expr in node.elements:
-            if not self.resolve_ident(elem_expr, NameGroup.VALUE, state):
+            if not self.try_resolve_ident(elem_expr, NameGroup.VALUE, state):
                 return
 
     def visit_default(self, node, state):
         # coding error, missed an expr
         assert not is_instance_compat(node, AstStmtWithExpr), node
+
+
+class CheckAllUnqualifiedIdentifiersResolved(Visitor):
+    """Verifies that every AstIdent has been resolved by ResolveUnqualifiedIdentifiers.
+    Catches bare references that no parent visit method dispatched on -- e.g. a top-level
+    expression statement like `Foo.bar.BAZ`, whose root ident `Foo` would otherwise slip
+    through unresolved and cause a KeyError in later passes."""
+
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
+        if node not in state.resolved_symbols:
+            state.err("Unknown name", node)
+
 
 # okay, so all identifiers are resolved
 # now we just need to handle getattrs
