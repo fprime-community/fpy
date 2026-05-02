@@ -217,16 +217,6 @@ class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
 
 class CheckAssignSyntax(TopDownVisitor):
 
-    def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        for stmt in node.stmts:
-            # bare references (idents, getattrs, indexing) as statements are
-            # always a mistake -- the user likely meant to call a function or
-            # is referring to a name that won't get resolved. literals, ops,
-            # and func calls are fine as statements.
-            if is_instance_compat(stmt, AstReference):
-                state.err("Expression has no effect", stmt)
-                return
-
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if not is_instance_compat(node.lhs, AstReference):
             # trying to assign a value to some complex expression like (1 + 1) = 2

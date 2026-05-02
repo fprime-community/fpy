@@ -32,9 +32,9 @@ For each sequence metadata statement:
 # DefineFunctions
 
 For each function definition statement:
-1. The function identifier becomes the name N of the function F.
-2. If N is already assigned in the enclosing scope S of the function definition statement, raise an error.
-3. N is assigned to F in S.
+1. The function identifier I is the name of the function F.
+2. If I is already assigned in the enclosing scope S of the function definition statement, raise an error.
+3. I is assigned to F in S.
 
 # DefineVariables
 
@@ -44,33 +44,33 @@ For each statement:
 
 If the statement is an assignment statement:
 1. If the assignment doesn't have a type annotation, skip it.
-2. Otherwise, the lhs must be an unqualified identifier by CheckAssignSyntax.
+2. Otherwise, the lhs I must be an unqualified identifier by CheckAssignSyntax.
 3. Create variable V of a type to be determined later.
-4. The lhs is the name N of V.
-5. If N is already assigned in the enclosing scope S of the assignment statement, raise an error.
-6. N is assigned to V in S.
+4. I is the name of V.
+5. If I is already assigned in the enclosing scope S of the assignment statement, raise an error.
+6. I is assigned to V in S.
 
 If the statement is a for loop statement:
 1. Create the loop variable V of LoopVarType.
-2. The loop var identifier is the name N of the loop variable V.
-3. N must be undefined in the scope inside the for loop, as the statements in that scope have yet to be visited.
-4. N is assigned to V in the scope inside the for loop.
+2. The loop var identifier I is the name of the loop variable V.
+3. I must be undefined in the scope inside the for loop, as the statements in that scope have yet to be visited.
+4. I is assigned to V in the scope inside the for loop.
 5. Create the anonymous upper bound variable U of LoopVarType.
 6. U is mapped to the for loop statement.
 
 If the statement is a function definition statement:
 1. For each function parameter P_i = (ident_i, type_i, default_i):
   1. Create variable V_i of a type to be determined later.
-  2. The identifier ident_i is the name N_i of V_i.
+  2. The identifier ident_i is the name of V_i.
   2. If the identifier ident_i is already assigned in the scope S inside the function definition statement, raise an error.
-  4. N_i is assigned to V_i in S.
+  4. ident_i is assigned to V_i in S.
 
 If the statement is a sequence metadata statement:
 1. For each sequence parameter P_i = (ident_i, type_i):
   1. Create variable V_i of a type to be determined later.
-  2. The identifier ident_i is the name N_i of V_i.
+  2. The identifier ident_i is the name of V_i.
   2. If the identifier ident_i is already assigned in the enclosing scope S of the sequence metadata statement, raise an error.
-  4. N_i is assigned to V_i in S.
+  4. ident_i is assigned to V_i in S.
 
 
 # CheckBreakAndContinueInLoop
@@ -83,6 +83,17 @@ For each while or for loop statement L:
 For each break or continue statement C:
 1. If no enclosing loop has been mapped to C, raise an error.
 
+# CheckReturnInFunc
+Visiting statements recursively in breadth-first order. 
+
+For function definition statement D
+1. Let R be any return statement in the scope inside D
+2. The enclosing function of R is mapped to D
+
+For each return statement R:
+1. If no enclosing function has been mapped to R, raise an error.
+
+
 # Segue on name groups
 
 The qualified names of definitions reside in the following name groups:
@@ -92,13 +103,15 @@ The qualified names of definitions reside in the following name groups:
   * Telemetry channels
   * Parameters
   * Enum constants
+  * Namespaces
 * The callable name group, consisting of definitions of:
   * Casts
   * Builtins
   * Commands
   * Type constructors
   * Functions
-* The type name group, consisting of type definitions.
+  * Namespaces
+* The type name group, consisting of type definitions and namespace definitions.
 
 # Segue on dictionary definitions
 
@@ -134,16 +147,25 @@ For each constant definition C in the `constants` section of the dictionary:
 
 In each of these dictionary definitions, if n > 0, and the qualified identifier Q formed by I_0, ..., I_x for any x < n has not been seen before in this name group, then the definition is also considered a definition of namespace N in this name group, and Q is the name of N.
 
-# ResolveTypeAndCallableUses
+# ResolveUnqualifiedIdentifiers
+
+To associate an unqualified identifier with a definition (a process called resolution), do the following in top-down order:
+
+Define algorithm *TryResolveIdent(E: expr)*:
+1. If E is not a qualified identifier, return.
+2. Let I be the leftmost qualifying identifier of E.
+3. If I is a defining use, return.
+
+For each statement or expression N that could contain an unqualified identifier:
+
+If N is a function definition statement:
+1. 
+
 
 A qualified identifier is one of the following:
 
 * An identifier.
 * Q `.` I, where Q is a qualified identifier and I is an identifier.
-
-To associate an unqualified identifier with a definition (a process called resolution), 
-
-To associate a qualified identifier with a definition (a process called resolution), 
 
 <!---
 an important diff between Fpp and Fpy is that a definition cannot have sub definitions.
