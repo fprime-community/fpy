@@ -186,28 +186,16 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
             json_default=default,
         )
 
-    # Phase 2: Parse aliases (may reference primitives or already-parsed types)
-    remaining_aliases = list(aliases)
-    max_iterations = len(remaining_aliases) + 1
-    for _ in range(max_iterations):
-        still_remaining = []
-        for td in remaining_aliases:
-            name = td["qualifiedName"]
-            underlying = td["underlyingType"]
-            try:
-                resolved = _resolve_type(underlying, type_defs)
-                type_defs[name] = resolved
-            except (AssertionError, KeyError):
-                still_remaining.append(td)
-        if not still_remaining:
-            break
-        remaining_aliases = still_remaining
-    else:
-        unresolved = [td["qualifiedName"] for td in remaining_aliases]
-        assert False, f"Could not resolve alias types: {unresolved}"
-
-    # Phase 3: Parse arrays and structs (may reference each other)
-    remaining = [("array", td) for td in arrays] + [("struct", td) for td in structs]
+    # Phase 2: Parse arrays, aliases, and structs (may all reference each other)
+    # Arrays can reference structs/aliases (e.g., array of ThrusterCommand)
+    # Aliases can reference arrays (e.g., type U256 = U64x4)
+    # Structs can reference arrays/aliases (e.g., member: U256)
+    # So we need to iteratively resolve all three together
+    remaining = (
+        [("array", td) for td in arrays]
+        + [("alias", td) for td in aliases]
+        + [("struct", td) for td in structs]
+    )
     max_iterations = len(remaining) + 1
     for _ in range(max_iterations):
         still_remaining = []
@@ -225,6 +213,10 @@ def _parse_type_definitions(raw_type_defs: list[dict]) -> dict[str, FpyType]:
                         length=length,
                         json_default=default,
                     )
+                elif kind == "alias":
+                    underlying = td["underlyingType"]
+                    resolved = _resolve_type(underlying, type_defs)
+                    type_defs[name] = resolved
                 else:  # struct
                     members_json = td["members"]
                     sorted_members = sorted(
