@@ -122,7 +122,8 @@ Available macros:
 * `sleep(seconds: U32 = 0, microseconds: U32 = 0)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
 * `sleep_until(wakeup_time: Fw.TimeValue)`: waits until the supplied absolute time using `WaitAbsDirective`.
 * `now() -> Fw.TimeValue`: pushes the current time via `PushTimeDirective`.
-* `rng() -> U32`: pushes the next random number via `PushRandDirective`.
+* `rand() -> U32`: pushes the next random number via `PushRandDirective`.
+* `randf() -> F64`: pushes the next random number via `PushRandDirective`, converts it to `F64`, and divides by `2**32` to produce a value in the half-open range `[0.0, 1.0)`.
 * `set_seed(seed: U32)`: seeds the random number generator via `SetSeedDirective`.
 * `time(timestamp: String, timeBase: TimeBase = TimeBase.TB_NONE, timeContext: U8 = 0) -> Fw.TimeValue`: parses an ISO 8601 timestamp string (e.g., `"2025-12-19T14:30:00Z"` or `"2025-12-19T14:30:00.123456Z"`) at compile time and returns an `Fw.TimeValue` with the specified `timeBase` and `timeContext`. The timestamp must be in UTC with a `Z` suffix.
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.

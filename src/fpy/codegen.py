@@ -1009,7 +1009,6 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
-    # Need to see how rng would get handled by this func call
     def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
