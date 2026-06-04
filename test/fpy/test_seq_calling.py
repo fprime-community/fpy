@@ -7,9 +7,11 @@ All tests accept the ``fprime_test_api`` fixture so they can optionally run
 against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
 (the default) the Python sequencer model is used instead.
 """
+import json
 import tempfile
 from pathlib import Path
 
+import pytest
 
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
@@ -626,4 +628,102 @@ CdhCore.cmdDisp.CMD_NO_OP()
 """
         compile_seq(fprime_test_api, seq)
 
+
+def _dict_with_seq_args_buffer_size(buffer_size: int, tmpdir: Path) -> str:
+    """Copy the default dictionary into *tmpdir* with Svc.SeqArgs buffer
+    resized to *buffer_size*.  Returns the path to the new dict."""
+    with open(default_dictionary, "r") as f:
+        data = json.load(f)
+    for type_def in data["typeDefinitions"]:
+        if type_def.get("qualifiedName") == "Svc.SeqArgs":
+            type_def["members"]["buffer"]["size"] = buffer_size
+            type_def["default"]["buffer"] = [0] * buffer_size
+            break
+    else:
+        raise AssertionError("Svc.SeqArgs not found in default dictionary")
+    out_path = tmpdir / "ResizedDict.json"
+    out_path.write_text(json.dumps(data))
+    return str(out_path)
+
+
+class TestSeqArgsBufferSizeFromDictionary:
+    """The Svc.SeqArgs buffer length must be taken from the dictionary so that
+    deployments with a non-default capacity compile correctly (issue: the
+    compiler previously hardcoded 255 and crashed on any other size).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_seq_args(self):
+        """Reset the SEQ_ARGS singleton back to the default-dictionary state
+        after each test, since these tests mutate a process-global."""
+        yield
+        _build_global_scopes.cache_clear()
+        load_dictionary.cache_clear()
+        _build_global_scopes(default_dictionary)
+
+    def test_non_default_buffer_size_loads_cleanly(self):
+        """A dictionary with a 1024-byte SeqArgs buffer must compile without
+        crashing — this is the regression for the hardcoded-255 bug."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dict_path = _dict_with_seq_args_buffer_size(1024, Path(tmpdir))
+            _build_global_scopes.cache_clear()
+            load_dictionary.cache_clear()
+            _, _, _, type_defs = _build_global_scopes(dict_path)
+            seq_args = type_defs["Svc.SeqArgs"]
+            assert seq_args.members[1].type.length == 1024
+            assert seq_args.members[1].type.name == "Array_U8_1024"
+
+    def test_oversized_args_use_dictionary_capacity(self, fprime_test_api):
+        """A sequence whose args exceed 255 bytes but fit in a 1024-byte
+        buffer should compile cleanly under a dictionary that defines the
+        larger capacity."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dict_path = _dict_with_seq_args_buffer_size(1024, Path(tmpdir))
+            _build_global_scopes.cache_clear()
+            load_dictionary.cache_clear()
+
+            # 40 U64s = 320 bytes — overflows 255 but fits in 1024.
+            params = ", ".join(f"x{i}: U64" for i in range(40))
+            child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
+            body = text_to_ast(child_seq)
+            assert body is not None
+            result = ast_to_directives(body, dict_path)
+            assert not isinstance(
+                result, (fpy.error.CompileError, fpy.error.BackendError)
+            ), f"Compilation failed:\n{result}"
+
+    def test_args_still_bounded_by_dictionary_capacity(self, fprime_test_api):
+        """Args larger than the dictionary's buffer must still be rejected,
+        and the diagnostic should report the dictionary capacity."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dict_path = _dict_with_seq_args_buffer_size(64, Path(tmpdir))
+            _build_global_scopes.cache_clear()
+            load_dictionary.cache_clear()
+
+            child_path = str(Path(tmpdir).resolve() / "child.bin")
+            # 10 U64s = 80 bytes — overflows the 64-byte buffer.
+            params = ", ".join(f"x{i}: U64" for i in range(10))
+            child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
+            body = text_to_ast(child_seq)
+            assert body is not None
+            result = ast_to_directives(body, dict_path)
+            assert not isinstance(
+                result, (fpy.error.CompileError, fpy.error.BackendError)
+            )
+            directives, arg_types = result
+            arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
+            data, _ = serialize_directives(directives, arg_specs=arg_specs)
+            Path(child_path).write_bytes(data)
+
+            args = ", ".join("0" for _ in range(10))
+            parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, {args})\n'
+            body = text_to_ast(parent_seq)
+            assert body is not None
+            result = ast_to_directives(body, dict_path, ground_binary_dir=tmpdir)
+            assert isinstance(result, fpy.error.CompileError), (
+                f"Expected CompileError, got {type(result).__name__}: {result}"
+            )
+            assert "exceed" in str(result) and "64 bytes" in str(result), (
+                f"Diagnostic should mention the 64-byte capacity, got: {result}"
+            )
 
