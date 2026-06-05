@@ -381,6 +381,25 @@ assert result == {expected_value}
 
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_const_floor_divide_large_int_precision(self, fprime_test_api):
+        """Constant folding of integer floor division must be exact.
+
+        The compiler folds ``a // b`` for integer operands via Python's
+        ``int(a / b)``, which routes through 64-bit float division and loses
+        precision for operands beyond 2**53.  The mathematically-correct value
+        of ``7000000000000000001 // 3`` is 2333333333333333333, but the
+        const-folded value baked into the bytecode is 2333333333333333504.
+
+        The assert below is true by construction, so a correct compiler runs
+        this sequence to a clean exit.  With the precision bug, the baked
+        constant differs from the literal and the assert fails at runtime.
+        """
+        seq = """
+result: I64 = 7000000000000000001 // 3
+assert result == 2333333333333333333
+"""
+        assert_run_success(fprime_test_api, seq)
+
 class TestUnaryOperators:
 
     @pytest.mark.parametrize("type_name,value", [
