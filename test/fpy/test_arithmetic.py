@@ -58,6 +58,22 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_const_pow_decimal_overflow(self, fprime_test_api):
+        """A huge constant exponent must produce a clean compile error.
+
+        Folding ``10.0 ** 100000000000`` evaluates ``Decimal ** Decimal``,
+        which raises ``decimal.Overflow`` (a sibling of the builtin
+        ``OverflowError``, not a subclass). The fold's except clauses only
+        caught ``OverflowError``/``decimal.InvalidOperation``, so this escaped
+        as an uncaught Python traceback — a compiler crash rather than a
+        diagnostic.
+        """
+        seq = """
+x: F64 = 10.0 ** 100000000000
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="[Oo]verflow")
+
 class TestBasicArithmetic:
 
     def test_add_unsigned(self, fprime_test_api):
@@ -277,6 +293,22 @@ var2: F32 = 0.5
 if var1 ** var2 == 2:
     exit(0)
 exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_pow_zero_to_negative_is_inf(self, fprime_test_api):
+        """0 ** <negative> is a pole: C/IEEE pow() yields +inf, not a crash.
+
+        With runtime (non-constant) operands the VM evaluates ``base ** exp``
+        directly. Python's ``0.0 ** -1.0`` raises ``ZeroDivisionError``, which
+        the handler did not catch, crashing the sequencer instead of producing
+        the infinite result the source expression denotes.
+        """
+        seq = """
+base: F64 = 0.0
+result: F64 = base ** -1.0
+assert result > 100000000000000000000.0
+exit(0)
 """
         assert_run_success(fprime_test_api, seq)
 

@@ -2472,15 +2472,20 @@ class CalculateConstExprValues(Visitor):
                 # missing an operation
                 assert False, node.op
         except ZeroDivisionError:
+            # also catches decimal.DivisionByZero (a ZeroDivisionError subclass)
             state.err("Divide by zero error", node)
             return
-        except OverflowError:
+        except (OverflowError, decimal.Overflow):
+            # decimal.Overflow is a sibling of the builtin OverflowError
+            # (both are ArithmeticError), not a subclass, so it must be listed
+            # explicitly or it escapes as an uncaught compiler crash.
             state.err("Overflow error", node)
             return
         except ValueError as err:
             state.err(str(err) if str(err) else "Domain error", node)
             return
-        except decimal.InvalidOperation:
+        except decimal.DecimalException:
+            # any other Decimal arithmetic error (InvalidOperation, etc.)
             state.err("Domain error", node)
             return
 
