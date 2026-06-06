@@ -69,7 +69,7 @@ from fpy.state import (
 )
 from fpy.visitors import Visitor
 
-from fpy.error import BackendError, CompileError, handle_lark_error
+from fpy.error import BackendError, CompileError, DictionaryError, handle_lark_error
 import fpy.error
 
 # Load grammar once at module level
@@ -169,41 +169,53 @@ def _validate_and_replace_type(
     canonical: FpyType,
 ) -> None:
     """Validate that a required type exists in the dictionary and matches the
-    canonical definition, then replace it with the canonical version."""
+    canonical definition, then replace it with the canonical version.
+
+    Raises DictionaryError (with a user-facing explanation) if the dictionary is
+    missing the type or defines it incompatibly with the canonical version."""
     if name not in type_dict:
-        raise ValueError(f"Dictionary must contain {name} type")
+        raise DictionaryError(name, "The dictionary does not define this type at all.")
     dict_type = type_dict[name]
     if dict_type.kind != canonical.kind:
-        raise ValueError(
-            f"Dictionary {name} has kind {dict_type.kind}, expected {canonical.kind}"
+        raise DictionaryError(
+            name,
+            f"The dictionary defines it as a {dict_type.kind.name} type, "
+            f"but Fpy expects a {canonical.kind.name} type.",
         )
     if canonical.kind == TypeKind.STRUCT:
         if dict_type.members != canonical.members:
-            raise ValueError(
-                f"Dictionary {name} has members {dict_type.members}, "
-                f"expected {canonical.members}"
+            raise DictionaryError(
+                name,
+                f"Its struct members do not match what fpy expects.\n"
+                f"    dictionary: {dict_type.members}\n"
+                f"    expected:   {canonical.members}",
             )
     elif canonical.kind == TypeKind.ENUM:
         if dict_type.enum_dict != canonical.enum_dict:
-            raise ValueError(
-                f"Dictionary {name} has enum dict {dict_type.enum_dict}, "
-                f"expected {canonical.enum_dict}"
+            raise DictionaryError(
+                name,
+                f"Its enum constants do not match what fpy expects.\n"
+                f"    dictionary: {dict_type.enum_dict}\n"
+                f"    expected:   {canonical.enum_dict}",
             )
         if dict_type.rep_type != canonical.rep_type:
-            raise ValueError(
-                f"Dictionary {name} has rep type {dict_type.rep_type}, "
-                f"expected {canonical.rep_type}"
+            raise DictionaryError(
+                name,
+                f"Its underlying representation type is {dict_type.rep_type}, "
+                f"but Fpy expects {canonical.rep_type}.",
             )
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
-            raise ValueError(
-                f"Dictionary {name} has elem type {dict_type.elem_type}, "
-                f"expected {canonical.elem_type}"
+            raise DictionaryError(
+                name,
+                f"Its element type is {dict_type.elem_type}, "
+                f"but Fpy expects {canonical.elem_type}.",
             )
         if dict_type.length != canonical.length:
-            raise ValueError(
-                f"Dictionary {name} has length {dict_type.length}, "
-                f"expected {canonical.length}"
+            raise DictionaryError(
+                name,
+                f"It has length {dict_type.length}, "
+                f"but Fpy expects length {canonical.length}.",
             )
     type_dict[name] = canonical
     # Preserve raw JSON defaults from the dictionary definition on the canonical type
@@ -219,17 +231,25 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
     dictionary.
     """
     if "TimeBase" not in dict_type_name_dict:
-        raise ValueError("Dictionary must contain TimeBase enum type")
+        raise DictionaryError(
+            "TimeBase", "The dictionary does not define this enum type at all."
+        )
     dict_tb = dict_type_name_dict["TimeBase"]
     if dict_tb.kind != TypeKind.ENUM:
-        raise ValueError(
-            f"Dictionary TimeBase has kind {dict_tb.kind}, expected enum"
+        raise DictionaryError(
+            "TimeBase",
+            f"The dictionary defines it as a {dict_tb.kind.name} type, "
+            f"but Fpy expects an ENUM type.",
         )
     if "TB_NONE" not in dict_tb.enum_dict:
-        raise ValueError("Dictionary TimeBase enum must contain TB_NONE constant")
+        raise DictionaryError(
+            "TimeBase", "Its enum constants must include TB_NONE, but it is missing."
+        )
     if dict_tb.enum_dict["TB_NONE"] != 0:
-        raise ValueError(
-            f"TimeBase.TB_NONE must have value 0, got {dict_tb.enum_dict['TB_NONE']}"
+        raise DictionaryError(
+            "TimeBase",
+            f"Its TB_NONE constant must have value 0, "
+            f"but the dictionary gives it value {dict_tb.enum_dict['TB_NONE']}.",
         )
 
     # Adopt the dictionary's enum constants and representation type
@@ -308,9 +328,12 @@ def _update_time_context_type_from_dict(
     if "FwTimeContextStoreType" not in dict_type_name_dict:
         return  # Keep the default U8
     ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
-    assert ctx_type.is_primitive, (
-        f"FwTimeContextStoreType must resolve to a primitive type, got {ctx_type}"
-    )
+    if not ctx_type.is_primitive:
+        raise DictionaryError(
+            "FwTimeContextStoreType",
+            f"It must resolve to a primitive type, but the dictionary defines "
+            f"it as {ctx_type}.",
+        )
     TIME.members[1].type = ctx_type
 
 

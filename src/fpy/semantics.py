@@ -2433,18 +2433,20 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value**rhs_value
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
                 # Use truncation toward zero to match C++ semantics
-                if isinstance(lhs_value, Decimal):
+                if isinstance(lhs_value, int) and isinstance(rhs_value, int):
+                    # Exact integer truncation toward zero. Must NOT route through
+                    # float division (int(a / b)): for operands beyond 2**53 that
+                    # loses precision and bakes a wrong constant into the bytecode.
+                    sign = -1 if (lhs_value < 0) != (rhs_value < 0) else 1
+                    folded_value = sign * (abs(lhs_value) // abs(rhs_value))
+                elif isinstance(lhs_value, Decimal):
                     folded_value = (lhs_value / rhs_value).to_integral_value(
                         rounding=decimal.ROUND_DOWN
                     )
                 else:
-                    folded_value = (
-                        int(lhs_value / rhs_value)
-                        if isinstance(lhs_value, int)
-                        else Decimal(str(lhs_value / rhs_value)).to_integral_value(
-                            rounding=decimal.ROUND_DOWN
-                        )
-                    )
+                    folded_value = Decimal(
+                        str(lhs_value / rhs_value)
+                    ).to_integral_value(rounding=decimal.ROUND_DOWN)
             elif node.op == BinaryStackOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations
@@ -2470,15 +2472,20 @@ class CalculateConstExprValues(Visitor):
                 # missing an operation
                 assert False, node.op
         except ZeroDivisionError:
+            # also catches decimal.DivisionByZero (a ZeroDivisionError subclass)
             state.err("Divide by zero error", node)
             return
-        except OverflowError:
+        except (OverflowError, decimal.Overflow):
+            # decimal.Overflow is a sibling of the builtin OverflowError
+            # (both are ArithmeticError), not a subclass, so it must be listed
+            # explicitly or it escapes as an uncaught compiler crash.
             state.err("Overflow error", node)
             return
         except ValueError as err:
             state.err(str(err) if str(err) else "Domain error", node)
             return
-        except decimal.InvalidOperation:
+        except decimal.DecimalException:
+            # any other Decimal arithmetic error (InvalidOperation, etc.)
             state.err("Domain error", node)
             return
 

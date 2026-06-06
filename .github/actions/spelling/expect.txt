@@ -12,6 +12,7 @@ Cdh
 chans
 cls
 codegen
+CSPRNG
 ctx
 cuz
 Deframer
@@ -62,10 +63,12 @@ pemdas
 postlex
 postlexer
 prm
+PRNG
 probs
 px
 py
 pyversions
+randf
 rb
 SADMEP
 sdiv
@@ -93,8 +96,10 @@ umod
 usec
 useconds
 vararg
+verflow
 vh
 vw
+wikipedia
 wrt
 wx
 xl

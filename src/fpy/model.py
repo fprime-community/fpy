@@ -730,7 +730,6 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
         rhs = self.pop()
         lhs = self.pop()
-        print(lhs, rhs)
         self.push(lhs < rhs)
         return None
 
@@ -1110,6 +1109,16 @@ class FpySequencerModel:
         lhs = self.pop(type=float)
         try:
             result = lhs**rhs
+        except ZeroDivisionError:
+            # 0 raised to a negative power is a pole, not a domain error.
+            # C/IEEE pow() returns +/-inf here (Python raises instead).
+            # For a negative odd-integer exponent the sign of the zero base is
+            # preserved (pow(-0.0, -1) == -inf); otherwise the result is +inf.
+            if float(rhs).is_integer() and int(rhs) % 2 != 0:
+                self.push(math.copysign(float("inf"), lhs))
+            else:
+                self.push(float("inf"))
+            return None
         except (ValueError, OverflowError):
             # C++ pow() returns NaN for domain errors
             self.push(float('nan'))

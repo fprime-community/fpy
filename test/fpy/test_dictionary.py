@@ -701,6 +701,58 @@ class TestTypeDefAlias:
         assert result["M.Vec3"].kind == TypeKind.ARRAY
         assert result["M.Vec3"].elem_type is F32
 
+    def test_alias_to_struct(self):
+        """Type alias to struct resolves correctly."""
+        raw = [
+            {
+                "kind": "alias",
+                "qualifiedName": "M.PointAlias",
+                "type": {"name": "M.Point", "kind": "qualifiedIdentifier"},
+                "underlyingType": {"name": "M.Point", "kind": "qualifiedIdentifier"},
+            },
+            {
+                "kind": "struct",
+                "qualifiedName": "M.Point",
+                "members": {
+                    "x": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 0},
+                    "y": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
+                },
+                "default": {"x": 0.0, "y": 0.0},
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["M.PointAlias"] is result["M.Point"]
+        assert result["M.PointAlias"].kind == TypeKind.STRUCT
+
+    def test_array_of_alias_to_array(self):
+        """Cross-kind chain array -> alias -> array. Resolution can't be ordered
+        by kind alone, so this exercises the iterative resolution approach."""
+        raw = [
+            {
+                "kind": "array",
+                "qualifiedName": "M.Inner",
+                "size": 2,
+                "elementType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "default": [0, 0],
+            },
+            {
+                "kind": "alias",
+                "qualifiedName": "M.InnerAlias",
+                "type": {"name": "M.Inner", "kind": "qualifiedIdentifier"},
+                "underlyingType": {"name": "M.Inner", "kind": "qualifiedIdentifier"},
+            },
+            {
+                "kind": "array",
+                "qualifiedName": "M.Outer",
+                "size": 4,
+                "elementType": {"name": "M.InnerAlias", "kind": "qualifiedIdentifier"},
+                "default": [[0, 0], [0, 0], [0, 0], [0, 0]],
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["M.Outer"].elem_type is result["M.Inner"]
+        assert result["M.Outer"].elem_type.kind == TypeKind.ARRAY
+
 
 class TestTypeDefUnknownKind:
     """Unknown type definition kinds should assert."""
