@@ -180,7 +180,7 @@ def _validate_and_replace_type(
         raise DictionaryError(
             name,
             f"The dictionary defines it as a {dict_type.kind.name} type, "
-            f"but fpy expects a {canonical.kind.name} type.",
+            f"but Fpy expects a {canonical.kind.name} type.",
         )
     if canonical.kind == TypeKind.STRUCT:
         if dict_type.members != canonical.members:
@@ -202,20 +202,20 @@ def _validate_and_replace_type(
             raise DictionaryError(
                 name,
                 f"Its underlying representation type is {dict_type.rep_type}, "
-                f"but fpy expects {canonical.rep_type}.",
+                f"but Fpy expects {canonical.rep_type}.",
             )
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
             raise DictionaryError(
                 name,
                 f"Its element type is {dict_type.elem_type}, "
-                f"but fpy expects {canonical.elem_type}.",
+                f"but Fpy expects {canonical.elem_type}.",
             )
         if dict_type.length != canonical.length:
             raise DictionaryError(
                 name,
                 f"It has length {dict_type.length}, "
-                f"but fpy expects length {canonical.length}.",
+                f"but Fpy expects length {canonical.length}.",
             )
     type_dict[name] = canonical
     # Preserve raw JSON defaults from the dictionary definition on the canonical type
@@ -239,7 +239,7 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
         raise DictionaryError(
             "TimeBase",
             f"The dictionary defines it as a {dict_tb.kind.name} type, "
-            f"but fpy expects an ENUM type.",
+            f"but Fpy expects an ENUM type.",
         )
     if "TB_NONE" not in dict_tb.enum_dict:
         raise DictionaryError(
