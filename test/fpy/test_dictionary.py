@@ -726,7 +726,7 @@ class TestTypeDefAlias:
 
     def test_array_of_alias_to_array(self):
         """Cross-kind chain array -> alias -> array. Resolution can't be ordered
-        by kind alone, so this exercises the iterative worklist."""
+        by kind alone, so this exercises the iterative resolution approach."""
         raw = [
             {
                 "kind": "array",
