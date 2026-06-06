@@ -2,6 +2,7 @@ from __future__ import annotations
 from enum import Enum
 import inspect
 import math
+import random
 import struct
 import typing
 from fpy.types import FpyType
@@ -24,6 +25,7 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     GotoDirective,
     MemCompareDirective,
+    PushRandDirective,
     PushTimeDirective,
     ReturnDirective,
     SignedIntDivideDirective,
@@ -38,6 +40,7 @@ from fpy.bytecode.directives import (
     StackCmdDirective,
     PushPrmDirective,
     PushTlmValDirective,
+    SetSeedDirective,
     IfDirective,
     IntAddDirective,
     IntEqualDirective,
@@ -84,7 +87,7 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     IntegerTruncate64To8Directive,
 )
-from fpy.types import FpyValue, LOG_SEVERITY, TIME
+from fpy.types import FpyValue, LOG_SEVERITY, TIME, U32
 from fpy.state import CmdDef
 
 debug = False
@@ -166,6 +169,9 @@ class FpySequencerModel:
         self.time_context = time_context
         self.initial_time_us = initial_time_us
         self.simulated_time_us = initial_time_us
+        self.rng_seed = 0
+        self.rng_is_seeded = False
+        self.rng = random.Random()
 
         self.handlers: dict[type[Directive], typing.Callable] = {}
         self.find_handlers()
@@ -196,6 +202,9 @@ class FpySequencerModel:
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
         self.simulated_time_us = self.initial_time_us
+        self.rng_seed = 0
+        self.rng_is_seeded = False
+        self.rng = random.Random()
 
     def dispatch(self, dir: Directive) -> DirectiveErrorCode:
         opcode = dir.opcode
@@ -1203,6 +1212,29 @@ class FpySequencerModel:
         })
         self.push(time_val.serialize())
         return None
+
+    def handle_push_rand(self, dir: PushRandDirective):
+        if len(self.stack) + U32.max_size > self.max_stack_size:
+            return DirectiveErrorCode.STACK_OVERFLOW
+
+        if not self.rng_is_seeded:
+            self.seed_rng(self.simulated_time_us)
+
+        self.push(FpyValue(U32, self.rng.getrandbits(32)).serialize())
+        return None
+
+    def handle_set_seed(self, dir: SetSeedDirective):
+        if len(self.stack) < U32.max_size:
+            return DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
+        seed = self.pop(type=int, size=U32.max_size, signed=False)
+        self.seed_rng(seed)
+        return None
+
+    def seed_rng(self, seed: int):
+        self.rng_seed = seed
+        self.rng.seed(seed)
+        self.rng_is_seeded = True
 
     def handle_call(self, dir: CallDirective):
         if len(self.stack) < StackSizeType.max_size:
