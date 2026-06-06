@@ -679,6 +679,28 @@ class TestTypeDefAlias:
         assert result["M.A"] is U32
         assert result["M.B"] is U32
 
+    def test_alias_to_array(self):
+        """Type alias to array resolves correctly."""
+        raw = [
+            {
+                "kind": "array",
+                "qualifiedName": "M.F32x3",
+                "size": 3,
+                "elementType": {"name": "F32", "kind": "float", "size": 32},
+                "default": [0.0, 0.0, 0.0],
+            },
+            {
+                "kind": "alias",
+                "qualifiedName": "M.Vec3",
+                "type": {"name": "M.F32x3", "kind": "qualifiedIdentifier"},
+                "underlyingType": {"name": "M.F32x3", "kind": "qualifiedIdentifier"},
+            },
+        ]
+        result = _parse_type_definitions(raw)
+        assert result["M.Vec3"] is result["M.F32x3"]
+        assert result["M.Vec3"].kind == TypeKind.ARRAY
+        assert result["M.Vec3"].elem_type is F32
+
 
 class TestTypeDefUnknownKind:
     """Unknown type definition kinds should assert."""

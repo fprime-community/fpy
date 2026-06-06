@@ -261,6 +261,66 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
     dict_type_name_dict["TimeBase"] = TIME_BASE
 
 
+def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
+    """Update the canonical SEQ_ARGS singleton from the dictionary's Svc.SeqArgs.
+
+    The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
+    deployment.  The compiler adopts that length onto the canonical singleton's
+    buffer type so codegen and semantics use the correct size.
+    """
+    assert "Svc.SeqArgs" in dict_type_name_dict, (
+        "Dictionary must contain Svc.SeqArgs type"
+    )
+    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
+    assert dict_seq_args.kind == TypeKind.STRUCT, (
+        f"Dictionary Svc.SeqArgs has kind {dict_seq_args.kind}, expected struct"
+    )
+    assert dict_seq_args.members is not None and len(dict_seq_args.members) == 2, (
+        f"Dictionary Svc.SeqArgs must have exactly 2 members, "
+        f"got {dict_seq_args.members}"
+    )
+    size_member, buffer_member = dict_seq_args.members
+    canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
+    assert size_member.name == canonical_size_member.name, (
+        f"Dictionary Svc.SeqArgs first member is '{size_member.name}', "
+        f"expected '{canonical_size_member.name}'"
+    )
+    assert size_member.type == canonical_size_member.type, (
+        f"Dictionary Svc.SeqArgs.{size_member.name} has type {size_member.type}, "
+        f"expected {canonical_size_member.type}"
+    )
+    assert buffer_member.name == canonical_buffer_member.name, (
+        f"Dictionary Svc.SeqArgs second member is '{buffer_member.name}', "
+        f"expected '{canonical_buffer_member.name}'"
+    )
+    dict_buffer_type = buffer_member.type
+    canonical_buffer_type = canonical_buffer_member.type
+    assert dict_buffer_type.kind == TypeKind.ARRAY, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} has kind "
+        f"{dict_buffer_type.kind}, expected array"
+    )
+    assert dict_buffer_type.elem_type == canonical_buffer_type.elem_type, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} has element type "
+        f"{dict_buffer_type.elem_type}, "
+        f"expected {canonical_buffer_type.elem_type}"
+    )
+    assert dict_buffer_type.length is not None and dict_buffer_type.length > 0, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} must have a positive "
+        f"length, got {dict_buffer_type.length}"
+    )
+
+    # Adopt the dictionary's buffer length onto the canonical buffer singleton.
+    canonical_buffer_type.length = dict_buffer_type.length
+    canonical_buffer_type.name = f"Array_U8_{dict_buffer_type.length}"
+
+    # Preserve raw JSON defaults from the dictionary so _populate_type_defaults
+    # can derive the correct-length buffer default.
+    SEQ_ARGS.json_default = dict_seq_args.json_default
+
+    # Replace the dict entry with the canonical singleton.
+    dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
+
+
 def _update_time_context_type_from_dict(
     dict_type_name_dict: dict[str, FpyType],
 ) -> None:
@@ -383,7 +443,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
-    _validate_and_replace_type(dict_type_name_dict, "Svc.SeqArgs", SEQ_ARGS)
+    _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
     # then layer on builtins and internal types.  Later entries win, so
