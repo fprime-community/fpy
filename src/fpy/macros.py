@@ -1,9 +1,11 @@
 from __future__ import annotations
 from fpy.bytecode.directives import (
+    PushRandDirective,
     ExitDirective,
     FloatLogDirective,
     PopEventDirective,
     PushTimeDirective,
+    SetSeedDirective,
     PushValDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
@@ -15,6 +17,7 @@ from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, B
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
+    FloatDivideDirective,
     FloatMultiplyDirective,
     FloatSubtractDirective,
     FloatToUnsignedIntDirective,
@@ -148,6 +151,16 @@ def generate_log_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[
         FloatLogDirective(),
     ]
 
+
+def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
+    return [
+        PushRandDirective(),
+        IntegerZeroExtend32To64Directive(),
+        UnsignedIntToFloatDirective(),
+        PushValDirective(FpyValue(F64, 2**32).serialize()),
+        FloatDivideDirective(),
+    ]
+
 TIME_MACRO = BuiltinFuncSymbol(
         "time",
         TIME,
@@ -174,6 +187,11 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
+    "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),
+    "randf": BuiltinFuncSymbol("randf", F64, [], generate_randf),
+    "set_seed": BuiltinFuncSymbol(
+        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c: [SetSeedDirective()]
+    ),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
