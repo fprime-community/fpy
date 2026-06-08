@@ -16,8 +16,8 @@ import pytest
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
 from fpy.model import DirectiveErrorCode
-from fpy.compiler import text_to_ast, analysis_to_fypbc_directives
-from fpy.state import _build_global_scopes
+from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fypbc_directives
+from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -34,13 +34,11 @@ def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None
     Returns (directives, arg_types) for the compiled sequence.
     """
     fpy.error.file_name = "<test-child>"
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
     body = text_to_ast(seq_text)
     assert body is not None, "Failed to parse child sequence"
-    result = analysis_to_fypbc_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
-    assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), (
-        f"Compilation failed:\n{result}"
-    )
-    directives, arg_types = result
+    state = analyze_ast(body, state)
+    directives, arg_types = analysis_to_fypbc_directives(body, state)
     arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
     data, _ = serialize_directives(directives, arg_specs=arg_specs)
     out_path.write_bytes(data)
@@ -52,7 +50,7 @@ class TestSeqRunDetection:
 
     def test_run_args_detected_as_seq_run(self, fprime_test_api):
         """Ref.seqDisp.RUN_ARGS should be detected as a seq-run CommandSymbol."""
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         from fpy.state import CommandSymbol
 
         _build_global_scopes.cache_clear()
@@ -70,7 +68,7 @@ class TestSeqRunDetection:
 
     def test_regular_run_not_seq_run(self, fprime_test_api):
         """Ref.seqDisp.RUN should NOT be detected as a seq-run command."""
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         from fpy.state import CommandSymbol
 
         _build_global_scopes.cache_clear()
@@ -686,12 +684,12 @@ class TestSeqArgsBufferSizeFromDictionary:
             # 40 U64s = 320 bytes — overflows 255 but fits in 1024.
             params = ", ".join(f"x{i}: U64" for i in range(40))
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
+            state = get_base_compile_state(dict_path)
             body = text_to_ast(child_seq)
             assert body is not None
-            result = analysis_to_fypbc_directives(body, dict_path)
-            assert not isinstance(
-                result, (fpy.error.CompileError, fpy.error.BackendError)
-            ), f"Compilation failed:\n{result}"
+            state = analyze_ast(body, state)
+            # should compile without error (fits in the 1024-byte buffer)
+            analysis_to_fypbc_directives(body, state)
 
     def test_args_still_bounded_by_dictionary_capacity(self, fprime_test_api):
         """Args larger than the dictionary's buffer must still be rejected,
@@ -705,26 +703,24 @@ class TestSeqArgsBufferSizeFromDictionary:
             # 10 U64s = 80 bytes — overflows the 64-byte buffer.
             params = ", ".join(f"x{i}: U64" for i in range(10))
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
+            state = get_base_compile_state(dict_path)
             body = text_to_ast(child_seq)
             assert body is not None
-            result = analysis_to_fypbc_directives(body, dict_path)
-            assert not isinstance(
-                result, (fpy.error.CompileError, fpy.error.BackendError)
-            )
-            directives, arg_types = result
+            state = analyze_ast(body, state)
+            directives, arg_types = analysis_to_fypbc_directives(body, state)
             arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
             data, _ = serialize_directives(directives, arg_specs=arg_specs)
             Path(child_path).write_bytes(data)
 
             args = ", ".join("0" for _ in range(10))
             parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, {args})\n'
+            state = get_base_compile_state(dict_path, tmpdir)
             body = text_to_ast(parent_seq)
             assert body is not None
-            result = analysis_to_fypbc_directives(body, dict_path, ground_binary_dir=tmpdir)
-            assert isinstance(result, fpy.error.CompileError), (
-                f"Expected CompileError, got {type(result).__name__}: {result}"
-            )
-            assert "exceed" in str(result) and "64 bytes" in str(result), (
-                f"Diagnostic should mention the 64-byte capacity, got: {result}"
+            with pytest.raises(fpy.error.CompileError) as exc_info:
+                state = analyze_ast(body, state)
+                analysis_to_fypbc_directives(body, state)
+            assert "exceed" in str(exc_info.value) and "64 bytes" in str(exc_info.value), (
+                f"Diagnostic should mention the 64-byte capacity, got: {exc_info.value}"
             )
 

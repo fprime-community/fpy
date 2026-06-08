@@ -3,7 +3,8 @@ import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
 from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
-from fpy.compiler import text_to_ast, analysis_to_fypbc_directives
+from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fypbc_directives
+from fpy.state import get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 from fpy.types import FpyType, FpyValue
@@ -26,16 +27,15 @@ def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tup
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
 
-    body = text_to_ast(seq)
-    if body is None:
-        # This shouldn't happen - text_to_ast calls exit(1) on parse errors
-        raise CompilationFailed("Parsing failed")
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
 
-    result = analysis_to_fypbc_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
-    if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
-        raise CompilationFailed(f"Compilation failed:\n{result}")
-    
-    directives, arg_types = result
+    try:
+        body = text_to_ast(seq)
+        state = analyze_ast(body, state)
+        directives, arg_types = analysis_to_fypbc_directives(body, state)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
     return directives, arg_types
 
 

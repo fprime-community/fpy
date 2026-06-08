@@ -453,16 +453,19 @@ def cmd_main(args: list[str] = None):
         ground_binary_dir = Path(".")
 
     try:
-        directives, _ = analysis_to_fypbc_directives(
-            body,
-            parsed_args.dictionary,
-            ground_binary_dir=str(ground_binary_dir.resolve()),
+        state = get_base_compile_state(
+            str(parsed_args.dictionary.resolve()),
+            str(ground_binary_dir.resolve()),
         )
-    except RecursionError:
-        print("Recursion limit exceeded in compiling", file=sys.stderr)
-        sys.exit(1)
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        state = analyze_ast(body, state)
+        directives, _ = analysis_to_fypbc_directives(body, state)
+    except RecursionError:
+        print("Recursion limit exceeded in compiling", file=sys.stderr)
         sys.exit(1)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         print(e, file=sys.stderr)

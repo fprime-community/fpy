@@ -2147,19 +2147,19 @@ class TestSingleValueArrayInitIntegration:
     @pytest.fixture(autouse=True)
     def clear_caches(self):
         load_dictionary.cache_clear()
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         _build_global_scopes.cache_clear()
         yield
         load_dictionary.cache_clear()
         _build_global_scopes.cache_clear()
 
     def _get_type_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _get_callable_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
@@ -2750,19 +2750,19 @@ class TestTypeCtorDefaults:
     @pytest.fixture(autouse=True)
     def clear_caches(self):
         load_dictionary.cache_clear()
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         _build_global_scopes.cache_clear()
         yield
         load_dictionary.cache_clear()
         _build_global_scopes.cache_clear()
 
     def _get_callable_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _get_type_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
