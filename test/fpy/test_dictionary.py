@@ -1952,7 +1952,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_u8(self):
         """A struct member array [2] U8 with default 0 → [FpyValue(U8,0), FpyValue(U8,0)]."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -1984,7 +1984,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_f32(self):
         """A struct member array [4] F32 with default 1.5 → four copies of FpyValue(F32,1.5)."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2012,7 +2012,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_enum(self):
         """A member array of enums with a single enum string default."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2047,7 +2047,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_list_default_NOT_replicated(self):
         """When the default is already a properly-sized list, it's used as-is."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2076,7 +2076,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_scalar_alongside_normal_members(self):
         """Struct mixing single-value member array and normal scalar members."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2117,7 +2117,7 @@ class TestSingleValueArrayInit:
 
     def test_regular_array_elem_defaults(self):
         """Regular (non-member) array _populate_type_defaults sets elem_defaults from list."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U32, length=3)
         arr.json_default = [10, 20, 30]
@@ -2131,7 +2131,7 @@ class TestSingleValueArrayInit:
 
     def test_regular_array_no_json_default_derives_from_elem_type(self):
         """Array without json_default derives elem_defaults from element type."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U8, length=4)
         _populate_type_defaults(arr)

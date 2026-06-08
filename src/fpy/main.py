@@ -122,7 +122,10 @@ def compile_main(args: list[str] = None):
     
     # reading dictionary
     try:
-        state = get_base_compile_state(str(parsed_args.dictionary.resolve()), str(parsed_args.ground_binary_dir.resolve()))
+        state = get_base_compile_state(
+            str(parsed_args.dictionary.resolve()),
+            str(ground_binary_dir.resolve()),
+        )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
@@ -560,6 +563,15 @@ def depend_main(args: list[str] = None):
         ground_binary_dir = parsed_args.input.parent
 
     try:
+        state = get_base_compile_state(
+            str(parsed_args.dictionary.resolve()),
+            str(ground_binary_dir.resolve()),
+        )
+    except fpy.error.DictionaryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    try:
         body = text_to_ast(parsed_args.input.read_text())
     except RecursionError:
         print("Recursion limit exceeded in parsing", file=sys.stderr)
@@ -569,11 +581,7 @@ def depend_main(args: list[str] = None):
         sys.exit(1)
 
     try:
-        result = ast_to_dependencies(
-            body,
-            parsed_args.dictionary,
-            ground_binary_dir=str(ground_binary_dir.resolve()),
-        )
+        result = ast_to_dependencies(body, state)
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
         sys.exit(1)
