@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Union
 
+from fpy.state import CompileState
+
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
 try:
@@ -35,17 +37,16 @@ from fpy.types import (
     SEQ_ARGS,
     is_instance_compat,
 )
-from fpy.state import (
+from fpy.symbols import (
     BuiltinFuncSymbol,
     CastSymbol,
     CommandSymbol,
-    CompileState,
     FieldAccess,
     FunctionSymbol,
     TypeCtorSymbol,
     VariableSymbol,
 )
-from fpy.state import ChDef, PrmDef
+from fpy.types import ChDef, PrmDef
 from fpy.visitors import (
     STOP_DESCENT,
     Emitter,

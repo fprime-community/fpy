@@ -40,16 +40,20 @@ from fpy.types import (
     F32,
     F64,
     SEQ_ARGS,
+    ChDef,
+    PrmDef,
     is_instance_compat,
 )
 from fpy.state import (
+    CompileState,
+    ForLoopAnalysis,
+)
+from fpy.symbols import (
     BuiltinFuncSymbol,
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
-    CompileState,
     FieldAccess,
-    ForLoopAnalysis,
     FunctionSymbol,
     NameGroup,
     Symbol,
@@ -82,7 +86,6 @@ from fpy.bytecode.directives import (
     BinaryStackOp,
     UnaryStackOp,
 )
-from fpy.state import ChDef, PrmDef
 from fpy.syntax import (
     AstAssert,
     AstAnonStruct,

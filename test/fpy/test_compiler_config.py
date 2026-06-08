@@ -15,6 +15,8 @@ import fpy.error
 from fpy.compiler import (
     text_to_ast,
     analysis_to_fypbc_directives,
+)
+from fpy.state import (
     get_base_compile_state,
     _build_global_scopes,
 )

@@ -5,7 +5,7 @@ import math
 import random
 import struct
 import typing
-from fpy.types import FpyType
+from fpy.types import CmdDef, FpyType
 from fpy.bytecode.directives import (
     AllocateDirective,
     AndDirective,
@@ -88,7 +88,6 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To8Directive,
 )
 from fpy.types import FpyValue, LOG_SEVERITY, TIME, U32
-from fpy.state import CmdDef
 
 debug = False
 

@@ -16,7 +16,8 @@ import pytest
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
 from fpy.model import DirectiveErrorCode
-from fpy.compiler import text_to_ast, analysis_to_fypbc_directives, _build_global_scopes
+from fpy.compiler import text_to_ast, analysis_to_fypbc_directives
+from fpy.state import _build_global_scopes
 from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
     assert_compile_failure,

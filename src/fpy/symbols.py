@@ -103,7 +103,7 @@ class NameGroup(str, Enum):
 
 
 class SymbolTable(dict):
-    def __init__(self, parent: "SymbolTable" | None = None):
+    def __init__(self, parent = None):
         global next_symbol_table_id
         super().__init__()
         self.id = next_symbol_table_id
@@ -114,10 +114,10 @@ class SymbolTable(dict):
     def __getitem__(self, key: str) -> "Symbol":
         return super().__getitem__(key)
 
-    def get(self, key) -> "Symbol" | None:
+    def get(self, key):
         return super().get(key, None)
 
-    def lookup(self, key: str) -> "Symbol" | None:
+    def lookup(self, key: str):
         """Look up a key in this scope and all ancestor scopes."""
         val = self.get(key)
         if val is not None:
