@@ -34,6 +34,10 @@ dependencies = [
     "pytest>=6.2.4",
     "lark>=1.2.2",
     "llvmlite>=0.44.0",
+    # Provides wasm-ld (LLVM's linker) to link the LLVM/wasm backend's object output.
+    "ziglang>=0.16.0",
+    # Interpreted wasm runtime used to execute the LLVM/wasm backend's output.
+    "wasmtime>=45.0.0",
 ]
 
 [project.urls]

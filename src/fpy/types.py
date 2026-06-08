@@ -5,7 +5,11 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Iterable, Union, get_args, get_origin
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
+
+if TYPE_CHECKING:
+    from llvmlite import ir
 from fpy.syntax import (
     BinaryStackOp,
     COMPARISON_OPS,
@@ -143,6 +147,30 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.ANON_ARRAY,
     }
 )
+
+
+@lru_cache(maxsize=1)
+def _scalar_llvm_types() -> dict[TypeKind, "ir.Type"]:
+    """LLVM types for the scalar Fpy kinds.
+
+    Built lazily (and cached) so that importing this module does not pull in
+    llvmlite / the LLVM native library on the bytecode-only path.
+    """
+    from llvmlite import ir
+
+    return {
+        TypeKind.U8: ir.IntType(8),
+        TypeKind.U16: ir.IntType(16),
+        TypeKind.U32: ir.IntType(32),
+        TypeKind.U64: ir.IntType(64),
+        TypeKind.I8: ir.IntType(8),
+        TypeKind.I16: ir.IntType(16),
+        TypeKind.I32: ir.IntType(32),
+        TypeKind.I64: ir.IntType(64),
+        TypeKind.F32: ir.FloatType(),
+        TypeKind.F64: ir.DoubleType(),
+        TypeKind.BOOL: ir.IntType(1),
+    }
 
 
 @dataclass
@@ -303,6 +331,37 @@ class FpyType:
         if self.kind in (TypeKind.INTEGER, TypeKind.FLOAT):
             return math.inf
         assert False, f"Cannot compute bits for {self}"
+
+    @property
+    def llvm_type(self) -> "ir.Type":
+        """The LLVM IR type used to represent this type in the wasm backend.
+        """
+        from llvmlite import ir
+
+        scalars = _scalar_llvm_types()
+        if self.kind in scalars:
+            return scalars[self.kind]
+        if self.kind == TypeKind.ENUM:
+            # An enum is represented by its underlying integer type.
+            return self.rep_type.llvm_type
+        if self.kind == TypeKind.STRUCT:
+            return ir.LiteralStructType([m.type.llvm_type for m in self.members])
+        if self.kind == TypeKind.ARRAY:
+            return ir.ArrayType(self.elem_type.llvm_type, self.length)
+        if self.kind == TypeKind.STRING:
+            # Fprime string: 2-byte length prefix + fixed-capacity byte buffer.
+            assert self.max_length is not None, "string type needs a max_length"
+            return ir.LiteralStructType(
+                [ir.IntType(16), ir.ArrayType(ir.IntType(8), self.max_length)]
+            )
+        if self.kind == TypeKind.NOTHING:
+            return ir.VoidType()
+        # INTERNAL_STRING/RANGE/ANON_* are compiler-internal: they're coerced to
+        # concrete types (or desugared) before codegen, so they have no LLVM
+        # representation of their own.
+        raise NotImplementedError(
+            f"No LLVM type mapping for {self.display_name}"
+        )
 
     def value_range(self) -> tuple[int | float, int | float]:
         """(min, max) inclusive range for integer types."""

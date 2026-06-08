@@ -3,7 +3,13 @@ import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
 from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
-from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fypbc_directives
+from fpy.compiler import (
+    text_to_ast,
+    analyze_ast,
+    analysis_to_fypbc_directives,
+    analysis_to_wasm,
+)
+from fpy.codegen_llvm import FPY_ENTRY_POINT
 from fpy.state import get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
@@ -37,6 +43,37 @@ def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tup
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
     return directives, arg_types
+
+
+def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
+    """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
+    fpy.error.file_name = "<test>"
+
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+
+    try:
+        body = text_to_ast(seq)
+        state = analyze_ast(body, state)
+        wasm, _ = analysis_to_wasm(body, state)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
+    return wasm
+
+
+def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
+    """Compile *seq* to wasm and run it, returning fpy_main's error code.
+
+    Runs in wasmtime, our interpreted wasm runtime for tests.
+    """
+    from wasmtime import Engine, Instance, Module, Store
+
+    wasm = compile_seq_wasm(seq, ground_binary_dir)
+    engine = Engine()
+    store = Store(engine)
+    instance = Instance(store, Module(engine, wasm), [])
+    entry = instance.exports(store)[FPY_ENTRY_POINT]
+    return entry(store)
 
 
 def lookup_type(fprime_test_api, type_name: str):

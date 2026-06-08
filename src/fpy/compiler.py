@@ -13,7 +13,7 @@ from fpy.codegen_fpybc import (
     IrPass,
     ResolveLabels,
 )
-from fpy.codegen_llvm import GenerateLlvmModule
+from fpy.codegen_llvm import GenerateLlvmModule, llvm_module_to_wasm
 from fpy.desugaring import (
     DesugarDefaultArgs,
     DesugarForLoops,
@@ -276,6 +276,17 @@ def analysis_to_llvm_module(
         print(warning)
 
     return module, state.this_seq_arg_specs
+
+
+def analysis_to_wasm(
+    body: AstBlock,
+    state: CompileState,
+) -> tuple[bytes, list[FpyType]]:
+    """Runs the LLVM backend and lowers the result to a runnable wasm module.
+
+    Raises BackendError on failure."""
+    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    return llvm_module_to_wasm(module), seq_arg_types
 
 
 def ast_to_dependencies(
