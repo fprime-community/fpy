@@ -13,8 +13,8 @@ import pytest
 from pathlib import Path
 
 import fpy.error
-from fpy.compiler import text_to_ast, ast_to_directives
-from fpy.bytecode.assembler import directives_to_fpybc
+from fpy.compiler import text_to_ast, analysis_to_fypbc_directives
+from fpy.bytecode.assembler import fpybc_directives_to_fpyasm
 
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -34,12 +34,12 @@ def compile_to_fpybc(source: str) -> str:
     body = text_to_ast(source)
     assert body is not None, "Parsing failed"
     
-    result = ast_to_directives(body, DEFAULT_DICTIONARY)
+    result = analysis_to_fypbc_directives(body, DEFAULT_DICTIONARY)
     assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
         f"Compilation failed: {result}"
     
     directives, _ = result
-    return directives_to_fpybc(directives)
+    return fpybc_directives_to_fpyasm(directives)
 
 
 def get_golden_test_cases():

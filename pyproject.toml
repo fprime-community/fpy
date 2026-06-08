@@ -33,6 +33,7 @@ classifiers = [
 dependencies = [
     "pytest>=6.2.4",
     "lark>=1.2.2",
+    "llvmlite>=0.44.0",
 ]
 
 [project.urls]

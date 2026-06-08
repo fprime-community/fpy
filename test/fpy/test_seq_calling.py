@@ -16,7 +16,7 @@ import pytest
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
 from fpy.model import DirectiveErrorCode
-from fpy.compiler import text_to_ast, ast_to_directives, _build_global_scopes
+from fpy.compiler import text_to_ast, analysis_to_fypbc_directives, _build_global_scopes
 from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -35,7 +35,7 @@ def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None
     fpy.error.file_name = "<test-child>"
     body = text_to_ast(seq_text)
     assert body is not None, "Failed to parse child sequence"
-    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
+    result = analysis_to_fypbc_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
     assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), (
         f"Compilation failed:\n{result}"
     )
@@ -687,7 +687,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
             body = text_to_ast(child_seq)
             assert body is not None
-            result = ast_to_directives(body, dict_path)
+            result = analysis_to_fypbc_directives(body, dict_path)
             assert not isinstance(
                 result, (fpy.error.CompileError, fpy.error.BackendError)
             ), f"Compilation failed:\n{result}"
@@ -706,7 +706,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
             body = text_to_ast(child_seq)
             assert body is not None
-            result = ast_to_directives(body, dict_path)
+            result = analysis_to_fypbc_directives(body, dict_path)
             assert not isinstance(
                 result, (fpy.error.CompileError, fpy.error.BackendError)
             )
@@ -719,7 +719,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, {args})\n'
             body = text_to_ast(parent_seq)
             assert body is not None
-            result = ast_to_directives(body, dict_path, ground_binary_dir=tmpdir)
+            result = analysis_to_fypbc_directives(body, dict_path, ground_binary_dir=tmpdir)
             assert isinstance(result, fpy.error.CompileError), (
                 f"Expected CompileError, got {type(result).__name__}: {result}"
             )

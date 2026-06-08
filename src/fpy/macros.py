@@ -12,9 +12,9 @@ from fpy.bytecode.directives import (
     WaitRelDirective,
 )
 from fpy.ir import Ir, IrIf, IrLabel
+from fpy.symbols import BuiltinFuncSymbol
 from fpy.syntax import Ast
 from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
-from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
     FloatDivideDirective,

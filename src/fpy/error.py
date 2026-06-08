@@ -74,7 +74,7 @@ class SyntaxErrorDuringTransform(Exception):
 
 
 @dataclass
-class CompileError:
+class CompileError(Exception):
     msg: str
     node: Any = None
 
@@ -143,7 +143,7 @@ class CompileError:
 
 
 @dataclass
-class BackendError:
+class BackendError(Exception):
     msg: str
 
     def __repr__(self):

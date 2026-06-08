@@ -14,7 +14,7 @@ from pathlib import Path
 import fpy.error
 from fpy.compiler import (
     text_to_ast,
-    ast_to_directives,
+    analysis_to_fypbc_directives,
     get_base_compile_state,
     _build_global_scopes,
 )
@@ -217,7 +217,7 @@ def test_too_many_directives_with_custom_limit():
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
+        result = analysis_to_fypbc_directives(body, dict_path)
 
         # Should fail because we exceed the custom limit
         assert isinstance(result, fpy.error.BackendError)
@@ -251,7 +251,7 @@ def test_within_custom_limit_succeeds():
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
+        result = analysis_to_fypbc_directives(body, dict_path)
 
         # Should succeed
         assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
@@ -433,6 +433,6 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     body = text_to_ast(seq)
     assert body is not None
 
-    result = ast_to_directives(body, DEFAULT_DICTIONARY)
+    result = analysis_to_fypbc_directives(body, DEFAULT_DICTIONARY)
     assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
         f"Compilation failed: {result}"

@@ -3,7 +3,7 @@ import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
 from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.compiler import text_to_ast, analysis_to_fypbc_directives
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 from fpy.types import FpyType, FpyValue
@@ -31,7 +31,7 @@ def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tup
         # This shouldn't happen - text_to_ast calls exit(1) on parse errors
         raise CompilationFailed("Parsing failed")
 
-    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
+    result = analysis_to_fypbc_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
         raise CompilationFailed(f"Compilation failed:\n{result}")
     

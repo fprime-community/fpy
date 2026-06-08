@@ -15,7 +15,7 @@ from fpy.bytecode.assembler import (
     SCHEMA_VERSION,
     assemble,
     deserialize_directives,
-    directives_to_fpybc,
+    fpybc_directives_to_fpyasm,
     parse as fpybc_parse,
     resolve_arg_specs,
     serialize_directives,
@@ -24,8 +24,15 @@ from fpy.bytecode.directives import ConstCmdDirective, StackCmdDirective
 import fpy.error
 import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
-from fpy.compiler import text_to_ast, ast_to_directives, ast_to_dependencies
+from fpy.compiler import (
+    analysis_to_llvm_module,
+    analyze_ast,
+    text_to_ast,
+    analysis_to_fypbc_directives,
+    ast_to_dependencies,
+)
 from fpy.dictionary import load_dictionary
+from fpy.state import get_base_compile_state
 
 
 def human_readable_size(size_bytes):
@@ -63,7 +70,7 @@ def compile_main(args: list[str] = None):
         type=Path,
         required=False,
         default=None,
-        help="The output .bin path",
+        help="The output path",
     )
     arg_parser.add_argument(
         "-d",
@@ -73,11 +80,14 @@ def compile_main(args: list[str] = None):
         help="The FPrime dictionary .json file",
     )
     arg_parser.add_argument(
-        "-b",
-        "--bytecode",
-        action="store_true",
-        default=False,
-        help="Whether to output human-readable bytecode to stdout instead of binary",
+        "--emit",
+        choices=["fpybin", "fpyasm", "llvm-ir"],
+        default="fpybin",
+        help=(
+            "Codegen backend / output format: 'fpybin' (binary fpy bytecode, the "
+            "default), 'fpyasm' (human-readable fpy bytecode assembly), "
+            "'llvm' (LLVM IR)"
+        ),
     )
     arg_parser.add_argument(
         "--debug",
@@ -91,7 +101,7 @@ def compile_main(args: list[str] = None):
         type=Path,
         required=False,
         default=None,
-        help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
+        help="Local directory to resolve Fpy binary file paths. Needed for sequence argument type checking when calling sequences (default: input file directory)",
     )
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
@@ -109,46 +119,78 @@ def compile_main(args: list[str] = None):
     ground_binary_dir = parsed_args.ground_binary_dir
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
+    
+    # reading dictionary
     try:
-        body = text_to_ast(parsed_args.input.read_text())
-    except RecursionError:
-        print("Recursion limit exceeded in parsing")
-        sys.exit(1)
-    try:
-        result = ast_to_directives(body, parsed_args.dictionary, ground_binary_dir=str(ground_binary_dir.resolve()))
-    except RecursionError:
-        print("Recursion limit exceeded in compiling")
-        sys.exit(1)
+        state = get_base_compile_state(str(parsed_args.dictionary.resolve()), str(parsed_args.ground_binary_dir.resolve()))
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
-    if isinstance(
-        result,
-        (
-            fpy.error.CompileError,
-            fpy.error.BackendError,
-        ),
-    ):
-        print(result, file=sys.stderr)
+
+    # syntax
+    try:
+        body = text_to_ast(parsed_args.input.read_text())
+    except RecursionError:
+        print("Recursion limit exceeded in parsing", file=sys.stderr)
+        sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
         sys.exit(1)
 
-    directives, arg_types = result
+    # semantics
+    try:
+        state = analyze_ast(
+            body,
+            state
+        )
+    except RecursionError:
+        print("Recursion limit exceeded in semantics passes", file=sys.stderr)
+        sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
-    output = parsed_args.output
-    if output is None:
-        output = parsed_args.input.with_suffix(".bin")
-    if parsed_args.bytecode:
-        fpybc = directives_to_fpybc(directives)
-        print(fpybc)
+    # codegen
+    try:
+        if parsed_args.emit == "llvm-ir":
+            output, seq_arg_types = analysis_to_llvm_module(body, state)
+        elif parsed_args.emit in ["fpybin", "fpyasm"]:
+            output, seq_arg_types = analysis_to_fypbc_directives(body, state)
+        else:
+            assert False, parsed_args.emit
+    except fpy.error.BackendError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    output_path = parsed_args.output
+
+    if parsed_args.emit == "fpyasm":
+        if output_path is None:
+            output_path = parsed_args.input.with_suffix(".fpyasm")
+        fpyasm = fpybc_directives_to_fpyasm(output)
+        output_path.write_text(fpyasm)
+    elif parsed_args.emit == "llvm-ir":
+        if output_path is None:
+            output_path = parsed_args.input.with_suffix(".ll")
+        # output is an llvmlite ir.Module; str() yields the textual LLVM IR.
+        output_path.write_text(str(output))
+        print(f"{output_path}")
+    elif parsed_args.emit == "fpybin":
+        output_path = parsed_args.output
+        if output_path is None:
+            output_path = parsed_args.input.with_suffix(".bin")
+        arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
+        output_bytes, crc = serialize_directives(output, arg_specs)
+        output_path.write_bytes(output_bytes)
+        print(f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
     else:
-        arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
-        output_bytes, crc = serialize_directives(directives, arg_specs)
-        output.write_bytes(output_bytes)
-        print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
+        assert False, parsed_args.emit
 
 
 def model_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=f"FpySequencer model for testing {get_version_str()}")
+    arg_parser = argparse.ArgumentParser(
+        description=f"FpySequencer model for testing {get_version_str()}"
+    )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
     )
@@ -189,7 +231,9 @@ def model_main(args: list[str] = None):
     arg_types = []
     if len(arg_specs) > 0:
         if args.dictionary is None:
-            print(f"Must pass --dictionary when sequence has arguments", file=sys.stderr)
+            print(
+                f"Must pass --dictionary when sequence has arguments", file=sys.stderr
+            )
             sys.exit(1)
         type_defs = load_dictionary(str(args.dictionary))["type_defs"]
         try:
@@ -210,7 +254,9 @@ def model_main(args: list[str] = None):
 
 
 def assemble_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=f"Fpy assembler {get_version_str()}")
+    arg_parser = argparse.ArgumentParser(
+        description=f"Fpy assembler {get_version_str()}"
+    )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
     )
@@ -244,7 +290,9 @@ def assemble_main(args: list[str] = None):
 
 
 def disassemble_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(description=f"Fpy disassembler {get_version_str()}")
+    arg_parser = argparse.ArgumentParser(
+        description=f"Fpy disassembler {get_version_str()}"
+    )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
     )
@@ -268,7 +316,7 @@ def disassemble_main(args: list[str] = None):
         exit(1)
 
     dirs, _ = deserialize_directives(args.input.read_bytes())
-    fpybc = directives_to_fpybc(dirs)
+    fpybc = fpybc_directives_to_fpyasm(dirs)
     output = args.output
     if output is None:
         output = args.input.with_suffix(".fpybc")
@@ -339,7 +387,7 @@ def send_command_tcp(cmd_opcode: int, args: bytes, tcp_addr: str, tcp_port: int)
 def cmd_main(args: list[str] = None):
     arg_parser = argparse.ArgumentParser(
         description=f"Run an Fpy command via the GDS {get_version_str()}",
-        epilog='Example: %(prog)s \'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)\' -d dict.json',
+        epilog="Example: %(prog)s 'Ref.seqDisp.RUN_ARGS(\"seq.bin\", NO_WAIT)' -d dict.json",
     )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
@@ -396,13 +444,16 @@ def cmd_main(args: list[str] = None):
     except RecursionError:
         print("Recursion limit exceeded in parsing", file=sys.stderr)
         sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
     ground_binary_dir = parsed_args.ground_binary_dir
     if ground_binary_dir is None:
         ground_binary_dir = Path(".")
 
     try:
-        result = ast_to_directives(
+        directives, _ = analysis_to_fypbc_directives(
             body,
             parsed_args.dictionary,
             ground_binary_dir=str(ground_binary_dir.resolve()),
@@ -413,12 +464,9 @@ def cmd_main(args: list[str] = None):
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
-
-    if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
-        print(result, file=sys.stderr)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        print(e, file=sys.stderr)
         sys.exit(1)
-
-    directives, _ = result
 
     stack_cmds = [d for d in directives if isinstance(d, StackCmdDirective)]
     if stack_cmds:
@@ -513,6 +561,9 @@ def depend_main(args: list[str] = None):
     except RecursionError:
         print("Recursion limit exceeded in parsing", file=sys.stderr)
         sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
     try:
         result = ast_to_dependencies(
@@ -523,9 +574,8 @@ def depend_main(args: list[str] = None):
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
         sys.exit(1)
-
-    if isinstance(result, fpy.error.CompileError):
-        print(result, file=sys.stderr)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
         sys.exit(1)
 
     for dep in result:

@@ -47,7 +47,8 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
             str(input_path),
             "--dictionary",
             str(dict_path),
-            "--bytecode",
+            "--emit",
+            "fpybc",
             "--ground-binary-dir",
             str(bin_dir),
         ]
@@ -79,7 +80,8 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
             str(input_path),
             "--dictionary",
             str(dict_path),
-            "--bytecode",
+            "--emit",
+            "fpybc",
         ]
     )
 
@@ -129,7 +131,8 @@ def test_compile_main_bytecode_output(monkeypatch, tmp_path, capsys):
             str(input_path),
             "--dictionary",
             str(dict_path),
-            "--bytecode",
+            "--emit",
+            "fpybc",
             "--debug",
         ]
     )
