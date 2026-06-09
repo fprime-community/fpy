@@ -21,7 +21,7 @@ from fpy.syntax import (
     AstIdent,
     BinaryStackOp,
 )
-from fpy.types import FLOAT, INTEGER, INTERNAL_STRING, TypeKind
+from fpy.types import FLOAT, INTEGER, INTERNAL_STRING, FpyValue, TypeKind
 from fpy.visitors import Emitter
 
 
@@ -69,7 +69,7 @@ class EmitLlvmExpr(Emitter):
         synthesized = state.synthesized_types[node]
         contextual = state.contextual_types[node]
         if synthesized != contextual:
-            result = self._convert(result, synthesized, contextual)
+            result = self.convert_numeric_type(result, synthesized, contextual)
         return result
 
     def _emit_const_value(self, value) -> ir.Value:
@@ -131,7 +131,7 @@ class EmitLlvmExpr(Emitter):
         # synthesized type; emit() handles any widening to the contextual type.
         return self.builder.load(self.variables[id(sym)], name=str(node.name))
 
-    def _convert(self, value: ir.Value, from_type, to_type) -> ir.Value:
+    def convert_numeric_type(self, value: ir.Value, from_type, to_type) -> ir.Value:
         """Convert a scalar numeric value between two concrete numeric types."""
         assert from_type.is_numerical and to_type.is_numerical, (from_type, to_type)
         target = to_type.llvm_type
@@ -179,6 +179,7 @@ class GenerateLlvmModule:
         # always use alloca and leave it to optimization passes to promote slots
         # to registers where worthwhile.
         self.variables: dict[int, ir.AllocaInstr] = {}
+        self._declare_flags(builder, state)
         for stmt in body.stmts:
             if isinstance(stmt, AstAssign):
                 self._declare_variable(builder, stmt, state)
@@ -195,6 +196,14 @@ class GenerateLlvmModule:
         # Fell off the end of the sequence without failing: success.
         builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
         return module
+
+    def _declare_flags(self, builder: ir.IRBuilder, state: CompileState) -> None:
+        """Allocate and initialize the built-in ``flags`` struct."""
+        flags = state.flags_var
+        slot = builder.alloca(flags.type.llvm_type, name=flags.name)
+        self.variables[id(flags)] = slot
+        default = FpyValue(flags.type, dict(flags.type.member_defaults))
+        builder.store(EmitLlvmExpr(builder, self.variables)._emit_const_value(default), slot)
 
     def _declare_variable(
         self, builder: ir.IRBuilder, node: AstAssign, state: CompileState

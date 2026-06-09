@@ -29,6 +29,13 @@ class CompilationFailed(Exception):
     pass
 
 
+# Flipped to True by conftest's pytest_configure when --wasm is passed, routing
+# the assert_* helpers through the LLVM/wasm backend (run via wasmtime) instead
+# of the bytecode VM. Sequences using features the wasm backend can't lower yet
+# will surface as CompilationFailed.
+USE_WASM = False
+
+
 def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
@@ -188,6 +195,9 @@ def run_seq(
 
 
 def assert_compile_success(fprime_test_api, seq: str):
+    if USE_WASM:
+        compile_seq_wasm(seq)
+        return
     compile_seq(fprime_test_api, seq)
 
 
@@ -204,6 +214,11 @@ def assert_run_success(
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
 ):
+    if USE_WASM:
+        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        if code != DirectiveErrorCode.NO_ERROR.value:
+            raise RuntimeError(f"wasm sequence returned error code {code}")
+        return
     directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -217,7 +232,10 @@ def assert_run_success(
 
 def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None):
     try:
-        compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+        if USE_WASM:
+            compile_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        else:
+            compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
@@ -245,6 +263,18 @@ def assert_run_failure(
         "Cannot specify both error_code and validation_error"
     assert error_code is not None or validation_error, \
         "Must specify either error_code or validation_error"
+
+    if USE_WASM:
+        # The wasm backend has no separate validation step or VM-internal
+        # faults: a failed sequence is one whose entry point returns nonzero.
+        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        if code == DirectiveErrorCode.NO_ERROR.value:
+            raise RuntimeError("wasm sequence succeeded")
+        if error_code is not None and code != error_code.value:
+            raise RuntimeError(
+                f"wasm sequence returned {code}, expected {error_code}"
+            )
+        return
 
     directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     arg_types = [t for _, t in arg_name_types]

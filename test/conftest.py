@@ -15,6 +15,20 @@ def pytest_addoption(parser):
         default=False,
         help="Run sequences against a live F Prime GDS instead of the Python model",
     )
+    parser.addoption(
+        "--wasm",
+        action="store_true",
+        default=False,
+        help="Compile and run sequences through the LLVM/wasm backend (wasmtime) "
+        "instead of the fpy bytecode VM",
+    )
+
+
+def pytest_configure(config):
+    # Flip the test helpers over to the LLVM/wasm backend for the whole run.
+    import fpy.test_helpers as test_helpers
+
+    test_helpers.USE_WASM = config.getoption("--wasm")
 
 
 @pytest.fixture(autouse=True)
