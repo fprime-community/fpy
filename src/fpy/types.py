@@ -334,8 +334,7 @@ class FpyType:
 
     @property
     def llvm_type(self) -> "ir.Type":
-        """The LLVM IR type used to represent this type in the wasm backend.
-        """
+        """The LLVM IR type used to represent this type in the wasm backend."""
         from llvmlite import ir
 
         scalars = _scalar_llvm_types()
@@ -359,9 +358,7 @@ class FpyType:
         # INTERNAL_STRING/RANGE/ANON_* are compiler-internal: they're coerced to
         # concrete types (or desugared) before codegen, so they have no LLVM
         # representation of their own.
-        raise NotImplementedError(
-            f"No LLVM type mapping for {self.display_name}"
-        )
+        raise NotImplementedError(f"No LLVM type mapping for {self.display_name}")
 
     def value_range(self) -> tuple[int | float, int | float]:
         """(min, max) inclusive range for integer types."""
@@ -370,21 +367,6 @@ class FpyType:
         if self.kind == TypeKind.INTEGER:
             return (-math.inf, math.inf)
         assert False, f"Cannot compute range for {self}"
-
-    def validate_value(self, val) -> None:
-        """Raise ValueError if *val* is invalid for this type."""
-        if self.kind == TypeKind.INTEGER:
-            if not isinstance(val, int):
-                raise ValueError(f"Expected int, got {type(val)}")
-        elif self.kind == TypeKind.FLOAT:
-            if not isinstance(val, Decimal):
-                raise ValueError(f"Expected Decimal, got {type(val)}")
-        elif self.kind in _CONCRETE_INTEGER_KINDS:
-            lo, hi = self.value_range()
-            if not (lo <= val <= hi):
-                raise ValueError(
-                    f"Value {val} out of range [{lo}, {hi}] for {self.name}"
-                )
 
 
 U8 = FpyType(TypeKind.U8, "U8")
@@ -635,9 +617,7 @@ class PrmDef:
 FLAGS_TYPE = FpyType(
     TypeKind.STRUCT,
     "$Flags",
-    members=(
-        StructMember("assert_cmd_success", BOOL),
-    ),
+    members=(StructMember("assert_cmd_success", BOOL),),
     member_defaults={"assert_cmd_success": FpyValue(BOOL, True)},
 )
 
@@ -700,7 +680,12 @@ SEQ_ARGS = FpyType(
 # Internal type (prefixed with $) not directly accessible to users,
 # used for desugaring check statements.
 _TIME_INTERVAL_DEFAULT = {"seconds": 0, "useconds": 0}
-_TIME_DEFAULT = {"timeBase": "TimeBase.TB_NONE", "timeContext": 0, "seconds": 0, "useconds": 0}
+_TIME_DEFAULT = {
+    "timeBase": "TimeBase.TB_NONE",
+    "timeContext": 0,
+    "seconds": 0,
+    "useconds": 0,
+}
 
 CHECK_STATE = FpyType(
     TypeKind.STRUCT,
