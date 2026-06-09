@@ -2438,21 +2438,17 @@ class CalculateConstExprValues(Visitor):
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
-                # Use truncation toward zero to match C++ semantics
+                # Floor toward -inf (Python `//`), matching the runtime backends.
                 if isinstance(lhs_value, int) and isinstance(rhs_value, int):
-                    # Exact integer truncation toward zero. Must NOT route through
-                    # float division (int(a / b)): for operands beyond 2**53 that
-                    # loses precision and bakes a wrong constant into the bytecode.
-                    sign = -1 if (lhs_value < 0) != (rhs_value < 0) else 1
-                    folded_value = sign * (abs(lhs_value) // abs(rhs_value))
+                    folded_value = lhs_value // rhs_value
                 elif isinstance(lhs_value, Decimal):
                     folded_value = (lhs_value / rhs_value).to_integral_value(
-                        rounding=decimal.ROUND_DOWN
+                        rounding=decimal.ROUND_FLOOR
                     )
                 else:
                     folded_value = Decimal(
                         str(lhs_value / rhs_value)
-                    ).to_integral_value(rounding=decimal.ROUND_DOWN)
+                    ).to_integral_value(rounding=decimal.ROUND_FLOOR)
             elif node.op == BinaryStackOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations

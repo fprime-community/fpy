@@ -363,7 +363,7 @@ assert result > 1.41 and result < 1.42
         [
             ("U64", "U64", "9", "2", "U64", "4"),
             ("F64", "F64", "5.5", "2.0", "F64", "2.0"),
-            ("F64", "F64", "-5.5", "2.0", "F64", "-2.0"),
+            ("F64", "F64", "-5.5", "2.0", "F64", "-3.0"),
             ("F64", "I64", "5.5", "2", "F64", "2.0"),
             ("I64", "F64", "5", "2.5", "F64", "2.0"),
             ("U64", "F64", "9", "2.0", "F64", "4.0"),
@@ -523,42 +523,42 @@ assert iabs(-1) == 1
 
 
 class TestFloorDivision:
-    """Floor division uses C++ truncation semantics (toward zero).
+    """Floor division floors toward -inf (Python `//` semantics).
     Both const-folded and runtime paths should agree."""
 
     def test_int_floor_div_negative_const_vs_runtime(self, fprime_test_api):
-        """Runtime -7 // 2 should give -3 (truncation toward zero)."""
+        """Runtime -7 // 2 should give -4 (floor toward -inf)."""
         seq = """
 a: I64 = -7
 b: I64 = 2
 result: I64 = a // b
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_int_floor_div_negative_const_folded(self, fprime_test_api):
-        """Const-folded (-7) // 2 should also give -3 (truncation toward zero)."""
+        """Const-folded (-7) // 2 should also give -4 (floor toward -inf)."""
         seq = """
 result: I64 = (-7) // 2
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_float_floor_div_negative_const_vs_runtime(self, fprime_test_api):
-        """Runtime float floor division: -5.5 // 2.0 = -2.0 (truncation toward zero)."""
+        """Runtime float floor division: -5.5 // 2.0 = -3.0 (floor toward -inf)."""
         seq = """
 a: F64 = -5.5
 b: F64 = 2.0
 result: F64 = a // b
-assert result == -2.0
+assert result == -3.0
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_float_floor_div_negative_const_folded(self, fprime_test_api):
-        """Const-folded (-5.5) // 2.0 should also give -2.0 (truncation toward zero)."""
+        """Const-folded (-5.5) // 2.0 should also give -3.0 (floor toward -inf)."""
         seq = """
 result: F64 = (-5.5) // 2.0
-assert result == -2.0
+assert result == -3.0
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -571,10 +571,10 @@ assert result == 3
         assert_run_success(fprime_test_api, seq)
 
     def test_int_floor_div_negative_divisor(self, fprime_test_api):
-        """7 // (-2) = -3 (truncation toward zero)."""
+        """7 // (-2) = -4 (floor toward -inf)."""
         seq = """
 result: I64 = 7 // (-2)
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 

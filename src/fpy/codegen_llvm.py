@@ -22,7 +22,10 @@ from fpy.syntax import (
     AstFuncCall,
     AstIdent,
     AstIf,
+    AstUnaryOp,
     BinaryStackOp,
+    COMPARISON_OPS,
+    UnaryStackOp,
 )
 from fpy.types import FpyValue
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
@@ -68,25 +71,189 @@ class EmitLlvmExpr(Emitter):
         return result
 
     def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
+        # `and`/`or` short-circuit, so they must branch rather than eagerly
+        # evaluate both operands.
+        if node.op in (BinaryStackOp.AND, BinaryStackOp.OR):
+            return self._emit_short_circuit(node, state)
+
         intermediate_type = state.op_intermediate_types[node]
         is_float = intermediate_type.is_float
+        is_signed = intermediate_type.is_signed
+        b = self.builder
 
+        # Operands are coerced to the intermediate type during semantics, so the
+        # emitted values are already at that type.
         lhs = self.emit(node.lhs, state)
         rhs = self.emit(node.rhs, state)
+        op = node.op
 
-        if node.op == BinaryStackOp.ADD:
-            return self.builder.fadd(lhs, rhs) if is_float \
-                else self.builder.add(lhs, rhs)
-        if node.op == BinaryStackOp.EQUAL:
-            return self.builder.fcmp_ordered("==", lhs, rhs) if is_float \
-                else self.builder.icmp_signed("==", lhs, rhs)
-        if node.op == BinaryStackOp.NOT_EQUAL:
-            return self.builder.fcmp_ordered("!=", lhs, rhs) if is_float \
-                else self.builder.icmp_signed("!=", lhs, rhs)
+        # -- arithmetic: result is the (numeric) intermediate type ------------
+        if op == BinaryStackOp.ADD:
+            return b.fadd(lhs, rhs) if is_float else b.add(lhs, rhs)
+        if op == BinaryStackOp.SUBTRACT:
+            return b.fsub(lhs, rhs) if is_float else b.sub(lhs, rhs)
+        if op == BinaryStackOp.MULTIPLY:
+            return b.fmul(lhs, rhs) if is_float else b.mul(lhs, rhs)
+        if op == BinaryStackOp.DIVIDE:
+            # `/` always computes over floats (semantics widens to F64).
+            assert is_float, intermediate_type
+            return b.fdiv(lhs, rhs)
+        if op == BinaryStackOp.MODULUS:
+            return self._emit_modulo(lhs, rhs, is_float, is_signed)
+        if op == BinaryStackOp.FLOOR_DIVIDE:
+            return self._emit_floor_divide(lhs, rhs, is_float, is_signed)
+        if op == BinaryStackOp.EXPONENT:
+            # `**` always computes over floats (semantics widens to F64).
+            assert is_float, intermediate_type
+            # assume that the host provides a pow func
+            pow_fn = b.module.declare_intrinsic(
+                "llvm.pow", [intermediate_type.llvm_type]
+            )
+            return b.call(pow_fn, [lhs, rhs])
 
+        assert op in COMPARISON_OPS, op
+        if is_float:
+            return b.fcmp_ordered(op, lhs, rhs)
+        # Enums and bools lower to integers too, so any integer-typed value
+        # (not just numeric types) compares with icmp; aggregates don't.
+        if isinstance(lhs.type, ir.IntType):
+            return b.icmp_signed(op, lhs, rhs) if is_signed \
+                else b.icmp_unsigned(op, lhs, rhs)
         raise BackendError(
-            f"LLVM backend only supports '+', '==' and '!=' for now, got '{node.op}'"
+            f"LLVM backend can't compare values of type "
+            f"'{intermediate_type.display_name}' yet"
         )
+
+    def _emit_floor_divide(
+        self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
+    ) -> ir.Value:
+        """Emit `lhs // rhs`, flooring toward -inf (Python `//`, matching the VM).
+
+        Floats floor the quotient directly via llvm.floor (a native f64.floor on
+        wasm). Integer sdiv/udiv truncate toward zero, which differs from floor
+        only when the operands have opposite signs and the division is inexact;
+        in that case we subtract one.
+        """
+        b = self.builder
+        if is_float:
+            # Floats have a real floor: divide, then floor the quotient. The
+            # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
+            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0.
+            quotient = b.fdiv(lhs, rhs)
+            floor_fn = b.module.declare_intrinsic(
+                "llvm.floor", [quotient.type]
+            )
+            return b.call(floor_fn, [quotient])
+        if not is_signed:
+            # Unsigned operands are non-negative, so the exact quotient is too;
+            # there's nothing below zero to floor toward, so udiv (which
+            # truncates) already gives the floored result.
+            return b.udiv(lhs, rhs)
+
+        # Signed integers have no floor instruction: sdiv truncates toward zero.
+        # Truncation and floor agree except when the exact quotient is negative
+        # and non-integer -- i.e. the operands have opposite signs (negative
+        # quotient) AND the division leaves a remainder (non-integer). There,
+        # truncation rounds *up* toward zero, so it overshoots the floor by one
+        # and we subtract one to correct it.
+        #
+        #   -7 // 2:  sdiv = -3, srem = -1 -> opposite signs, inexact -> -3-1 = -4
+        #   -6 // 2:  sdiv = -3, srem =  0 -> exact, no adjust          -> -3
+        #    7 // 2:  sdiv =  3, srem =  1 -> same signs, no adjust      ->  3
+        quotient = b.sdiv(lhs, rhs)
+        rem = b.srem(lhs, rhs)
+        zero = ir.Constant(lhs.type, 0)
+        # Non-integer quotient: the remainder is nonzero.
+        inexact = b.icmp_signed("!=", rem, zero)
+        # Negative quotient: lhs and rhs have opposite signs, which in two's
+        # complement is exactly when their xor has the sign bit set (is < 0).
+        opposite_signs = b.icmp_signed("<", b.xor(lhs, rhs), zero)
+        adjust = b.and_(inexact, opposite_signs)
+        return b.select(adjust, b.sub(quotient, ir.Constant(lhs.type, 1)), quotient)
+
+    def _emit_modulo(
+        self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
+    ) -> ir.Value:
+        """Emit `lhs % rhs` with the VM's *floored* semantics (Python `%`): the
+        result takes the sign of the divisor.
+
+        The IR remainder ops (srem/frem) are *truncated* -- the result takes the
+        sign of the dividend -- so we correct it by adding the divisor back when
+        the remainder is nonzero and its sign differs from the divisor's. (frem
+        lowers to an fmod libcall on wasm, hence the imported env.fmod.)
+        """
+        b = self.builder
+        if not is_float and not is_signed:
+            # Unsigned operands are non-negative, so floored == truncated.
+            return b.urem(lhs, rhs)
+
+        zero = ir.Constant(lhs.type, 0)
+        if is_float:
+            rem = b.frem(lhs, rhs)
+            nonzero = b.fcmp_ordered("!=", rem, zero)
+            signs_differ = b.xor(
+                b.fcmp_ordered("<", rem, zero), b.fcmp_ordered("<", rhs, zero)
+            )
+            corrected = b.fadd(rem, rhs)
+        else:
+            rem = b.srem(lhs, rhs)
+            nonzero = b.icmp_signed("!=", rem, zero)
+            # rem and rhs have differing signs iff their xor is negative.
+            signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
+            corrected = b.add(rem, rhs)
+        return b.select(b.and_(nonzero, signs_differ), corrected, rem)
+
+    def _emit_short_circuit(
+        self, node: AstBinaryOp, state: CompileState
+    ) -> ir.Value:
+        """Lower ``and``/``or`` with short-circuit evaluation."""
+        b = self.builder
+        bool_type = ir.IntType(1)
+
+        lhs = self.emit(node.lhs, state)
+        lhs_block = b.block  # the block the branch on lhs lives in
+        rhs_block = b.append_basic_block("bool_rhs")
+        end_block = b.append_basic_block("bool_end")
+
+        if node.op == BinaryStackOp.AND:
+            # lhs true -> evaluate rhs; lhs false -> short-circuit to False.
+            b.cbranch(lhs, rhs_block, end_block)
+            short_value = ir.Constant(bool_type, 0)
+        else:
+            # lhs true -> short-circuit to True; lhs false -> evaluate rhs.
+            b.cbranch(lhs, end_block, rhs_block)
+            short_value = ir.Constant(bool_type, 1)
+
+        b.position_at_end(rhs_block)
+        rhs = self.emit(node.rhs, state)
+        rhs_end_block = b.block  # rhs may itself have added blocks
+        b.branch(end_block)
+
+        b.position_at_end(end_block)
+        phi = b.phi(bool_type, name="bool_result")
+        phi.add_incoming(short_value, lhs_block)
+        phi.add_incoming(rhs, rhs_end_block)
+        return phi
+
+    def emit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState) -> ir.Value:
+        intermediate_type = state.op_intermediate_types[node]
+        b = self.builder
+        val = self.emit(node.val, state)
+
+        if node.op == UnaryStackOp.IDENTITY:
+            # `+x` is a no-op.
+            return val
+        if node.op == UnaryStackOp.NOT:
+            # `not x` flips a bool (i1).
+            return b.not_(val)
+
+        # The only remaining unary op is `-x`: float negation, or 0 - x for
+        # integers (matching the VM, which multiplies by -1; sub is the simpler
+        # equivalent here).
+        assert node.op == UnaryStackOp.NEGATE, node.op
+        if intermediate_type.is_float:
+            return b.fneg(val)
+        return b.neg(val)
 
     def emit_AstIdent(self, node: AstIdent, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]

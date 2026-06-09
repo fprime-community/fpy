@@ -145,6 +145,7 @@ class DirectiveId(Enum):
     POP_EVENT = 75
     SET_SEED = 76
     PUSH_RAND = 77
+    FFLOOR = 78
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -615,6 +616,12 @@ class FloatTruncateDirective(StackOpDirective):
 @dataclass
 class FloatExtendDirective(StackOpDirective):
     opcode: ClassVar[DirectiveId] = DirectiveId.FPEXT
+
+
+@dataclass
+class FloatFloorDirective(StackOpDirective):
+    """Floor a float toward -inf (used to lower float `//`)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
 
 
 @dataclass

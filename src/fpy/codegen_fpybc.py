@@ -66,6 +66,7 @@ from fpy.bytecode.directives import (
     ExitDirective,
     FloatDivideDirective,
     FloatExtendDirective,
+    FloatFloorDirective,
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
@@ -921,10 +922,9 @@ class GenerateFunctionBody(Emitter):
             elif (
                 node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64
             ):
-                # for float floor division, do fdiv then truncate to int then back to float
+                # float floor division: divide, then floor toward -inf
                 dirs.append(FloatDivideDirective())
-                dirs.append(FloatToSignedIntDirective())
-                dirs.append(SignedIntToFloatDirective())
+                dirs.append(FloatFloorDirective())
             else:
 
                 dir = BINARY_STACK_OPS[node.op][intermediate_type]

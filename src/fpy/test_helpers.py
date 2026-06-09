@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
@@ -72,15 +73,48 @@ def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
 
     Runs in wasmtime, our interpreted wasm runtime for tests.
+
+    Math host calls the backend emits are provided here, so any sequence runs
+    without the caller wiring up imports (unused defines are ignored, so this is
+    harmless for sequences that don't use them):
+      * `**` lowers to llvm.pow  -> imported ``env.pow``
+      * float `%` lowers to frem -> imported ``env.fmod``
+    The shims mirror the bytecode VM's handlers (see model.handle_fpow /
+    handle_fmod) so the two backends agree on edge cases like the 0**-1 pole.
     """
-    from wasmtime import Engine, Instance, Module, Store
+    from wasmtime import Engine, FuncType, Linker, Module, Store, ValType
 
     wasm = compile_seq_wasm(seq, ground_binary_dir)
     engine = Engine()
     store = Store(engine)
-    instance = Instance(store, Module(engine, wasm), [])
+    module = Module(engine, wasm)
+
+    linker = Linker(engine)
+    f64 = ValType.f64()
+    binary_f64 = FuncType([f64, f64], [f64])
+    linker.define_func("env", "pow", binary_f64, _host_pow)
+    linker.define_func("env", "fmod", binary_f64, math.fmod)
+
+    instance = linker.instantiate(store, module)
     entry = instance.exports(store)[FPY_ENTRY_POINT]
     return entry(store)
+
+
+def _host_pow(base: float, exp: float) -> float:
+    """C/IEEE pow() semantics, matching the VM's handle_fpow: a pole (0**neg)
+    is +/-inf rather than an error, and domain errors yield NaN -- where Python
+    would instead raise or return a complex number."""
+    try:
+        result = base ** exp
+    except ZeroDivisionError:
+        # 0**<neg> is a pole; a negative odd-integer exponent keeps the base's
+        # signed zero (pow(-0.0, -1) == -inf), otherwise +inf.
+        if float(exp).is_integer() and int(exp) % 2 != 0:
+            return math.copysign(math.inf, base)
+        return math.inf
+    except (ValueError, OverflowError):
+        return math.nan
+    return math.nan if isinstance(result, complex) else result
 
 
 def lookup_type(fprime_test_api, type_name: str):

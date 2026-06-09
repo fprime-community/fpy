@@ -71,6 +71,7 @@ from fpy.bytecode.directives import (
     FloatLessThanDirective,
     FloatLessThanOrEqualDirective,
     FloatNotEqualDirective,
+    FloatFloorDirective,
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
@@ -929,6 +930,14 @@ class FpySequencerModel:
         self.push(val)
         return None
 
+    def handle_ffloor(self, dir: FloatFloorDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop(type=float)
+        # Match wasm's f64.floor: inf/nan pass through unchanged.
+        self.push(val if not math.isfinite(val) else float(math.floor(val)))
+        return None
+
     def handle_fptosi(self, dir: FloatToSignedIntDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
@@ -1023,9 +1032,7 @@ class FpySequencerModel:
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
 
-        # C++-style truncation toward zero (can't use int(lhs/rhs) because
-        # float conversion loses precision for large I64 values)
-        result = _trunc_div(lhs, rhs)
+        result = lhs // rhs
 
         self.push(result)
         return None
