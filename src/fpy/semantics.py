@@ -321,8 +321,9 @@ class CreateVariablesAndFuncs(TopDownVisitor):
                 # redeclaring an existing variable in the SAME scope
                 state.err(f"Variable '{node.lhs.name}' has already been defined", node)
                 return
-            # okay, define the var
-            is_global = not scope.in_function
+            # okay, define the var. a variable is global only if it's declared
+            # directly in the global scope (the top indentation level)
+            is_global = scope is state.global_value_scope
             var = VariableSymbol(
                 node.lhs.name, node.type_ann, node, is_global=is_global
             )
@@ -344,7 +345,9 @@ class CreateVariablesAndFuncs(TopDownVisitor):
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.
         body_scope = state.enclosing_value_scope[node.body]
-        is_global = not body_scope.in_function
+        # A loop body is always a nested block, never the global scope, so loop
+        # variables are block-local (never globals).
+        is_global = body_scope is state.global_value_scope
 
         loop_var = VariableSymbol(
             node.loop_var.name, None, node, LoopVarType, is_global=is_global

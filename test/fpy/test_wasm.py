@@ -117,3 +117,52 @@ class TestWasmExit:
     def test_exit_with_runtime_code(self):
         # The exit code comes from a variable (read at runtime), not a literal.
         assert run_seq_wasm("code: U8 = 9\nexit(code)\n") == 9
+
+
+class TestWasmIf:
+    """if / elif / else over runtime conditions (variable reads aren't folded)."""
+
+    def test_if_taken(self):
+        assert run_seq_wasm("x: U32 = 7\nif x == 7:\n    exit(5)\n") == 5
+
+    def test_if_not_taken_falls_through(self):
+        # Condition false, body skipped; sequence falls off the end -> success.
+        assert run_seq_wasm("x: U32 = 7\nif x == 1:\n    exit(5)\n") == NO_ERROR
+
+    def test_if_else(self):
+        seq = "x: U32 = 3\nif x == 1:\n    exit(11)\nelse:\n    exit(33)\n"
+        assert run_seq_wasm(seq) == 33
+
+    def test_if_elif_else_chain(self):
+        template = (
+            "x: U32 = {v}\n"
+            "if x == 1:\n    exit(11)\n"
+            "elif x == 2:\n    exit(22)\n"
+            "else:\n    exit(33)\n"
+        )
+        assert run_seq_wasm(template.format(v=1)) == 11
+        assert run_seq_wasm(template.format(v=2)) == 22
+        assert run_seq_wasm(template.format(v=9)) == 33
+
+    def test_assignment_inside_if_visible_after(self):
+        # The variable's slot is allocated in the entry block (frame-scoped), so
+        # a store inside the taken branch is visible to a later read.
+        seq = "y: U64 = 0\nif True:\n    y = 5\nassert y == 5\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_assert_inside_if_body(self):
+        assert run_seq_wasm("x: U32 = 7\nif x == 7:\n    assert False\n") == EXIT_WITH_ERROR
+
+    def test_variable_declared_in_if_block(self):
+        # A var declared in a top-level if block is block-scoped (a local, not a
+        # global) and must still get storage (regression: it used to be dropped).
+        assert run_seq_wasm("if True:\n    a: U32 = 5\n    assert a == 5\n") == NO_ERROR
+
+    def test_same_name_in_separate_blocks_are_distinct(self):
+        # Fpy is block-scoped: each block's `a` is a distinct variable, so they
+        # must not collide.
+        seq = (
+            "if True:\n    a: U32 = 1\n    assert a == 1\n"
+            "if True:\n    a: U32 = 2\n    assert a == 2\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR

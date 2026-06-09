@@ -21,9 +21,10 @@ from fpy.syntax import (
     AstDef,
     AstFuncCall,
     AstIdent,
+    AstIf,
     BinaryStackOp,
 )
-from fpy.types import FLOAT, INTEGER, INTERNAL_STRING, FpyValue, TypeKind
+from fpy.types import FpyValue
 from fpy.visitors import Emitter
 
 
@@ -63,7 +64,7 @@ class EmitLlvmExpr(Emitter):
         value = state.const_expr_values.get(node)
         if value is not None:
             # Const values are stored at the node's contextual type already.
-            return self._emit_const_value(value)
+            return value.llvm_value
         result = super().emit(node, state)
         if result is None:
             # NOTHING-typed expr, nothing to convert.
@@ -73,37 +74,6 @@ class EmitLlvmExpr(Emitter):
         if synthesized != contextual:
             result = self.convert_numeric_type(result, synthesized, contextual)
         return result
-
-    def _emit_const_value(self, value) -> ir.Value:
-        """Emit an FpyValue as an LLVM constant"""
-        fpy_type = value.type
-        kind = fpy_type.kind
-
-        # Internal types have no LLVM representation and should never be emitted.
-        assert fpy_type not in (INTEGER, FLOAT, INTERNAL_STRING), value
-
-        # ir.Constant wants a native Python number matching the LLVM type's family:
-        if fpy_type.is_float:
-            # float types store a Decimal; float() gives the double/float value.
-            return ir.Constant(fpy_type.llvm_type, float(value.val))
-        if fpy_type.is_integer or kind == TypeKind.BOOL:
-            # ints store a Python int; BOOL stores a bool (int(True) == 1).
-            return ir.Constant(fpy_type.llvm_type, int(value.val))
-        if kind == TypeKind.ENUM:
-            # an enum const stores its member name; map it to the integer rep.
-            return ir.Constant(fpy_type.llvm_type, fpy_type.enum_dict[value.val])
-        if kind == TypeKind.STRUCT:
-            members = [
-                self._emit_const_value(value.val[m.name]) for m in fpy_type.members
-            ]
-            return ir.Constant(fpy_type.llvm_type, members)
-        if kind == TypeKind.ARRAY:
-            elements = [self._emit_const_value(elem) for elem in value.val]
-            return ir.Constant(fpy_type.llvm_type, elements)
-
-        raise BackendError(
-            f"LLVM backend cannot emit a constant of type {fpy_type.display_name}"
-        )
 
     def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
         intermediate_type = state.op_intermediate_types[node]
@@ -145,7 +115,7 @@ class EmitLlvmExpr(Emitter):
         args: list[tuple[ir.Value, FpyValue | None]] = []
         for arg in node.args or []:
             if isinstance(arg, FpyValue):  # a filled-in default argument
-                args.append((self._emit_const_value(arg), arg))
+                args.append((arg.llvm_value, arg))
             else:
                 args.append((self.emit(arg, state), state.const_expr_values.get(arg)))
         return func.generate_llvm(self.builder, args)
@@ -194,58 +164,151 @@ class GenerateLlvmModule:
         func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
-        # Give every variable a stack slot up front, in the entry block. We
-        # always use alloca and leave it to optimization passes to promote slots
-        # to registers where worthwhile.
-        self.variables: dict[int, ir.AllocaInstr] = {}
-        self._declare_flags(builder, state)
-        for stmt in body.stmts:
-            if isinstance(stmt, AstAssign):
-                self._declare_variable(builder, stmt, state)
+        # self.variables maps id(VariableSymbol) -> the pointer to its storage:
+        # an ir.GlobalVariable for is_global variables, or an alloca for
+        # function-locals. Both are load/store pointers, so reads/writes are
+        # uniform; only how the storage is created differs.
+        self.variables: dict[int, ir.Value] = {}
+        # The built-in flags struct (a global with no declaring statement).
+        self._declare_flags(module, state)
+        # Walk the whole top-level region -- including nested if/elif/else blocks
+        # -- declaring each variable's storage. Fpy is block-scoped and a var is
+        # is_global when it's outside any function, so a variable declared in a
+        # top-level if block is still a global; the walk must reach it (declaring
+        # only the outermost scope would drop it). Created up front so function
+        # bodies can reference globals declared later in the source.
+        self._declare_variables(module, builder, body, state)
 
-        for stmt in body.stmts:
+        self._emit_block(func, builder, body, state)
+
+        # Fell off the end of the sequence without failing: success.
+        if not builder.block.is_terminated:
+            builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
+        return module
+
+    def _emit_block(
+        self,
+        func: ir.Function,
+        builder: ir.IRBuilder,
+        block: AstBlock,
+        state: CompileState,
+    ) -> None:
+        """Lower the statements of *block* into the current basic block(s)."""
+        for stmt in block.stmts:
             if isinstance(stmt, AstAssign):
                 self._emit_assign(builder, stmt, state)
             elif isinstance(stmt, AstAssert):
                 self._emit_assert(func, builder, stmt, state)
+            elif isinstance(stmt, AstIf):
+                self._emit_if(func, builder, stmt, state)
             elif isinstance(stmt, AstFuncCall):
                 # A call statement (e.g. exit(...)); its result, if any, is
                 # discarded. Unsupported calls raise inside emit_AstFuncCall.
                 EmitLlvmExpr(builder, self.variables).emit(stmt, state)
             elif isinstance(stmt, AstDef):
-                # need this otherwise nothing compiles cuz of builtin lib
+                # Function definitions (incl. the prepended builtin library)
+                # aren't lowered here; a call to one is handled at the call site.
                 continue
             else:
                 assert False, (
-                    f"LLVM backend doesn't handle top-level {type(stmt).__name__}"
+                    f"LLVM backend doesn't handle statement {type(stmt).__name__}"
                 )
 
-        # Fell off the end of the sequence without failing: success.
-        builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
-        return module
+    def _emit_if(
+        self,
+        func: ir.Function,
+        builder: ir.IRBuilder,
+        node: AstIf,
+        state: CompileState,
+    ) -> None:
+        """Lower an if / elif* / else chain.
 
-    def _declare_flags(self, builder: ir.IRBuilder, state: CompileState) -> None:
-        """Allocate and initialize the built-in ``flags`` struct."""
+        Each case tests its condition; on true it runs its body and jumps to a
+        shared end block, on false it falls through to test the next case. A
+        block that already ends in a terminator (e.g. its body called exit())
+        is not given a redundant branch to the end.
+        """
+        end_block = func.append_basic_block("if_end")
+        cases = [(node.condition, node.body)]
+        cases += [(case.condition, case.body) for case in node.elifs]
+
+        for condition, case_body in cases:
+            cond = EmitLlvmExpr(builder, self.variables).emit(condition, state)
+            then_block = func.append_basic_block("if_then")
+            next_block = func.append_basic_block("if_next")
+            builder.cbranch(cond, then_block, next_block)
+
+            builder.position_at_end(then_block)
+            self._emit_block(func, builder, case_body, state)
+            if not builder.block.is_terminated:
+                builder.branch(end_block)
+
+            # Subsequent cases (and the else) are tested/run when this condition
+            # was false, i.e. in next_block.
+            builder.position_at_end(next_block)
+
+        if node.els is not None:
+            self._emit_block(func, builder, node.els, state)
+        if not builder.block.is_terminated:
+            builder.branch(end_block)
+
+        builder.position_at_end(end_block)
+
+    def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
+        """Create the built-in ``flags`` struct as a global, seeded with its
+        defaults (e.g. assert_cmd_success = True). It has no declaring statement,
+        so it isn't reached by the variable walk."""
         flags = state.flags_var
-        slot = builder.alloca(flags.type.llvm_type, name=flags.name)
-        self.variables[id(flags)] = slot
-        default = FpyValue(flags.type, dict(flags.type.member_defaults))
-        builder.store(EmitLlvmExpr(builder, self.variables)._emit_const_value(default), slot)
+        g = ir.GlobalVariable(module, flags.type.llvm_type, name=flags.name)
+        g.linkage = "internal"
+        g.initializer = FpyValue(
+            flags.type, dict(flags.type.member_defaults)
+        ).llvm_value
+        self.variables[id(flags)] = g
+
+    def _declare_variables(
+        self,
+        module: ir.Module,
+        builder: ir.IRBuilder,
+        block: AstBlock,
+        state: CompileState,
+    ) -> None:
+        """Recursively declare storage for every variable assigned in *block* and
+        its nested blocks (if/elif/else bodies). Does not descend into function
+        defs -- their locals belong to their own frame (and nested defs can't
+        exist anyway)."""
+        for stmt in block.stmts:
+            if isinstance(stmt, AstAssign):
+                self._declare_variable(module, builder, stmt, state)
+            elif isinstance(stmt, AstIf):
+                self._declare_variables(module, builder, stmt.body, state)
+                for case in stmt.elifs:
+                    self._declare_variables(module, builder, case.body, state)
+                if stmt.els is not None:
+                    self._declare_variables(module, builder, stmt.els, state)
 
     def _declare_variable(
-        self, builder: ir.IRBuilder, node: AstAssign, state: CompileState
+        self,
+        module: ir.Module,
+        builder: ir.IRBuilder,
+        node: AstAssign,
+        state: CompileState,
     ) -> None:
-        """Allocate a stack slot for the variable assigned by *node*, once.
-
-        Any type gets an alloca -- aggregates (structs/arrays) included, since
-        alloca handles them fine. We leave promoting these slots to registers
-        (sroa/mem2reg) to later optimization passes.
-        """
+        """Declare storage for the variable assigned by *node*, once."""
         sym = state.resolved_symbols[node.lhs]
         assert isinstance(sym, VariableSymbol), sym
         if id(sym) in self.variables:
-            return  # already declared (this is a reassignment)
-        self.variables[id(sym)] = builder.alloca(sym.type.llvm_type, name=sym.name)
+            return  # already declared (a reassignment to the same symbol)
+        if sym.is_global:
+            g = ir.GlobalVariable(module, sym.type.llvm_type, name=sym.name)
+            g.linkage = "internal"
+            # Zero-initialized; the declaring assignment writes the real value.
+            g.initializer = ir.Constant(sym.type.llvm_type, None)
+            self.variables[id(sym)] = g
+        else:
+            self.variables[id(sym)] = builder.alloca(
+                sym.type.llvm_type, name=sym.name
+            )
 
     def _emit_assign(
         self, builder: ir.IRBuilder, node: AstAssign, state: CompileState

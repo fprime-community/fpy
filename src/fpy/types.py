@@ -469,6 +469,43 @@ class FpyValue:
         except TypeError:
             return hash(self.type)
 
+    # -- lowering ----------------------------------------------------------
+
+    @property
+    def llvm_value(self) -> "ir.Constant":
+        """The LLVM constant representing this value. Raises an error if
+        not representable"""
+        from llvmlite import ir
+
+        kind = self.type.kind
+        # Internal/abstract types have no LLVM representation.
+        assert kind not in (
+            TypeKind.INTEGER,
+            TypeKind.FLOAT,
+            TypeKind.INTERNAL_STRING,
+        ), self
+
+        llvm_type = self.type.llvm_type
+        if self.type.is_float:
+            # float types store a Decimal; float() gives the double/float value.
+            return ir.Constant(llvm_type, float(self.val))
+        if self.type.is_integer or kind == TypeKind.BOOL:
+            # ints store a Python int; BOOL stores a bool (int(True) == 1).
+            return ir.Constant(llvm_type, int(self.val))
+        if kind == TypeKind.ENUM:
+            # an enum const stores its member name; map it to the integer rep.
+            return ir.Constant(llvm_type, self.type.enum_dict[self.val])
+        if kind == TypeKind.STRUCT:
+            return ir.Constant(
+                llvm_type, [self.val[m.name].llvm_value for m in self.type.members]
+            )
+        if kind == TypeKind.ARRAY:
+            return ir.Constant(llvm_type, [elem.llvm_value for elem in self.val])
+
+        raise NotImplementedError(
+            f"No LLVM constant for a value of type {self.type.display_name}"
+        )
+
     # -- serialization -----------------------------------------------------
 
     def serialize(self) -> bytes:
