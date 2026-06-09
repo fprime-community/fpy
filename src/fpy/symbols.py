@@ -24,14 +24,27 @@ class CommandSymbol(CallableSymbol):
     is_seq_run_with_args: bool = False
 
 
+def _generate_llvm_unsupported(builder, args):
+    """Default LLVM lowering: a builtin that hasn't been taught the llvm/wasm
+    backend yet. Raises rather than silently miscompiling."""
+    raise NotImplementedError("this builtin has no LLVM/wasm lowering yet")
+
+
 @dataclass
 class BuiltinFuncSymbol(CallableSymbol):
-    generate: Callable[[AstFuncCall, dict[int, FpyValue]], list[Directive]]
-    """a function which instantiates the builtin given the calling node and
-    a dict mapping const_arg_indices to their compile-time values"""
+    generate_fpybc: Callable[[AstFuncCall, dict[int, FpyValue]], list[Directive]]
+    """fpybc backend: builds bytecode directives given the calling node and a
+    dict mapping const_arg_indices to their compile-time values. Non-const args
+    are already pushed on the stack by the caller."""
+    generate_llvm: Callable = _generate_llvm_unsupported
+    """llvm/wasm backend: builds the call's LLVM IR. Called as
+    generate_llvm(builder, args), where args is a list of (ir.Value, FpyValue or
+    None) pairs -- each argument's emitted value alongside its compile-time
+    constant value (or None if it isn't constant). Returns the result ir.Value
+    (or None for a NOTHING-typed builtin). Defaults to raising 'not lowered yet'."""
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
     """indices of args that must be compile-time constants and are NOT pushed
-    to the stack; instead their values are passed to generate()"""
+    to the stack; instead their values are passed to generate_fpybc()"""
 
 
 @dataclass

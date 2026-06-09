@@ -12,12 +12,14 @@ import llvmlite.binding as llvm
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
-from fpy.symbols import VariableSymbol
+from fpy.symbols import BuiltinFuncSymbol, VariableSymbol
 from fpy.syntax import (
     AstAssert,
     AstAssign,
     AstBinaryOp,
     AstBlock,
+    AstDef,
+    AstFuncCall,
     AstIdent,
     BinaryStackOp,
 )
@@ -63,9 +65,9 @@ class EmitLlvmExpr(Emitter):
             # Const values are stored at the node's contextual type already.
             return self._emit_const_value(value)
         result = super().emit(node, state)
-        # Runtime emitters produce the node's synthesized type; coerce to the
-        # contextual type the surrounding expression expects (e.g. a U32 var
-        # read in a U64 operator context gets widened here).
+        if result is None:
+            # NOTHING-typed expr, nothing to convert.
+            return None
         synthesized = state.synthesized_types[node]
         contextual = state.contextual_types[node]
         if synthesized != contextual:
@@ -131,6 +133,23 @@ class EmitLlvmExpr(Emitter):
         # synthesized type; emit() handles any widening to the contextual type.
         return self.builder.load(self.variables[id(sym)], name=str(node.name))
 
+    def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState) -> ir.Value | None:
+        func = state.resolved_symbols[node.func]
+        if not isinstance(func, BuiltinFuncSymbol):
+            raise BackendError(
+                f"LLVM backend can't lower a call to {type(func).__name__} yet"
+            )
+        # Pass each argument as (emitted ir.Value, its constant FpyValue or None
+        # if it isn't a compile-time constant). The builtin's generate_llvm picks
+        # whichever it needs.
+        args: list[tuple[ir.Value, FpyValue | None]] = []
+        for arg in node.args or []:
+            if isinstance(arg, FpyValue):  # a filled-in default argument
+                args.append((self._emit_const_value(arg), arg))
+            else:
+                args.append((self.emit(arg, state), state.const_expr_values.get(arg)))
+        return func.generate_llvm(self.builder, args)
+
     def convert_numeric_type(self, value: ir.Value, from_type, to_type) -> ir.Value:
         """Convert a scalar numeric value between two concrete numeric types."""
         assert from_type.is_numerical and to_type.is_numerical, (from_type, to_type)
@@ -189,9 +208,17 @@ class GenerateLlvmModule:
                 self._emit_assign(builder, stmt, state)
             elif isinstance(stmt, AstAssert):
                 self._emit_assert(func, builder, stmt, state)
-            # Anything else (the prepended builtin library defs, bare
-            # expressions, commands, ...) is not lowered yet and is silently
-            # skipped until the backend grows to cover it.
+            elif isinstance(stmt, AstFuncCall):
+                # A call statement (e.g. exit(...)); its result, if any, is
+                # discarded. Unsupported calls raise inside emit_AstFuncCall.
+                EmitLlvmExpr(builder, self.variables).emit(stmt, state)
+            elif isinstance(stmt, AstDef):
+                # need this otherwise nothing compiles cuz of builtin lib
+                continue
+            else:
+                assert False, (
+                    f"LLVM backend doesn't handle top-level {type(stmt).__name__}"
+                )
 
         # Fell off the end of the sequence without failing: success.
         builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))

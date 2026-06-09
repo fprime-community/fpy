@@ -98,3 +98,22 @@ class TestWasmVariables:
             "p: Ref.SignalPair = Ref.SignalPair(3, 4)\n"
             "q: Ref.SignalPair = p\nassert True\n"
         ) == NO_ERROR
+
+
+class TestWasmExit:
+    """The exit() builtin returns its code from the sequence entry point."""
+
+    def test_exit_returns_code_verbatim(self):
+        assert run_seq_wasm("exit(42)\n") == 42
+        assert run_seq_wasm("exit(7)\n") == EXIT_WITH_ERROR
+
+    def test_exit_zero_succeeds(self):
+        assert run_seq_wasm("exit(0)\n") == NO_ERROR
+
+    def test_exit_short_circuits_rest_of_sequence(self):
+        # exit() returns immediately, so the failing assert after it never runs.
+        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
+
+    def test_exit_with_runtime_code(self):
+        # The exit code comes from a variable (read at runtime), not a literal.
+        assert run_seq_wasm("code: U8 = 9\nexit(code)\n") == 9

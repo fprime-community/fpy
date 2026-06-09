@@ -1062,7 +1062,7 @@ class GenerateFunctionBody(Emitter):
                 if i not in func.const_arg_indices:
                     dirs.extend(self._emit_func_arg(arg_node, state))
 
-            dirs.extend(func.generate(node, const_arg_values))
+            dirs.extend(func.generate_fpybc(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:

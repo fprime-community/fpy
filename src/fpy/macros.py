@@ -152,6 +152,25 @@ def generate_log_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[
     ]
 
 
+def generate_exit_llvm(builder, args):
+    """LLVM/wasm lowering of exit(code): return the code from the sequence
+    entry point (fpy_main), then continue emitting into a fresh, unreachable
+    block so any following statements still have a valid place to go.
+
+    args is a list of (ir.Value, FpyValue or None) pairs; exit takes one.
+    Uses only the builder API (no llvmlite import) so importing this module
+    on the bytecode-only path doesn't pull in the LLVM native library.
+    """
+    [(code, _const)] = args
+    # The exit code is a U8; widen it to fpy_main's return type (i32).
+    return_type = builder.function.ftype.return_type
+    if code.type != return_type:
+        code = builder.zext(code, return_type)
+    builder.ret(code)
+    builder.position_at_end(builder.function.append_basic_block("after_exit"))
+    return None
+
+
 def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
     return [
         PushRandDirective(),
@@ -181,7 +200,11 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         lambda n, c: [WaitAbsDirective()],
     ),
     "exit": BuiltinFuncSymbol(
-        "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
+        "exit",
+        NOTHING,
+        [("exit_code", U8, None)],
+        lambda n, c: [ExitDirective()],
+        generate_llvm=generate_exit_llvm,
     ),
     "ln": BuiltinFuncSymbol(
         "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
