@@ -1,11 +1,14 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Union
+from typing import TYPE_CHECKING, Callable, Union
 import typing
 
 from fpy.bytecode.directives import Directive
 from fpy.syntax import Ast, AstDef, AstExpr, AstFuncCall
 from fpy.types import ChDef, CmdDef, FpyType, FpyValue, PrmDef, is_instance_compat
+
+if TYPE_CHECKING:
+    from llvmlite import ir
 
 
 @dataclass
@@ -100,9 +103,12 @@ class VariableSymbol:
     type: FpyType | None = None
     """the resolved type of the variable. None if type unsure at the moment"""
     frame_offset: int | None = None
-    """the offset in the lvar array where this var is stored"""
+    """the offset in the lvar array where this var is stored (fpybc backend)"""
     is_global: bool = False
     """whether this variable is a top-level (global) variable"""
+    llvm_ptr: "ir.Value | None" = field(default=None, compare=False, repr=False)
+    """llvm/wasm backend: the pointer to this variable's storage (an alloca for
+    locals, a GlobalVariable for globals). Set during codegen."""
 
 
 

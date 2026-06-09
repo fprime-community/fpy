@@ -25,7 +25,7 @@ from fpy.syntax import (
     BinaryStackOp,
 )
 from fpy.types import FpyValue
-from fpy.visitors import Emitter
+from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 
 LLVM_TRIPLE = "wasm32-unknown-unknown"
@@ -48,17 +48,9 @@ class EmitLlvmExpr(Emitter):
     they skip that conversion.)
     """
 
-    def __init__(
-        self,
-        builder: ir.IRBuilder,
-        variables: dict[int, ir.AllocaInstr],
-    ):
+    def __init__(self, builder: ir.IRBuilder):
         super().__init__()
         self.builder = builder
-        # Keyed by id(VariableSymbol): the symbol is an unhashable dataclass,
-        # and each variable has exactly one symbol instance, so identity is the
-        # right key.
-        self.variables = variables
 
     def emit(self, node, state: CompileState) -> ir.Value:
         value = state.const_expr_values.get(node)
@@ -101,7 +93,7 @@ class EmitLlvmExpr(Emitter):
         assert isinstance(sym, VariableSymbol), sym
         # Load the variable at its stored (declared) type, which is the ident's
         # synthesized type; emit() handles any widening to the contextual type.
-        return self.builder.load(self.variables[id(sym)], name=str(node.name))
+        return self.builder.load(sym.llvm_ptr, name=str(node.name))
 
     def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState) -> ir.Value | None:
         func = state.resolved_symbols[node.func]
@@ -151,6 +143,24 @@ class EmitLlvmExpr(Emitter):
 FPY_ENTRY_POINT = "fpy_main"
 
 
+class CollectFrameVariables(TopDownVisitor):
+    """Collects every variable declared in a frame"""
+
+    def __init__(self):
+        super().__init__()
+        self.symbols: list[VariableSymbol] = []
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        sym = state.resolved_symbols.get(node.lhs)
+        # Only variable declarations/reassignments need storage; a field or
+        # element target (x.f = ..., a[i] = ...) resolves to something else.
+        if isinstance(sym, VariableSymbol):
+            self.symbols.append(sym)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        return STOP_DESCENT  # a def's locals belong to its own frame
+
+
 class GenerateLlvmModule:
     """Lowers a sequence's top-level statements into an LLVM module.
     """
@@ -164,20 +174,13 @@ class GenerateLlvmModule:
         func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
-        # self.variables maps id(VariableSymbol) -> the pointer to its storage:
-        # an ir.GlobalVariable for is_global variables, or an alloca for
-        # function-locals. Both are load/store pointers, so reads/writes are
-        # uniform; only how the storage is created differs.
-        self.variables: dict[int, ir.Value] = {}
         # The built-in flags struct (a global with no declaring statement).
         self._declare_flags(module, state)
-        # Walk the whole top-level region -- including nested if/elif/else blocks
-        # -- declaring each variable's storage. Fpy is block-scoped and a var is
-        # is_global when it's outside any function, so a variable declared in a
-        # top-level if block is still a global; the walk must reach it (declaring
-        # only the outermost scope would drop it). Created up front so function
-        # bodies can reference globals declared later in the source.
-        self._declare_variables(module, builder, body, state)
+        # Declare storage for every variable in this frame up front.
+        collector = CollectFrameVariables()
+        collector.run(body, state)
+        for sym in collector.symbols:
+            self._declare_variable(module, builder, sym)
 
         self._emit_block(func, builder, body, state)
 
@@ -204,7 +207,7 @@ class GenerateLlvmModule:
             elif isinstance(stmt, AstFuncCall):
                 # A call statement (e.g. exit(...)); its result, if any, is
                 # discarded. Unsupported calls raise inside emit_AstFuncCall.
-                EmitLlvmExpr(builder, self.variables).emit(stmt, state)
+                EmitLlvmExpr(builder).emit(stmt, state)
             elif isinstance(stmt, AstDef):
                 # Function definitions (incl. the prepended builtin library)
                 # aren't lowered here; a call to one is handled at the call site.
@@ -233,7 +236,7 @@ class GenerateLlvmModule:
         cases += [(case.condition, case.body) for case in node.elifs]
 
         for condition, case_body in cases:
-            cond = EmitLlvmExpr(builder, self.variables).emit(condition, state)
+            cond = EmitLlvmExpr(builder).emit(condition, state)
             then_block = func.append_basic_block("if_then")
             next_block = func.append_basic_block("if_next")
             builder.cbranch(cond, then_block, next_block)
@@ -264,51 +267,28 @@ class GenerateLlvmModule:
         g.initializer = FpyValue(
             flags.type, dict(flags.type.member_defaults)
         ).llvm_value
-        self.variables[id(flags)] = g
-
-    def _declare_variables(
-        self,
-        module: ir.Module,
-        builder: ir.IRBuilder,
-        block: AstBlock,
-        state: CompileState,
-    ) -> None:
-        """Recursively declare storage for every variable assigned in *block* and
-        its nested blocks (if/elif/else bodies). Does not descend into function
-        defs -- their locals belong to their own frame (and nested defs can't
-        exist anyway)."""
-        for stmt in block.stmts:
-            if isinstance(stmt, AstAssign):
-                self._declare_variable(module, builder, stmt, state)
-            elif isinstance(stmt, AstIf):
-                self._declare_variables(module, builder, stmt.body, state)
-                for case in stmt.elifs:
-                    self._declare_variables(module, builder, case.body, state)
-                if stmt.els is not None:
-                    self._declare_variables(module, builder, stmt.els, state)
+        flags.llvm_ptr = g
 
     def _declare_variable(
-        self,
-        module: ir.Module,
-        builder: ir.IRBuilder,
-        node: AstAssign,
-        state: CompileState,
+        self, module: ir.Module, builder: ir.IRBuilder, sym: VariableSymbol
     ) -> None:
-        """Declare storage for the variable assigned by *node*, once."""
-        sym = state.resolved_symbols[node.lhs]
-        assert isinstance(sym, VariableSymbol), sym
-        if id(sym) in self.variables:
+        """Declare storage for *sym*, once.
+
+        is_global variables become module-level globals in linear memory, so a
+        function can read/write the same slot main does. Locals become an
+        entry-block alloca. Any type works for either; promoting slots to
+        registers (sroa/mem2reg/globalopt) is left to optimization passes.
+        """
+        if sym.llvm_ptr is not None:
             return  # already declared (a reassignment to the same symbol)
         if sym.is_global:
             g = ir.GlobalVariable(module, sym.type.llvm_type, name=sym.name)
             g.linkage = "internal"
             # Zero-initialized; the declaring assignment writes the real value.
             g.initializer = ir.Constant(sym.type.llvm_type, None)
-            self.variables[id(sym)] = g
+            sym.llvm_ptr = g
         else:
-            self.variables[id(sym)] = builder.alloca(
-                sym.type.llvm_type, name=sym.name
-            )
+            sym.llvm_ptr = builder.alloca(sym.type.llvm_type, name=sym.name)
 
     def _emit_assign(
         self, builder: ir.IRBuilder, node: AstAssign, state: CompileState
@@ -316,8 +296,8 @@ class GenerateLlvmModule:
         sym = state.resolved_symbols[node.lhs]
         # The rhs is coerced to the variable's type, so its emitted value
         # already matches the slot's element type.
-        value = EmitLlvmExpr(builder, self.variables).emit(node.rhs, state)
-        builder.store(value, self.variables[id(sym)])
+        value = EmitLlvmExpr(builder).emit(node.rhs, state)
+        builder.store(value, sym.llvm_ptr)
 
     def _emit_assert(
         self,
@@ -331,7 +311,7 @@ class GenerateLlvmModule:
         On success, control continues in a fresh block so subsequent statements
         keep lowering after the check.
         """
-        condition = EmitLlvmExpr(builder, self.variables).emit(node.condition, state)
+        condition = EmitLlvmExpr(builder).emit(node.condition, state)
 
         fail_block = func.append_basic_block(name="assert_fail")
         ok_block = func.append_basic_block(name="assert_ok")
@@ -346,7 +326,7 @@ class GenerateLlvmModule:
                 ERROR_CODE_TYPE, DirectiveErrorCode.EXIT_WITH_ERROR.value
             )
         else:
-            code = EmitLlvmExpr(builder, self.variables).emit(node.exit_code, state)
+            code = EmitLlvmExpr(builder).emit(node.exit_code, state)
             if code.type != ERROR_CODE_TYPE:
                 code = builder.zext(code, ERROR_CODE_TYPE)
         builder.ret(code)
