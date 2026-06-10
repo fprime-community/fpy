@@ -284,7 +284,7 @@ class FpyType:
             assert (
                 self.max_length is not None
             ), "Cannot compute size of arbitrary-length string"
-            return 2 + self.max_length
+            return FwSizeStoreType.max_size + self.max_length
         if self.kind == TypeKind.ENUM:
             return self.rep_type.max_size
         if self.kind == TypeKind.STRUCT:
@@ -340,6 +340,10 @@ F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
 
+# distinct singleton so that the in-place update 
+# is visible everywhere the object is referenced.
+FwSizeStoreType = FpyType(TypeKind.U16, "U16")
+
 # The canonical TimeBase enum type — default placeholder.
 # The full set of enum constants and representation type are loaded from the
 # dictionary at compile time.  Only TB_NONE is required to exist.
@@ -348,6 +352,21 @@ TIME_BASE = FpyType(
     "TimeBase",
     enum_dict={"TB_NONE": 0},
     rep_type=U16,
+)
+
+LOG_SEVERITY = FpyType(
+    TypeKind.ENUM,
+    "Fw.LogSeverity",
+    enum_dict={
+        "FATAL": 1,
+        "WARNING_HI": 2,
+        "WARNING_LO": 3,
+        "COMMAND": 4,
+        "ACTIVITY_HI": 5,
+        "ACTIVITY_LO": 6,
+        "DIAGNOSTIC": 7,
+    },
+    rep_type=U8,
 )
 
 TIME = FpyType(
@@ -434,7 +453,7 @@ class FpyValue:
                     raise ValueError(
                         f"String too long: {len(encoded)} > {self.type.max_length}"
                     )
-            return struct.pack(">H", len(encoded)) + encoded
+            return FpyValue(FwSizeStoreType, len(encoded)).serialize() + encoded
 
         if kind == TypeKind.ENUM:
             val = self.val
@@ -479,8 +498,10 @@ class FpyValue:
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            str_len = struct.unpack_from(">H", data, offset)[0]
-            offset += 2
+            size_val, offset = FpyValue.deserialize(
+                FwSizeStoreType, data, offset
+            )
+            str_len = size_val.val
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len
             return FpyValue(typ, s), offset
@@ -556,12 +577,15 @@ class PrmDef:
     description: str = ""
 
 
-# The canonical Svc.Fpy.FlagId enum type
-FLAG_ID = FpyType(
-    TypeKind.ENUM,
-    "Svc.Fpy.FlagId",
-    enum_dict={"EXIT_ON_CMD_FAIL": 0},
-    rep_type=U8,
+# The built-in flags struct that controls sequencer behavior.
+# Allocated as a magic global variable at the start of the stack.
+FLAGS_TYPE = FpyType(
+    TypeKind.STRUCT,
+    "$Flags",
+    members=(
+        StructMember("assert_cmd_success", BOOL),
+    ),
+    member_defaults={"assert_cmd_success": FpyValue(BOOL, True)},
 )
 
 # The canonical Fw.CmdResponse enum type
@@ -587,6 +611,16 @@ TIME_COMPARISON = FpyType(
     rep_type=I32,
 )
 
+# The canonical Svc.BlockState enum type. Both the seq dispatcher's RUN_ARGS and
+# the fpy sequencer's RUN command take their blocking arg as this type, so the
+# compiler can match sequence-run commands by this exact type.
+BLOCK_STATE = FpyType(
+    TypeKind.ENUM,
+    "Svc.BlockState",
+    enum_dict={"BLOCK": 0, "NO_BLOCK": 1},
+    rep_type=U8,
+)
+
 # The canonical Fw.TimeIntervalValue struct type
 TIME_INTERVAL = FpyType(
     TypeKind.STRUCT,
@@ -594,6 +628,29 @@ TIME_INTERVAL = FpyType(
     members=(
         StructMember("seconds", U32),
         StructMember("useconds", U32),
+    ),
+)
+
+# Placeholder buffer size for Svc.SeqArgs; replaced from the dictionary at
+# compile time (see _update_seq_args_from_dict in compiler.py).
+DEFAULT_SEQ_ARGS_BUFFER_SIZE = 255
+
+# The canonical Svc.SeqArgs struct type used for passing arguments to subsequences.
+# The buffer's length and name are updated from the dictionary at compile time,
+# and member_defaults is populated by _populate_type_defaults after the load.
+# FPP struct: { $size: FwSizeType, buffer: [N] U8 }
+_SEQ_ARGS_BUFFER_TYPE = FpyType(
+    TypeKind.ARRAY,
+    "Array_U8_255",
+    elem_type=U8,
+    length=DEFAULT_SEQ_ARGS_BUFFER_SIZE,
+)
+SEQ_ARGS = FpyType(
+    TypeKind.STRUCT,
+    "Svc.SeqArgs",
+    members=(
+        StructMember("size", U64),
+        StructMember("buffer", _SEQ_ARGS_BUFFER_TYPE),
     ),
 )
 
@@ -608,7 +665,7 @@ CHECK_STATE = FpyType(
     members=(
         StructMember("persist", TIME_INTERVAL),
         StructMember("timeout", TIME),
-        StructMember("freq", TIME_INTERVAL),
+        StructMember("period", TIME_INTERVAL),
         StructMember("result", BOOL),
         StructMember("last_was_true", BOOL),
         StructMember("last_time_true", TIME),
@@ -617,7 +674,7 @@ CHECK_STATE = FpyType(
     json_default={
         "persist": _TIME_INTERVAL_DEFAULT,
         "timeout": _TIME_DEFAULT,
-        "freq": _TIME_INTERVAL_DEFAULT,
+        "period": _TIME_INTERVAL_DEFAULT,
         "result": False,
         "last_was_true": False,
         "last_time_true": _TIME_DEFAULT,

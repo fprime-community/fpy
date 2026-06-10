@@ -34,10 +34,11 @@ def compile_to_fpybc(source: str) -> str:
     body = text_to_ast(source)
     assert body is not None, "Parsing failed"
     
-    directives = ast_to_directives(body, DEFAULT_DICTIONARY)
-    assert not isinstance(directives, (fpy.error.CompileError, fpy.error.BackendError)), \
-        f"Compilation failed: {directives}"
+    result = ast_to_directives(body, DEFAULT_DICTIONARY)
+    assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
+        f"Compilation failed: {result}"
     
+    directives, _ = result
     return directives_to_fpybc(directives)
 
 

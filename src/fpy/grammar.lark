@@ -5,7 +5,7 @@ input: (_NEWLINE | _toplevel_stmt)*
 
 # Top-level statements: function definitions OR regular statements
 # Function definitions can ONLY appear here, not nested in any control structure
-_toplevel_stmt: def_stmt | _stmt
+_toplevel_stmt: def_stmt | _stmt | meta_stmt
 
 # Regular statements (no function definitions allowed)
 # Small statements must be followed by a newline; compound statements end with their block's DEDENT
@@ -14,6 +14,12 @@ _stmt: _small_stmt _NEWLINE | _compound_stmt
 _small_stmt: expr_stmt | assign_stmt | pass_stmt | break_stmt | continue_stmt | assert_stmt | return_stmt
 # compound statements may contain other statements
 _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
+
+# the sequence metadata definition statement
+meta_stmt: "sequence" "(" [sequence_stmt_parameters] ")"
+sequence_stmt_parameters: sequence_stmt_parameter ("," sequence_stmt_parameter)* ","?
+sequence_stmt_parameter: name ":" expr
+
 
 # an indented list of statements
 block: _NEWLINE _INDENT _stmt+ _DEDENT
@@ -55,25 +61,30 @@ while_stmt: "while" expr ":" block
 # -> AstWhile(condition, body)
 
 # check statement
-# check has a conditional, optional timeout/persist/freq expressions, a list of body statements,
+# check has a conditional, optional timeout/persist/period expressions, a list of body statements,
 # and an optional list of timeout body statements
 # The clauses can appear on the same line as the condition, on separate indented lines, or mixed.
+# A body-less check (no ":" and no body) waits until the condition is satisfied, then continues.
 check_timeout: "timeout" expr
 check_persist: "persist" expr
-check_freq: "freq" expr
+check_period: "period" expr
 # For multi-line format: the last clause can have the colon attached
 check_timeout_final: "timeout" expr ":"
 check_persist_final: "persist" expr ":"
-check_freq_final: "freq" expr ":"
-check_clause: check_timeout | check_persist | check_freq
-check_clause_final: check_timeout_final | check_persist_final | check_freq_final
+check_period_final: "period" expr ":"
+check_clause: check_timeout | check_persist | check_period
+check_clause_final: check_timeout_final | check_persist_final | check_period_final
 # Multi-line clauses: zero or more non-final clauses (each followed by newline),
 # followed by one final clause with colon, then statements at same indentation
+# Body-less variant: one or more clauses without a final colon, no body statements
 check_clauses: _NEWLINE _INDENT (check_clause _NEWLINE)* check_clause_final _NEWLINE _stmt+ _DEDENT
+             | _NEWLINE _INDENT (check_clause _NEWLINE)+ _DEDENT
 # Clauses can be inline, on indented lines, or mixed (some inline, rest indented)
+# Body-less inline: check with optional clauses terminated by newline (no ":" or body)
 check_stmt: "check" expr check_clause* ":" block ["timeout" ":" block]
           | "check" expr check_clause* check_clauses ["timeout" ":" block]
-# -> AstCheck(condition, timeout, persist, freq, body, timeout_body)
+          | "check" expr check_clause* _NEWLINE
+# -> AstCheck(condition, timeout, persist, period, body, timeout_body)
 
 
 # branching statement

@@ -286,8 +286,8 @@ class AstCheck(Ast):
     condition: AstExpr
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    freq: Union[AstExpr, None]    # Default: 1 second interval
-    body: "AstBlock"
+    period: Union[AstExpr, None]    # Default: 1 second interval
+    body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
 
 
@@ -321,6 +321,10 @@ class AstDef(Ast):
     return_type: Union[AstExpr, None]
     body: AstBlock
 
+@dataclass
+class AstSequenceMetadata(Ast):
+    parameters: Union[list[tuple[AstIdent, AstExpr]], None]
+
 
 AstStmt = Union[
     AstExpr,
@@ -335,6 +339,7 @@ AstStmt = Union[
     AstCheck,
     AstAssert,
     AstDef,
+    AstSequenceMetadata,
     AstReturn
 ]
 AstStmtWithExpr = Union[
@@ -400,7 +405,7 @@ def handle_str(meta, s: str):
 
 
 # Check statement clause handlers.
-# The check_stmt grammar has multiple optional clauses (timeout, persist, freq).
+# The check_stmt grammar has multiple optional clauses (timeout, persist, period).
 # We use separate grammar rules for each clause so we can tag them and identify
 # which optional clauses were provided, regardless of how many are present.
 def handle_check_clause(tag):
@@ -415,7 +420,7 @@ def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
     
     Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
-    (clause_type, expr) tuples and body_stmts is an AstBlock.
+    (clause_type, expr) tuples and body_stmts is an AstBlock or None (body-less).
     """
     clauses = []
     stmts = []
@@ -429,22 +434,24 @@ def handle_check_clauses(meta, children):
             stmts.append(child)
     
     # Return as a special tuple that handle_check_stmt can recognize
-    return ("check_clauses_result", clauses, AstBlock(meta, stmts))
+    body = AstBlock(meta, stmts) if stmts else None
+    return ("check_clauses_result", clauses, body)
 
 
 def handle_check_stmt(meta, children):
-    """Parse check statement with optional timeout/persist/freq clauses."""
+    """Parse check statement with optional timeout/persist/period clauses."""
     from fpy.error import SyntaxErrorDuringTransform
     
     condition = children[0]
     timeout = None
     persist = None
-    freq = None
+    period = None
     body = None
     timeout_body = None
+    body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
     
     def set_clause(clause_type, expr):
-        nonlocal timeout, persist, freq
+        nonlocal timeout, persist, period
         if clause_type == "timeout":
             if timeout is not None:
                 raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
@@ -453,10 +460,10 @@ def handle_check_stmt(meta, children):
             if persist is not None:
                 raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
             persist = expr
-        elif clause_type == "freq":
-            if freq is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'freq' clause in check statement", expr)
-            freq = expr
+        elif clause_type == "period":
+            if period is not None:
+                raise SyntaxErrorDuringTransform(f"Duplicate 'period' clause in check statement", expr)
+            period = expr
     
     for child in children[1:]:
         # Handle check_clauses which returns ("check_clauses_result", clauses, body)
@@ -464,18 +471,19 @@ def handle_check_stmt(meta, children):
             _, clauses, stmts = child
             for clause_type, expr in clauses:
                 set_clause(clause_type, expr)
-            body = stmts
+            body = stmts  # May be None for body-less multi-line check
+            body_set = True
         elif isinstance(child, tuple) and len(child) == 2:
             clause_type, expr = child
             set_clause(clause_type, expr)
         elif isinstance(child, AstBlock):
-            if body is None:
+            if not body_set:
                 body = child
+                body_set = True
             else:
                 timeout_body = child
     
-    assert body is not None, "check statement must have a body"
-    return AstCheck(meta, condition, timeout, persist, freq, body, timeout_body)
+    return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
 
 
 def handle_parameter(meta, args):
@@ -484,6 +492,12 @@ def handle_parameter(meta, args):
     name, type_expr = args[0], args[1]
     default_value = args[2] if len(args) == 3 else None
     return (name, type_expr, default_value)
+
+def handle_sequence_argument(meta, args):
+    """Parse a sequence argument: (name, type)"""
+    assert len(args) == 2, f"Expected 2 args, got {len(args)}: {args}"
+    name, type_expr = args[0], args[1]
+    return (name, type_expr)
 
 
 @v_args(meta=True, inline=True)
@@ -505,10 +519,10 @@ class FpyTransformer(Transformer):
 
     check_timeout = handle_check_clause("timeout")
     check_persist = handle_check_clause("persist")
-    check_freq = handle_check_clause("freq")
+    check_period = handle_check_clause("period")
     check_timeout_final = handle_check_clause("timeout")
     check_persist_final = handle_check_clause("persist")
-    check_freq_final = handle_check_clause("freq")
+    check_period_final = handle_check_clause("period")
 
     @v_args(meta=True, inline=True)
     def check_clause(self, meta, x):
@@ -552,6 +566,10 @@ class FpyTransformer(Transformer):
     parameter = no_inline(handle_parameter)
     parameters = no_inline_or_meta(list)  # Just convert to list
     return_stmt = AstReturn
+
+    meta_stmt = AstSequenceMetadata
+    sequence_stmt_parameters = no_inline_or_meta(list)
+    sequence_stmt_parameter = no_inline(handle_sequence_argument)
 
     NAME = lambda self, token: token[1:] if token.startswith('$') else token
     DEC_NUMBER = int

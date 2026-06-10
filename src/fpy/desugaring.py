@@ -26,8 +26,8 @@ from fpy.types import (
     FpyValue,
     INTEGER,
     TIME_OPS,
+    TIME_COMPARISON,
     BOOL,
-    I8,
     I64,
 )
 from fpy.state import (
@@ -344,7 +344,7 @@ class DesugarCheckStatements(Transformer):
     The generated AST nodes will go through normal semantic analysis.
     
     A check statement:
-        check <condition> [timeout <timeout>] [persist <persist>] [freq <freq>]:
+        check <condition> [timeout <timeout>] [persist <persist>] [period <period>]:
             <body>
         [timeout:
             <timeout_body>]
@@ -352,7 +352,7 @@ class DesugarCheckStatements(Transformer):
     Default values:
         - timeout: no timeout (runs indefinitely until condition persists)
         - persist: 0 second interval (condition must be true once)
-        - freq: 1 second interval (check condition every second)
+        - period: 1 second interval (check condition every second)
     
     Gets desugared into (roughly):
         $check_state: $CheckState = $CheckState(...)
@@ -373,7 +373,7 @@ class DesugarCheckStatements(Transformer):
                     break
             else:
                 $check_state.last_was_true = False
-            sleep($check_state.freq.seconds, $check_state.freq.useconds)
+            sleep($check_state.period.seconds, $check_state.period.useconds)
         if $check_state.result:
             <body>
         else:
@@ -467,12 +467,12 @@ class DesugarCheckStatements(Transformer):
             return self.member(self.ident(check_state_name), attr)
         
         # Build the CheckState constructor call
-        # $CheckState(persist=<persist>, timeout=<timeout>, freq=<freq>, 
+        # $CheckState(persist=<persist>, timeout=<timeout>, period=<period>, 
         #             result=False, last_was_true=False, last_time_true=Fw.Time(0,0,0,0), time_started=now())
         
         # Handle default values:
         # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
-        # - freq: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - period: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
         # - timeout: if not specified, use a dummy value (but we skip timeout check logic)
         
         persist_expr = (
@@ -480,8 +480,8 @@ class DesugarCheckStatements(Transformer):
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(0), self.number(0))
         )
         
-        freq_expr = (
-            copy.deepcopy(node.freq) if node.freq is not None
+        period_expr = (
+            copy.deepcopy(node.period) if node.period is not None
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
         )
         
@@ -500,7 +500,7 @@ class DesugarCheckStatements(Transformer):
             self.qualified_name("$CheckState"),             
             persist_expr,                                   # persist
             timeout_expr_to_use,                            # timeout (absolute time)
-            freq_expr,                                      # freq
+            period_expr,                                    # period
             self.boolean(False),                            # result
             self.boolean(False),                            # last_was_true
             self.call_parts(                                # last_time_true = Fw.TimeValue(TimeBase.TB_NONE,0,0,0)
@@ -605,11 +605,11 @@ class DesugarCheckStatements(Transformer):
             [self.assign(cs("last_was_true"), self.boolean(False))]
         )
         
-        # 7. sleep($check_state.freq.seconds, $check_state.freq.useconds)
+        # 7. sleep($check_state.period.seconds, $check_state.period.useconds)
         sleep_call = self.call(
             "sleep",
-            self.member(cs("freq"), "seconds"),
-            self.member(cs("freq"), "useconds")
+            self.member(cs("period"), "seconds"),
+            self.member(cs("period"), "useconds")
         )
         
         # Add condition check and sleep to while body
@@ -626,15 +626,32 @@ class DesugarCheckStatements(Transformer):
         #     <body>
         # else:
         #     <timeout_body>  (optional)
-        final_if = AstIf(
-            self.meta,
-            cs("result"),
-            node.body,           # Use original body
-            [],                  # No elifs
-            node.timeout_body    # Use original timeout_body (may be None)
-        )
+        #
+        # For body-less check (body is None):
+        # - No body, no timeout_body: just the while loop (wait until condition)
+        # - No body, has timeout_body: if not $check_state.result: <timeout_body>
+        result = [init_check_state, while_loop]
         
-        return [init_check_state, while_loop, final_if]
+        if node.body is not None:
+            final_if = AstIf(
+                self.meta,
+                cs("result"),
+                node.body,           # Use original body
+                [],                  # No elifs
+                node.timeout_body    # Use original timeout_body (may be None)
+            )
+            result.append(final_if)
+        elif node.timeout_body is not None:
+            final_if = AstIf(
+                self.meta,
+                self.unary("not", cs("result")),
+                node.timeout_body,   # Run timeout_body when check failed
+                [],                  # No elifs
+                None                 # No else
+            )
+            result.append(final_if)
+        
+        return result
 
 
 
@@ -717,9 +734,10 @@ class DesugarTimeOperators(Transformer):
         For == : cmp(lhs, rhs) == 0
         For != : cmp(lhs, rhs) != 0
         """
-        # Create the cmp function call - returns I8, but we'll use I64 as the intermediate type
-        cmp_call = self._make_func_call(node, cmp_func, I8, state)
-        # Set the contextual type to I64 so codegen will insert sign-extension
+        # Create the cmp function call — returns Fw.TimeComparison enum.
+        # We set contextual type to I64 so codegen inserts sign-extension for the
+        # subsequent integer comparison.
+        cmp_call = self._make_func_call(node, cmp_func, TIME_COMPARISON.rep_type, state)
         state.contextual_types[cmp_call] = I64
         
         op = node.op

@@ -1,11 +1,12 @@
+push_val 255
 allocate 4
 push_val 0 0 0 1
-store_rel_const_offset 0 4
-load_rel 0 4
+store_rel_const_offset 1 4
+load_rel 1 4
 ziext_32_64
 push_val 0 0 0 0 0 0 0 1
 ieq
-if 11
+if 12
 push_val 0 0 0 2
-store_rel_const_offset 0 4
-goto 11
+store_rel_const_offset 1 4
+goto 12

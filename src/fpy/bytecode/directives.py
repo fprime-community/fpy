@@ -8,6 +8,8 @@ from typing import ClassVar
 from fpy.types import (
     FpyType,
     FpyValue,
+    TypeKind,
+    FwSizeStoreType,
     U8,
     U16,
     U32,
@@ -32,20 +34,44 @@ from fpy.syntax import (
 # Bytecode-level type aliases (FpyType singletons)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FwSizeType = U64
-FwChanIdType = U32
-FwPrmIdType = U32
-FwOpcodeType = U32
+# User-configurable types
+FwChanIdType = FpyType(TypeKind.U32, "U32")
+FwPrmIdType = FpyType(TypeKind.U32, "U32")
+FwOpcodeType = FpyType(TypeKind.U32, "U32")
+
+
 ArrayIndexType = I64
 StackSizeType = U32
 SignedStackSizeType = I32
 LoopVarType = I64  # same as ArrayIndexType
 
 
+def _update_configurable_type(
+    target: FpyType, type_defs: dict[str, FpyType], name: str
+) -> None:
+    """Update *target* in place to match the dictionary's definition of *name*.
+    """
+    if name not in type_defs:
+        return
+    resolved = type_defs[name]
+    assert resolved.is_primitive, (
+        f"Configurable type {name} must resolve to a primitive, got {resolved}"
+    )
+    target.kind = resolved.kind
+    target.name = resolved.name
+
+
+def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
+    """Update the user-configurable Fw* bytecode types in place from the dictionary."""
+    _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
+    _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
+    _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
+    _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DirectiveId enum
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 class DirectiveId(Enum):
     INVALID = 0
@@ -135,16 +161,17 @@ class DirectiveId(Enum):
     STACK_CMD = 64
     PUSH_TLM_VAL_AND_TIME = 65
     PUSH_TIME = 66
-    SET_FLAG = 67
-    GET_FLAG = 68
-    GET_FIELD = 69
-    PEEK = 70
-    STORE_REL = 71
-    CALL = 72
-    RETURN = 73
-    LOAD_ABS = 74
-    STORE_ABS = 75
-    STORE_ABS_CONST_OFFSET = 76
+    GET_FIELD = 67
+    PEEK = 68
+    STORE_REL = 69
+    CALL = 70
+    RETURN = 71
+    LOAD_ABS = 72
+    STORE_ABS = 73
+    STORE_ABS_CONST_OFFSET = 74
+    POP_EVENT = 75
+    SET_SEED = 76
+    PUSH_RAND = 77
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,6 +395,12 @@ class ConstCmdDirective(Directive):
     cmd_opcode: int
     args: bytes
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"cmd_opcode": FwOpcodeType}
+
+
+@dataclass
+class PopEventDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.POP_EVENT
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -663,18 +696,13 @@ class PushTimeDirective(Directive):
 
 
 @dataclass
-class SetFlagDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.SET_FLAG
-    flag_idx: int
-    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"flag_idx": U8}
+class PushRandDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.PUSH_RAND
 
 
 @dataclass
-class GetFlagDirective(Directive):
-    opcode: ClassVar[DirectiveId] = DirectiveId.GET_FLAG
-    flag_idx: int
-    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"flag_idx": U8}
-
+class SetSeedDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.SET_SEED
 
 @dataclass
 class CallDirective(Directive):

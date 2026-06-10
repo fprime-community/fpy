@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/fprime-community/fpy)](LICENSE)
 
 
-Fpy is a user-friendly spacecraft scripting language for the [F-Prime](https://nasa.github.io/fprime/) flight software framework.
+Fpy is a user-friendly spacecraft scripting language for the [F Prime](https://nasa.github.io/fprime/) flight software framework.
 
 ---
 
@@ -27,7 +27,7 @@ This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy byt
 
 # User's Guide
 
-This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F-Prime before.
+This guide is a quick overview of the most important features of Fpy. It should be easy to follow for someone who has used Python and F Prime before.
 
 ## Compiling and Running a Sequence
 
@@ -50,45 +50,62 @@ You can compile it with `fprime-fpyc test.fpy --dictionary Ref/build-artifacts/L
 
 Make sure your deployment topology has an instance of the `Svc.FpySequencer` component. You can run the sequence by passing it in as an argument to the `Svc.FpySequencer.RUN` command.
 
+## Logging
+
+Fpy supports logging F Prime events:
+```py
+log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
+```
+
+You can configure the severity of the event:
+```py
+log("uh oh", Fw.LogSeverity.WARNING_HI)
+log("oh no!", Fw.LogSeverity.FATAL)
+```
+
+All F Prime severity levels are supported.
+
+At the moment, only constant string arguments are supported. See [Strings](#strings).
+
 ## Commands
 
-Fpy supports calling any command in the F-Prime dictionary:
+Fpy supports calling any command in the F Prime dictionary:
 
 ```py
 CdhCore.cmdDisp.CMD_NO_OP()
 # no delay between commands
-CdhCore.cmdDisp.CMD_NO_OP_STRING("Hello world!")
+CdhCore.cmdDisp.CMD_NO_OP_STRING("hello world!")
 # the sequence waits until a command response is returned
 ```
 
 Commands arguments are type checked, and they do not need to be constants. You can pass command arguments by name:
 ```py
-CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
+CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="hello world!")
 ```
 
-If a command doesn't successfully execute, the sequence can optionally exit with an error. You can configure this in the sequence by setting the `Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL` flag:
-
+If a command fails and the response isn't handled, the sequence will exit with an error:
 ```py
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
-# sequence proceeds normally
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, True)
 CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 # sequence exits with an error
 ```
 
-This is kind of like Bash's `set -e` and `set +e` commands.
-
-If you choose to allow command failures, you can also handle the return status of the command:
+You can suppress errors by handling the return value of the command:
 ```py
-set_flag(Svc.Fpy.FlagId.EXIT_ON_CMD_FAIL, False)
-success: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
+success: Fw.CmdResponse = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# cmd response is handled, sequence proceeds normally
 
-if success == Fw.CmdResponse.OK:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("No-op works!")
+if success == Fw.CmdResponse.EXECUTION_ERROR:
+    log("Command failed!")
 ```
 
-You can configure the default value of that flag for all sequences by changing the `Svc.FpySequencer.FLAG_DEFAULT_EXIT_ON_CMD_FAIL` parameter.
+You can configure whether unhandled command failures cause the sequence to exit by setting the `flags.assert_cmd_success` Boolean flag:
+```py
+flags.assert_cmd_success = False
+CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
+# sequence proceeds normally
+```
+
+`flags.assert_cmd_success` is kind of like Bash's `set -e` and `set +e` commands. The flag defaults to `True`.
 
 ## Variables and Basic Types
 
@@ -172,19 +189,21 @@ int: I32 = I32(uint)
 
 ## Dictionary Types
 
-Fpy also has access to all structs, arrays and enums in the F-Prime dictionary:
+Fpy also has access to all structs, arrays and enums in the F Prime dictionary:
 ```py
 # you can access enum constants by name:
 enum_var: Fw.Success = Fw.Success.SUCCESS
 
 # you can construct arrays:
-array_var: Ref.DpDemo.U32Array = Ref.DpDemo.U32Array(0, 1, 2, 3, 4)
+array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 
 # you can construct structs:
-struct_var: Ref.SignalPair = Ref.SignalPair(0.0, 1.0)
+struct_var: Fw.TimeInterval = {seconds: 0, useconds: 1000}
 ```
 
-In general, the syntax for instantiating a struct or array type is `Full.Type.Name(arg, ..., arg)`. Trailing commas are allowed.
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
+
+Trailing commas are allowed in these expressions.
 
 ## Math
 You can do basic math and store the result in variables in Fpy:
@@ -248,11 +267,11 @@ You can branch off of conditionals with `if`, `elif` and `else`:
 random_value: I8 = 4 # chosen by fair dice roll. guaranteed to be random
 
 if random_value < 0:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("won't happen")
+    log("won't happen")
 elif random_value > 0 and random_value <= 6:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen!")
+    log("should happen!")
 else:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("uh oh...")
+    log("uh oh...")
 ```
 
 This is particularly useful for checking telemetry channel values:
@@ -261,28 +280,15 @@ This is particularly useful for checking telemetry channel values:
 CdhCore.cmdDisp.CMD_NO_OP()
 # the commands dispatched count should be >= 1
 if CdhCore.cmdDisp.CommandsDispatched >= 1:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("should happen")
+    log("should happen")
 ```
-
-## Anonymous struct/array expressions
-
-You can construct structs/arrays with a simple syntax:
-```py
-time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
-
-array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
-```
-
-If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
-
-Trailing commas are allowed in these expressions.
 
 ## Check statement
 
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 15 seconds!")
+    log("more than 30 commands for 15 seconds!")
 ```
 
 If you don't specify a value for `persist`, the condition only has to be true once.
@@ -290,34 +296,41 @@ If you don't specify a value for `persist`, the condition only has to be true on
 You can specify an absolute time at which the `check` should time out:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 ```
 
 You can also specify a `timeout` clause, which executes if the `check` times out:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
 ```
 
-Finally, you can specify a `freq` at which the condition should be checked:
+Finally, you can specify a `period` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 freq {seconds: 1}: # check every 1 second
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands!")
+check CdhCore.cmdDisp.CommandsDispatched > 30 period {seconds: 1}: # check every 1 second
+    log("more than 30 commands!")
 ```
 
-If you don't specify a value for `freq`, the default frequency is 1 Hertz.
+If you don't specify a value for `period`, the default period is 1 second.
 
-The `timeout`, `persist` and `freq` clauses can appear in any order. They can also be spread across multiple lines:
+The `timeout`, `persist` and `period` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30
     timeout now() + {seconds: 60}
     persist {seconds: 2}
-    freq {seconds: 1}
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("more than 30 commands for 2 seconds!")
+    period {seconds: 1}
+    log("more than 30 commands for 2 seconds!")
 timeout:
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("took more than 60 seconds :(")
+    log("took more than 60 seconds :(")
+```
+
+If you just want to wait until a condition is true without running any body, you can omit the colon and body:
+```py
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60}
+# execution continues here once the condition is satisfied (or times out)
+log("done waiting!")
 ```
 
 ## Getting Struct Members and Array Items
@@ -405,7 +418,7 @@ You can define and call functions:
 ```py
 def foobar():
     if 1 + 2 == 3:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("foo")
+        log("foo")
 
 foobar()
 ```
@@ -418,13 +431,13 @@ def add_vals(a: U64, b: U64) -> U64:
 assert add_vals(1, 2) == 3
 ```
 
-Trailing commas are allowed in the argument list.
+Function arguments are passed by value. Trailing commas are allowed in the argument list.
 
 Functions can have default argument values:
 ```py
 def greet(times: I64 = 3):
     for i in 0..times:
-        CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")
+        log("hello")
 
 greet()  # uses default: prints 3 times
 greet(1) # prints once
@@ -449,33 +462,66 @@ Functions can call each other or themselves:
 def recurse(limit: U64):
     if limit == 0:
         return
-    CdhCore.cmdDisp.CMD_NO_OP_STRING("tick")
+    log("tick")
     recurse(limit - 1)
 
 recurse(5) # prints "tick" 5 times
 ```
 
-Functions can only be defined at the top level—not inside loops, conditionals, or other functions.
+Functions can only be defined at the top level, so not inside loops, conditionals, or other functions.
+
+## Sequence arguments
+
+You can define arguments for a sequence similarly to function arguments:
+```py
+# in "example.fpy"
+
+# sequence() must be the first statement in the file
+sequence(foo: U32, bar: bool)
+
+if foo == 123 and bar:
+    log("foobar!")
+```
+Sequence arguments cannot have default values. They are always passed by value.
+
+There are two ways of calling sequences, each of which supports passing sequence arguments: from another sequence, or from the ground.
+
+When you call a sequence from another sequence, you can provide argument values in the command:
+```py
+# call the example.bin sequence, in blocking mode, with the argument values 123 and True
+# passing args by name is supported
+Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123, bar=True)
+```
+
+To call a sequence from the ground, use the `fprime-fpy-cmd` CLI:
+```
+# this does the same thing as the previous example
+$ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123, bar=True)' -d TopologyDictionary.json
+```
+To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
+
+In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
+
+**Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
 ```py
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 0")
+log("second 0")
 # sleep for 1 second
 sleep(1)
-CdhCore.cmdDisp.CMD_NO_OP_STRING("second 1")
+log("second 1")
 # sleep for half a second
 sleep(useconds=500_000)
 
 # sleep until the next checkTimers call on the Svc.FpySequencer component
 sleep()
-CdhCore.cmdDisp.CMD_NO_OP_STRING("checkTimers called!")
+log("checkTimers called!")
 
-CdhCore.cmdDisp.CMD_NO_OP_STRING("today")
+log("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
-# time base of 0, time context of 1
-sleep_until({timeBase: 0, timeContext: 1, seconds=1234567890, useconds=0})
-CdhCore.cmdDisp.CMD_NO_OP_STRING("much later")
+sleep_until({timeBase: TimeBase.TB_NONE, timeContext: 1, seconds: 1234567890, useconds: 0})
+log("much later")
 ```
 
 You can also use the `time()` function to parse ISO 8601 timestamps:
@@ -487,8 +533,8 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize timeBase and timeContext (defaults are 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=2, timeContext=1)
+# Customize timeBase and timeContext (defaults are TimeBase.TB_NONE and 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
@@ -525,15 +571,15 @@ assert interval1 < interval2
 
 You can add a `Fw.TimeInterval` to a `Fw.Time`:
 ```py
-current: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 500000}
+current: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 500000}
 offset: Fw.TimeInterval = {seconds: 60}
 assert (current + offset).seconds == 160
 ```
 
 You can subtract two `Fw.Time` values to get a `Fw.TimeInterval`:
 ```py
-start: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 100, useconds: 0}
-end: Fw.Time = {timeBase: 1, timeContext: 0, seconds: 105, useconds: 500000}
+start: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 100, useconds: 0}
+end: Fw.Time = {timeBase: TimeBase.TB_PROC_TIME, timeContext: 0, seconds: 105, useconds: 500000}
 assert (end - start).seconds == 5
 ```
 
@@ -568,7 +614,9 @@ assert 1 > 2, 123
 ```
 
 ## Strings
-Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F-Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
+Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
+
+## fprime-fpy-cmd
 
 
 # Developer's Guide
@@ -580,7 +628,7 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 3. Make changes to the source
 4. `pytest`
 
-## Running on a test F-Prime deployment
+## Running on a test F Prime deployment
 
 1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
 2. `cd fprime-fpy-testbed`

@@ -1,10 +1,13 @@
 from __future__ import annotations
-from dataclasses import fields
+from dataclasses import fields, replace as dc_replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
+from pathlib import Path
 import struct
 from typing import Union
+
+from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
 
 from fpy.error import CompileError
 from fpy.macros import TIME_MACRO
@@ -36,12 +39,14 @@ from fpy.types import (
     I64,
     F32,
     F64,
+    SEQ_ARGS,
     is_instance_compat,
 )
 from fpy.state import (
     BuiltinFuncSymbol,
     CallableSymbol,
     CastSymbol,
+    CommandSymbol,
     CompileState,
     FieldAccess,
     ForLoopAnalysis,
@@ -99,6 +104,7 @@ from fpy.syntax import (
     AstReference,
     AstReturn,
     AstBlock,
+    AstSequenceMetadata,
     AstStmt,
     AstStmtWithExpr,
     AstString,
@@ -227,6 +233,38 @@ class CreateScopes:
                                 self._walk(elem, state, scope)
             elif isinstance(val, Ast):
                 self._walk(val, state, scope)
+    
+class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
+    """
+    Ensure that sequence() statement is at the top of the user's sequence.
+    This pass runs BEFORE builtin functions are inserted, so we check the raw user code.
+    If a sequence() definition exists, it must be the very first statement.
+    """
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # Only check the root block (top-level sequence)
+        if node is not state.root:
+            return
+
+        # Walk through statements in order
+        found_non_metadata = False
+        for stmt in node.stmts:
+            if isinstance(stmt, AstSequenceMetadata):
+                # If we've already seen a non-metadata statement, this is an error
+                if found_non_metadata:
+                    state.err(
+                        f"sequence() definition must be the first statement in the file",
+                        stmt
+                    )
+                # sequence() must be the first statement if present
+                elif stmt is not node.stmts[0]:
+                    state.err(
+                        f"sequence() definition must be the first statement in the file",
+                        stmt
+                    )
+            else:
+                # Mark that we've seen a non-metadata statement
+                found_non_metadata = True
 
 
 class CreateVariablesAndFuncs(TopDownVisitor):
@@ -383,6 +421,30 @@ class CreateVariablesAndFuncs(TopDownVisitor):
         self._deferred_defs.append(node)
         return STOP_DESCENT
 
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        scope = state.enclosing_value_scope[node]
+        if node.parameters is None:
+            return
+
+        if len(node.parameters) > 255:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); maximum is 255",
+                node,
+            )
+            return
+
+        for arg in node.parameters:
+            arg_name_var, arg_type_name = arg
+            existing_arg = scope.lookup(arg_name_var.name)
+            if existing_arg is not None:
+                # two sequence parameters with the same name
+                state.err(
+                    f"Parameter '{arg_name_var}' has already been defined",
+                    arg_name_var,
+                )
+                return
+            arg_var = VariableSymbol(arg_name_var.name, arg_type_name, node, is_global=True)
+            scope[arg_name_var.name] = arg_var
 
 class SetEnclosingLoops(Visitor):
     """sets the enclosing_loop of any break/continue it finds"""
@@ -447,7 +509,11 @@ class ResolveQualifiedNames(TopDownVisitor):
 
         if not is_instance_compat(root_node, AstIdent):
             # not a qualified name
-            # skip for now
+            if group == NameGroup.TYPE:
+                # types must be identifiers or qualified names
+                state.err(f"Expected a type name", node)
+                return False
+            # for values/callables, non-identifier expressions are fine
             return True
 
         root_symbol = None
@@ -535,6 +601,16 @@ class ResolveQualifiedNames(TopDownVisitor):
             return
         if not self.try_resolve_name(node.rhs, NameGroup.VALUE, state):
             return
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+
+        for arg_name_var, arg_type_name in node.parameters:
+            if not self.try_resolve_name(arg_type_name, NameGroup.TYPE, state):
+                return
+            if not self.try_resolve_name(arg_name_var, NameGroup.VALUE, state):
+                return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         if not self.try_resolve_name(node.func, NameGroup.CALLABLE, state):
@@ -712,6 +788,27 @@ class UpdateTypesAndFuncs(Visitor):
 
         var.type = var_type
 
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        # Resolve parameter types
+        if node.parameters is None:
+            return
+        
+        arg_offset = 0
+        for arg_name_var, arg_type_name in node.parameters:
+            arg_type = state.resolved_symbols[arg_type_name]
+            if not is_type_constant_size(arg_type):
+                state.err(
+                    f"Type {arg_type.display_name} is not constant-sized (contains strings)",
+                    arg_type_name,
+                )
+                return
+            # update the var type
+            arg_var = state.resolved_symbols[arg_name_var]
+            assert is_instance_compat(arg_var, VariableSymbol), arg_var
+            arg_var.type = arg_type
+            arg_var.frame_offset = arg_offset
+            arg_offset += arg_type.max_size
+            state.this_seq_arg_specs.append((arg_var.name, arg_type))
 
 class EnsureVariableNotReferenced(Visitor):
     def __init__(self, var: VariableSymbol):
@@ -770,10 +867,13 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # not a variable, might be a type name or smth
             return
 
-        if is_instance_compat(sym.declaration, AstDef):
-            # function parameters - no use-before-define check needed
-            # this is because if it's in scope, it's defined, as its
-            # "declaration" is the start of the scope
+        if is_instance_compat(sym.declaration, (AstDef, AstSequenceMetadata)):
+            # function parameters and sequence metadata - no use-before-define
+            # check needed this is because if it's in scope, it's defined, as
+            # its "declaration" is the start of the scope
+            return
+        if sym.declaration is None:
+            # Built-in variable (e.g., flags) — always defined
             return
         if (
             is_instance_compat(sym.declaration, AstAssign)
@@ -798,6 +898,105 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
 
+class ResolveSequenceDependencies(TopDownVisitor):
+    """Discover and resolve all sequence-run dependencies before type checking.
+
+    For each call to a seq-run command with a string-literal filename,
+    reads the target .bin header and resolves its argument types.
+    Results are stored in state.called_seq_arg_specs so that later passes
+    can use them without file I/O.
+    """
+
+    def _get_bin_name(self, node: AstFuncCall, state: CompileState) -> str | None:
+        """Return the .bin filename for a seq-run-with-args call, or None.
+
+        Reports a compile error if the filename argument is not a string literal.
+        """
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
+            return None
+        if not node.args or len(node.args) < 1:
+            # Missing args will be caught by build_resolved_call_args (too few arguments)
+            return None
+        file_name_arg = node.args[0]
+        if not is_instance_compat(file_name_arg, AstString):
+            state.err(
+                "Sequence file name must be a string literal",
+                file_name_arg,
+            )
+            return None
+        return file_name_arg.value
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        bin_name = self._get_bin_name(node, state)
+        if bin_name is None or bin_name in state.called_seq_arg_specs:
+            return
+
+        ground_binary_dir = state.ground_binary_dir
+        if ground_binary_dir is None:
+            state.err(
+                "Cannot resolve sequence binary path: no binary directory configured (use --ground-binary-dir / -B)",
+                node,
+            )
+            return
+
+        bin_path = Path(ground_binary_dir) / bin_name
+        if not bin_path.exists():
+            state.err(
+                f"Compiled sequence binary not found: {bin_path}",
+                node.args[0],
+            )
+            return
+
+        try:
+            arg_specs = read_bin_arg_specs(bin_path)
+        except Exception as e:
+            state.err(
+                f"Failed to read sequence binary {bin_path}: {e}",
+                node.args[0],
+            )
+            return
+
+        try:
+            target_arg_types = resolve_arg_specs(arg_specs, state.type_defs)
+        except RuntimeError as e:
+            state.err(
+                f"Failed to resolve argument types from {bin_path}: {e}",
+                node.args[0],
+            )
+            return
+
+        state.called_seq_arg_specs[bin_name] = target_arg_types
+
+        # Build an extended CommandSymbol that includes the target sequence's
+        # parameters so that standard arg resolution works in PickTypes.
+        func = state.resolved_symbols.get(node.func)
+        extra_args = [(name, t, None) for name, t in target_arg_types]
+        extended_func = dc_replace(func, args=func.args + extra_args)
+        state.resolved_symbols[node.func] = extended_func
+
+
+class CollectSequenceDependencies(ResolveSequenceDependencies):
+    """Collect .bin filenames from seq-run-with-args calls without reading binaries.
+
+    Use this instead of ResolveSequenceDependencies when you only need the
+    dependency list (e.g. the fprime-fpy-depend tool) and the binaries may
+    not exist yet.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.bin_names: list[str] = []
+        self._seen: set[str] = set()
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        bin_name = self._get_bin_name(node, state)
+        if bin_name is None or bin_name in self._seen:
+            return
+        self._seen.add(bin_name)
+        self.bin_names.append(bin_name)
+
+
 class PickTypesAndResolveFields(Visitor):
 
     def can_coerce_type(self, source: FpyType, target: FpyType) -> bool:
@@ -812,11 +1011,14 @@ class PickTypesAndResolveFields(Visitor):
         self, node: AstExpr, type: FpyType, state: CompileState
     ) -> bool:
         unconverted_type = state.synthesized_types[node]
-        # make sure it isn't already being coerced
-        assert unconverted_type == state.contextual_types[node], (
-            unconverted_type,
-            state.contextual_types[node],
-        )
+        current_contextual = state.contextual_types[node]
+
+        # Already coerced — idempotent if same target, bug if different
+        if current_contextual != unconverted_type:
+            assert current_contextual == type, (
+                f"double coercion: {unconverted_type} -> {current_contextual} vs {type}"
+            )
+            return True
 
         if not self.can_coerce_type(unconverted_type, type):
             state.err(
@@ -1445,14 +1647,15 @@ class PickTypesAndResolveFields(Visitor):
     def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
         # Synthesize an anonymous array type from the element expressions
         elem_types = [state.synthesized_types[elem] for elem in node.elements]
-        # Compute common element type (needed for index access on anon arrays)
+        # Compute common element type
         common_elem_type = None
         if len(elem_types) > 0:
             common_elem_type = elem_types[0]
             for et in elem_types[1:]:
                 common_elem_type = self.find_common_type(common_elem_type, et)
                 if common_elem_type is None:
-                    break
+                    state.err("Array elements have no common type", node)
+                    return
         anon_type = FpyType(
             TypeKind.ANON_ARRAY,
             f"$AnonArray[{len(elem_types)}]",
@@ -1462,105 +1665,84 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = anon_type
         state.contextual_types[node] = anon_type
 
-    def build_resolved_call_args(
+    def resolve_args(
         self,
         node: AstFuncCall,
         func: CallableSymbol,
         node_args: list,
+        state: CompileState,
     ) -> list[AstExpr] | CompileError:
-        """Build a complete list of argument expressions for a function call.
+        """Resolve a function call's arguments.
 
-        This function:
-        1. Reorders named arguments to positional order
-        2. Fills in default values for missing optional arguments
-        3. Checks for missing required arguments
+        Reorders named arguments to positional order, fills in default values
+        for missing optional arguments, checks for missing required arguments,
+        and validates argument types are compatible.
 
-        Returns a list of argument expressions in positional order.
+        Returns assigned_args on success.
         Returns a CompileError if there's an issue with the arguments.
         """
         func_args = func.args
+        param_name_to_idx = {a[0]: i for i, a in enumerate(func_args)}
 
-        # Build a map of parameter name to index
-        param_name_to_idx = {arg[0]: i for i, arg in enumerate(func_args)}
-
-        # Track which arguments have been assigned
-        assigned_args: list[AstExpr | None] = [None] * len(func_args)
+        # Validate: no positional args after named args
         seen_named = False
-        positional_count = 0
-
         for arg in node_args:
             if is_instance_compat(arg, AstNamedArgument):
                 seen_named = True
-                # Check if the name is valid
-                if arg.name not in param_name_to_idx:
-                    return CompileError(
-                        f"Unknown argument name '{arg.name}'",
-                        arg,
-                    )
-                idx = param_name_to_idx[arg.name]
-                # Check if the argument was already assigned
-                if assigned_args[idx] is not None:
-                    return CompileError(
-                        f"Argument '{arg.name}' specified multiple times",
-                        arg,
-                    )
-                assigned_args[idx] = arg.value
+            elif seen_named:
+                return CompileError(
+                    "Positional argument cannot follow named argument",
+                    arg if is_instance_compat(arg, Ast) else node,
+                )
+
+        assigned: list[AstExpr | None] = [None] * len(func_args)
+
+        # Process positional args (guaranteed to come before any named args)
+        for i, arg in enumerate(node_args):
+            if is_instance_compat(arg, AstNamedArgument):
+                break
+            if i < len(func_args):
+                assigned[i] = arg
             else:
-                # Positional argument
-                if seen_named:
-                    return CompileError(
-                        "Positional argument cannot follow named argument",
-                        arg,
-                    )
-                if positional_count >= len(func_args):
-                    return CompileError(
-                        f"Too many arguments (expected at most {len(func_args)})",
-                        node,
-                    )
-                # Check if already assigned (shouldn't happen for positional-only case)
-                if assigned_args[positional_count] is not None:
-                    # This would happen if named arg came before positional
-                    return CompileError(
-                        f"Argument '{func_args[positional_count][0]}' specified multiple times",
-                        arg,
-                    )
-                assigned_args[positional_count] = arg
-                positional_count += 1
+                return CompileError(
+                    f"Too many arguments (expected {len(func_args)})",
+                    node,
+                )
+
+        # Process named args
+        for arg in node_args:
+            if not is_instance_compat(arg, AstNamedArgument):
+                continue
+            if arg.name not in param_name_to_idx:
+                return CompileError(
+                    f"Unknown argument '{arg.name}'",
+                    arg,
+                )
+            idx = param_name_to_idx[arg.name]
+            if assigned[idx] is not None:
+                return CompileError(
+                    f"Argument '{arg.name}' specified multiple times",
+                    arg,
+                )
+            assigned[idx] = arg.value
 
         # Fill in default values for missing arguments, error on missing required args
-        for i, arg_expr in enumerate(assigned_args):
+        for i, arg_expr in enumerate(assigned):
             if arg_expr is None:
                 default_value = func_args[i][2]
                 if default_value is not None:
-                    assigned_args[i] = default_value
+                    assigned[i] = default_value
                 else:
                     return CompileError(
                         f"Missing required argument '{func_args[i][0]}'",
                         node,
                     )
 
-        return assigned_args
-
-    def check_arg_types_compatible_with_func(
-        self,
-        node: AstFuncCall,
-        func: CallableSymbol,
-        resolved_args: list[AstExpr],
-        state: CompileState,
-    ) -> CompileError | None:
-        """Check if a function call's arguments have compatible types.
-
-        Given args must be coercible to expected args, with a special case for casting
-        where any numeric type is accepted.
-        resolved_args must be in positional order with all values present (defaults filled in).
-        Returns a compile error if types don't match, otherwise None.
-        """
-        func_args = func.args
-
+        # Type check resolved args against the function signature
         if is_instance_compat(func, CastSymbol):
             # casts do not follow coercion rules, because casting is the counterpart of coercion!
             # coercion is implicit, casting is explicit. if they say they want to cast, we let them
-            node_arg = resolved_args[0]
+            node_arg = assigned[0]
             input_type = state.synthesized_types[node_arg]
             output_type = func.to_type
             # right now we only have casting to numbers
@@ -1570,35 +1752,33 @@ class PickTypesAndResolveFields(Visitor):
                 return CompileError(
                     f"Expected a number, found {input_type.display_name}", node_arg
                 )
-            # no error! looks good to me
-            return
+        else:
+            for value_expr, arg in zip(assigned, func_args):
+                arg_type = arg[1]
 
-        # Check provided args against expected
-        for value_expr, arg in zip(resolved_args, func_args):
-            arg_type = arg[1]
+                # Skip type check for default values that are FpyValue instances
+                # this can happen if the value is hardcoded from a builtin func
+                # or from dictionary defaults for type constructors
+                if not is_instance_compat(value_expr, Ast):
+                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
+                    assert is_instance_compat(value_expr, FpyValue), value_expr
+                    continue
 
-            # Skip type check for default values that are FpyValue instances
-            # this can happen if the value is hardcoded from a builtin func
-            # or from dictionary defaults for type constructors
-            if not is_instance_compat(value_expr, Ast):
-                assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
-                continue
+                # Skip type check for default values from forward-called functions.
+                # These expressions haven't been visited yet, so they're not in
+                # synthesized_types. Their type compatibility is verified when
+                # the function definition is visited.
+                if value_expr not in state.synthesized_types:
+                    continue
 
-            # Skip type check for default values from forward-called functions.
-            # These expressions haven't been visited yet, so they're not in
-            # synthesized_types. Their type compatibility is verified when
-            # the function definition is visited.
-            if value_expr not in state.synthesized_types:
-                continue
+                unconverted_type = state.synthesized_types[value_expr]
+                if not self.can_coerce_type(unconverted_type, arg_type):
+                    return CompileError(
+                        f"Expected {arg_type.display_name}, found {unconverted_type.display_name}",
+                        value_expr if is_instance_compat(value_expr, Ast) else node,
+                    )
 
-            unconverted_type = state.synthesized_types[value_expr]
-            if not self.can_coerce_type(unconverted_type, arg_type):
-                return CompileError(
-                    f"Expected {arg_type.display_name}, found {unconverted_type.display_name}",
-                    value_expr if is_instance_compat(value_expr, Ast) else node,
-                )
-        # all args r good
-        return
+        return assigned
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
@@ -1620,24 +1800,14 @@ class PickTypesAndResolveFields(Visitor):
 
         node_args = node.args if node.args else []
 
-        # Build resolved args: reorder named args, fill in defaults, check for missing required
-        resolved_args = self.build_resolved_call_args(node, func, node_args)
-        if is_instance_compat(resolved_args, CompileError):
-            state.errors.append(resolved_args)
+        # Resolve args: reorder named args, fill in defaults, check types
+        result = self.resolve_args(node, func, node_args, state)
+        if is_instance_compat(result, CompileError):
+            state.errors.append(result)
             return
 
+        resolved_args = result
         state.resolved_args[node] = resolved_args
-
-        error_or_none = self.check_arg_types_compatible_with_func(
-            node, func, resolved_args, state
-        )
-        if is_instance_compat(error_or_none, CompileError):
-            state.errors.append(error_or_none)
-            return
-        # otherwise, no error, we're good!
-
-        # okay, we've made sure that the func is possible
-        # to call with these args
 
         # go handle coercion/casting
         if is_instance_compat(func, CastSymbol):
@@ -1652,22 +1822,15 @@ class PickTypesAndResolveFields(Visitor):
             state.expr_explicit_casts.append(node_arg)
         else:
             for value_expr, arg in zip(resolved_args, func.args):
+                target_type = arg[1]
                 # Skip coercion for FpyValue defaults from builtins or type constructors
                 if not is_instance_compat(value_expr, Ast):
-                    assert is_instance_compat(func, (BuiltinFuncSymbol, TypeCtorSymbol)), func
                     continue
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
                     continue
-                # Skip default values already coerced by visit_AstDef.
-                # When a function's default value AST node is reused in resolved_args,
-                # it may already have been coerced during the function definition visit.
-                if state.contextual_types[value_expr] != state.synthesized_types[value_expr]:
-                    continue
-                arg_type = arg[1]
-                if not self.coerce_expr_type(value_expr, arg_type, state):
-                    return
+                assert self.coerce_expr_type(value_expr, target_type, state)
 
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
@@ -1732,8 +1895,7 @@ class PickTypesAndResolveFields(Visitor):
             return
 
         func = state.resolved_symbols[node.name]
-        if not is_instance_compat(func, FunctionSymbol):
-            return
+        assert is_instance_compat(func, FunctionSymbol), func
 
         for (arg_name_var, arg_type_name, default_value), (_, arg_type, _) in zip(
             node.parameters, func.args
@@ -2270,7 +2432,21 @@ class CalculateConstExprValues(Visitor):
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
-                folded_value = lhs_value // rhs_value
+                # Use truncation toward zero to match C++ semantics
+                if isinstance(lhs_value, int) and isinstance(rhs_value, int):
+                    # Exact integer truncation toward zero. Must NOT route through
+                    # float division (int(a / b)): for operands beyond 2**53 that
+                    # loses precision and bakes a wrong constant into the bytecode.
+                    sign = -1 if (lhs_value < 0) != (rhs_value < 0) else 1
+                    folded_value = sign * (abs(lhs_value) // abs(rhs_value))
+                elif isinstance(lhs_value, Decimal):
+                    folded_value = (lhs_value / rhs_value).to_integral_value(
+                        rounding=decimal.ROUND_DOWN
+                    )
+                else:
+                    folded_value = Decimal(
+                        str(lhs_value / rhs_value)
+                    ).to_integral_value(rounding=decimal.ROUND_DOWN)
             elif node.op == BinaryStackOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations
@@ -2296,15 +2472,20 @@ class CalculateConstExprValues(Visitor):
                 # missing an operation
                 assert False, node.op
         except ZeroDivisionError:
+            # also catches decimal.DivisionByZero (a ZeroDivisionError subclass)
             state.err("Divide by zero error", node)
             return
-        except OverflowError:
+        except (OverflowError, decimal.Overflow):
+            # decimal.Overflow is a sibling of the builtin OverflowError
+            # (both are ArithmeticError), not a subclass, so it must be listed
+            # explicitly or it escapes as an uncaught compiler crash.
             state.err("Overflow error", node)
             return
         except ValueError as err:
             state.err(str(err) if str(err) else "Domain error", node)
             return
-        except decimal.InvalidOperation:
+        except decimal.DecimalException:
+            # any other Decimal arithmetic error (InvalidOperation, etc.)
             state.err("Domain error", node)
             return
 
@@ -2561,3 +2742,61 @@ class WarnRangesAreNotEmpty(Visitor):
 
         if lower_value.val >= upper_value.val:
             state.warn("Range is empty", node)
+
+
+class CheckSequenceArgs(Visitor):
+    """Check sequence argument constraints:
+    - vararg data fits in the SeqArgs buffer
+    - arg count fits in a u8 (max 255)
+    - arg names and type names fit in a pascal string (max 255 UTF-8 bytes)
+    """
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+
+        if len(node.parameters) > 255:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); max is 255",
+                node,
+            )
+            return
+
+        for arg_name_var, arg_type_name in node.parameters:
+            arg_var = state.resolved_symbols[arg_name_var]
+            arg_type = state.resolved_symbols[arg_type_name]
+
+            name_len = len(arg_var.name.encode("utf-8"))
+            if name_len > 255:
+                state.err(
+                    f"Sequence argument name '{arg_var.name}' is too long "
+                    f"({name_len} UTF-8 bytes); max is 255",
+                    arg_name_var,
+                )
+                return
+
+            type_name_len = len(arg_type.name.encode("utf-8"))
+            if type_name_len > 255:
+                state.err(
+                    f"Sequence argument type name '{arg_type.name}' is too long "
+                    f"({type_name_len} UTF-8 bytes); max is 255",
+                    arg_type_name,
+                )
+                return
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
+            return
+
+        bin_name = state.resolved_args[node][0].value
+        seq_arg_types = [t for _, t in state.called_seq_arg_specs[bin_name]]
+        vararg_data_size = sum(t.max_size for t in seq_arg_types)
+        buffer_size = SEQ_ARGS.members[1].type.length
+        if vararg_data_size > buffer_size:
+            state.err(
+                f"Sequence arguments ({vararg_data_size} bytes) exceed "
+                f"Svc.SeqArgs buffer capacity ({buffer_size} bytes)",
+                node,
+            )
+            return

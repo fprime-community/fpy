@@ -17,6 +17,7 @@ from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
+    CMD_RESPONSE,
     FpyType,
     FpyValue,
     INTEGER,
@@ -31,6 +32,7 @@ from fpy.types import (
     I64,
     F32,
     F64,
+    SEQ_ARGS,
     is_instance_compat,
 )
 from fpy.state import (
@@ -165,13 +167,14 @@ class CalculateFrameSizes(TopDownVisitor):
         self.offset = 0
 
     def run(self, start: Ast, state: CompileState):
+        # For the global frame, start after sequence args (already on stack)
+        if start is state.root:
+            self.offset = sum(t.max_size for _, t in state.this_seq_arg_specs)
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        scope = state.enclosing_value_scope.get(node)
-        if scope is None:
-            return
+        scope = state.enclosing_value_scope[node]
         for _name, sym in scope.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
@@ -238,6 +241,122 @@ class GenerateFunctionBody(Emitter):
             return [PushValDirective(arg.serialize())]
         return self.emit(arg, state)
 
+    def _emit_cmd_arg(
+        self, arg, state: CompileState
+    ) -> tuple[list[Directive | Ir], int]:
+        """Emit a command argument, returning (directives, actual_byte_count).
+
+        For compile-time constants the actual serialized size may be smaller
+        than the type's max_size (e.g. strings serialize compactly).
+        The caller must use the returned byte count for StackCmdDirective
+        accounting so it matches the bytes actually placed on the stack.
+        """
+        const_val = (
+            arg if isinstance(arg, FpyValue)
+            else state.const_expr_values.get(arg)
+        )
+        if const_val is not None:
+            serialized = const_val.serialize()
+            return [PushValDirective(serialized)], len(serialized)
+        dirs = self.emit(arg, state)
+        return dirs, state.contextual_types[arg].max_size
+
+    def _emit_seq_run_cmd(
+        self,
+        node: AstFuncCall,
+        func: CommandSymbol,
+        state: CompileState,
+    ) -> list[Directive | Ir]:
+        """Emit a sequence-run command.
+
+        Serializes the two fixed args (fileName, blockState) plus a SeqArgs
+        struct containing the vararg values packed into its buffer.
+        """
+        resolved_args = state.resolved_args[node]
+
+        # Split resolved args into fixed (command) args and seq args.
+        # ResolveSequenceDependencies extended func.args to include the
+        # target sequence's parameters.
+        bin_name = resolved_args[0].value
+        seq_dep = state.called_seq_arg_specs[bin_name]
+        seq_arg_types = [t for _, t in seq_dep]
+        n_fixed = len(func.args) - len(seq_dep)
+        fixed_args = resolved_args[:n_fixed]
+        seq_args = resolved_args[n_fixed:]
+
+        # Compute the actual data size in the SeqArgs buffer
+        # vararg data guaranteed no strings
+        vararg_data_size = sum(t.max_size for t in seq_arg_types)
+        buffer_size = SEQ_ARGS.members[1].type.length
+        padding_size = buffer_size - vararg_data_size
+        size_type = SEQ_ARGS.members[0].type
+        size_bytes = FpyValue(size_type, vararg_data_size).serialize()
+
+        # Check if all args (fixed + seq) are compile-time constants
+        # fixed args may have strings (almost certainly does of course)
+        # but we don't need to know the actual byte count. just push as a byte array
+        # as part of const cmd
+        all_fixed_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in fixed_args
+        )
+        all_seq_const = all(
+            isinstance(a, FpyValue) or state.const_expr_values.get(a) is not None
+            for a in seq_args
+        )
+
+        if all_fixed_const and all_seq_const:
+            # All constant: build the full command payload at compile time
+            arg_bytes = bytes()
+            # Fixed args
+            for a in fixed_args:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            # SeqArgs struct: $size + buffer (seq arg data + padding)
+            arg_bytes += size_bytes
+            for a in seq_args:
+                val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
+                arg_bytes += val.serialize()
+            arg_bytes += bytes(padding_size)
+            return [ConstCmdDirective(func.cmd.opcode, arg_bytes)]
+        else:
+            dirs = []
+            arg_byte_count = 0
+
+            # Push fixed args
+            # okay, for StackCmd we actually need to know at compile time the size of
+            # the args we pushed. so we use this emit cmd arg func which tells us the
+            # size (if the arg is a const value, which is always the case for strings rn, which
+            # are the only type which are not always their max_size when serialized)
+            for a in fixed_args:
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push SeqArgs struct: $size field
+            # size_bytes is guaranteed to represent the real size, because the
+            # sequence args cannot contain strings
+            dirs.append(PushValDirective(size_bytes))
+            arg_byte_count += size_type.max_size
+
+            # Push seq arg values
+            for a in seq_args:
+                arg_dirs, actual_size = self._emit_cmd_arg(a, state)
+                dirs.extend(arg_dirs)
+                arg_byte_count += actual_size
+
+            # Push zero padding to fill the rest of the buffer
+            if padding_size > 0:
+                dirs.append(AllocateDirective(size=padding_size))
+                arg_byte_count += padding_size
+
+            # Push opcode, then emit stack command
+            dirs.append(
+                PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+            )
+            dirs.append(StackCmdDirective(arg_byte_count))
+            return dirs
+
     def try_emit_expr_as_const(
         self, node: AstExpr, state: CompileState
     ) -> Union[list[Directive | Ir], None]:
@@ -274,6 +393,37 @@ class GenerateFunctionBody(Emitter):
         if result_type.max_size > 0:
             return [DiscardDirective(result_type.max_size)]
         return []
+
+    def assert_cmd_response_ok(self, node: AstFuncCall, state: CompileState) -> list[Directive | Ir]:
+        """For a bare command call, emit code to check the response and exit if
+        it is not OK and the flags.assert_cmd_success variable is set."""
+        dirs: list[Directive | Ir] = []
+        end_label = IrLabel(node, "cmd_ok")
+        # compare response on stack to Fw.CmdResponse.OK
+        dirs.append(PushValDirective(FpyValue(CMD_RESPONSE, CMD_RESPONSE.enum_dict["OK"]).serialize()))
+        dirs.append(MemCompareDirective(CMD_RESPONSE.max_size))
+        # now stack has True if response == OK
+        # if response was OK, skip to end, otherwise go to "cmd_not_ok"
+        not_ok_label = IrLabel(node, "cmd_not_ok")
+        dirs.append(IrIf(not_ok_label))
+        dirs.append(IrGoto(end_label))
+
+        dirs.append(not_ok_label)
+        # response was not OK — read flags.assert_cmd_success from the stack
+        # assert_cmd_success is at offset 0 within the flags struct
+        flag_offset = state.flags_var.frame_offset
+        dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
+        # if flag is false, skip to end (don't exit)
+        dirs.append(IrIf(end_label))
+        # flag is true and response was not OK — exit with error
+        dirs.append(
+            PushValDirective(
+                FpyValue(U8, DirectiveErrorCode.CMD_FAIL.value).serialize()
+            )
+        )
+        dirs.append(ExitDirective())
+        dirs.append(end_label)
+        return dirs
 
     def get_64_bit_numeric_type(self, type: FpyType) -> FpyType:
         """return the 64 bit version of the input numeric type"""
@@ -450,6 +600,15 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IntMultiplyDirective())
         return dirs
 
+    def _is_cmd_and_response_unhandled(self, stmt: Ast, state: CompileState) -> bool:
+        """True when *stmt* is a command call whose response is not captured."""
+        return (
+            is_instance_compat(stmt, AstFuncCall)
+            and is_instance_compat(
+                state.resolved_symbols.get(stmt.func), CommandSymbol
+            )
+        )
+
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
@@ -458,8 +617,11 @@ class GenerateFunctionBody(Emitter):
                 # TODO warn
                 continue
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         return dirs
 
     def emit_AstIf(self, node: AstIf, state: CompileState):
@@ -536,8 +698,11 @@ class GenerateFunctionBody(Emitter):
                 # last stmt, it must be the inc stmt, add the label before it
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
-            # discard stack value if it was an expr
-            dirs.extend(self.discard_expr_result(stmt, state))
+            if self._is_cmd_and_response_unhandled(stmt, state):
+                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+            else:
+                # discard stack value if it was an expr
+                dirs.extend(self.discard_expr_result(stmt, state))
         # go back to condition check
         dirs.append(IrGoto(while_start_label))
         dirs.append(while_end_label)
@@ -755,8 +920,7 @@ class GenerateFunctionBody(Emitter):
             elif (
                 node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64
             ):
-                # for float floor division, do float division, then convert to int, then
-                # back to float
+                # for float floor division, do fdiv then truncate to int then back to float
                 dirs.append(FloatDivideDirective())
                 dirs.append(FloatToSignedIntDirective())
                 dirs.append(SignedIntToFloatDirective())
@@ -853,7 +1017,9 @@ class GenerateFunctionBody(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         dirs = []
-        if is_instance_compat(func, CommandSymbol):
+        if is_instance_compat(func, CommandSymbol) and func.is_seq_run_with_args:
+            dirs = self._emit_seq_run_cmd(node, func, state)
+        elif is_instance_compat(func, CommandSymbol):
             const_args = all(
                 isinstance(arg_node, FpyValue) or 
                 (state.const_expr_values[arg_node] is not None)
@@ -871,9 +1037,9 @@ class GenerateFunctionBody(Emitter):
                 # push all args to the stack
                 # keep track of how many bytes total we have pushed
                 for arg_node in node_args:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
-                    arg_converted_type = arg_node.type if isinstance(arg_node, FpyValue) else state.contextual_types[arg_node]
-                    arg_byte_count += arg_converted_type.max_size
+                    arg_dirs, actual_size = self._emit_cmd_arg(arg_node, state)
+                    dirs.extend(arg_dirs)
+                    arg_byte_count += actual_size
                 # then push cmd opcode to stack as u32
                 dirs.append(
                     PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
@@ -926,45 +1092,62 @@ class GenerateFunctionBody(Emitter):
 
         return dirs
 
+    def _compute_field_access_offset(
+        self, lhs: FieldAccess, state: CompileState
+    ) -> tuple[int, list[tuple[AstExpr, FpyType]]]:
+        """Walk the FieldAccess chain to compute offset components.
+
+        Returns (const_offset, dynamic_components) where:
+        - const_offset is the sum of all constant byte offsets from the base
+          variable (struct member offsets + constant-index array element offsets)
+        - dynamic_components is a list of (idx_expr, array_type) for each
+          array element access whose index is not known at compile time
+
+        The total offset is the sum of these two.
+        """
+        const_offset = 0
+        dynamic_components = []
+
+        current = lhs
+        while is_instance_compat(current, FieldAccess):
+            if current.is_struct_member:
+                assert current.local_offset is not None
+                const_offset += current.local_offset
+            elif current.is_array_element:
+                parent_type = state.contextual_types[current.parent_expr]
+                const_idx = state.const_expr_values.get(current.idx_expr)
+                if const_idx is not None:
+                    assert isinstance(const_idx, FpyValue) and const_idx.type == ArrayIndexType
+                    const_offset += const_idx.val * parent_type.elem_type.max_size
+                else:
+                    dynamic_components.append((current.idx_expr, parent_type))
+            current = state.resolved_symbols.get(current.parent_expr)
+
+        return const_offset, dynamic_components
+
     def emit_AstAssign(self, node: AstAssign, state: CompileState):
         lhs = state.resolved_symbols[node.lhs]
 
-        const_frame_offset = -1
         is_global_var = False
+        # field_const_offset: the constant byte offset within the variable's
+        # storage (from struct member offsets and constant-index array elements).
+        # dynamic_components: variable-index array accesses whose offsets can
+        # only be computed at runtime.
+        field_const_offset = 0
+        dynamic_components = []
+
         if is_instance_compat(lhs, VariableSymbol):
-            const_frame_offset = lhs.frame_offset
+            base_frame_offset = lhs.frame_offset
             is_global_var = lhs.is_global
-            assert const_frame_offset is not None, lhs
+            assert base_frame_offset is not None, lhs
         else:
-            # okay now push the lvar arr offset to stack
             assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
+            base_frame_offset = lhs.base_sym.frame_offset
             is_global_var = lhs.base_sym.is_global
 
-            # is the lvar array offset a constant?
-            # okay, are we assigning to a member or an element?
-            if lhs.is_struct_member:
-                # if it's a struct, then the lvar offset is always constant
-                const_frame_offset = lhs.base_offset + lhs.base_sym.frame_offset
-            else:
-                assert lhs.is_array_element
-                # again, offset is the offset in base type + offset of base lvar
-
-                # however, because array idx can be variable, we might not know at compile time
-                # the offset in base type.
-
-                # check if we have a value for it
-                const_idx_expr_value = state.const_expr_values.get(lhs.idx_expr)
-                if const_idx_expr_value is not None:
-                    assert isinstance(const_idx_expr_value, FpyValue) and const_idx_expr_value.type == ArrayIndexType
-                    # okay, so we have a constant value index
-                    lhs_parent_type = state.contextual_types[lhs.parent_expr]
-                    const_frame_offset = (
-                        lhs.base_sym.frame_offset
-                        + const_idx_expr_value.val
-                        * lhs_parent_type.elem_type.max_size
-                    )
-                # otherwise, the array idx is unknown at compile time. we will have to calculate it
+            # Walk the field access chain to compute the total offset.
+            field_const_offset, dynamic_components = self._compute_field_access_offset(lhs, state)
 
         # Use global directives only when inside a function AND accessing a global variable
         use_global = self.in_function and is_global_var
@@ -972,42 +1155,44 @@ class GenerateFunctionBody(Emitter):
         # start with rhs on stack
         dirs = self.emit(node.rhs, state)
 
-        if const_frame_offset != -1:
-            # in this case, we can use StoreConstOffset
+        if not dynamic_components:
+            # The full lvar array offset is known at compile time.
+            frame_offset = base_frame_offset + field_const_offset
             if use_global:
                 dirs.append(
                     StoreAbsConstOffsetDirective(
-                        const_frame_offset, lhs.type.max_size
+                        frame_offset, lhs.type.max_size
                     )
                 )
             else:
                 dirs.append(
                     StoreRelConstOffsetDirective(
-                        const_frame_offset, lhs.type.max_size
+                        frame_offset, lhs.type.max_size
                     )
                 )
         else:
-            # okay we don't know the offset at compile time
-            # only one case where that can be:
-            assert is_instance_compat(lhs, FieldAccess) and lhs.is_array_element, lhs
+            # At least one array index in the access chain is not known at
+            # compile time.  Compute the total offset dynamically.
+            assert is_instance_compat(lhs, FieldAccess), lhs
+            assert dynamic_components, lhs
 
-            # we need to calculate absolute offset in lvar array
-            # == (parent offset) + (offset in parent)
-
-            # offset in parent:
-            lhs_parent_type = state.contextual_types[lhs.parent_expr]
-            dirs.extend(
-                self.calc_lvar_offset_of_array_element(
-                    node, lhs.idx_expr, lhs_parent_type, state
+            # Emit code to compute each dynamic offset component
+            # (idx * elem_size) and sum them together on the stack.
+            for i, (idx_expr, parent_type) in enumerate(dynamic_components):
+                dirs.extend(
+                    self.calc_lvar_offset_of_array_element(
+                        node, idx_expr, parent_type, state
+                    )
                 )
-            )
+                if i > 0:
+                    dirs.append(IntAddDirective())
 
-            # parent offset:
+            # Add the constant part: base variable's frame offset +
+            # accumulated constant field offsets.
+            const_part = base_frame_offset + field_const_offset
             dirs.append(
-                PushValDirective(FpyValue(U64, lhs.base_sym.frame_offset).serialize())
+                PushValDirective(FpyValue(U64, const_part).serialize())
             )
-
-            # add them
             dirs.append(IntAddDirective())
 
             # and now convert the u64 back into the SignedStackSizeType that store expects
@@ -1080,14 +1265,32 @@ class GenerateModule(Emitter):
         if node is not state.root:
             return []
 
-        # generate the main function using GenerateTopLevel (not in a function context)
         main_body = []
+
+        # the structure of the lvar section of the main stack frame is:
+        # (sequence args) (flags struct) (user-defined lvars)
+
+        # sequence args will be pushed to stack before the first instruction is
+        # executed. flags struct, we will push a value (won't just write zeroes)
+        # for user-defined lvars, we will have to write zeroes with Allocate
+
+        flags_type = state.flags_var.type
+        args_size = sum(t.max_size for _, t in state.this_seq_arg_specs)
+        assert state.flags_var.frame_offset == args_size
+        flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
+        main_body.append(PushValDirective(flags_default.serialize()))
         
-        # Allocate space for top-level local variables
-        lvar_array_size_bytes = state.frame_sizes[node]
-        if lvar_array_size_bytes > 0:
-            main_body.append(AllocateDirective(lvar_array_size_bytes))
+        # we can calc how much space the user-defined lvars take by subtracting
+        # the sequence args size, and the flags size, from the frame size
+
+        remaining = state.frame_sizes[node] - flags_type.max_size - args_size
+        assert remaining >= 0, remaining
+
+        # allocate space for local variables
+        if remaining > 0:
+            main_body.append(AllocateDirective(remaining))
         
+        # generate the main function using GenerateTopLevel (not in a function context)
         main_body.extend(GenerateTopLevel().emit(node, state))
 
         # if there are functions, emit them at the top with a goto to skip past them

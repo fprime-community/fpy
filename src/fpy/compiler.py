@@ -3,7 +3,7 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 from lark import Lark, LarkError
-from fpy.bytecode.directives import Directive
+from fpy.bytecode.directives import Directive, update_configurable_types_from_dict
 from fpy.codegen import (
     CalculateFrameSizes,
     CollectUsedFunctions,
@@ -19,6 +19,7 @@ from fpy.dictionary import load_dictionary, json_default_to_fpy_value
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
+    CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
     CheckBreakAndContinueInLoop,
@@ -26,9 +27,12 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
+    CheckSequenceArgs,
+    CollectSequenceDependencies,
     CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
     ResolveQualifiedNames,
+    ResolveSequenceDependencies,
     UpdateTypesAndFuncs,
     WarnRangesAreNotEmpty,
 )
@@ -38,9 +42,12 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
+    BLOCK_STATE,
     CHECK_STATE,
     CMD_RESPONSE,
-    FLAG_ID,
+    FLAGS_TYPE,
+    LOG_SEVERITY,
+    SEQ_ARGS,
     TIME_COMPARISON,
     TIME_INTERVAL,
     TIME_BASE,
@@ -57,12 +64,13 @@ from fpy.state import (
     CommandSymbol,
     CompileState,
     TypeCtorSymbol,
+    VariableSymbol,
     create_symbol_table,
     merge_symbol_tables,
 )
 from fpy.visitors import Visitor
 
-from fpy.error import BackendError, CompileError, handle_lark_error
+from fpy.error import BackendError, CompileError, DictionaryError, handle_lark_error
 import fpy.error
 
 # Load grammar once at module level
@@ -162,41 +170,53 @@ def _validate_and_replace_type(
     canonical: FpyType,
 ) -> None:
     """Validate that a required type exists in the dictionary and matches the
-    canonical definition, then replace it with the canonical version."""
+    canonical definition, then replace it with the canonical version.
+
+    Raises DictionaryError (with a user-facing explanation) if the dictionary is
+    missing the type or defines it incompatibly with the canonical version."""
     if name not in type_dict:
-        raise ValueError(f"Dictionary must contain {name} type")
+        raise DictionaryError(name, "The dictionary does not define this type at all.")
     dict_type = type_dict[name]
     if dict_type.kind != canonical.kind:
-        raise ValueError(
-            f"Dictionary {name} has kind {dict_type.kind}, expected {canonical.kind}"
+        raise DictionaryError(
+            name,
+            f"The dictionary defines it as a {dict_type.kind.name} type, "
+            f"but Fpy expects a {canonical.kind.name} type.",
         )
     if canonical.kind == TypeKind.STRUCT:
         if dict_type.members != canonical.members:
-            raise ValueError(
-                f"Dictionary {name} has members {dict_type.members}, "
-                f"expected {canonical.members}"
+            raise DictionaryError(
+                name,
+                f"Its struct members do not match what fpy expects.\n"
+                f"    dictionary: {dict_type.members}\n"
+                f"    expected:   {canonical.members}",
             )
     elif canonical.kind == TypeKind.ENUM:
         if dict_type.enum_dict != canonical.enum_dict:
-            raise ValueError(
-                f"Dictionary {name} has enum dict {dict_type.enum_dict}, "
-                f"expected {canonical.enum_dict}"
+            raise DictionaryError(
+                name,
+                f"Its enum constants do not match what fpy expects.\n"
+                f"    dictionary: {dict_type.enum_dict}\n"
+                f"    expected:   {canonical.enum_dict}",
             )
         if dict_type.rep_type != canonical.rep_type:
-            raise ValueError(
-                f"Dictionary {name} has rep type {dict_type.rep_type}, "
-                f"expected {canonical.rep_type}"
+            raise DictionaryError(
+                name,
+                f"Its underlying representation type is {dict_type.rep_type}, "
+                f"but Fpy expects {canonical.rep_type}.",
             )
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
-            raise ValueError(
-                f"Dictionary {name} has elem type {dict_type.elem_type}, "
-                f"expected {canonical.elem_type}"
+            raise DictionaryError(
+                name,
+                f"Its element type is {dict_type.elem_type}, "
+                f"but Fpy expects {canonical.elem_type}.",
             )
         if dict_type.length != canonical.length:
-            raise ValueError(
-                f"Dictionary {name} has length {dict_type.length}, "
-                f"expected {canonical.length}"
+            raise DictionaryError(
+                name,
+                f"It has length {dict_type.length}, "
+                f"but Fpy expects length {canonical.length}.",
             )
     type_dict[name] = canonical
     # Preserve raw JSON defaults from the dictionary definition on the canonical type
@@ -212,17 +232,25 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
     dictionary.
     """
     if "TimeBase" not in dict_type_name_dict:
-        raise ValueError("Dictionary must contain TimeBase enum type")
+        raise DictionaryError(
+            "TimeBase", "The dictionary does not define this enum type at all."
+        )
     dict_tb = dict_type_name_dict["TimeBase"]
     if dict_tb.kind != TypeKind.ENUM:
-        raise ValueError(
-            f"Dictionary TimeBase has kind {dict_tb.kind}, expected enum"
+        raise DictionaryError(
+            "TimeBase",
+            f"The dictionary defines it as a {dict_tb.kind.name} type, "
+            f"but Fpy expects an ENUM type.",
         )
     if "TB_NONE" not in dict_tb.enum_dict:
-        raise ValueError("Dictionary TimeBase enum must contain TB_NONE constant")
+        raise DictionaryError(
+            "TimeBase", "Its enum constants must include TB_NONE, but it is missing."
+        )
     if dict_tb.enum_dict["TB_NONE"] != 0:
-        raise ValueError(
-            f"TimeBase.TB_NONE must have value 0, got {dict_tb.enum_dict['TB_NONE']}"
+        raise DictionaryError(
+            "TimeBase",
+            f"Its TB_NONE constant must have value 0, "
+            f"but the dictionary gives it value {dict_tb.enum_dict['TB_NONE']}.",
         )
 
     # Adopt the dictionary's enum constants and representation type
@@ -234,6 +262,66 @@ def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None
     dict_type_name_dict["TimeBase"] = TIME_BASE
 
 
+def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
+    """Update the canonical SEQ_ARGS singleton from the dictionary's Svc.SeqArgs.
+
+    The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
+    deployment.  The compiler adopts that length onto the canonical singleton's
+    buffer type so codegen and semantics use the correct size.
+    """
+    assert "Svc.SeqArgs" in dict_type_name_dict, (
+        "Dictionary must contain Svc.SeqArgs type"
+    )
+    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
+    assert dict_seq_args.kind == TypeKind.STRUCT, (
+        f"Dictionary Svc.SeqArgs has kind {dict_seq_args.kind}, expected struct"
+    )
+    assert dict_seq_args.members is not None and len(dict_seq_args.members) == 2, (
+        f"Dictionary Svc.SeqArgs must have exactly 2 members, "
+        f"got {dict_seq_args.members}"
+    )
+    size_member, buffer_member = dict_seq_args.members
+    canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
+    assert size_member.name == canonical_size_member.name, (
+        f"Dictionary Svc.SeqArgs first member is '{size_member.name}', "
+        f"expected '{canonical_size_member.name}'"
+    )
+    assert size_member.type == canonical_size_member.type, (
+        f"Dictionary Svc.SeqArgs.{size_member.name} has type {size_member.type}, "
+        f"expected {canonical_size_member.type}"
+    )
+    assert buffer_member.name == canonical_buffer_member.name, (
+        f"Dictionary Svc.SeqArgs second member is '{buffer_member.name}', "
+        f"expected '{canonical_buffer_member.name}'"
+    )
+    dict_buffer_type = buffer_member.type
+    canonical_buffer_type = canonical_buffer_member.type
+    assert dict_buffer_type.kind == TypeKind.ARRAY, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} has kind "
+        f"{dict_buffer_type.kind}, expected array"
+    )
+    assert dict_buffer_type.elem_type == canonical_buffer_type.elem_type, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} has element type "
+        f"{dict_buffer_type.elem_type}, "
+        f"expected {canonical_buffer_type.elem_type}"
+    )
+    assert dict_buffer_type.length is not None and dict_buffer_type.length > 0, (
+        f"Dictionary Svc.SeqArgs.{buffer_member.name} must have a positive "
+        f"length, got {dict_buffer_type.length}"
+    )
+
+    # Adopt the dictionary's buffer length onto the canonical buffer singleton.
+    canonical_buffer_type.length = dict_buffer_type.length
+    canonical_buffer_type.name = f"Array_U8_{dict_buffer_type.length}"
+
+    # Preserve raw JSON defaults from the dictionary so _populate_type_defaults
+    # can derive the correct-length buffer default.
+    SEQ_ARGS.json_default = dict_seq_args.json_default
+
+    # Replace the dict entry with the canonical singleton.
+    dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
+
+
 def _update_time_context_type_from_dict(
     dict_type_name_dict: dict[str, FpyType],
 ) -> None:
@@ -241,9 +329,12 @@ def _update_time_context_type_from_dict(
     if "FwTimeContextStoreType" not in dict_type_name_dict:
         return  # Keep the default U8
     ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
-    assert ctx_type.is_primitive, (
-        f"FwTimeContextStoreType must resolve to a primitive type, got {ctx_type}"
-    )
+    if not ctx_type.is_primitive:
+        raise DictionaryError(
+            "FwTimeContextStoreType",
+            f"It must resolve to a primitive type, but the dictionary defines "
+            f"it as {ctx_type}.",
+        )
     TIME.members[1].type = ctx_type
 
 
@@ -276,6 +367,8 @@ def _populate_type_defaults(typ: FpyType) -> None:
     Every type is guaranteed to have a default value.
     """
     if typ.kind == TypeKind.STRUCT:
+        if typ.member_defaults is not None:
+            return  # Already populated (e.g., built-in FLAGS_TYPE)
         assert typ.json_default is not None, (
             f"Struct {typ.name} must have json_default"
         )
@@ -335,8 +428,8 @@ def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
 @lru_cache(maxsize=4)
 def _build_global_scopes(dictionary: str) -> tuple:
     """
-    Build and cache the 3 global scopes for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope, sequence_config).
+    Build and cache the 3 global scopes and type_name_dict for a dictionary.
+    Returns tuple of (type_scope, callable_scope, values_scope, type_name_dict).
     """
     d = load_dictionary(dictionary)
     cmd_name_dict = d["cmd_name_dict"]
@@ -344,14 +437,19 @@ def _build_global_scopes(dictionary: str) -> tuple:
     prm_name_dict = d["prm_name_dict"]
     dict_type_name_dict = d["type_defs"]
 
+    # Update user-configurable bytecode types (FwChanIdType, FwOpcodeType,
+    # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
+    update_configurable_types_from_dict(dict_type_name_dict)
+
     # Validate required dictionary types
     _update_time_base_from_dict(dict_type_name_dict)
     _update_time_context_type_from_dict(dict_type_name_dict)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
-    _validate_and_replace_type(dict_type_name_dict, "Svc.Fpy.FlagId", FLAG_ID)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
+    _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
+    _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
     # then layer on builtins and internal types.  Later entries win, so
@@ -362,8 +460,10 @@ def _build_global_scopes(dictionary: str) -> tuple:
         "Fw.Time": TIME,
         "Fw.TimeInterval": TIME_INTERVAL,
         **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
-        "bool": BOOL,
-        "$CheckState": CHECK_STATE,
+        BOOL.name: BOOL,
+        CHECK_STATE.name: CHECK_STATE,
+        FLAGS_TYPE.name: FLAGS_TYPE,
+        LOG_SEVERITY.name: LOG_SEVERITY,
     }
 
     # Collect enum constants from the final type dict (after builtins and
@@ -385,9 +485,23 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
-        callable_name_dict[name] = CommandSymbol(
-            cmd.name, CMD_RESPONSE, args, cmd
-        )
+        # Detect sequence-run commands by matching the 3-arg signature:
+        # (fileName: string, block: Svc.BlockState, args: Svc.SeqArgs)
+        if (
+            len(args) == 3
+            and args[0][1].is_string
+            and args[1][1].name == "Svc.BlockState"
+            and args[2][1].name == "Svc.SeqArgs"
+        ):
+            # Strip the SeqArgs param; user provides varargs instead
+            fixed_args = args[:2]
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run_with_args=True
+            )
+        else:
+            callable_name_dict[name] = CommandSymbol(
+                cmd.name, CMD_RESPONSE, args, cmd
+            )
 
     for typ in SPECIFIC_NUMERIC_TYPES:
         callable_name_dict[typ.name] = CastSymbol(
@@ -420,12 +534,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
         ),
     )
 
-    return (type_scope, callable_scope, values_scope)
+    return (type_scope, callable_scope, values_scope, type_name_dict)
 
 
-def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
+def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope = _build_global_scopes(dictionary)
+    type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
     constants = load_dictionary(dictionary)["constants"]
 
     def _const_int(key: str, default: int) -> int:
@@ -446,28 +560,45 @@ def get_base_compile_state(dictionary: str, compile_args: dict) -> CompileState:
         global_type_scope=type_scope,  # types are not mutated
         global_callable_scope=callable_scope.copy(),
         global_value_scope=values_scope.copy(),
-        compile_args=compile_args or dict(),
+        type_defs=type_defs,
+        ground_binary_dir=ground_binary_dir,
         max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
         max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
     )
+
+    # Create the built-in 'flags' variable ($Flags struct).
+    # declaration=None marks it as a built-in that is always defined.
+    flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
+    state.global_value_scope["flags"] = flags_var
+    state.flags_var = flags_var
+
     return state
 
 
 def ast_to_directives(
     body: AstBlock,
     dictionary: str,
-    compile_args: dict | None = None,
-) -> list[Directive] | CompileError | BackendError:
-    compile_args = compile_args or dict()
-    
-    # Prepend builtin library functions to user code - always available.
+    ground_binary_dir: str | None = None,
+) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
+    # Create initial compile state (without builtins yet)
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
+    state.root = body
+
+    # Run pre-builtin validation passes
+    pre_builtin_passes = [
+        CheckSequenceMetadataDefinedAtTop(),
+    ]
+
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            return state.errors[0]
+
+    # Now prepend builtin library functions to user code - always available.
     # will be elided if unused
     import copy
     builtin_library_ast = _get_builtin_library_ast()
     body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
-    
-    state = get_base_compile_state(dictionary, compile_args)
-    state.root = body
 
     pre_semantic_desugaring_passes = [
         DesugarCheckStatements()
@@ -489,6 +620,8 @@ def ast_to_directives(
         UpdateTypesAndFuncs(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
+        # discover sequence-run dependencies (.bin files) before type checking
+        ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveFields(),
         # Calculate const values for default arguments first (and check they're const).
@@ -502,6 +635,7 @@ def ast_to_directives(
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
+        CheckSequenceArgs(),
     ]
     desugaring_passes: list[Visitor] = [
         # Fill in default arguments before desugaring for loops
@@ -558,4 +692,48 @@ def ast_to_directives(
         print(warning)
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
-    return ir
+    return ir, state.this_seq_arg_specs
+
+
+def ast_to_dependencies(
+    body: AstBlock,
+    dictionary: str,
+    ground_binary_dir: str | None = None,
+) -> list[str] | CompileError:
+    """Return the list of .bin paths that a sequence source file depends on.
+
+    Runs only the passes needed to resolve command symbols — does not attempt
+    to read the binary files, so this works before any binaries are compiled.
+    """
+    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
+    state.root = body
+
+    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
+    for compile_pass in pre_builtin_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    import copy
+    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+
+    discovery_passes: list[Visitor] = [
+        DesugarCheckStatements(),
+        AssignIds(),
+        CreateScopes(),
+        CreateVariablesAndFuncs(),
+        ResolveQualifiedNames(),
+    ]
+    for compile_pass in discovery_passes:
+        compile_pass.run(body, state)
+        if state.errors:
+            return state.errors[0]
+
+    discover = CollectSequenceDependencies()
+    discover.run(body, state)
+    if state.errors:
+        return state.errors[0]
+
+    if ground_binary_dir is not None:
+        return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
+    return discover.bin_names

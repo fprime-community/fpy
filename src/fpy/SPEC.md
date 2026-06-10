@@ -111,20 +111,24 @@ Fpy exposes several categories of callables:
 
 ## Commands
 Every command instance defined in the FPP dictionary can be called. The callable name is the command’s fully qualified name, the signature matches the command’s FPP arguments, and the return type is always `Fw.CmdResponse`. Calling a command immediately serializes the opcode and arguments, sends them to the dispatcher, blocks the sequence until the command finishes, and then yields the dispatcher’s `Fw.CmdResponse`.
-
+If a command's response is not explicitly saved in a variable or used in an expression, the compiler emits a runtime check: when the `assert_cmd_success` flag is set and the response is not `Fw.CmdResponse.OK`, the sequence exits with an error. When the flag is not set, the non-OK response is silently discarded.
 ## Macros
 Inline macros behave like functions whose bodies are pre-defined sequences of bytecode directives. They are defined in `src/fpy/macros.py`, evaluate their arguments, push those values onto the stack, and then emit the directives listed below.
 
 Available macros:
 
 * `exit(exit_code: U8)`: terminates the sequence immediately by emitting an `ExitDirective`.
-* `log(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
+* `ln(operand: F64) -> F64`: computes the natural logarithm of the operand using `FloatLogDirective` and leaves the `F64` result on the stack.
 * `sleep(seconds: U32 = 0, microseconds: U32 = 0)`: waits for the specified relative duration (the assembler emits `WaitRelDirective`).
 * `sleep_until(wakeup_time: Fw.TimeValue)`: waits until the supplied absolute time using `WaitAbsDirective`.
 * `now() -> Fw.TimeValue`: pushes the current time via `PushTimeDirective`.
+* `rand() -> U32`: pushes the next random number via `PushRandDirective`.
+* `randf() -> F64`: pushes the next random number via `PushRandDirective`, converts it to `F64`, and divides by `2**32` to produce a value in the half-open range `[0.0, 1.0)`.
+* `set_seed(seed: U32)`: seeds the random number generator via `SetSeedDirective`.
 * `time(timestamp: String, timeBase: TimeBase = TimeBase.TB_NONE, timeContext: U8 = 0) -> Fw.TimeValue`: parses an ISO 8601 timestamp string (e.g., `"2025-12-19T14:30:00Z"` or `"2025-12-19T14:30:00.123456Z"`) at compile time and returns an `Fw.TimeValue` with the specified `timeBase` and `timeContext`. The timestamp must be in UTC with a `Z` suffix.
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+* `log(message: String, severity: Fw.LogSeverity = Fw.LogSeverity.ACTIVITY_HI)`: pushes the severity, message, and message size onto the stack, then emits a `PopEventDirective`. Both arguments must be compile-time constants.
 
 ## Type constructors
 Structs, arrays, and `Fw.TimeValue` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.TimeValue` with `timeBase: TimeBase`, `timeContext: U8`, `seconds: U32`, `useconds: U32`). A constructor call serializes the provided values into a new instance of that type. `Fw.Time` is an alias for `Fw.TimeValue`, and `Fw.TimeInterval` is an alias for `Fw.TimeIntervalValue`.
@@ -273,4 +277,3 @@ while <condition>:
 ```
 
 The condition is coerced to `bool` and re-evaluated before every iteration. `break` and `continue` are legal only within the loop body.
-

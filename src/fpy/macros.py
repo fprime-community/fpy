@@ -1,20 +1,23 @@
 from __future__ import annotations
 from fpy.bytecode.directives import (
+    PushRandDirective,
     ExitDirective,
     FloatLogDirective,
-    GetFlagDirective,
+    PopEventDirective,
     PushTimeDirective,
-    SetFlagDirective,
+    SetSeedDirective,
+    PushValDirective,
     SignedIntToFloatDirective,
     WaitAbsDirective,
     WaitRelDirective,
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import FLAG_ID, INTERNAL_STRING, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
+    FloatDivideDirective,
     FloatMultiplyDirective,
     FloatSubtractDirective,
     FloatToUnsignedIntDirective,
@@ -148,6 +151,16 @@ def generate_log_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[
         FloatLogDirective(),
     ]
 
+
+def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
+    return [
+        PushRandDirective(),
+        IntegerZeroExtend32To64Directive(),
+        UnsignedIntToFloatDirective(),
+        PushValDirective(FpyValue(F64, 2**32).serialize()),
+        FloatDivideDirective(),
+    ]
+
 TIME_MACRO = BuiltinFuncSymbol(
         "time",
         TIME,
@@ -170,27 +183,32 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "exit": BuiltinFuncSymbol(
         "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
     ),
-    "log": BuiltinFuncSymbol(
-        "log", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
+    "ln": BuiltinFuncSymbol(
+        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
+    "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),
+    "randf": BuiltinFuncSymbol("randf", F64, [], generate_randf),
+    "set_seed": BuiltinFuncSymbol(
+        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c: [SetSeedDirective()]
+    ),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
     # time() parses ISO 8601 timestamps at compile time
     # The generate function should never be called since this is always const-evaluated
     "time": TIME_MACRO,
-    "set_flag": BuiltinFuncSymbol(
-        "set_flag",
-        NOTHING,
-        [("flag_idx", FLAG_ID, None), ("value", BOOL, None)],
-        lambda n, c: [SetFlagDirective(FLAG_ID.enum_dict[c[0].val])],
-        const_arg_indices=frozenset({0}),
-    ),
-    "get_flag": BuiltinFuncSymbol(
-        "get_flag",
-        BOOL,
-        [("flag_idx", FLAG_ID, None)],
-        lambda n, c: [GetFlagDirective(FLAG_ID.enum_dict[c[0].val])],
-        const_arg_indices=frozenset({0}),
+    # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
+    "log": BuiltinFuncSymbol(
+        "log", NOTHING, [
+            ("message", INTERNAL_STRING, None),
+            ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
+        ],
+        lambda n, c: [
+            PushValDirective(c[1].serialize()),
+            PushValDirective(c[0].val.encode("utf-8")),
+            PushValDirective(FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()),
+            PopEventDirective(),
+        ],
+        const_arg_indices=frozenset({0, 1}),
     ),
 }

@@ -76,9 +76,10 @@ goto_tag: NAME ":"
   | "uitofp"
   | "exit"
   | "push_time"
+  | "push_rand"
+  | "set_seed"
   | "call" 
   | "peek"
-
 _uint: [UNARY_IDENTITY] DEC_NUMBER
 _int: NEG_DEC_NUMBER
 _float: FLOAT_NUMBER
