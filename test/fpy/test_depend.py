@@ -34,18 +34,18 @@ class TestNoDependencies:
 
     def test_seq_run_without_args_is_not_a_dep(self):
         # RUN (no varargs) is not flagged as a seq-run-with-args command
-        assert _collect('Ref.seqDisp.RUN("seq.bin", Fw.Wait.WAIT)\n') == []
+        assert _collect('Ref.seqDisp.RUN("seq.bin", Svc.BlockState.BLOCK)\n') == []
 
 
 class TestSingleDependency:
     def test_bin_name_resolved_with_ground_binary_dir(self):
-        seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)\n'
+        seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n'
         deps = _collect(seq, ground_binary_dir="/tmp/bins")
         assert deps == ["/tmp/bins/child.bin"]
 
     def test_bin_does_not_need_to_exist(self):
         # The main differentiator from the compiler: missing binary is not an error
-        seq = 'Ref.seqDisp.RUN_ARGS("nonexistent.bin", Fw.Wait.WAIT)\n'
+        seq = 'Ref.seqDisp.RUN_ARGS("nonexistent.bin", Svc.BlockState.BLOCK)\n'
         deps = _collect(seq, ground_binary_dir="/tmp/bins")
         assert deps == ["/tmp/bins/nonexistent.bin"]
 
@@ -53,7 +53,7 @@ class TestSingleDependency:
         seq = """\
 x: I32 = 1
 if x == 1:
-    Ref.seqDisp.RUN_ARGS("branch.bin", Fw.Wait.WAIT)
+    Ref.seqDisp.RUN_ARGS("branch.bin", Svc.BlockState.BLOCK)
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
         assert deps == ["/tmp/branch.bin"]
@@ -62,7 +62,7 @@ if x == 1:
         seq = """\
 x: I32 = 3
 while x > 0:
-    Ref.seqDisp.RUN_ARGS("loop.bin", Fw.Wait.NO_WAIT)
+    Ref.seqDisp.RUN_ARGS("loop.bin", Svc.BlockState.NO_BLOCK)
     x = x - 1
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
@@ -71,7 +71,7 @@ while x > 0:
     def test_seq_called_inside_function(self):
         seq = """\
 def run_it():
-    Ref.seqDisp.RUN_ARGS("helper.bin", Fw.Wait.WAIT)
+    Ref.seqDisp.RUN_ARGS("helper.bin", Svc.BlockState.BLOCK)
 run_it()
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
@@ -81,25 +81,25 @@ run_it()
 class TestMultipleDependencies:
     def test_two_distinct_bins(self):
         seq = """\
-Ref.seqDisp.RUN_ARGS("a.bin", Fw.Wait.WAIT)
-Ref.seqDisp.RUN_ARGS("b.bin", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("a.bin", Svc.BlockState.BLOCK)
+Ref.seqDisp.RUN_ARGS("b.bin", Svc.BlockState.BLOCK)
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
         assert deps == ["/tmp/a.bin", "/tmp/b.bin"]
 
     def test_order_matches_source_order(self):
         seq = """\
-Ref.seqDisp.RUN_ARGS("first.bin", Fw.Wait.WAIT)
-Ref.seqDisp.RUN_ARGS("second.bin", Fw.Wait.WAIT)
-Ref.seqDisp.RUN_ARGS("third.bin", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("first.bin", Svc.BlockState.BLOCK)
+Ref.seqDisp.RUN_ARGS("second.bin", Svc.BlockState.BLOCK)
+Ref.seqDisp.RUN_ARGS("third.bin", Svc.BlockState.BLOCK)
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
         assert deps == ["/tmp/first.bin", "/tmp/second.bin", "/tmp/third.bin"]
 
     def test_duplicate_call_deduplicated(self):
         seq = """\
-Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)
-Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.NO_WAIT)
+Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)
+Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.NO_BLOCK)
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
         assert deps == ["/tmp/child.bin"]
@@ -107,7 +107,7 @@ Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.NO_WAIT)
     def test_mix_of_seq_run_and_regular_commands(self):
         seq = """\
 CdhCore.cmdDisp.CMD_NO_OP()
-Ref.seqDisp.RUN_ARGS("only_this.bin", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("only_this.bin", Svc.BlockState.BLOCK)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
         deps = _collect(seq, ground_binary_dir="/tmp")
@@ -117,13 +117,13 @@ CdhCore.cmdDisp.CMD_NO_OP()
 class TestGroundBinaryDirHandling:
     def test_ground_binary_dir_prepended_to_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)\n'
+            seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n'
             deps = _collect(seq, ground_binary_dir=tmpdir)
             assert deps == [str(Path(tmpdir) / "child.bin")]
 
     def test_no_ground_binary_dir_returns_bare_names(self):
         # Without a ground_binary_dir the raw filename is returned as-is
-        seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)\n'
+        seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n'
         deps = _collect(seq, ground_binary_dir=None)
         assert deps == ["child.bin"]
 
@@ -132,7 +132,7 @@ class TestErrorCases:
     def test_non_string_literal_filename_is_compile_error(self):
         seq = """\
 name: I32 = 0
-Ref.seqDisp.RUN_ARGS(name, Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS(name, Svc.BlockState.BLOCK)
 """
         fpy.error.file_name = "<test>"
         state = get_base_compile_state(default_dictionary, "/tmp")
@@ -158,8 +158,8 @@ class TestDependMainCLI:
 
         fpy_path = tmp_path / "seq.fpy"
         fpy_path.write_text(
-            'Ref.seqDisp.RUN_ARGS("a.bin", Fw.Wait.WAIT)\n'
-            'Ref.seqDisp.RUN_ARGS("b.bin", Fw.Wait.WAIT)\n'
+            'Ref.seqDisp.RUN_ARGS("a.bin", Svc.BlockState.BLOCK)\n'
+            'Ref.seqDisp.RUN_ARGS("b.bin", Svc.BlockState.BLOCK)\n'
         )
         depend_main([str(fpy_path), "-d", default_dictionary, "-g", str(tmp_path)])
         lines = capsys.readouterr().out.splitlines()
@@ -169,7 +169,7 @@ class TestDependMainCLI:
         from fpy.main import depend_main
 
         fpy_path = tmp_path / "seq.fpy"
-        fpy_path.write_text('Ref.seqDisp.RUN_ARGS("ghost.bin", Fw.Wait.WAIT)\n')
+        fpy_path.write_text('Ref.seqDisp.RUN_ARGS("ghost.bin", Svc.BlockState.BLOCK)\n')
         # ghost.bin is never created — should still succeed
         depend_main([str(fpy_path), "-d", default_dictionary, "-g", str(tmp_path)])
         assert capsys.readouterr().out.strip() == str(tmp_path / "ghost.bin")
@@ -178,7 +178,7 @@ class TestDependMainCLI:
         from fpy.main import depend_main
 
         fpy_path = tmp_path / "seq.fpy"
-        fpy_path.write_text('Ref.seqDisp.RUN_ARGS("child.bin", Fw.Wait.WAIT)\n')
+        fpy_path.write_text('Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n')
         depend_main([str(fpy_path), "-d", default_dictionary])
         # Without -g, ground_binary_dir defaults to the input file's directory
         assert capsys.readouterr().out.strip() == str(tmp_path / "child.bin")

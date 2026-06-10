@@ -185,13 +185,13 @@ CdhCore.cmdDisp.CMD_NO_OP_STRING(arg1="Hello world!")
 # Commands — flags.assert_cmd_success = False allows failing commands to proceed
 # README: flags.assert_cmd_success = False / CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 flags.assert_cmd_success = False
-Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.cmdSeq0.RUN("", Svc.BlockState.NO_BLOCK)
 # sequence proceeds normally
 
 # Commands — handling the return value suppresses auto-assert
 # README: flags.assert_cmd_success = True / success = CdhCore.exampleComponent.CMD_THAT_WILL_FAIL()
 flags.assert_cmd_success = True
-success: Fw.CmdResponse = Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+success: Fw.CmdResponse = Ref.cmdSeq0.RUN("", Svc.BlockState.NO_BLOCK)
 # cmd response is handled, sequence proceeds normally
 
 if success == Fw.CmdResponse.OK:
@@ -219,7 +219,7 @@ exit(0)
     def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
         """README: CdhCore.exampleComponent.CMD_THAT_WILL_FAIL() / sequence exits with an error"""
         seq = """
-Ref.cmdSeq0.RUN("", Svc.FpySequencer.BlockState.NO_BLOCK)
+Ref.cmdSeq0.RUN("", Svc.BlockState.NO_BLOCK)
 # sequence exits with an error
 """
         assert_run_failure(

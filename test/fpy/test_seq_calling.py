@@ -93,7 +93,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -112,7 +112,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -128,7 +128,7 @@ assert y == 7
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 100, 7)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 100, 7)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -144,7 +144,7 @@ assert val == 99
 
             parent_seq = f"""\
 my_val: U32 = 99
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, my_val)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, my_val)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -159,7 +159,7 @@ assert val == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 10 + 20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 10 + 20)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -175,7 +175,7 @@ assert result == 50
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -190,7 +190,7 @@ assert b == 255
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 255)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 255)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -206,7 +206,7 @@ assert f < 3.15
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 3.14)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 3.14)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -221,7 +221,7 @@ assert x == 999
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 1)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 1)
 """
             assert_run_failure(fprime_test_api, parent_seq, error_code=DirectiveErrorCode.CMD_FAIL, ground_binary_dir=tmpdir)
 
@@ -240,7 +240,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
 
@@ -255,7 +255,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, true)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, true)
 """
             assert_compile_failure(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -264,7 +264,7 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, true)
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_path = str(Path(tmpdir).resolve() / "nonexistent.bin")
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{fake_path}", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("{fake_path}", Svc.BlockState.BLOCK)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="not found", ground_binary_dir=tmpdir)
 
@@ -278,7 +278,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 """
             # No binary_dir passed
             assert_compile_failure(fprime_test_api, parent_seq, match="binary directory")
@@ -305,13 +305,13 @@ assert gc_val == 7
             child_seq = f"""\
 sequence(x: U32)
 assert x == 42
-Ref.seqDisp.RUN_ARGS("{grandchild_path}", Fw.Wait.WAIT, 7)
+Ref.seqDisp.RUN_ARGS("{grandchild_path}", Svc.BlockState.BLOCK, 7)
 """
             _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             # Parent: calls child with an arg
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -331,12 +331,12 @@ assert val == 123
             child_seq = f"""\
 sequence(val: U32)
 assert val == 123
-Ref.seqDisp.RUN_ARGS("{grandchild_path}", Fw.Wait.WAIT, val)
+Ref.seqDisp.RUN_ARGS("{grandchild_path}", Svc.BlockState.BLOCK, val)
 """
             _compile_to_bin(child_seq, Path(child_path), ground_binary_dir=tmpdir)
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 123)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 123)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -356,7 +356,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
@@ -375,7 +375,7 @@ assert 1 == 0
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
@@ -395,7 +395,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
@@ -415,7 +415,7 @@ assert x == 999
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 1)
+resp: Fw.CmdResponse = Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 1)
 if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
@@ -439,7 +439,7 @@ assert x == 42
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, x=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -457,7 +457,7 @@ assert b == 7
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, a=100, b=7)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, a=100, b=7)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -475,7 +475,7 @@ assert second == 2
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, second=2, first=1)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, second=2, first=1)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -494,7 +494,7 @@ assert c == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 10, c=30, b=20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 10, c=30, b=20)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -512,7 +512,7 @@ assert val == 55
 
             parent_seq = f"""\
 val: U32 = 55
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, val=val)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, val=val)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -529,7 +529,7 @@ assert result == 30
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, result=10 + 20)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, result=10 + 20)
 """
             assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
 
@@ -550,7 +550,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, z=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, z=42)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="Unknown argument 'z'", ground_binary_dir=tmpdir)
 
@@ -567,7 +567,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, x=1, x=2)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=1, x=2)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="specified multiple times", ground_binary_dir=tmpdir)
 
@@ -584,7 +584,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, 42, x=99)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42, x=99)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="specified multiple times", ground_binary_dir=tmpdir)
 
@@ -601,7 +601,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, x=42)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 """
             assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
 
@@ -713,7 +713,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             Path(child_path).write_bytes(data)
 
             args = ", ".join("0" for _ in range(10))
-            parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Fw.Wait.WAIT, {args})\n'
+            parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, {args})\n'
             state = get_base_compile_state(dict_path, tmpdir)
             body = text_to_ast(parent_seq)
             assert body is not None

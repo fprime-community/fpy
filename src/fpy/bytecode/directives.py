@@ -8,6 +8,8 @@ from typing import ClassVar
 from fpy.types import (
     FpyType,
     FpyValue,
+    TypeKind,
+    FwSizeStoreType,
     U8,
     U16,
     U32,
@@ -32,14 +34,39 @@ from fpy.syntax import (
 # Bytecode-level type aliases (FpyType singletons)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FwSizeType = U64
-FwChanIdType = U32
-FwPrmIdType = U32
-FwOpcodeType = U32
+# User-configurable types
+FwChanIdType = FpyType(TypeKind.U32, "U32")
+FwPrmIdType = FpyType(TypeKind.U32, "U32")
+FwOpcodeType = FpyType(TypeKind.U32, "U32")
+
+
 ArrayIndexType = I64
 StackSizeType = U32
 SignedStackSizeType = I32
 LoopVarType = I64  # same as ArrayIndexType
+
+
+def _update_configurable_type(
+    target: FpyType, type_defs: dict[str, FpyType], name: str
+) -> None:
+    """Update *target* in place to match the dictionary's definition of *name*.
+    """
+    if name not in type_defs:
+        return
+    resolved = type_defs[name]
+    assert resolved.is_primitive, (
+        f"Configurable type {name} must resolve to a primitive, got {resolved}"
+    )
+    target.kind = resolved.kind
+    target.name = resolved.name
+
+
+def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
+    """Update the user-configurable Fw* bytecode types in place from the dictionary."""
+    _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
+    _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
+    _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
+    _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

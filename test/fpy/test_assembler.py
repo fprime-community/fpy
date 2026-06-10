@@ -1056,18 +1056,21 @@ class TestArgSpecsBinaryFormat:
         dirs = [NoOpDirective()]
         specs = [("x", "U32", 4)]
         serialized, _ = serialize_directives(dirs, arg_specs=specs)
-        # After header: 1 byte arg_name_len + "x" (1 byte) + 1 byte type_name_len + "U32" (3 bytes) + U32 size (4 bytes)
+        # Names are serialized as strings with a FwSizeStoreType length prefix.
+        # The default size store type is U16 (16 bits / 2 bytes).
+        # After header: 2 byte arg_name_len + "x" (1 byte)
+        #             + 2 byte type_name_len + "U32" (3 bytes) + U32 size (4 bytes)
         offset = HEADER_SIZE
-        arg_name_len = serialized[offset]
+        arg_name_len = struct.unpack_from("!H", serialized, offset)[0]
         assert arg_name_len == 1
-        arg_name = serialized[offset + 1 : offset + 2].decode("utf-8")
+        arg_name = serialized[offset + 2 : offset + 3].decode("utf-8")
         assert arg_name == "x"
-        offset += 2
-        type_name_len = serialized[offset]
+        offset += 3
+        type_name_len = struct.unpack_from("!H", serialized, offset)[0]
         assert type_name_len == 3
-        type_name = serialized[offset + 1 : offset + 4].decode("utf-8")
+        type_name = serialized[offset + 2 : offset + 5].decode("utf-8")
         assert type_name == "U32"
-        size = struct.unpack_from("!I", serialized, offset + 4)[0]
+        size = struct.unpack_from("!I", serialized, offset + 5)[0]
         assert size == 4
 
     def test_large_type_size_roundtrip(self):
