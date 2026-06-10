@@ -568,7 +568,7 @@ class FpySequencerModel:
         from pathlib import Path
         from fpy.bytecode.assembler import deserialize_directives, resolve_arg_specs
 
-        # Parse command args: fileName (string), blockState (enum), seqArgs (struct)
+        # Parse command args: fileName (string), blockState (Svc.BlockState), seqArgs (struct)
         # First: read the command definition to know arg sizes
         cmd = self.cmd_dict[opcode]
         offset = 0
