@@ -88,9 +88,9 @@ def run_seq(
         seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
         if args:
             seq_args = _build_seq_args_json(args)
-            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN_ARGS", [seq_path, "WAIT", seq_args], timeout=timeout_s)
+            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN_ARGS", [seq_path, "BLOCK", seq_args], timeout=timeout_s)
         else:
-            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "WAIT"], timeout=timeout_s)
+            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "BLOCK"], timeout=timeout_s)
         return
 
     d = load_dictionary(default_dictionary)
@@ -225,14 +225,14 @@ def assert_run_failure(
             seq_args = _build_seq_args_json(args_bytes)
             fprime_test_api.send_and_assert_event(
                 "Ref.seqDisp.RUN_ARGS",
-                [seq_path, "WAIT", seq_args],
+                [seq_path, "BLOCK", seq_args],
                 events="CdhCore.cmdDisp.OpCodeError",
                 timeout=4,
             )
         else:
             fprime_test_api.send_and_assert_event(
                 "Ref.seqDisp.RUN",
-                [seq_path, "WAIT"],
+                [seq_path, "BLOCK"],
                 events="CdhCore.cmdDisp.OpCodeError",
                 timeout=4,
             )

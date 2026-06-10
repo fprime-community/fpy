@@ -2395,26 +2395,26 @@ class TestLoadDictionary:
 
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["type_defs"]) == 93
+        assert len(d["type_defs"]) == 95
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["cmd_id_dict"]) == 139
-        assert len(d["cmd_name_dict"]) == 139
+        assert len(d["cmd_id_dict"]) == 144
+        assert len(d["cmd_name_dict"]) == 144
 
     def test_channel_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["ch_id_dict"]) == 222
-        assert len(d["ch_name_dict"]) == 222
+        assert len(d["ch_id_dict"]) == 225
+        assert len(d["ch_name_dict"]) == 225
 
     def test_parameter_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["prm_id_dict"]) == 12
-        assert len(d["prm_name_dict"]) == 12
+        assert len(d["prm_id_dict"]) == 15
+        assert len(d["prm_name_dict"]) == 15
 
     def test_constant_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["constants"]) == 18
+        assert len(d["constants"]) == 19
 
     def test_command_attributes(self):
         """Verify CmdDef attributes match expected API."""
