@@ -2903,14 +2903,16 @@ class TestTypeCtorDefaults:
 # ===================================================================
 
 
-class TestConfigurableTypes:
+class TestTypeAliasesFromDict:
     """The Fw* types are updated in place from the dictionary before use."""
 
     @pytest.fixture(autouse=True)
     def restore_configurable_types(self):
-        """Save/restore the in-place-mutated configurable-type singletons."""
+        """Save/restore the in-place-mutated configurable-type singletons and
+        clear the dictionary/scope caches around each test."""
         from fpy import types as types_mod
         from fpy.bytecode import directives as dir_mod
+        from fpy.compiler import _build_global_scopes
 
         targets = [
             dir_mod.FwOpcodeType,
@@ -2919,7 +2921,11 @@ class TestConfigurableTypes:
             types_mod.FwSizeStoreType,
         ]
         snaps = [(t, t.kind, t.name) for t in targets]
+        load_dictionary.cache_clear()
+        _build_global_scopes.cache_clear()
         yield
+        load_dictionary.cache_clear()
+        _build_global_scopes.cache_clear()
         for t, kind, name in snaps:
             t.kind, t.name = kind, name
 
@@ -2960,4 +2966,46 @@ class TestConfigurableTypes:
         assert FwSizeStoreType.kind == TypeKind.U8
         assert FpyValue(string_type, "hi").serialize() == (
             FpyValue(U8, 2).serialize() + b"hi"
+        )
+
+    def test_custom_dictionary_redefines_types_end_to_end(self):
+        """A custom dictionary that redefines the Fw* aliases is picked up by the
+        full compile pipeline (_build_global_scopes), and directives serialize
+        accordingly."""
+        from fpy.compiler import _build_global_scopes
+        from fpy.bytecode.directives import (
+            FwOpcodeType,
+            FwChanIdType,
+            ConstCmdDirective,
+        )
+        from fpy.types import FwSizeStoreType
+
+        def _int_desc(name, size):
+            return {"name": name, "kind": "integer", "size": size, "signed": False}
+
+        # Start from the real dictionary so all the required types are present,
+        # then redefine the configurable aliases to non-default widths.
+        raw = json.loads(Path(REF_DICT_PATH).read_text())
+        overrides = {
+            "FwOpcodeType": _int_desc("U16", 16),
+            "FwChanIdType": _int_desc("U8", 8),
+            "FwSizeStoreType": _int_desc("U8", 8),
+        }
+        for td in raw["typeDefinitions"]:
+            new = overrides.get(td.get("qualifiedName"))
+            if new is not None:
+                td["type"] = new
+                td["underlyingType"] = new
+        path = _write_dict(raw)
+        try:
+            _build_global_scopes(path)
+        finally:
+            os.unlink(path)
+
+        assert FwOpcodeType.kind == TypeKind.U16
+        assert FwChanIdType.kind == TypeKind.U8
+        assert FwSizeStoreType.kind == TypeKind.U8
+        # FwPrmIdType was not overridden, so it keeps its default.
+        assert ConstCmdDirective(cmd_opcode=0xABCD, args=b"").serialize_args() == (
+            FpyValue(U16, 0xABCD).serialize()
         )
