@@ -27,6 +27,7 @@ from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import (
     analysis_to_llvm_module,
     analysis_to_wasm,
+    analysis_to_wat,
     analyze_ast,
     text_to_ast,
     analysis_to_fypbc_directives,
@@ -82,12 +83,13 @@ def compile_main(args: list[str] = None):
     )
     arg_parser.add_argument(
         "--emit",
-        choices=["fpybin", "fpyasm", "llvm-ir", "wasm"],
+        choices=["fpybin", "fpyasm", "llvm-ir", "wasm", "wat"],
         default="fpybin",
         help=(
             "Codegen backend / output format: 'fpybin' (binary fpy bytecode, the "
             "default), 'fpyasm' (human-readable fpy bytecode assembly), "
-            "'llvm-ir' (LLVM IR), 'wasm' (WebAssembly binary)"
+            "'llvm-ir' (LLVM IR), 'wasm' (WebAssembly binary), 'wat' "
+            "(WebAssembly text)"
         ),
     )
     arg_parser.add_argument(
@@ -160,6 +162,8 @@ def compile_main(args: list[str] = None):
             output, seq_arg_types = analysis_to_llvm_module(body, state)
         elif parsed_args.emit == "wasm":
             output, seq_arg_types = analysis_to_wasm(body, state)
+        elif parsed_args.emit == "wat":
+            output, seq_arg_types = analysis_to_wat(body, state)
         elif parsed_args.emit in ["fpybin", "fpyasm"]:
             output, seq_arg_types = analysis_to_fypbc_directives(body, state)
         else:
@@ -187,6 +191,12 @@ def compile_main(args: list[str] = None):
         # output is the runnable wasm binary.
         output_path.write_bytes(output)
         print(f"{output_path}\nsize {human_readable_size(len(output))}")
+    elif parsed_args.emit == "wat":
+        if output_path is None:
+            output_path = parsed_args.input.with_suffix(".wat")
+        # output is the WebAssembly text (LLVM textual assembly).
+        output_path.write_text(output)
+        print(f"{output_path}")
     elif parsed_args.emit == "fpybin":
         output_path = parsed_args.output
         if output_path is None:

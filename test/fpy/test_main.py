@@ -155,6 +155,40 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     assert fpy_error.debug is True
 
 
+def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
+    """--emit wat writes the WebAssembly text to a .wat file."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+    monkeypatch.setattr(
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+    )
+    monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
+
+    def fake_analysis_to_wat(body, state):
+        assert body == "AST"
+        assert state == "STATE"
+        return "WAT_TEXT", []
+
+    monkeypatch.setattr(fpy_main, "analysis_to_wat", fake_analysis_to_wat)
+
+    def fail_serialize(*args):
+        raise AssertionError("serialize_directives should not be called")
+
+    monkeypatch.setattr(fpy_main, "serialize_directives", fail_serialize)
+
+    fpy_main.compile_main(
+        [str(input_path), "--dictionary", str(dict_path), "--emit", "wat"]
+    )
+
+    output_path = input_path.with_suffix(".wat")
+    assert output_path.read_text() == "WAT_TEXT"
+    assert str(output_path) in capsys.readouterr().out
+
+
 def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")

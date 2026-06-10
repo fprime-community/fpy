@@ -31,7 +31,26 @@ from fpy.types import FpyValue
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 
-LLVM_TRIPLE = "wasm32-unknown-unknown"
+LLVM_TRIPLE = "wasm32-unknown-unknown" 
+# TODO this is wasm 1.0 plus extensions
+# lookup LLVM flags for WASM 1.0 MVP
+# TODO what version of LLVM is this using? a later version 
+# has opaque pointers
+
+# TODO enable custom page sizes
+
+# TODO strip custom sections from WASM--wasm opt crate, optimize for size?
+
+# TODO with wasm mvp llvm will provide pow/fmod?? 
+
+# TODO will have to make exit() macro a host function
+
+# TODO could just start with a .a and a header??
+
+# exit
+# command (opcode i32, ptr i32, len i32)
+# telemetry ()
+# param ()
 
 # The sequence entry point returns an error code. 0 means success; a failed
 # assert returns its exit code verbatim (or EXIT_WITH_ERROR if none was given).
@@ -449,11 +468,11 @@ class GenerateLlvmModule:
         if sym.llvm_ptr is not None:
             return  # already declared (a reassignment to the same symbol)
         if sym.is_global:
-            g = ir.GlobalVariable(module, sym.type.llvm_type, name=sym.name)
-            g.linkage = "internal"
+            gvar = ir.GlobalVariable(module, sym.type.llvm_type, name=sym.name)
+            gvar.linkage = "internal"
             # Zero-initialized; the declaring assignment writes the real value.
-            g.initializer = ir.Constant(sym.type.llvm_type, None)
-            sym.llvm_ptr = g
+            gvar.initializer = ir.Constant(sym.type.llvm_type, None)
+            sym.llvm_ptr = gvar
         else:
             sym.llvm_ptr = builder.alloca(sym.type.llvm_type, name=sym.name)
 
@@ -523,6 +542,22 @@ def llvm_module_to_wasm(module: ir.Module) -> bytes:
     machine = target.create_target_machine()
     obj = machine.emit_object(parsed)
     return _link_wasm_object(obj)
+
+
+def llvm_module_to_wasm_text(module: ir.Module) -> str:
+    """Lower an llvmlite module to WebAssembly text (the LLVM `.s` textual
+    assembly: a human-readable listing of the wasm instructions).
+
+    This is the textual form of the same code emit_object produces, taken
+    before linking -- analogous to dumping textual LLVM IR. It is meant for
+    inspection/debugging, not for feeding back to wat2wasm (it's the `.s`
+    assembly format, not the s-expression `(module ...)` form)."""
+    _ensure_llvm_targets()
+    parsed = llvm.parse_assembly(str(module))
+    parsed.verify()
+    target = llvm.Target.from_triple(LLVM_TRIPLE)
+    machine = target.create_target_machine()
+    return machine.emit_assembly(parsed)
 
 
 def _wasm_ld_command() -> list[str]:
