@@ -42,6 +42,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     SPECIFIC_NUMERIC_TYPES,
+    BLOCK_STATE,
     CHECK_STATE,
     CMD_RESPONSE,
     FLAGS_TYPE,
@@ -447,6 +448,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
+    _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
     _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
@@ -484,11 +486,11 @@ def _build_global_scopes(dictionary: str) -> tuple:
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
         # Detect sequence-run commands by matching the 3-arg signature:
-        # (fileName: string, block: <any enum>, args: Svc.SeqArgs)
+        # (fileName: string, block: Svc.BlockState, args: Svc.SeqArgs)
         if (
             len(args) == 3
             and args[0][1].is_string
-            and args[1][1].kind == TypeKind.ENUM
+            and args[1][1].name == "Svc.BlockState"
             and args[2][1].name == "Svc.SeqArgs"
         ):
             # Strip the SeqArgs param; user provides varargs instead

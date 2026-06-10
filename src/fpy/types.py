@@ -611,6 +611,16 @@ TIME_COMPARISON = FpyType(
     rep_type=I32,
 )
 
+# The canonical Svc.BlockState enum type. Both the seq dispatcher's RUN_ARGS and
+# the fpy sequencer's RUN command take their blocking arg as this type, so the
+# compiler can match sequence-run commands by this exact type.
+BLOCK_STATE = FpyType(
+    TypeKind.ENUM,
+    "Svc.BlockState",
+    enum_dict={"BLOCK": 0, "NO_BLOCK": 1},
+    rep_type=U8,
+)
+
 # The canonical Fw.TimeIntervalValue struct type
 TIME_INTERVAL = FpyType(
     TypeKind.STRUCT,
