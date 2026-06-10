@@ -3,7 +3,7 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 from lark import Lark, LarkError
-from fpy.bytecode.directives import Directive
+from fpy.bytecode.directives import Directive, update_configurable_types_from_dict
 from fpy.codegen import (
     CalculateFrameSizes,
     CollectUsedFunctions,
@@ -435,6 +435,10 @@ def _build_global_scopes(dictionary: str) -> tuple:
     ch_name_dict = d["ch_name_dict"]
     prm_name_dict = d["prm_name_dict"]
     dict_type_name_dict = d["type_defs"]
+
+    # Update user-configurable bytecode types (FwChanIdType, FwOpcodeType,
+    # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
+    update_configurable_types_from_dict(dict_type_name_dict)
 
     # Validate required dictionary types
     _update_time_base_from_dict(dict_type_name_dict)

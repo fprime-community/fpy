@@ -2896,3 +2896,68 @@ class TestTypeCtorDefaults:
         ctor = current
         for _, _, default in ctor.args:
             assert default is not None
+
+
+# ===================================================================
+# Section: User-configurable Fw* types updated from the dictionary
+# ===================================================================
+
+
+class TestConfigurableTypes:
+    """The Fw* types are updated in place from the dictionary before use."""
+
+    @pytest.fixture(autouse=True)
+    def restore_configurable_types(self):
+        """Save/restore the in-place-mutated configurable-type singletons."""
+        from fpy import types as types_mod
+        from fpy.bytecode import directives as dir_mod
+
+        targets = [
+            dir_mod.FwOpcodeType,
+            dir_mod.FwChanIdType,
+            dir_mod.FwPrmIdType,
+            types_mod.FwSizeStoreType,
+        ]
+        snaps = [(t, t.kind, t.name) for t in targets]
+        yield
+        for t, kind, name in snaps:
+            t.kind, t.name = kind, name
+
+    def test_opcode_type_default_then_updated(self):
+        from fpy.bytecode.directives import (
+            FwOpcodeType,
+            ConstCmdDirective,
+            update_configurable_types_from_dict,
+        )
+
+        # Default is U32.
+        assert FwOpcodeType.kind == TypeKind.U32
+        assert ConstCmdDirective(cmd_opcode=0x1234, args=b"").serialize_args() == (
+            FpyValue(U32, 0x1234).serialize()
+        )
+
+        # The dictionary may redefine it; here we shrink the opcode to U16.
+        update_configurable_types_from_dict({"FwOpcodeType": U16})
+        assert FwOpcodeType.kind == TypeKind.U16
+        # The directive now serializes its opcode with the updated width.
+        assert ConstCmdDirective(cmd_opcode=0x1234, args=b"").serialize_args() == (
+            FpyValue(U16, 0x1234).serialize()
+        )
+
+    def test_size_store_type_default_then_updated(self):
+        from fpy.bytecode.directives import update_configurable_types_from_dict
+        from fpy.types import FwSizeStoreType
+
+        string_type = FpyType(TypeKind.STRING, "String_10", max_length=10)
+
+        # Default string length prefix is U16.
+        assert FwSizeStoreType.kind == TypeKind.U16
+        assert FpyValue(string_type, "hi").serialize() == (
+            FpyValue(U16, 2).serialize() + b"hi"
+        )
+
+        update_configurable_types_from_dict({"FwSizeStoreType": U8})
+        assert FwSizeStoreType.kind == TypeKind.U8
+        assert FpyValue(string_type, "hi").serialize() == (
+            FpyValue(U8, 2).serialize() + b"hi"
+        )
