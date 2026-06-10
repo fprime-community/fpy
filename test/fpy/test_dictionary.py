@@ -2912,7 +2912,7 @@ class TestTypeAliasesFromDict:
         clear the dictionary/scope caches around each test."""
         from fpy import types as types_mod
         from fpy.bytecode import directives as dir_mod
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
 
         targets = [
             dir_mod.FwOpcodeType,
@@ -2972,7 +2972,7 @@ class TestTypeAliasesFromDict:
         """A custom dictionary that redefines the Fw* aliases is picked up by the
         full compile pipeline (_build_global_scopes), and directives serialize
         accordingly."""
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         from fpy.bytecode.directives import (
             FwOpcodeType,
             FwChanIdType,
