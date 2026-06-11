@@ -2352,7 +2352,6 @@ class CalculateConstExprValues(Visitor):
 
         expr_value = None
 
-        # whether the conversion that will happen is due to an explicit cast
         if is_instance_compat(func, TypeCtorSymbol):
             # actually construct the type
             if func.type.kind == TypeKind.STRUCT:

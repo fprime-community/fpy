@@ -92,8 +92,10 @@ def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
     linker = Linker(engine)
     f64 = ValType.f64()
     binary_f64 = FuncType([f64, f64], [f64])
+    unary_f64 = FuncType([f64], [f64])
     linker.define_func("env", "pow", binary_f64, _host_pow)
     linker.define_func("env", "fmod", binary_f64, math.fmod)
+    linker.define_func("env", "log", unary_f64, math.log)
 
     instance = linker.instantiate(store, module)
     entry = instance.exports(store)[FPY_ENTRY_POINT]

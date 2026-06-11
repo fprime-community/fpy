@@ -67,7 +67,7 @@ class EmitLlvmExpr(Emitter):
 
     def __init__(self, builder: ir.IRBuilder):
         super().__init__()
-        self.builder = builder
+        self.builder: ir.IRBuilder = builder
 
     def emit(self, node, state: CompileState) -> ir.Value:
         value = state.const_expr_values.get(node)
@@ -329,13 +329,7 @@ class EmitLlvmExpr(Emitter):
         0, rather than producing a poison value"""
         base = "llvm.fptosi.sat" if to_type.is_signed else "llvm.fptoui.sat"
         result_type = to_type.llvm_type
-        name = f"{base}.{result_type.intrinsic_name}.{value.type.intrinsic_name}"
-        fn = self.builder.module.globals.get(name)
-        # TODO preconstruct these global funcs at python module init?
-        if fn is None:
-            fn = ir.Function(
-                self.builder.module, ir.FunctionType(result_type, [value.type]), name
-            )
+        fn = self.builder.module.declare_intrinsic(base, (result_type, value.type), ir.FunctionType(result_type, [value.type]))
         return self.builder.call(fn, [value])
 
 

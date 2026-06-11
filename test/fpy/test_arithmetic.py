@@ -500,6 +500,7 @@ assert iabs(I64(1)) == 1
 assert iabs(I64(0)) == 0
 # need to use a large subtract here cuz otherwise float precision kills us... this is kinda sus
 assert iabs(I64(2**63 - 6556)) == 2**63 - 6556
+assert iabs(I64(-2**63)) == I64(-2**63) # abs int min is int min
 """
 
         assert_run_success(fprime_test_api, seq)
