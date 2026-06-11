@@ -12,7 +12,7 @@ import llvmlite.binding as llvm
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
-from fpy.symbols import BuiltinFuncSymbol, VariableSymbol
+from fpy.symbols import BuiltinFuncSymbol, CastSymbol, VariableSymbol
 from fpy.syntax import (
     AstAssert,
     AstAssign,
@@ -31,11 +31,11 @@ from fpy.types import FpyValue
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 
-LLVM_TRIPLE = "wasm32-unknown-unknown" 
-# TODO this is wasm 1.0 plus extensions
-# lookup LLVM flags for WASM 1.0 MVP
-# TODO what version of LLVM is this using? a later version 
-# has opaque pointers
+LLVM_TRIPLE = "wasm32-unknown-unknown"
+
+# Target the original WebAssembly 1.0 MVP (the W3C Core Spec 1.0)
+LLVM_CPU = "mvp"
+WASM_VERSION = "1.0 (MVP)"
 
 # TODO enable custom page sizes
 
@@ -52,12 +52,7 @@ LLVM_TRIPLE = "wasm32-unknown-unknown"
 # telemetry ()
 # param ()
 
-# The sequence entry point returns an error code. 0 means success; a failed
-# assert returns its exit code verbatim (or EXIT_WITH_ERROR if none was given).
-# Note this intentionally does NOT collapse codes the way the bytecode VM's
-# handle_exit does -- the code the user writes is the code returned.
-# The codes fit in a byte, but we return an i32 to match the wasm ABI boundary:
-# wasm has no i8 value type, so the export is `() -> i32` regardless.
+# The sequence entry point returns an error code. 0 means success
 ERROR_CODE_TYPE = ir.IntType(32)
 
 
@@ -283,6 +278,10 @@ class EmitLlvmExpr(Emitter):
 
     def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState) -> ir.Value | None:
         func = state.resolved_symbols[node.func]
+        if isinstance(func, CastSymbol):
+            # the actual conversion happens already as part of the 
+            # synthesized -> contextual conversion
+            return self.emit(node.args[0], state)
         if not isinstance(func, BuiltinFuncSymbol):
             raise BackendError(
                 f"LLVM backend can't lower a call to {type(func).__name__} yet"
@@ -316,14 +315,28 @@ class EmitLlvmExpr(Emitter):
             to_float = self.builder.sitofp if from_type.is_signed else self.builder.uitofp
             return to_float(value, target)
         if to_type.is_integer:  # float -> int
-            to_int = self.builder.fptosi if to_type.is_signed else self.builder.fptoui
-            return to_int(value, target)
+            return self._emit_fp_to_int_saturating(value, to_type)
         # float -> float
         if to_type.bits > from_type.bits:
             return self.builder.fpext(value, target)
         if to_type.bits < from_type.bits:
             return self.builder.fptrunc(value, target)
         return value
+
+    def _emit_fp_to_int_saturating(self, value: ir.Value, to_type) -> ir.Value:
+        """Convert a float to an integer with saturating semantics:
+        an out-of-range value clamps to the target type's min/max and NaN maps to
+        0, rather than producing a poison value"""
+        base = "llvm.fptosi.sat" if to_type.is_signed else "llvm.fptoui.sat"
+        result_type = to_type.llvm_type
+        name = f"{base}.{result_type.intrinsic_name}.{value.type.intrinsic_name}"
+        fn = self.builder.module.globals.get(name)
+        # TODO preconstruct these global funcs at python module init?
+        if fn is None:
+            fn = ir.Function(
+                self.builder.module, ir.FunctionType(result_type, [value.type]), name
+            )
+        return self.builder.call(fn, [value])
 
 
 FPY_ENTRY_POINT = "fpy_main"
@@ -539,7 +552,7 @@ def llvm_module_to_wasm(module: ir.Module) -> bytes:
     parsed = llvm.parse_assembly(str(module))
     parsed.verify()
     target = llvm.Target.from_triple(LLVM_TRIPLE)
-    machine = target.create_target_machine()
+    machine = target.create_target_machine(cpu=LLVM_CPU)
     obj = machine.emit_object(parsed)
     return _link_wasm_object(obj)
 
@@ -556,7 +569,7 @@ def llvm_module_to_wasm_text(module: ir.Module) -> str:
     parsed = llvm.parse_assembly(str(module))
     parsed.verify()
     target = llvm.Target.from_triple(LLVM_TRIPLE)
-    machine = target.create_target_machine()
+    machine = target.create_target_machine(cpu=LLVM_CPU)
     return machine.emit_assembly(parsed)
 
 
@@ -570,6 +583,42 @@ def _wasm_ld_command() -> list[str]:
             "wasm-ld); install it with 'pip install ziglang'"
         )
     return [sys.executable, "-m", "ziglang", "wasm-ld"]
+
+
+def _llvm_version_str() -> str:
+    """The version of LLVM that llvmlite is bound to (e.g. "20.1.8")."""
+    return ".".join(str(n) for n in llvm.llvm_version_info)
+
+
+def _wasm_ld_version_str() -> str:
+    """The version line reported by the bundled wasm-ld (e.g. "LLD 21.1.0").
+
+    wasm-ld is shipped separately (via the 'ziglang' package), so its version
+    is independent of the LLVM that compiled the IR. Returns "unavailable" if
+    wasm-ld can't be run rather than failing -- this is only for --version."""
+    try:
+        result = subprocess.run(
+            _wasm_ld_command() + ["--version"], capture_output=True
+        )
+    except (BackendError, OSError):
+        return "unavailable"
+    if result.returncode != 0:
+        return "unavailable"
+    # wasm-ld prints a single line like "LLD 21.1.0 (compatible with GNU linkers)";
+    # keep just the "LLD <version>" part.
+    line = result.stdout.decode(errors="replace").strip()
+    return line if line else "unavailable"
+
+
+def backend_version_str() -> str:
+    """Human-readable summary of the LLVM/wasm toolchain the backend uses, for
+    the compiler's --version output: the LLVM version that lowers the IR, the
+    WebAssembly spec version we target, and the wasm-ld that links the module."""
+    return (
+        f"LLVM {_llvm_version_str()}, "
+        f"WASM {WASM_VERSION}, "
+        f"wasm-ld {_wasm_ld_version_str()}"
+    )
 
 
 def _link_wasm_object(obj: bytes) -> bytes:

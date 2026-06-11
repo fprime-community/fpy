@@ -13,12 +13,44 @@ exit code verbatim, or EXIT_WITH_ERROR by default.
 
 import pytest
 
+import llvmlite.binding as llvm
+
+from fpy.codegen_llvm import (
+    LLVM_CPU,
+    LLVM_TRIPLE,
+    GenerateLlvmModule,
+    _ensure_llvm_targets,
+)
+from fpy.compiler import analyze_ast, text_to_ast
 from fpy.model import DirectiveErrorCode
-from fpy.test_helpers import compile_seq_wasm, run_seq_wasm
+from fpy.state import get_base_compile_state
+from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
 
 
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
+
+
+def _seq_to_llvm_module(seq: str):
+    """Lower *seq* to an llvmlite ir.Module (pre-codegen, target-independent)."""
+    state = get_base_compile_state(default_dictionary, None)
+    body = text_to_ast(seq)
+    state = analyze_ast(body, state)
+    return GenerateLlvmModule().emit(body, state)
+
+
+def _emit_wasm_asm(seq: str, cpu: str) -> str:
+    """Lower *seq* and emit its wasm textual assembly for the given target CPU.
+
+    Re-parses the IR each call: emitting codegen mutates the parsed module (it
+    bakes target-features attributes into the functions), so a parsed module
+    can't be reused across CPUs without cross-contaminating results.
+    """
+    _ensure_llvm_targets()
+    parsed = llvm.parse_assembly(str(_seq_to_llvm_module(seq)))
+    parsed.verify()
+    target = llvm.Target.from_triple(LLVM_TRIPLE)
+    return target.create_target_machine(cpu=cpu).emit_assembly(parsed)
 
 
 class TestWasmAssert:
@@ -284,3 +316,78 @@ class TestWasmIf:
             "if True:\n    a: U32 = 2\n    assert a == 2\n"
         )
         assert run_seq_wasm(seq) == NO_ERROR
+
+
+class TestWasmCast:
+    """Explicit numeric casts -- e.g. I32(x). Unlike implicit coercion, a cast
+    skips the semantic range check, so it's how a sequence narrows a float to an
+    int (or an int to a smaller int). The cast itself emits no instructions: the
+    operand's contextual type becomes the target type, so the conversion rides
+    on the operand's normal lowering. The operand is a variable here, so the
+    conversion happens at runtime rather than folding at compile time."""
+
+    def test_float_to_int_truncates_toward_zero(self):
+        # 5.9 -> 5: float->int truncates toward zero (wasm trunc / C / the VM).
+        assert run_seq_wasm("x: F64 = 5.9\ny: I32 = I32(x)\nassert y == 5\n") == NO_ERROR
+
+    def test_negative_float_to_int_truncates_toward_zero(self):
+        # -5.9 -> -5 (toward zero), not -6 (toward -inf).
+        assert run_seq_wasm("x: F64 = -5.9\ny: I32 = I32(x)\nassert y == -5\n") == NO_ERROR
+
+    def test_int_to_float(self):
+        assert run_seq_wasm("x: I32 = 7\ny: F64 = F64(x)\nassert y == 7.0\n") == NO_ERROR
+
+    def test_int_narrowing_wraps(self):
+        # Narrowing an int truncates the high bits: 300 & 0xff == 44.
+        assert run_seq_wasm("x: I32 = 300\ny: U8 = U8(x)\nassert y == 44\n") == NO_ERROR
+
+
+class TestWasmFloatToIntSaturates:
+    """Out-of-range float->int casts saturate, matching Rust's `as`: a value
+    above/below the target type's range clamps to its max/min, and NaN maps to
+    0. (The bytecode VM instead *wraps* mod 2^n, so the backends differ on
+    out-of-range inputs -- the cross-backend cast tests in
+    test_types_and_constructors switch on the backend.)
+
+    The backend lowers this with llvm.fptosi.sat / llvm.fptoui.sat. Under the
+    WASM 1.0 MVP target there is no saturating trunc_sat op (that's the post-MVP
+    nontrapping-fptoint feature), so the intrinsic lowers to a guarded trunc
+    with explicit clamping -- which still does NOT trap."""
+
+    @pytest.mark.parametrize(
+        "seq",
+        [
+            "x: F64 = 1e20\nassert U8(x) == 255\n",       # above U8 max -> 255
+            "x: F64 = -5.0\nassert U8(x) == 0\n",         # below U8 min -> 0
+            "x: F64 = 1000.0\nassert I8(x) == 127\n",     # above I8 max -> 127
+            "x: F64 = -1000.0\nassert I8(x) == -128\n",   # below I8 min -> -128
+            "x: F64 = 1e20\nassert I32(x) == 2147483647\n",   # I32 max
+            "x: F64 = -1e20\nassert I32(x) == -2147483648\n",  # I32 min
+        ],
+    )
+    def test_out_of_range_saturates(self, seq):
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_nan_to_int_is_zero(self):
+        # 0.0 / 0.0 is NaN; a NaN float->int cast saturates to 0.
+        assert run_seq_wasm("x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n") == NO_ERROR
+
+    def test_infinity_to_int_saturates(self):
+        # +inf clamps to the target max rather than trapping or crashing.
+        assert run_seq_wasm(
+            "x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == 2147483647\n"
+        ) == NO_ERROR
+
+    def test_out_of_range_does_not_trap(self):
+        # Runs to completion (returns a code) rather than trapping; a wasm trap
+        # would surface as a wasmtime.Trap out of run_seq_wasm.
+        assert run_seq_wasm("x: F64 = 1e20\ny: I32 = I32(x)\nassert True\n") == NO_ERROR
+
+    def test_stays_mvp_no_trunc_sat(self):
+        """The saturating intrinsic must not pull in the post-MVP saturating op:
+        the MVP target lowers it to a guarded trunc (no trunc_sat), whereas the
+        default 'generic' CPU would use trunc_sat. Guards against the backend
+        dropping cpu=LLVM_CPU or LLVM changing its feature defaults."""
+        seq = "x: F64 = 1e20\ny: I32 = I32(x)\nassert y == 0\n"
+        assert "i32.trunc_sat_f64_s" not in _emit_wasm_asm(seq, cpu=LLVM_CPU)
+        assert "i32.trunc_sat_f64_s" in _emit_wasm_asm(seq, cpu="generic")

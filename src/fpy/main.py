@@ -33,6 +33,7 @@ from fpy.compiler import (
     analysis_to_fypbc_directives,
     ast_to_dependencies,
 )
+from fpy.codegen_llvm import backend_version_str
 from fpy.dictionary import load_dictionary
 from fpy.state import get_base_compile_state
 
@@ -55,15 +56,16 @@ def get_package_version() -> str:
 
 
 def get_version_str() -> str:
-    return f"package {get_package_version()} langauge {MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION} schema {SCHEMA_VERSION}"
+    return f"package {get_package_version()}, langauge {MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION}, schema {SCHEMA_VERSION}"
 
 
 def compile_main(args: list[str] = None):
+    compiler_version = f"{get_version_str()}\nbackend:\n{backend_version_str()}"
     arg_parser = argparse.ArgumentParser(
-        description=f"Fpy compiler {get_version_str()}"
+        description=f"Fpy compiler {compiler_version}"
     )
     arg_parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {get_version_str()}"
+        "--version", action="version", version=f"%(prog)s {compiler_version}"
     )
     arg_parser.add_argument("input", type=Path, help="The input .fpy file")
     arg_parser.add_argument(
