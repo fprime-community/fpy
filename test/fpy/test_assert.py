@@ -28,7 +28,7 @@ assert False
 assert False, 123
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 123)
 
     def test_assert_wrong_bool_type(self, fprime_test_api):
         seq = """
