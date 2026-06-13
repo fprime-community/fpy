@@ -339,6 +339,14 @@ class CompileState:
     in positional order. Default values are filled in for arguments not provided
     at the call site (or struct members / array elements with defaults)."""
 
+    function_global_uses: dict[AstDef, list[VariableSymbol]] = field(default_factory=dict)
+    """function definition -> globals it reads. Populated with direct uses by
+    CollectFunctionGlobalUses, then grown to the transitive closure (globals
+    read through called functions too) by ResolveTransitiveGlobalUses."""
+
+    function_callees: dict[AstDef, list[AstDef]] = field(default_factory=dict)
+    """function definition -> the user function definitions it directly calls"""
+
     while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
     """while loop node mapped to the label pointing to the end of the loop"""
     while_loop_start_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)

@@ -925,6 +925,135 @@ class CheckUseBeforeDefine(TopDownVisitor):
             return
 
 
+def _add_unique(items: list, item):
+    """Append item to items if not already present (by equality)."""
+    if item not in items:
+        items.append(item)
+
+
+class FindGlobalUsesInFunction(TopDownVisitor):
+    """Scans a single function body, recording the globals it reads and the
+    user functions it calls into state, keyed by the function definition.
+
+    Only assignment-declared globals matter: sequence parameters and builtins
+    are initialized at sequence start, so they are always defined.
+    """
+
+    def __init__(self, func: AstDef):
+        super().__init__()
+        self.func = func
+
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
+        sym = state.resolved_symbols.get(node)
+        if (
+            is_instance_compat(sym, VariableSymbol)
+            and sym.is_global
+            and is_instance_compat(sym.declaration, AstAssign)
+        ):
+            _add_unique(state.function_global_uses.setdefault(self.func, []), sym)
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        fsym = state.resolved_symbols.get(node.func)
+        if is_instance_compat(fsym, FunctionSymbol):
+            _add_unique(
+                state.function_callees.setdefault(self.func, []), fsym.definition
+            )
+
+
+class CollectFunctionGlobalUses(TopDownVisitor):
+    """For each function definition, record the globals its body (and parameter
+    defaults) reads directly and the user functions it calls directly."""
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        # ensure every function has entries even if it uses/calls nothing
+        state.function_global_uses.setdefault(node, [])
+        state.function_callees.setdefault(node, [])
+
+        scanner = FindGlobalUsesInFunction(node)
+        scanner.run(node.body, state)
+        if node.parameters is not None:
+            for _ident, _type_ann, default in node.parameters:
+                if default is not None:
+                    scanner.run(default, state)
+
+
+class ResolveTransitiveGlobalUses:
+    """Grows function_global_uses from direct uses to transitive uses too.
+
+    Repeatedly, for each call edge f -> g, fold g's globals into f's, until a
+    full pass adds nothing. At the fixpoint every call edge is accounted for,
+    which (by induction over call chains) is the full transitive closure.
+    """
+
+    def run(self, start: Ast, state: CompileState):
+        num_funcs = len(state.function_global_uses)
+        num_globals = len(
+            {id(g) for uses in state.function_global_uses.values() for g in uses}
+        )
+
+        for _ in range(num_funcs * num_globals + 1):
+            changed = False
+            for func, callees in state.function_callees.items():
+                uses = state.function_global_uses[func]
+                for callee in callees:
+                    for g in state.function_global_uses[callee]:
+                        if g not in uses:
+                            uses.append(g)
+                            changed = True
+            if not changed:
+                return
+
+        assert False, "transitive global-use fixpoint did not converge"
+
+
+class CheckGlobalsInitializedBeforeCall(Visitor):
+    """Ensures a global is initialized before any function that reads it
+    (directly or transitively) is called.
+
+    A function may be defined before the globals it uses, but every call to it
+    must come after those globals are declared. Because Fpy is block scoped,
+    functions can only reference root-scope globals, which are declared
+    unconditionally in source order — so a global is "defined" once its
+    declaration statement has executed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.defined: list[VariableSymbol] = []
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        if state.enclosing_value_scope[node].in_function:
+            # checked transitively at the top-level call that reaches this one
+            return
+        fsym = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(fsym, FunctionSymbol):
+            return
+        missing = [
+            g for g in state.function_global_uses[fsym.definition]
+            if g not in self.defined
+        ]
+        if not missing:
+            return
+        # Report the global declared latest in the source for a stable message.
+        var = max(missing, key=lambda v: v.declaration.id)
+        state.err(
+            f"'{fsym.name}' is called here but reads global '{var.name}', "
+            f"which is not defined until later",
+            node,
+        )
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        if not is_instance_compat(node.lhs, AstIdent):
+            return
+        sym = state.resolved_symbols.get(node.lhs)
+        if (
+            is_instance_compat(sym, VariableSymbol)
+            and sym.is_global
+            and sym.declaration is node
+        ):
+            _add_unique(self.defined, sym)
+
+
 class ResolveSequenceDependencies(TopDownVisitor):
     """Discover and resolve all sequence-run dependencies before type checking.
 

@@ -252,3 +252,5 @@ If N is a function definition statement:
    1. Check that type_i resolved to a type.
 
 Otherwise, skip N.
+
+# CheckUseBeforeDefine

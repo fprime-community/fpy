@@ -30,6 +30,9 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
+    CollectFunctionGlobalUses,
+    ResolveTransitiveGlobalUses,
+    CheckGlobalsInitializedBeforeCall,
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
@@ -632,6 +635,13 @@ def ast_to_directives(
         UpdateStateWithTypes(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
+        # record the globals each function reads and the functions it calls...
+        CollectFunctionGlobalUses(),
+        # ...then grow those to the transitive closure over the call graph...
+        ResolveTransitiveGlobalUses(),
+        # ...so we can check globals are initialized before any function that
+        # reads them (directly or transitively) is called
+        CheckGlobalsInitializedBeforeCall(),
         # discover sequence-run dependencies (.bin files) before type checking
         ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
