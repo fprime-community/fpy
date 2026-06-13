@@ -828,15 +828,12 @@ class UpdateStateWithTypes(Visitor):
         if node.parameters is None:
             return
 
-        arg_offset = 0
         for arg_name_var, arg_type_name in node.parameters:
             arg_type = state.resolved_symbols[arg_type_name]
             # update the var type
             arg_var = state.resolved_symbols[arg_name_var]
             assert is_instance_compat(arg_var, VariableSymbol), arg_var
             arg_var.type = arg_type
-            arg_var.frame_offset = arg_offset
-            arg_offset += arg_type.max_size
             state.this_seq_arg_specs.append((arg_var.name, arg_type))
 
 
