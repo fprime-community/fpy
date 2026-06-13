@@ -83,7 +83,7 @@ import fpy.error
 
 # Load grammar once at module level
 _fpy_grammar_path = Path(__file__).parent / "grammar.lark"
-_fpy_grammar_str = _fpy_grammar_path.read_text()
+_fpy_grammar_str = _fpy_grammar_path.read_text(encoding="utf-8")
 
 # Create parser once at module level with LALR and cache enabled.
 # PythonIndenter.process() resets its internal state on each call,
@@ -100,7 +100,7 @@ _fpy_parser = Lark(
 
 # Load builtin time.fpy functions at module level
 _builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
-_builtin_time_text = _builtin_time_path.read_text()
+_builtin_time_text = _builtin_time_path.read_text(encoding="utf-8")
 _builtin_library_ast = None  # Lazily initialized
 
 

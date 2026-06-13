@@ -375,7 +375,7 @@ def load_dictionary(dictionary_path: str) -> dict:
         - 'constants': dict[str, object] — constants by qualifiedName
         - 'metadata': dict — raw metadata
     """
-    with open(dictionary_path, "r") as f:
+    with open(dictionary_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
     type_defs = _parse_type_definitions(raw.get("typeDefinitions", []))
