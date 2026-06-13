@@ -953,10 +953,10 @@ class FindGlobalUsesInFunction(TopDownVisitor):
             _add_unique(state.function_global_uses.setdefault(self.func, []), sym)
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        fsym = state.resolved_symbols.get(node.func)
-        if is_instance_compat(fsym, FunctionSymbol):
+        sym = state.resolved_symbols.get(node.func)
+        if is_instance_compat(sym, FunctionSymbol):
             _add_unique(
-                state.function_callees.setdefault(self.func, []), fsym.definition
+                state.function_callees.setdefault(self.func, []), sym.definition
             )
 
 
@@ -981,7 +981,7 @@ class ResolveTransitiveGlobalUses:
     """Grows function_global_uses from direct uses to transitive uses too.
 
     Repeatedly, for each call edge f -> g, fold g's globals into f's, until a
-    full pass adds nothing. At the fixpoint every call edge is accounted for,
+    full pass adds nothing. At this point every call edge is accounted for,
     which (by induction over call chains) is the full transitive closure.
     """
 
@@ -1003,7 +1003,7 @@ class ResolveTransitiveGlobalUses:
             if not changed:
                 return
 
-        assert False, "transitive global-use fixpoint did not converge"
+        assert False, "transitive global-use algo did not converge"
 
 
 class CheckGlobalsInitializedBeforeCall(Visitor):
@@ -1025,11 +1025,11 @@ class CheckGlobalsInitializedBeforeCall(Visitor):
         if state.enclosing_value_scope[node].in_function:
             # checked transitively at the top-level call that reaches this one
             return
-        fsym = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(fsym, FunctionSymbol):
+        sym = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(sym, FunctionSymbol):
             return
         missing = [
-            g for g in state.function_global_uses[fsym.definition]
+            g for g in state.function_global_uses[sym.definition]
             if g not in self.defined
         ]
         if not missing:
@@ -1037,7 +1037,7 @@ class CheckGlobalsInitializedBeforeCall(Visitor):
         # Report the global declared latest in the source for a stable message.
         var = max(missing, key=lambda v: v.declaration.id)
         state.err(
-            f"'{fsym.name}' is called here but reads global '{var.name}', "
+            f"'{sym.name}' is called here but reads global '{var.name}', "
             f"which is not defined until later",
             node,
         )

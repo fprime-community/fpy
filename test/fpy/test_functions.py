@@ -429,7 +429,7 @@ caller()
         self, fprime_test_api
     ):
         """A recursive function that reads a global, called before that global
-        is declared, is an error (the self-call must not loop the fixpoint)."""
+        is declared, is an error."""
         seq = """
 def countdown(n: I64):
     if n == 0:

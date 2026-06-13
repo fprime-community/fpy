@@ -62,7 +62,7 @@ The following language constructs may be symbols:
 * parameters
 * enum constants
 TODO members?
-TODO you're selecting a member of a value--not referring to a static member. when you say a.b you're asking fgor a comp to be performed
+TODO you're selecting a member of a value--not referring to a static member. when you say a.b you're asking for a comp to be performed
 
 ## Scopes
 
@@ -97,7 +97,7 @@ Name groups do not intersect.
 > This means that the names of callables, types and values never conflict.  WITH EACH OTHER
 
 Name groups are accessed via syntactic context.
-TODO this is really just an ecplanation
+TODO this is really just an explanation
 
 TODO type names should NOT be expressions
 
@@ -146,7 +146,7 @@ TODO I'm not sure this is clear what this means. The idea here is that the full 
 
 ## Definitions
 
-A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as apart ofa  a [scope](#scopes) and [name group](#name-groups).
+A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as apart of a [scope](#scopes) and [name group](#name-groups).
 
 The list of definitions is:
 * [Variable definitions](#variable-definition)
@@ -1246,7 +1246,7 @@ Compile-time constant floats (including literals and constant-folded expressions
 ## Control flow
 A **branch** is a block of code which conditionally executes.
 
-> That is, whether or not that code exeutes depends on some expression.
+> That is, whether or not that code executes depends on some expression.
 
 The list of statements which have branches is:
 * The [if statement](#ifs)
