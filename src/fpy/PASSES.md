@@ -101,15 +101,15 @@ The qualified names of definitions reside in the following name groups:
   * Telemetry channels
   * Parameters
   * Enum constants
-  * Namespaces
+  * Modules
 * The callable name group, consisting of definitions of:
   * Casts
   * Builtins
   * Commands
   * Type constructors
   * Functions
-  * Namespaces
-* The type name group, consisting of type definitions and namespace definitions.
+  * Modules
+* The type name group, consisting of type definitions and module definitions.
 
 # Segue on dictionary definitions
 
@@ -143,7 +143,7 @@ For each constant definition C in the `constants` section of the dictionary:
 2. I is the name of C in the global scope.
 3. TODO on how the type and value of C are parsed
 
-In each of these dictionary definitions, if n > 0, and the qualified identifier Q formed by I_0, ..., I_x for any x < n has not been seen before in this name group, then the definition is also considered a definition of namespace N in this name group, and Q is the name of N.
+In each of these dictionary definitions, if n > 0, and the qualified identifier Q formed by I_0, ..., I_x for any x < n has not been seen before in this name group, then the definition is also considered a definition of module M in this name group, and Q is the name of M.
 
 # ResolveIdentifiers
 
@@ -154,22 +154,20 @@ A qualified identifier is one of the following:
 
 To resolve a qualified identifier Q with a definition in name group N (i.e. associate Q with a definition):
 1. Let R be the leftmost identifier of Q (if Q is an identifier, R is Q; otherwise Q is of the form Q' `.` I and R is the leftmost identifier of Q').
-2. Resolve the identifier R in name group N.
+2. Resolve the identifier R in name group N (see below).
 3. If R could not be resolved, raise an error.
 4. Walk the remaining identifiers of Q from leftmost to rightmost. For each Q_i `.` I_i where Q_i has been resolved:
-   1. If Q_i refers to a namespace, look up I_i within that namespace. If not found, raise an error. Otherwise, Q_i `.` I_i refers to the looked-up definition.
-   2. Otherwise, Q_i refers to a non-namespace definition (e.g. an enum or struct value); leave I_i and any subsequent identifiers unresolved -- they are member accesses, handled later by type checking.
+   1. If Q_i refers to a symbol which may contain sub definition, look up I_i within that symbol. If not found, raise an error. Otherwise, Q_i `.` I_i refers to the looked-up definition.
+   2. Otherwise, Q_i refers to a definition which may not contain sub definitions, so no resolution is possible. However, it may still be a member access expression, so break out of this loop without an error.
+   
 
 To resolve an identifier I with a definition in name group N:
-1. Let S be:
-   * The global callable scope, if N is the callable name group.
-   * The global type scope, if N is the type name group.
-   * The enclosing scope of I, if N is the value name group.
-2. If a definition D with name I exists in S, I refers to D.
+1. Let S be the enclosing scope of I.
+2. If a definition D with name I in name group N exists in S, I refers to D.
 3. Otherwise, if S has no parent P, raise an error.
 4. Otherwise, go to step 2, but replace S with P.
 
-For each expression or statement N that could contain an unqualified identifier:
+For each expression or statement N:
 
 If N is a function definition statement:
 1. Resolve the function identifier in the callable name group.
@@ -213,11 +211,44 @@ If N is an anonymous struct expression, resolve each member's value expression i
 
 If N is an anonymous array expression, resolve each element expression in the value name group.
 
-<!---
-an important diff between Fpp and Fpy is that a definition cannot have sub definitions.
-Basically, each definition is terminal.
+Otherwise, skip N.
 
-If you think about it, from the dictionary perspective again this makes sense. There's no 
-dictionary definition of modules or components. So those qualifiers really aren't
-referring to any definitions. I can't recover the definitions from the strings.
--->
+
+# CheckAllUnqualifiedIdentifiersResolved
+
+For each unqualified identifier I, if I has not been resolved to a definition, raise an error.
+
+# CheckAllTypesAndCallablesResolved
+
+For each expression or statement N:
+
+If N is a function definition statement:
+1. Check that the function identifier resolved to a callable.
+2. Check that the return type expression, if present, resolved to a type.
+3. For each parameter P_i = (ident_i, type_i, default_i):
+   1. Check that type_i resolved to a type.
+
+If N is an assignment statement, check that the type annotation, if present, resolved to a type.
+
+If N is a sequence metadata statement:
+1. For each parameter P_i = (ident_i, type_i):
+   2. Check that type_i resolved to a type.
+
+If N is a function call statement, check that the callable expression resolved to a callable.
+
+Otherwise, skip N.
+
+If any check fails, raise an error.
+
+> At this point, either all uses of definitions have been resolved, or an error has been raised.
+
+# CheckForConstantSizeTypes
+
+For each expression or statement N:
+
+If N is a function definition statement:
+2. Check that the return type expression, if present, is a constant sized type.
+3. For each parameter P_i = (ident_i, type_i, default_i):
+   1. Check that type_i resolved to a type.
+
+Otherwise, skip N.

@@ -256,6 +256,8 @@ def is_symbol_an_expr(symbol: Symbol) -> bool:
         ),
     )
 
+ModuleSymbol = SymbolTable
+
 Symbol = typing.Union[
     ChDef,
     PrmDef,
@@ -263,7 +265,7 @@ Symbol = typing.Union[
     CallableSymbol,
     FpyType,
     VariableSymbol,
-    SymbolTable,
+    ModuleSymbol,
     FieldAccess
 ]
 """a named entity in fpy that can be looked up in a symbol table"""

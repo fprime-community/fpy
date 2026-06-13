@@ -53,6 +53,7 @@ from fpy.state import (
     ForLoopAnalysis,
     FunctionSymbol,
     NameGroup,
+    ModuleSymbol,
     Symbol,
     SymbolTable,
     TypeCtorSymbol,
@@ -444,14 +445,39 @@ class CheckReturnInFunc(TopDownVisitor):
             state.err("Cannot return outside of a function", node)
             return
 
+
 class ResolveQualifiedIdentifiers(TopDownVisitor):
 
-    def try_resolve_ident(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+    def may_contain_sub_definitions(self, sym: Symbol) -> bool:
+        """return True if a symbol definition may contain other definitions.
+        The only definitions in Fpy which may contain other definitions are
+        modules (whose only purpose is to contain other definitions) and 
+        enum types (who contain definitions of enum consts)"""
+        return is_instance_compat(sym, ModuleSymbol) or (
+            is_instance_compat(sym, FpyType) and sym.kind == TypeKind.ENUM
+        )
+
+    def get_sub_definition(self, parent_sym: Symbol, name: str) -> Symbol | None:
+        if is_instance_compat(parent_sym, ModuleSymbol):
+            return parent_sym.get(name)
+
+        assert (
+            is_instance_compat(parent_sym, FpyType) and parent_sym.kind == TypeKind.ENUM
+        ), parent_sym
+
+        return parent_sym.enum_dict.get(name)
+
+    def try_resolve_ident(
+        self, node: AstExpr, ng: NameGroup, state: CompileState
+    ) -> bool:
         # Walk down to the leftmost identifier, collecting getattrs (outermost first)
         attrs: list[AstGetAttr] = []
         while is_instance_compat(node, AstGetAttr):
             attrs.append(node)
             node = node.parent
+
+        # the root is not an identifier. so the original expression is not a
+        # qualified identifier. skip it
         if not is_instance_compat(node, AstIdent):
             return True
 
@@ -474,16 +500,20 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
             state.err(f"Unknown {ng} '{node.name}'", node)
             return False
 
+        # root identifier was successfully resolved
         state.resolved_symbols[node] = resolved
 
         # Walk back down the getattr chain (innermost first) resolving each.
-        # Stop when the parent isn't a namespace -- the rest is a member access
+        # Stop when the parent isn't a module -- the rest is a member access
         # (e.g. enum.MEMBER, struct.field) handled later by type checking.
         for getattr_node in reversed(attrs):
             parent_sym = state.resolved_symbols.get(getattr_node.parent)
-            if not is_instance_compat(parent_sym, SymbolTable):
-                break
-            attr_sym = parent_sym.get(getattr_node.attr)
+            if not self.may_contain_sub_definitions(parent_sym):
+                # further getattrs cannot be qualified names as
+                # the parent symbol definition may not contain
+                # other definitions
+                return True
+            attr_sym = self.get_sub_definition(parent_sym, getattr_node.attr)
             if attr_sym is None:
                 state.err("Unknown name", getattr_node)
                 return False
@@ -510,9 +540,10 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
                 if default_value is not None:
                     # TODO make sure that we test that default vals cant access vars inside of func
                     # default values are calculated outside of func scope
-                    if not self.try_resolve_ident(default_value, NameGroup.VALUE, state):
+                    if not self.try_resolve_ident(
+                        default_value, NameGroup.VALUE, state
+                    ):
                         return
-
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
@@ -522,7 +553,6 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
             return
         if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
             return
-
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         if node.parameters is None:
@@ -549,11 +579,9 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
                 if not self.try_resolve_ident(arg, NameGroup.VALUE, state):
                     return
 
-
     def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
         if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
             return
-
 
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
@@ -561,7 +589,6 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
             return
         if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
             return
-
 
     def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
         if not self.try_resolve_ident(node.val, NameGroup.VALUE, state):
@@ -594,13 +621,11 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
         if not self.try_resolve_ident(node.item, NameGroup.VALUE, state):
             return
 
-
     def visit_AstRange(self, node: AstRange, state: CompileState):
         if not self.try_resolve_ident(node.lower_bound, NameGroup.VALUE, state):
             return
         if not self.try_resolve_ident(node.upper_bound, NameGroup.VALUE, state):
             return
-
 
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         if node.value is not None:
@@ -692,12 +717,10 @@ class CheckAllTypesAndCallablesResolved(Visitor):
                     return
                 # arg_name_var is a defining use and so already resolved
 
-
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
             if not self.check_resolved(node.type_ann, NameGroup.TYPE, state):
                 return
-
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         if node.parameters is None:
@@ -712,18 +735,11 @@ class CheckAllTypesAndCallablesResolved(Visitor):
         if not self.check_resolved(node.func, NameGroup.CALLABLE, state):
             return
 
-
-class UpdateTypesAndFuncs(Visitor):
+class CheckForConstantSizeTypes(Visitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Get the function that was created in CreateVariablesAndFuncs
-        func = state.resolved_symbols[node.name]
-        assert is_instance_compat(func, FunctionSymbol), func
-
-        # Resolve return type
-        if node.return_type is None:
-            func.return_type = NOTHING
-        else:
+        # Check return type
+        if node.return_type is not None:
             return_type = state.resolved_symbols[node.return_type]
             if not is_type_constant_size(return_type):
                 state.err(
@@ -731,12 +747,10 @@ class UpdateTypesAndFuncs(Visitor):
                     node.return_type,
                 )
                 return
-            func.return_type = return_type
 
-        # Resolve parameter types
-        args = []
+        # Check parameter types
         if node.parameters is not None:
-            for arg_name_var, arg_type_name, default_value in node.parameters:
+            for _, arg_type_name, _ in node.parameters:
                 arg_type = state.resolved_symbols[arg_type_name]
                 if not is_type_constant_size(arg_type):
                     state.err(
@@ -744,13 +758,7 @@ class UpdateTypesAndFuncs(Visitor):
                         arg_type_name,
                     )
                     return
-                # update the var type
-                arg_var = state.resolved_symbols[arg_name_var]
-                assert is_instance_compat(arg_var, VariableSymbol), arg_var
-                arg_var.type = arg_type
-                args.append((arg_name_var.name, arg_type, default_value))
 
-        func.args = args
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is None:
@@ -765,6 +773,52 @@ class UpdateTypesAndFuncs(Visitor):
             )
             return
 
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+
+        for _, arg_type_name in node.parameters:
+            arg_type = state.resolved_symbols[arg_type_name]
+            if not is_type_constant_size(arg_type):
+                state.err(
+                    f"Type {arg_type.display_name} is not constant-sized (contains strings)",
+                    arg_type_name,
+                )
+                return
+
+class UpdateStateWithTypes(Visitor):
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        # Get the function that was created in DefineFunctions
+        func = state.resolved_symbols[node.name]
+        assert is_instance_compat(func, FunctionSymbol), func
+
+        # Resolve return type
+        if node.return_type is None:
+            func.return_type = NOTHING
+        else:
+            return_type = state.resolved_symbols[node.return_type]
+            func.return_type = return_type
+
+        # Resolve parameter types
+        args = []
+        if node.parameters is not None:
+            for arg_name_var, arg_type_name, default_value in node.parameters:
+                arg_type = state.resolved_symbols[arg_type_name]
+                # update the var type
+                arg_var = state.resolved_symbols[arg_name_var]
+                assert is_instance_compat(arg_var, VariableSymbol), arg_var
+                arg_var.type = arg_type
+                args.append((arg_name_var.name, arg_type, default_value))
+
+        func.args = args
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        if node.type_ann is None:
+            return
+
+        var_type = state.resolved_symbols[node.type_ann]
+
         var = state.resolved_symbols[node.lhs]
 
         var.type = var_type
@@ -777,12 +831,6 @@ class UpdateTypesAndFuncs(Visitor):
         arg_offset = 0
         for arg_name_var, arg_type_name in node.parameters:
             arg_type = state.resolved_symbols[arg_type_name]
-            if not is_type_constant_size(arg_type):
-                state.err(
-                    f"Type {arg_type.display_name} is not constant-sized (contains strings)",
-                    arg_type_name,
-                )
-                return
             # update the var type
             arg_var = state.resolved_symbols[arg_name_var]
             assert is_instance_compat(arg_var, VariableSymbol), arg_var

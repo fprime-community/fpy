@@ -37,7 +37,8 @@ from fpy.semantics import (
     PickTypesAndResolveFields,
     ResolveQualifiedIdentifiers,
     ResolveSequenceDependencies,
-    UpdateTypesAndFuncs,
+    CheckForConstantSizeTypes,
+    UpdateStateWithTypes,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -538,7 +539,8 @@ def ast_to_directives(
         ResolveQualifiedIdentifiers(),
         CheckAllUnqualifiedIdentifiersResolved(),
         CheckAllTypesAndCallablesResolved(),
-        UpdateTypesAndFuncs(),
+        CheckForConstantSizeTypes(),
+        UpdateStateWithTypes(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
         # discover sequence-run dependencies (.bin files) before type checking
