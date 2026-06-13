@@ -284,7 +284,7 @@ class FpyType:
             assert (
                 self.max_length is not None
             ), "Cannot compute size of arbitrary-length string"
-            return 2 + self.max_length
+            return FwSizeStoreType.max_size + self.max_length
         if self.kind == TypeKind.ENUM:
             return self.rep_type.max_size
         if self.kind == TypeKind.STRUCT:
@@ -339,6 +339,10 @@ I64 = FpyType(TypeKind.I64, "I64")
 F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
+
+# distinct singleton so that the in-place update 
+# is visible everywhere the object is referenced.
+FwSizeStoreType = FpyType(TypeKind.U16, "U16")
 
 # The canonical TimeBase enum type — default placeholder.
 # The full set of enum constants and representation type are loaded from the
@@ -449,7 +453,7 @@ class FpyValue:
                     raise ValueError(
                         f"String too long: {len(encoded)} > {self.type.max_length}"
                     )
-            return struct.pack(">H", len(encoded)) + encoded
+            return FpyValue(FwSizeStoreType, len(encoded)).serialize() + encoded
 
         if kind == TypeKind.ENUM:
             val = self.val
@@ -494,8 +498,10 @@ class FpyValue:
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            str_len = struct.unpack_from(">H", data, offset)[0]
-            offset += 2
+            size_val, offset = FpyValue.deserialize(
+                FwSizeStoreType, data, offset
+            )
+            str_len = size_val.val
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len
             return FpyValue(typ, s), offset
@@ -605,6 +611,16 @@ TIME_COMPARISON = FpyType(
     rep_type=I32,
 )
 
+# The canonical Svc.BlockState enum type. Both the seq dispatcher's RUN_ARGS and
+# the fpy sequencer's RUN command take their blocking arg as this type, so the
+# compiler can match sequence-run commands by this exact type.
+BLOCK_STATE = FpyType(
+    TypeKind.ENUM,
+    "Svc.BlockState",
+    enum_dict={"BLOCK": 0, "NO_BLOCK": 1},
+    rep_type=U8,
+)
+
 # The canonical Fw.TimeIntervalValue struct type
 TIME_INTERVAL = FpyType(
     TypeKind.STRUCT,
@@ -615,12 +631,14 @@ TIME_INTERVAL = FpyType(
     ),
 )
 
-# Default buffer size for Svc.SeqArgs when not derived from dictionary
+# Placeholder buffer size for Svc.SeqArgs; replaced from the dictionary at
+# compile time (see _update_seq_args_from_dict in compiler.py).
 DEFAULT_SEQ_ARGS_BUFFER_SIZE = 255
 
 # The canonical Svc.SeqArgs struct type used for passing arguments to subsequences.
-# This is a struct with a size prefix and a fixed-size byte buffer.
-# FPP struct: { $size: FwSizeType, buffer: [DEFAULT_SEQ_ARGS_BUFFER_SIZE] U8 }
+# The buffer's length and name are updated from the dictionary at compile time,
+# and member_defaults is populated by _populate_type_defaults after the load.
+# FPP struct: { $size: FwSizeType, buffer: [N] U8 }
 _SEQ_ARGS_BUFFER_TYPE = FpyType(
     TypeKind.ARRAY,
     "Array_U8_255",
@@ -634,10 +652,6 @@ SEQ_ARGS = FpyType(
         StructMember("size", U64),
         StructMember("buffer", _SEQ_ARGS_BUFFER_TYPE),
     ),
-    member_defaults={
-        "size": FpyValue(U64, 0),
-        "buffer": FpyValue(_SEQ_ARGS_BUFFER_TYPE, [FpyValue(U8, 0)] * DEFAULT_SEQ_ARGS_BUFFER_SIZE),
-    },
 )
 
 # Internal type (prefixed with $) not directly accessible to users,

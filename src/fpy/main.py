@@ -119,6 +119,9 @@ def compile_main(args: list[str] = None):
     except RecursionError:
         print("Recursion limit exceeded in compiling")
         sys.exit(1)
+    except fpy.error.DictionaryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
     if isinstance(
         result,
         (
@@ -406,6 +409,9 @@ def cmd_main(args: list[str] = None):
         )
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
+        sys.exit(1)
+    except fpy.error.DictionaryError as e:
+        print(e, file=sys.stderr)
         sys.exit(1)
 
     if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):

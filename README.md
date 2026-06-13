@@ -490,13 +490,13 @@ When you call a sequence from another sequence, you can provide argument values 
 ```py
 # call the example.bin sequence, in blocking mode, with the argument values 123 and True
 # passing args by name is supported
-Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=True)
+Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123, bar=True)
 ```
 
 To call a sequence from the ground, use the `fprime-fpy-cmd` CLI:
 ```
 # this does the same thing as the previous example
-$ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Fw.Wait.WAIT, 123, bar=True)' -d TopologyDictionary.json
+$ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123, bar=True)' -d TopologyDictionary.json
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 

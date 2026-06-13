@@ -1,8 +1,8 @@
 {
   "metadata" : {
     "deploymentName" : "Ref.Ref",
-    "projectVersion" : "0a409b9-dirty",
-    "frameworkVersion" : "v4.2.0-19-gce1a60a8b-dirty",
+    "projectVersion" : "860cb72",
+    "frameworkVersion" : "v4.2.0-131-g5fa74db1c",
     "libraryVersions" : [
     ],
     "dictionarySpecVersion" : "1.0.0"
@@ -24,19 +24,42 @@
       "annotation" : "Array of queue depths for Fw::Buffer types"
     },
     {
-      "kind" : "alias",
-      "qualifiedName" : "FwIndexType",
-      "type" : {
-        "name" : "PlatformIndexType",
-        "kind" : "qualifiedIdentifier"
+      "kind" : "enum",
+      "qualifiedName" : "Svc.PrmDb.Merge",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
       },
-      "underlyingType" : {
-        "name" : "I16",
+      "enumeratedConstants" : [
+        {
+          "name" : "MERGE",
+          "value" : 0
+        },
+        {
+          "name" : "RESET",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.PrmDb.Merge.MERGE"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "FwTlmPacketizeIdType",
+      "type" : {
+        "name" : "U16",
         "kind" : "integer",
         "size" : 16,
-        "signed" : true
+        "signed" : false
       },
-      "annotation" : "The type of smaller indices internal to the software, used\nfor array indices, e.g., port indices. Must be signed."
+      "underlyingType" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "annotation" : "The type of a telemetry packet identifier"
     },
     {
       "kind" : "alias",
@@ -430,6 +453,39 @@
     },
     {
       "kind" : "enum",
+      "qualifiedName" : "Svc.Ccsds.EppLengthOfLength",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "Zero",
+          "value" : 0,
+          "annotation" : "0b00 - Single Byte Idle Packet"
+        },
+        {
+          "name" : "One",
+          "value" : 1,
+          "annotation" : "0b01 - Two Byte Header"
+        },
+        {
+          "name" : "Two",
+          "value" : 2,
+          "annotation" : "0b10 - Four Byte Header"
+        },
+        {
+          "name" : "Four",
+          "value" : 3,
+          "annotation" : "0b11 - Eight Byte Header"
+        }
+      ],
+      "default" : "Svc.Ccsds.EppLengthOfLength.Zero"
+    },
+    {
+      "kind" : "enum",
       "qualifiedName" : "Ref.SignalType",
       "representationType" : {
         "name" : "I32",
@@ -544,6 +600,35 @@
         }
       ],
       "default" : "Svc.PrmDb.PrmLoadAction.SET_PARAMETER"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Ccsds.EppProtocolId",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "Idle",
+          "value" : 0,
+          "annotation" : "0b000 - Encapsulation Idle Packet"
+        },
+        {
+          "name" : "Extended",
+          "value" : 6,
+          "annotation" : "0b110 - Extended Protocol ID Field Driven"
+        },
+        {
+          "name" : "MissionSpecific",
+          "value" : 7,
+          "annotation" : "Mission-specific"
+        }
+      ],
+      "default" : "Svc.Ccsds.EppProtocolId.MissionSpecific",
+      "annotation" : "Protocol IDs for EPP encapsulation packets per CCSDS 133.1-B-3 Section 4.1.2.3.3"
     },
     {
       "kind" : "alias",
@@ -926,50 +1011,6 @@
       "annotation" : "Send file status enum"
     },
     {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.PrmDb.Merge",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "MERGE",
-          "value" : 0
-        },
-        {
-          "name" : "RESET",
-          "value" : 1
-        }
-      ],
-      "default" : "Svc.PrmDb.Merge.MERGE"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.FprimeRouter.AllocationReason",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "FILE_UPLINK",
-          "value" : 0,
-          "annotation" : "Buffer allocation for file uplink"
-        },
-        {
-          "name" : "USER_BUFFER",
-          "value" : 1,
-          "annotation" : "Buffer allocation for user handled buffer"
-        }
-      ],
-      "default" : "Svc.FprimeRouter.AllocationReason.FILE_UPLINK"
-    },
-    {
       "kind" : "alias",
       "qualifiedName" : "FwTimeContextStoreType",
       "type" : {
@@ -1224,27 +1265,6 @@
       "annotation" : "The type of a data product identifier"
     },
     {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.FpySequencer.BlockState",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "BLOCK",
-          "value" : 0
-        },
-        {
-          "name" : "NO_BLOCK",
-          "value" : 1
-        }
-      ],
-      "default" : "Svc.FpySequencer.BlockState.BLOCK"
-    },
-    {
       "kind" : "struct",
       "qualifiedName" : "Ref.SignalPair",
       "members" : {
@@ -1387,6 +1407,28 @@
       "annotation" : "Enum representing a command response"
     },
     {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.BlockState",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "BLOCK",
+          "value" : 0
+        },
+        {
+          "name" : "NO_BLOCK",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.BlockState.BLOCK",
+      "annotation" : "Sequencer blocking state"
+    },
+    {
       "kind" : "alias",
       "qualifiedName" : "FwIdType",
       "type" : {
@@ -1421,121 +1463,19 @@
       "annotation" : "The type used to serialize a C++ enumeration constant\nFPP enumerations are serialized according to their representation types"
     },
     {
-      "kind" : "array",
-      "qualifiedName" : "Ref.ManyChoices",
-      "size" : 2,
-      "elementType" : {
-        "name" : "Ref.Choice",
+      "kind" : "alias",
+      "qualifiedName" : "FwIndexType",
+      "type" : {
+        "name" : "PlatformIndexType",
         "kind" : "qualifiedIdentifier"
       },
-      "default" : [
-        "Ref.Choice.ONE",
-        "Ref.Choice.ONE"
-      ],
-      "annotation" : "Enumeration array"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.EventManager.Enabled",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "ENABLED",
-          "value" : 0,
-          "annotation" : "Enabled state"
-        },
-        {
-          "name" : "DISABLED",
-          "value" : 1,
-          "annotation" : "Disabled state"
-        }
-      ],
-      "default" : "Svc.EventManager.Enabled.ENABLED",
-      "annotation" : "Enabled and disabled state"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Ref.DpDemo.I32Alias",
-      "type" : {
-        "name" : "I32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : true
-      },
       "underlyingType" : {
-        "name" : "I32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : true
-      }
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Fw.DpCfg.ProcType",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "PROC_TYPE_ZERO",
-          "value" : 1,
-          "annotation" : "Processing type 0"
-        },
-        {
-          "name" : "PROC_TYPE_ONE",
-          "value" : 2,
-          "annotation" : "Processing type 1"
-        },
-        {
-          "name" : "PROC_TYPE_TWO",
-          "value" : 4,
-          "annotation" : "Processing type 2"
-        }
-      ],
-      "default" : "Fw.DpCfg.ProcType.PROC_TYPE_ZERO",
-      "annotation" : "A bit mask for selecting the type of processing to perform on\na container before writing it to disk."
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Svc.Fpy.StackSizeType",
-      "type" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "FwTlmPacketizeIdType",
-      "type" : {
-        "name" : "U16",
+        "name" : "I16",
         "kind" : "integer",
         "size" : 16,
-        "signed" : false
+        "signed" : true
       },
-      "underlyingType" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "annotation" : "The type of a telemetry packet identifier"
+      "annotation" : "The type of smaller indices internal to the software, used\nfor array indices, e.g., port indices. Must be signed."
     },
     {
       "kind" : "enum",
@@ -1850,9 +1790,117 @@
         {
           "name" : "POP_EVENT",
           "value" : 75
+        },
+        {
+          "name" : "SET_SEED",
+          "value" : 76
+        },
+        {
+          "name" : "PUSH_RAND",
+          "value" : 77
         }
       ],
       "default" : "Svc.Fpy.DirectiveId.INVALID"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.ManyChoices",
+      "size" : 2,
+      "elementType" : {
+        "name" : "Ref.Choice",
+        "kind" : "qualifiedIdentifier"
+      },
+      "default" : [
+        "Ref.Choice.ONE",
+        "Ref.Choice.ONE"
+      ],
+      "annotation" : "Enumeration array"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.EventManager.Enabled",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "ENABLED",
+          "value" : 0,
+          "annotation" : "Enabled state"
+        },
+        {
+          "name" : "DISABLED",
+          "value" : 1,
+          "annotation" : "Disabled state"
+        }
+      ],
+      "default" : "Svc.EventManager.Enabled.ENABLED",
+      "annotation" : "Enabled and disabled state"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "Ref.DpDemo.I32Alias",
+      "type" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : true
+      },
+      "underlyingType" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : true
+      }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Fw.DpCfg.ProcType",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "PROC_TYPE_ZERO",
+          "value" : 1,
+          "annotation" : "Processing type 0"
+        },
+        {
+          "name" : "PROC_TYPE_ONE",
+          "value" : 2,
+          "annotation" : "Processing type 1"
+        },
+        {
+          "name" : "PROC_TYPE_TWO",
+          "value" : 4,
+          "annotation" : "Processing type 2"
+        }
+      ],
+      "default" : "Fw.DpCfg.ProcType.PROC_TYPE_ZERO",
+      "annotation" : "A bit mask for selecting the type of processing to perform on\na container before writing it to disk."
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "Svc.Fpy.StackSizeType",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
     },
     {
       "kind" : "alias",
@@ -2199,6 +2247,35 @@
         }
       ],
       "default" : "Svc.SystemResourceEnabled.DISABLED"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "ComCfg.Pvn",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "SPACE_PACKET_PROTOCOL",
+          "value" : 0,
+          "annotation" : "Fully Featured CCSDS Space Packet Protocol"
+        },
+        {
+          "name" : "ENCAPSULATION_PACKET_PROTOCOL",
+          "value" : 7,
+          "annotation" : "Bare-bones CCSDS Encapsulation Packet Protocol"
+        },
+        {
+          "name" : "INVALID_UNINITIALIZED",
+          "value" : 8,
+          "annotation" : "Anything equal or higher value is invalid and should not be used"
+        }
+      ],
+      "default" : "ComCfg.Pvn.INVALID_UNINITIALIZED",
+      "annotation" : "Packet Version Numbers are 3 bits with only 2 currently valid values"
     },
     {
       "kind" : "array",
@@ -3322,6 +3399,17 @@
     },
     {
       "kind" : "constant",
+      "qualifiedName" : "Svc.Fpy.DEFAULT_SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 256
+      },
+      "value" : "",
+      "annotation" : "the default value of the SEQ_BASE_DIR parameter. suffixed to\nthe input sequence file path before resolution occurs following\nthe rules of Os::File::open. trailing slash optional"
+    },
+    {
+      "kind" : "constant",
       "qualifiedName" : "ComQueueComPorts",
       "type" : {
         "name" : "U64",
@@ -3358,6 +3446,18 @@
     },
     {
       "kind" : "constant",
+      "qualifiedName" : "FW_FIXED_LENGTH_STRING_SIZE",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 256,
+      "annotation" : "Configuration for Fw::String\nNote: FPrimeBasicTypes.hpp needs to be updated to sync enum"
+    },
+    {
+      "kind" : "constant",
       "qualifiedName" : "FW_SERIALIZE_FALSE_VALUE",
       "type" : {
         "name" : "U64",
@@ -3391,6 +3491,18 @@
       },
       "value" : 512,
       "annotation" : "Specifies the size of the buffer that contains a communications packet"
+    },
+    {
+      "kind" : "constant",
+      "qualifiedName" : "AssertFatalAdapterEventFileSize",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 240,
+      "annotation" : "The size of a file name in an AssertFatalAdapter event (leading-truncation)\nNote: File names in assertion failures are also truncated by\nthe constants FwAssertTextSize (in this file) and FW_LOG_STRING_MAX_SIZE (set\nin FW_LOG_STRING_MAX_SIZE)\nSet much smaller than FwAssertTextSize so there's space for time stamp/assert\narguments in log message"
     },
     {
       "kind" : "constant",
@@ -3439,30 +3551,6 @@
       },
       "value" : 2048,
       "annotation" : "the maximum number of bytes in a directive"
-    },
-    {
-      "kind" : "constant",
-      "qualifiedName" : "FW_FIXED_LENGTH_STRING_SIZE",
-      "type" : {
-        "name" : "U64",
-        "kind" : "integer",
-        "size" : 64,
-        "signed" : false
-      },
-      "value" : 256,
-      "annotation" : "Configuration for Fw::String\nNote: FPrimeBasicTypes.hpp needs to be updated to sync enum"
-    },
-    {
-      "kind" : "constant",
-      "qualifiedName" : "AssertFatalAdapterEventFileSize",
-      "type" : {
-        "name" : "U64",
-        "kind" : "integer",
-        "size" : 64,
-        "signed" : false
-      },
-      "value" : 240,
-      "annotation" : "The size of a file name in an AssertFatalAdapter event\nNote: File names in assertion failures are also truncated by\nthe constants FW_ASSERT_TEXT_SIZE and FW_LOG_STRING_MAX_SIZE, set\nin FpConfig.h."
     },
     {
       "kind" : "constant",
@@ -4135,35 +4223,6 @@
       "annotation" : "Remove a file"
     },
     {
-      "name" : "FileHandling.fileManager.ShellCommand",
-      "commandKind" : "async",
-      "opcode" : 83894276,
-      "formalParams" : [
-        {
-          "name" : "command",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false,
-          "annotation" : "The shell command string"
-        },
-        {
-          "name" : "logFileName",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 240
-          },
-          "ref" : false,
-          "annotation" : "The name of the log file"
-        }
-      ],
-      "queueFullBehavior" : "assert",
-      "annotation" : "Perform a Linux shell command and write the output to a log file."
-    },
-    {
       "name" : "FileHandling.fileManager.AppendFile",
       "commandKind" : "async",
       "opcode" : 83894277,
@@ -4246,7 +4305,7 @@
         }
       ],
       "queueFullBehavior" : "assert",
-      "annotation" : "List the contents of a directory"
+      "annotation" : "Calculate the CRC of a file"
     },
     {
       "name" : "FileHandling.prmDb.PRM_SAVE_FILE",
@@ -4714,7 +4773,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -4743,7 +4802,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -4819,7 +4878,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -4957,6 +5016,31 @@
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
+      "name" : "Ref.cmdSeq0.SEQ_BASE_DIR_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268460046,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.cmdSeq0.SEQ_BASE_DIR_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268460047,
+      "formalParams" : [
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
       "name" : "Ref.cmdSeq1.RUN",
       "commandKind" : "async",
       "opcode" : 268464128,
@@ -4974,7 +5058,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5003,7 +5087,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5079,7 +5163,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5217,6 +5301,31 @@
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
+      "name" : "Ref.cmdSeq1.SEQ_BASE_DIR_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268464142,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.cmdSeq1.SEQ_BASE_DIR_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268464143,
+      "formalParams" : [
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
       "name" : "Ref.seqDisp.RUN",
       "commandKind" : "async",
       "opcode" : 268468224,
@@ -5234,7 +5343,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Fw.Wait",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5262,7 +5371,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Fw.Wait",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5308,7 +5417,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5337,7 +5446,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5413,7 +5522,7 @@
         {
           "name" : "block",
           "type" : {
-            "name" : "Svc.FpySequencer.BlockState",
+            "name" : "Svc.BlockState",
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false,
@@ -5549,6 +5658,31 @@
       "formalParams" : [
       ],
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
+    },
+    {
+      "name" : "Ref.cmdSeq2.SEQ_BASE_DIR_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268472334,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.cmdSeq2.SEQ_BASE_DIR_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268472335,
+      "formalParams" : [
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
     {
       "name" : "Ref.sendBuffComp.SB_START_PKTS",
@@ -6364,6 +6498,17 @@
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
+      "name" : "Ref.cmdSeq0.SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268460033,
+      "default" : "",
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
       "name" : "Ref.cmdSeq1.STATEMENT_TIMEOUT_SECS",
       "type" : {
         "name" : "F32",
@@ -6375,6 +6520,17 @@
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
+      "name" : "Ref.cmdSeq1.SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268464129,
+      "default" : "",
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
       "name" : "Ref.cmdSeq2.STATEMENT_TIMEOUT_SECS",
       "type" : {
         "name" : "F32",
@@ -6384,6 +6540,17 @@
       "id" : 268472320,
       "default" : 0.0,
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
+    },
+    {
+      "name" : "Ref.cmdSeq2.SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268472321,
+      "default" : "",
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
     {
       "name" : "Ref.sendBuffComp.parameter3",
@@ -7745,6 +7912,37 @@
       "annotation" : "An unexpected assert happened"
     },
     {
+      "name" : "CdhCore.tlmSend.TlmChanEpochProcessingCapReached",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "numDeferred",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false,
+          "annotation" : "Entries skipped (dropped) this invocation"
+        },
+        {
+          "name" : "numTimesDeferredCountReached",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false,
+          "annotation" : "Cumulative invocations where cap was reached"
+        }
+      ],
+      "id" : 16801792,
+      "format" : "TlmChan epoch processing cap reached: {} entries deferred (cumulative: {})",
+      "annotation" : "Epoch Processing cap reached; one or more telemetry entries were deferred this cycle"
+    },
+    {
       "name" : "ComCcsds.comQueue.QueueOverflow",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -7834,6 +8032,15 @@
       "annotation" : "A frame was detected whose size exceeds the internal accumulation buffer\ncapacity. No choice but to drop the frame."
     },
     {
+      "name" : "ComCcsds.frameAccumulator.FrameDetectionValidFrameDropped",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 33558530,
+      "format" : "A valid frame was detected but dropped",
+      "annotation" : "A frame was detected but dropped because there was no buffer to hold it"
+    },
+    {
       "name" : "ComCcsds.commsBufferManager.NoBuffsAvailable",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -7907,23 +8114,6 @@
       "id" : 33566721,
       "format" : "Deserializing packet type failed with status {}",
       "annotation" : "An error occurred while deserializing a packet"
-    },
-    {
-      "name" : "ComCcsds.fprimeRouter.AllocationError",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "reason",
-          "type" : {
-            "name" : "Svc.FprimeRouter.AllocationReason",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 33566722,
-      "format" : "Buffer allocation for {} failed",
-      "annotation" : "An allocation error occurred"
     },
     {
       "name" : "ComCcsds.tcDeframer.InvalidPacket",
@@ -8064,10 +8254,8 @@
         {
           "name" : "transmitted",
           "type" : {
-            "name" : "U16",
-            "kind" : "integer",
-            "size" : 16,
-            "signed" : false
+            "name" : "FwSizeType",
+            "kind" : "qualifiedIdentifier"
           },
           "ref" : false
         },
@@ -9024,6 +9212,68 @@
       ],
       "id" : 67108910,
       "format" : "Cannot Transmit a Catalog before Building"
+    },
+    {
+      "name" : "DataProducts.dpCat.InvalidFileName",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "file",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The invalid file"
+        },
+        {
+          "name" : "expected",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The expected canonical file"
+        }
+      ],
+      "id" : 67108911,
+      "format" : "Invalid DP file name {}. Expected {}",
+      "annotation" : "DP file name does not match the file's header metadata",
+      "throttle" : {
+        "count" : 10,
+        "every" : null
+      }
+    },
+    {
+      "name" : "DataProducts.dpCat.FileCorruptedDataError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "file",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The file"
+        },
+        {
+          "name" : "stat",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 67108912,
+      "format" : "DP file {} contains malformed data (status {})",
+      "annotation" : "The file contained malformed or invalid data during deserialization"
     },
     {
       "name" : "DataProducts.dpMgr.BufferAllocationFailed",
@@ -10091,36 +10341,6 @@
       "annotation" : "An error occurred while attempting to remove a file"
     },
     {
-      "name" : "FileHandling.fileManager.ShellCommandFailed",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "command",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false,
-          "annotation" : "The command string"
-        },
-        {
-          "name" : "status",
-          "type" : {
-            "name" : "U32",
-            "kind" : "integer",
-            "size" : 32,
-            "signed" : false
-          },
-          "ref" : false,
-          "annotation" : "The status code"
-        }
-      ],
-      "id" : 83894276,
-      "format" : "Shell command {} failed with status {}",
-      "annotation" : "The File System component executed a shell command that returned status non-zero"
-    },
-    {
       "name" : "FileHandling.fileManager.AppendFileFailed",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -10188,25 +10408,6 @@
       "id" : 83894278,
       "format" : "Appended {} to the end of {}",
       "annotation" : "The File System component appended 2 files without error"
-    },
-    {
-      "name" : "FileHandling.fileManager.ShellCommandSucceeded",
-      "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-        {
-          "name" : "command",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 240
-          },
-          "ref" : false,
-          "annotation" : "The command string"
-        }
-      ],
-      "id" : 83894279,
-      "format" : "Shell command {} succeeded",
-      "annotation" : "The File System component executed a shell command that returned status zero"
     },
     {
       "name" : "FileHandling.fileManager.CreateDirectorySucceeded",
@@ -10322,25 +10523,6 @@
       "id" : 83894284,
       "format" : "Appending file {} to the end of {}...",
       "annotation" : "The File System component appended 2 files without error"
-    },
-    {
-      "name" : "FileHandling.fileManager.ShellCommandStarted",
-      "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-        {
-          "name" : "command",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false,
-          "annotation" : "The command string"
-        }
-      ],
-      "id" : 83894285,
-      "format" : "Running shell command {}...",
-      "annotation" : "The File System component began executing a shell command"
     },
     {
       "name" : "FileHandling.fileManager.CreateDirectoryStarted",
@@ -11487,6 +11669,24 @@
       "format" : "Cannot run sequence from a port in state {}"
     },
     {
+      "name" : "Ref.cmdSeq0.InvalidSeqCancelCall",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "state",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460034,
+      "format" : "Cannot cancel sequence from a port in state {}"
+    },
+    {
       "name" : "Ref.cmdSeq0.FileOpenError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -11510,7 +11710,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460034,
+      "id" : 268460035,
       "format" : "File open error encountered while opening {}: {}"
     },
     {
@@ -11545,7 +11745,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460035,
+      "id" : 268460036,
       "format" : "File write error encountered while writing {} bytes to {}: {}"
     },
     {
@@ -11580,7 +11780,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460036,
+      "id" : 268460037,
       "format" : "File read error encountered while reading {} of file {}: {}"
     },
     {
@@ -11605,7 +11805,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460037,
+      "id" : 268460038,
       "format" : "End of file encountered unexpectedly while reading {} of file {}"
     },
     {
@@ -11660,7 +11860,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460038,
+      "id" : 268460039,
       "format" : "Deserialize error encountered while reading {} of file {}: {} ({} bytes left out of {})"
     },
     {
@@ -11688,7 +11888,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460039,
+      "id" : 268460040,
       "format" : "Expected schema version {}, found {}"
     },
     {
@@ -11716,7 +11916,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460040,
+      "id" : 268460041,
       "format" : "Expected CRC {}, actual was {}"
     },
     {
@@ -11732,7 +11932,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460041,
+      "id" : 268460042,
       "format" : "File had {} extra bytes at the end"
     },
     {
@@ -11759,8 +11959,61 @@
           "ref" : false
         }
       ],
-      "id" : 268460042,
+      "id" : 268460043,
       "format" : "Buffer capacity of {} was not big enough for sequence {}"
+    },
+    {
+      "name" : "Ref.cmdSeq0.FileApiError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "errorCode",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460044,
+      "format" : "File system API error encountered while operating on file {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq0.SequenceFilePathTooLong",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "baseDir",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268460045,
+      "format" : "Sequence file path was truncated: base directory {} and file name {} together exceed the maximum path length"
     },
     {
       "name" : "Ref.cmdSeq0.CommandFailed",
@@ -11802,7 +12055,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460043,
+      "id" : 268460046,
       "format" : "Failed to execute command opcode {} index {} in sequence file {}: response was {}"
     },
     {
@@ -11819,7 +12072,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460044,
+      "id" : 268460047,
       "format" : "Completed sequence file {}"
     },
     {
@@ -11836,7 +12089,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460045,
+      "id" : 268460048,
       "format" : "Cancelled sequence file {}"
     },
     {
@@ -11863,7 +12116,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460046,
+      "id" : 268460049,
       "format" : "Sequence {} exited with error code {}"
     },
     {
@@ -11900,7 +12153,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460047,
+      "id" : 268460050,
       "format" : "Unknown sequencer directive id {} at index {} in file {}"
     },
     {
@@ -11934,7 +12187,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460048,
+      "id" : 268460051,
       "format" : "Received a command response while not running a sequence (was in state {} opcode was {} response code {})"
     },
     {
@@ -11978,7 +12231,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460049,
+      "id" : 268460052,
       "format" : "Received a response from cmd opcode {} (response {}), but it was from a previous sequence, not the current one (old idx: {}, current idx: {})"
     },
     {
@@ -12002,7 +12255,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460050,
+      "id" : 268460053,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was not awaiting a response"
     },
     {
@@ -12036,7 +12289,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460051,
+      "id" : 268460054,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was awaiting directive opcode {}"
     },
     {
@@ -12068,7 +12321,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460052,
+      "id" : 268460055,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was expecting a response from command opcode {}"
     },
     {
@@ -12112,7 +12365,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460053,
+      "id" : 268460056,
       "format" : "Received a response from the correct cmd (opcode {} response {}), but it was for a different instance of that opcode in the same sequence (actual idx {} expected {})"
     },
     {
@@ -12170,7 +12423,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460054,
+      "id" : 268460057,
       "format" : "Deserialize error encountered while reading directive opcode {} at index {}: {} ({} bytes left out of {})"
     },
     {
@@ -12198,7 +12451,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460055,
+      "id" : 268460058,
       "format" : "getTime() time base was {}, but tried to operate on it with time base {}"
     },
     {
@@ -12226,7 +12479,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460056,
+      "id" : 268460059,
       "format" : "getTime() time context was {}, but tried to operate on it with time context {}"
     },
     {
@@ -12261,7 +12514,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460057,
+      "id" : 268460060,
       "format" : "A command opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -12298,7 +12551,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460058,
+      "id" : 268460061,
       "format" : "A directive opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -12326,7 +12579,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460059,
+      "id" : 268460062,
       "format" : "A sequence specified it had {} args but the max was {}"
     },
     {
@@ -12354,7 +12607,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460060,
+      "id" : 268460063,
       "format" : "A sequence specified it had {} directives but the max was {}"
     },
     {
@@ -12387,7 +12640,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460061,
+      "id" : 268460064,
       "format" : "Expected {} bytes of arguments, but received {} in sequence file {}"
     },
     {
@@ -12401,81 +12654,10 @@
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false
-        },
-        {
-          "name" : "maxStackSize",
-          "type" : {
-            "name" : "Svc.Fpy.StackSizeType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
         }
       ],
-      "id" : 268460062,
-      "format" : "Adding argument of size {} would exceed max stack size {} in sequence file {}"
-    },
-    {
-      "name" : "Ref.cmdSeq0.InvalidArgSpec",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268460063,
-      "format" : "Invalid argument specification in sequence file {}: arg_name or type_name cannot be empty"
-    },
-    {
-      "name" : "Ref.cmdSeq0.ArgSpecStringLengthExceedsMax",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "length",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "max",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268460064,
-      "format" : "Argument specification string length {} exceeds maximum {} in sequence file {}"
+      "id" : 268460065,
+      "format" : "Arguments of size {} would exceed max stack size."
     },
     {
       "name" : "Ref.cmdSeq0.SequencePaused",
@@ -12492,7 +12674,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460065,
+      "id" : 268460066,
       "format" : "Sequence paused before dispatching directive index {}"
     },
     {
@@ -12519,7 +12701,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460066,
+      "id" : 268460067,
       "format" : "Breakpoint set before directive index {}. Will break once: {}"
     },
     {
@@ -12527,7 +12709,7 @@
       "severity" : "ACTIVITY_HI",
       "formalParams" : [
       ],
-      "id" : 268460067,
+      "id" : 268460068,
       "format" : "Breakpoint cleared"
     },
     {
@@ -12553,7 +12735,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460068,
+      "id" : 268460069,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12579,7 +12761,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460069,
+      "id" : 268460070,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12605,7 +12787,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460070,
+      "id" : 268460071,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12631,7 +12813,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460071,
+      "id" : 268460072,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12657,7 +12839,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460072,
+      "id" : 268460073,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12683,7 +12865,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460073,
+      "id" : 268460074,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12709,7 +12891,7 @@
           "ref" : false
         }
       ],
-      "id" : 268460074,
+      "id" : 268460075,
       "format" : "Sequence {}: {}"
     },
     {
@@ -12749,6 +12931,24 @@
       "format" : "Cannot run sequence from a port in state {}"
     },
     {
+      "name" : "Ref.cmdSeq1.InvalidSeqCancelCall",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "state",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268464130,
+      "format" : "Cannot cancel sequence from a port in state {}"
+    },
+    {
       "name" : "Ref.cmdSeq1.FileOpenError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -12772,7 +12972,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464130,
+      "id" : 268464131,
       "format" : "File open error encountered while opening {}: {}"
     },
     {
@@ -12807,7 +13007,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464131,
+      "id" : 268464132,
       "format" : "File write error encountered while writing {} bytes to {}: {}"
     },
     {
@@ -12842,7 +13042,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464132,
+      "id" : 268464133,
       "format" : "File read error encountered while reading {} of file {}: {}"
     },
     {
@@ -12867,7 +13067,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464133,
+      "id" : 268464134,
       "format" : "End of file encountered unexpectedly while reading {} of file {}"
     },
     {
@@ -12922,7 +13122,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464134,
+      "id" : 268464135,
       "format" : "Deserialize error encountered while reading {} of file {}: {} ({} bytes left out of {})"
     },
     {
@@ -12950,7 +13150,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464135,
+      "id" : 268464136,
       "format" : "Expected schema version {}, found {}"
     },
     {
@@ -12978,7 +13178,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464136,
+      "id" : 268464137,
       "format" : "Expected CRC {}, actual was {}"
     },
     {
@@ -12994,7 +13194,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464137,
+      "id" : 268464138,
       "format" : "File had {} extra bytes at the end"
     },
     {
@@ -13021,8 +13221,61 @@
           "ref" : false
         }
       ],
-      "id" : 268464138,
+      "id" : 268464139,
       "format" : "Buffer capacity of {} was not big enough for sequence {}"
+    },
+    {
+      "name" : "Ref.cmdSeq1.FileApiError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "errorCode",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268464140,
+      "format" : "File system API error encountered while operating on file {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq1.SequenceFilePathTooLong",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "baseDir",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268464141,
+      "format" : "Sequence file path was truncated: base directory {} and file name {} together exceed the maximum path length"
     },
     {
       "name" : "Ref.cmdSeq1.CommandFailed",
@@ -13064,7 +13317,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464139,
+      "id" : 268464142,
       "format" : "Failed to execute command opcode {} index {} in sequence file {}: response was {}"
     },
     {
@@ -13081,7 +13334,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464140,
+      "id" : 268464143,
       "format" : "Completed sequence file {}"
     },
     {
@@ -13098,7 +13351,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464141,
+      "id" : 268464144,
       "format" : "Cancelled sequence file {}"
     },
     {
@@ -13125,7 +13378,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464142,
+      "id" : 268464145,
       "format" : "Sequence {} exited with error code {}"
     },
     {
@@ -13162,7 +13415,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464143,
+      "id" : 268464146,
       "format" : "Unknown sequencer directive id {} at index {} in file {}"
     },
     {
@@ -13196,7 +13449,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464144,
+      "id" : 268464147,
       "format" : "Received a command response while not running a sequence (was in state {} opcode was {} response code {})"
     },
     {
@@ -13240,7 +13493,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464145,
+      "id" : 268464148,
       "format" : "Received a response from cmd opcode {} (response {}), but it was from a previous sequence, not the current one (old idx: {}, current idx: {})"
     },
     {
@@ -13264,7 +13517,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464146,
+      "id" : 268464149,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was not awaiting a response"
     },
     {
@@ -13298,7 +13551,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464147,
+      "id" : 268464150,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was awaiting directive opcode {}"
     },
     {
@@ -13330,7 +13583,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464148,
+      "id" : 268464151,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was expecting a response from command opcode {}"
     },
     {
@@ -13374,7 +13627,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464149,
+      "id" : 268464152,
       "format" : "Received a response from the correct cmd (opcode {} response {}), but it was for a different instance of that opcode in the same sequence (actual idx {} expected {})"
     },
     {
@@ -13432,7 +13685,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464150,
+      "id" : 268464153,
       "format" : "Deserialize error encountered while reading directive opcode {} at index {}: {} ({} bytes left out of {})"
     },
     {
@@ -13460,7 +13713,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464151,
+      "id" : 268464154,
       "format" : "getTime() time base was {}, but tried to operate on it with time base {}"
     },
     {
@@ -13488,7 +13741,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464152,
+      "id" : 268464155,
       "format" : "getTime() time context was {}, but tried to operate on it with time context {}"
     },
     {
@@ -13523,7 +13776,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464153,
+      "id" : 268464156,
       "format" : "A command opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -13560,7 +13813,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464154,
+      "id" : 268464157,
       "format" : "A directive opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -13588,7 +13841,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464155,
+      "id" : 268464158,
       "format" : "A sequence specified it had {} args but the max was {}"
     },
     {
@@ -13616,7 +13869,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464156,
+      "id" : 268464159,
       "format" : "A sequence specified it had {} directives but the max was {}"
     },
     {
@@ -13649,7 +13902,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464157,
+      "id" : 268464160,
       "format" : "Expected {} bytes of arguments, but received {} in sequence file {}"
     },
     {
@@ -13663,81 +13916,10 @@
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false
-        },
-        {
-          "name" : "maxStackSize",
-          "type" : {
-            "name" : "Svc.Fpy.StackSizeType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
         }
       ],
-      "id" : 268464158,
-      "format" : "Adding argument of size {} would exceed max stack size {} in sequence file {}"
-    },
-    {
-      "name" : "Ref.cmdSeq1.InvalidArgSpec",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268464159,
-      "format" : "Invalid argument specification in sequence file {}: arg_name or type_name cannot be empty"
-    },
-    {
-      "name" : "Ref.cmdSeq1.ArgSpecStringLengthExceedsMax",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "length",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "max",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268464160,
-      "format" : "Argument specification string length {} exceeds maximum {} in sequence file {}"
+      "id" : 268464161,
+      "format" : "Arguments of size {} would exceed max stack size."
     },
     {
       "name" : "Ref.cmdSeq1.SequencePaused",
@@ -13754,7 +13936,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464161,
+      "id" : 268464162,
       "format" : "Sequence paused before dispatching directive index {}"
     },
     {
@@ -13781,7 +13963,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464162,
+      "id" : 268464163,
       "format" : "Breakpoint set before directive index {}. Will break once: {}"
     },
     {
@@ -13789,7 +13971,7 @@
       "severity" : "ACTIVITY_HI",
       "formalParams" : [
       ],
-      "id" : 268464163,
+      "id" : 268464164,
       "format" : "Breakpoint cleared"
     },
     {
@@ -13815,7 +13997,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464164,
+      "id" : 268464165,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13841,7 +14023,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464165,
+      "id" : 268464166,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13867,7 +14049,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464166,
+      "id" : 268464167,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13893,7 +14075,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464167,
+      "id" : 268464168,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13919,7 +14101,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464168,
+      "id" : 268464169,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13945,7 +14127,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464169,
+      "id" : 268464170,
       "format" : "Sequence {}: {}"
     },
     {
@@ -13971,7 +14153,7 @@
           "ref" : false
         }
       ],
-      "id" : 268464170,
+      "id" : 268464171,
       "format" : "Sequence {}: {}"
     },
     {
@@ -14153,6 +14335,24 @@
       "format" : "Cannot run sequence from a port in state {}"
     },
     {
+      "name" : "Ref.cmdSeq2.InvalidSeqCancelCall",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "state",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268472322,
+      "format" : "Cannot cancel sequence from a port in state {}"
+    },
+    {
       "name" : "Ref.cmdSeq2.FileOpenError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -14176,7 +14376,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472322,
+      "id" : 268472323,
       "format" : "File open error encountered while opening {}: {}"
     },
     {
@@ -14211,7 +14411,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472323,
+      "id" : 268472324,
       "format" : "File write error encountered while writing {} bytes to {}: {}"
     },
     {
@@ -14246,7 +14446,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472324,
+      "id" : 268472325,
       "format" : "File read error encountered while reading {} of file {}: {}"
     },
     {
@@ -14271,7 +14471,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472325,
+      "id" : 268472326,
       "format" : "End of file encountered unexpectedly while reading {} of file {}"
     },
     {
@@ -14326,7 +14526,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472326,
+      "id" : 268472327,
       "format" : "Deserialize error encountered while reading {} of file {}: {} ({} bytes left out of {})"
     },
     {
@@ -14354,7 +14554,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472327,
+      "id" : 268472328,
       "format" : "Expected schema version {}, found {}"
     },
     {
@@ -14382,7 +14582,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472328,
+      "id" : 268472329,
       "format" : "Expected CRC {}, actual was {}"
     },
     {
@@ -14398,7 +14598,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472329,
+      "id" : 268472330,
       "format" : "File had {} extra bytes at the end"
     },
     {
@@ -14425,8 +14625,61 @@
           "ref" : false
         }
       ],
-      "id" : 268472330,
+      "id" : 268472331,
       "format" : "Buffer capacity of {} was not big enough for sequence {}"
+    },
+    {
+      "name" : "Ref.cmdSeq2.FileApiError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "filePath",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "errorCode",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268472332,
+      "format" : "File system API error encountered while operating on file {}: {}"
+    },
+    {
+      "name" : "Ref.cmdSeq2.SequenceFilePathTooLong",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "baseDir",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        },
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 256
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268472333,
+      "format" : "Sequence file path was truncated: base directory {} and file name {} together exceed the maximum path length"
     },
     {
       "name" : "Ref.cmdSeq2.CommandFailed",
@@ -14468,7 +14721,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472331,
+      "id" : 268472334,
       "format" : "Failed to execute command opcode {} index {} in sequence file {}: response was {}"
     },
     {
@@ -14485,7 +14738,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472332,
+      "id" : 268472335,
       "format" : "Completed sequence file {}"
     },
     {
@@ -14502,7 +14755,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472333,
+      "id" : 268472336,
       "format" : "Cancelled sequence file {}"
     },
     {
@@ -14529,7 +14782,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472334,
+      "id" : 268472337,
       "format" : "Sequence {} exited with error code {}"
     },
     {
@@ -14566,7 +14819,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472335,
+      "id" : 268472338,
       "format" : "Unknown sequencer directive id {} at index {} in file {}"
     },
     {
@@ -14600,7 +14853,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472336,
+      "id" : 268472339,
       "format" : "Received a command response while not running a sequence (was in state {} opcode was {} response code {})"
     },
     {
@@ -14644,7 +14897,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472337,
+      "id" : 268472340,
       "format" : "Received a response from cmd opcode {} (response {}), but it was from a previous sequence, not the current one (old idx: {}, current idx: {})"
     },
     {
@@ -14668,7 +14921,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472338,
+      "id" : 268472341,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was not awaiting a response"
     },
     {
@@ -14702,7 +14955,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472339,
+      "id" : 268472342,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was awaiting directive opcode {}"
     },
     {
@@ -14734,7 +14987,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472340,
+      "id" : 268472343,
       "format" : "Received a response from cmd opcode {} (response {}) from this sequence, but was expecting a response from command opcode {}"
     },
     {
@@ -14778,7 +15031,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472341,
+      "id" : 268472344,
       "format" : "Received a response from the correct cmd (opcode {} response {}), but it was for a different instance of that opcode in the same sequence (actual idx {} expected {})"
     },
     {
@@ -14836,7 +15089,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472342,
+      "id" : 268472345,
       "format" : "Deserialize error encountered while reading directive opcode {} at index {}: {} ({} bytes left out of {})"
     },
     {
@@ -14864,7 +15117,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472343,
+      "id" : 268472346,
       "format" : "getTime() time base was {}, but tried to operate on it with time base {}"
     },
     {
@@ -14892,7 +15145,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472344,
+      "id" : 268472347,
       "format" : "getTime() time context was {}, but tried to operate on it with time context {}"
     },
     {
@@ -14927,7 +15180,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472345,
+      "id" : 268472348,
       "format" : "A command opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -14964,7 +15217,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472346,
+      "id" : 268472349,
       "format" : "A directive opcode {} at index {} timed out in sequence {}, causing the sequence to fail"
     },
     {
@@ -14992,7 +15245,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472347,
+      "id" : 268472350,
       "format" : "A sequence specified it had {} args but the max was {}"
     },
     {
@@ -15020,7 +15273,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472348,
+      "id" : 268472351,
       "format" : "A sequence specified it had {} directives but the max was {}"
     },
     {
@@ -15053,7 +15306,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472349,
+      "id" : 268472352,
       "format" : "Expected {} bytes of arguments, but received {} in sequence file {}"
     },
     {
@@ -15067,81 +15320,10 @@
             "kind" : "qualifiedIdentifier"
           },
           "ref" : false
-        },
-        {
-          "name" : "maxStackSize",
-          "type" : {
-            "name" : "Svc.Fpy.StackSizeType",
-            "kind" : "qualifiedIdentifier"
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
         }
       ],
-      "id" : 268472350,
-      "format" : "Adding argument of size {} would exceed max stack size {} in sequence file {}"
-    },
-    {
-      "name" : "Ref.cmdSeq2.InvalidArgSpec",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268472351,
-      "format" : "Invalid argument specification in sequence file {}: arg_name or type_name cannot be empty"
-    },
-    {
-      "name" : "Ref.cmdSeq2.ArgSpecStringLengthExceedsMax",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "length",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "max",
-          "type" : {
-            "name" : "U8",
-            "kind" : "integer",
-            "size" : 8,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filePath",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268472352,
-      "format" : "Argument specification string length {} exceeds maximum {} in sequence file {}"
+      "id" : 268472353,
+      "format" : "Arguments of size {} would exceed max stack size."
     },
     {
       "name" : "Ref.cmdSeq2.SequencePaused",
@@ -15158,7 +15340,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472353,
+      "id" : 268472354,
       "format" : "Sequence paused before dispatching directive index {}"
     },
     {
@@ -15185,7 +15367,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472354,
+      "id" : 268472355,
       "format" : "Breakpoint set before directive index {}. Will break once: {}"
     },
     {
@@ -15193,7 +15375,7 @@
       "severity" : "ACTIVITY_HI",
       "formalParams" : [
       ],
-      "id" : 268472355,
+      "id" : 268472356,
       "format" : "Breakpoint cleared"
     },
     {
@@ -15219,7 +15401,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472356,
+      "id" : 268472357,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15245,7 +15427,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472357,
+      "id" : 268472358,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15271,7 +15453,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472358,
+      "id" : 268472359,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15297,7 +15479,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472359,
+      "id" : 268472360,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15323,7 +15505,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472360,
+      "id" : 268472361,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15349,7 +15531,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472361,
+      "id" : 268472362,
       "format" : "Sequence {}: {}"
     },
     {
@@ -15375,7 +15557,7 @@
           "ref" : false
         }
       ],
-      "id" : 268472362,
+      "id" : 268472363,
       "format" : "Sequence {}: {}"
     },
     {
@@ -17643,6 +17825,17 @@
       "annotation" : "value of prm STATEMENT_TIMEOUT_SECS"
     },
     {
+      "name" : "Ref.cmdSeq0.PRM_SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268460053,
+      "telemetryUpdate" : "on change",
+      "annotation" : "value of prm SEQ_BASE_DIR"
+    },
+    {
       "name" : "Ref.cmdSeq1.State",
       "type" : {
         "name" : "FwEnumStoreType",
@@ -17876,6 +18069,17 @@
       "id" : 268464148,
       "telemetryUpdate" : "on change",
       "annotation" : "value of prm STATEMENT_TIMEOUT_SECS"
+    },
+    {
+      "name" : "Ref.cmdSeq1.PRM_SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268464149,
+      "telemetryUpdate" : "on change",
+      "annotation" : "value of prm SEQ_BASE_DIR"
     },
     {
       "name" : "Ref.seqDisp.dispatchedCount",
@@ -18147,6 +18351,17 @@
       "id" : 268472340,
       "telemetryUpdate" : "on change",
       "annotation" : "value of prm STATEMENT_TIMEOUT_SECS"
+    },
+    {
+      "name" : "Ref.cmdSeq2.PRM_SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268472341,
+      "telemetryUpdate" : "on change",
+      "annotation" : "value of prm SEQ_BASE_DIR"
     },
     {
       "name" : "Ref.sendBuffComp.PacketsSent",

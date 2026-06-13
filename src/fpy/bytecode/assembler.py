@@ -10,7 +10,7 @@ from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
 from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
-from fpy.types import FpyValue
+from fpy.types import FpyValue, INTERNAL_STRING
 
 from fpy.error import CompileError
 
@@ -290,16 +290,14 @@ def _serialize_arg_specs(arg_specs: list[tuple[str, str, int]]) -> bytes:
     """Serialize arg specs as (arg_name, type_name, size) triples.
 
     Binary format per arg_spec:
-        [1 byte: arg_name UTF-8 length] [N bytes: arg_name]
-        [1 byte: type_name UTF-8 length] [N bytes: type_name]
+        [arg_name as a string]   (FwSizeStoreType-prefixed UTF-8, default 16-bit)
+        [type_name as a string]  (FwSizeStoreType-prefixed UTF-8, default 16-bit)
         [StackSizeType bytes: size]
     """
     result = bytes()
     for arg_name, type_name, size in arg_specs:
-        for name in (arg_name, type_name):
-            encoded = name.encode("utf-8")
-            assert len(encoded) <= 255, f"Name too long: {name}; should have been caught by semantics"
-            result += struct.pack("!B", len(encoded)) + encoded
+        result += FpyValue(INTERNAL_STRING, arg_name).serialize()
+        result += FpyValue(INTERNAL_STRING, type_name).serialize()
         result += FpyValue(StackSizeType, size).serialize()
     return result
 
@@ -309,19 +307,10 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
     Returns (new_offset, list_of_(arg_name, type_name, size)_tuples)."""
     specs = []
     for _ in range(count):
-        # Read arg_name
-        name_len = struct.unpack_from("!B", data, offset)[0]
-        offset += 1
-        arg_name = data[offset:offset + name_len].decode("utf-8")
-        offset += name_len
-        # Read type_name
-        name_len = struct.unpack_from("!B", data, offset)[0]
-        offset += 1
-        type_name = data[offset:offset + name_len].decode("utf-8")
-        offset += name_len
-        # Read size
+        arg_name_val, offset = FpyValue.deserialize(INTERNAL_STRING, data, offset)
+        type_name_val, offset = FpyValue.deserialize(INTERNAL_STRING, data, offset)
         size_val, offset = FpyValue.deserialize(StackSizeType, data, offset)
-        specs.append((arg_name, type_name, size_val.val))
+        specs.append((arg_name_val.val, type_name_val.val, size_val.val))
     return offset, specs
 
 
