@@ -355,13 +355,8 @@ def _parse_constants(
         name = const["qualifiedName"]
         value = const["value"]
         type_desc = const.get("type")
-        if type_desc is not None:
-            typ = _resolve_type(type_desc, type_defs)
-            constants[name] = json_default_to_fpy_value(value, typ)
-        else:
-            # Fallback for entries without a type descriptor (shouldn't
-            # happen in well-formed dictionaries, but be defensive).
-            constants[name] = FpyValue(FpyType(TypeKind.I64, "I64"), value)
+        typ = _resolve_type(type_desc, type_defs)
+        constants[name] = json_default_to_fpy_value(value, typ)
     return constants
 
 
@@ -380,7 +375,7 @@ def load_dictionary(dictionary_path: str) -> dict:
         - 'constants': dict[str, object] — constants by qualifiedName
         - 'metadata': dict — raw metadata
     """
-    with open(dictionary_path, "r") as f:
+    with open(dictionary_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
     type_defs = _parse_type_definitions(raw.get("typeDefinitions", []))

@@ -38,6 +38,7 @@ fpy
 fpybc
 fqn
 fsw
+getattrs
 getcontext
 getfixturevalue
 getoption

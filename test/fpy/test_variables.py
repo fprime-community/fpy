@@ -44,7 +44,7 @@ var = 1
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_namespace_type_annotation_fails(self, fprime_test_api):
+    def test_module_type_annotation_fails(self, fprime_test_api):
         seq = """
 var: Svc = 1
 """
@@ -175,7 +175,7 @@ while True:
         assert_run_success(fprime_test_api, seq)
 
     def test_override_global_name(self, fprime_test_api):
-        # Can't shadow dictionary namespaces with user variables
+        # Can't shadow dictionary modules with user variables
         seq = """
 CdhCore: U8 = 1
 if CdhCore == 1:

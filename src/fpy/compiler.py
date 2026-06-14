@@ -27,6 +27,9 @@ from fpy.desugaring import (
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
+    CheckAllTypesAndCallablesResolved,
+    CheckAllUnqualifiedIdentifiersResolved,
+    CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
     CalculateDefaultArgConstValues,
@@ -35,13 +38,18 @@ from fpy.semantics import (
     CheckFunctionReturns,
     CheckReturnInFunc,
     CheckUseBeforeDefine,
+    CollectFunctionGlobalUses,
+    ResolveTransitiveGlobalUses,
+    CheckGlobalsInitializedBeforeCall,
     CheckSequenceArgs,
+    DefineFunctions,
+    DefineVariables,
     CollectSequenceDependencies,
-    CreateVariablesAndFuncs,
     PickTypesAndResolveFields,
-    ResolveQualifiedNames,
+    ResolveQualifiedIdentifiers,
     ResolveSequenceDependencies,
-    UpdateTypesAndFuncs,
+    CheckForConstantSizeTypes,
+    UpdateStateWithTypes,
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -70,7 +78,7 @@ import fpy.error
 
 # Load grammar once at module level
 _fpy_grammar_path = Path(__file__).parent / "grammar.lark"
-_fpy_grammar_str = _fpy_grammar_path.read_text()
+_fpy_grammar_str = _fpy_grammar_path.read_text(encoding="utf-8")
 
 # Create parser once at module level with LALR and cache enabled.
 # PythonIndenter.process() resets its internal state on each call,
@@ -87,7 +95,7 @@ _fpy_parser = Lark(
 
 # Load builtin time.fpy functions at module level
 _builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
-_builtin_time_text = _builtin_time_path.read_text()
+_builtin_time_text = _builtin_time_path.read_text(encoding="utf-8")
 _builtin_library_ast = None  # Lazily initialized
 
 
@@ -179,17 +187,31 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
         CreateScopes(),
-        # based on assignment syntax nodes, we know which variables exist where.
+        # check that assignment targets are valid
+        CheckAssignSyntax(),
+        # register all user-defined functions in the global callable scope
+        DefineFunctions(),
+        # register all variable declarations in their enclosing scopes.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
-        CreateVariablesAndFuncs(),
+        DefineVariables(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
-        ResolveQualifiedNames(),
-        UpdateTypesAndFuncs(),
+        ResolveQualifiedIdentifiers(),
+        CheckAllUnqualifiedIdentifiersResolved(),
+        CheckAllTypesAndCallablesResolved(),
+        CheckForConstantSizeTypes(),
+        UpdateStateWithTypes(),
         # make sure we don't use any variables before they are declared
         CheckUseBeforeDefine(),
+        # record the globals each function reads and the functions it calls...
+        CollectFunctionGlobalUses(),
+        # ...then grow those to the transitive closure over the call graph...
+        ResolveTransitiveGlobalUses(),
+        # ...so we can check globals are initialized before any function that
+        # reads them (directly or transitively) is called
+        CheckGlobalsInitializedBeforeCall(),
         # discover sequence-run dependencies (.bin files) before type checking
         ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
@@ -343,8 +365,9 @@ def ast_to_dependencies(
         DesugarCheckStatements(),
         AssignIds(),
         CreateScopes(),
-        CreateVariablesAndFuncs(),
-        ResolveQualifiedNames(),
+        DefineFunctions(),
+        DefineVariables(),
+        ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:
         compile_pass.run(body, state)

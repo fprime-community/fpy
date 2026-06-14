@@ -169,9 +169,13 @@ class CalculateFrameSizes(TopDownVisitor):
         self.offset = 0
 
     def run(self, start: Ast, state: CompileState):
-        # For the global frame, start after sequence args (already on stack)
+        # For the global frame, lay out sequence args (already on stack) first,
+        # then start body variables after them.
         if start is state.root:
-            self.offset = sum(t.max_size for _, t in state.this_seq_arg_specs)
+            for name, arg_type in state.this_seq_arg_specs:
+                arg_var = state.global_value_scope[name]
+                arg_var.frame_offset = self.offset
+                self.offset += arg_type.max_size
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
