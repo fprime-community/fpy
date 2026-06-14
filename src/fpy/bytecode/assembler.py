@@ -14,7 +14,7 @@ from fpy.types import FpyValue, INTERNAL_STRING
 
 from fpy.error import CompileError
 
-fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text()
+fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text(encoding="utf-8")
 
 
 def parse(text: str):
