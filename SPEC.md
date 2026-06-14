@@ -790,9 +790,9 @@ The list of primitive types is:
 * The [Boolean type](#boolean-type)
 
 ### Primitive numeric types
-`U8`, `U16`, `U32`, and `U64` are the primitive unsigned integer types with bitwidths 8, 16, 32 and 64, respsectively. They use the standard binary representation of unsigned integers.
+`U8`, `U16`, `U32`, and `U64` are the primitive unsigned integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard binary representation of unsigned integers.
 
-`I8`, `I16`, `I32`, and `I64` are the primitive signed integer types with bitwidths 8, 16, 32 and 64, respsectively. They use the standard two's complement representation of signed integers.
+`I8`, `I16`, `I32`, and `I64` are the primitive signed integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard two's complement representation of signed integers.
 
 `F32`, and `F64` are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.
 
@@ -1253,7 +1253,7 @@ The list of statements which have branches is:
 * The [while loop statement](#while-loop-statement)
 * The [for loop statement](#for-loop-statement)
 * The [check statement](#check-statement)
-TODO how does this defn handle assert/exit?
+TODO how does this definition handle assert/exit?
 
 ## Sleeping
 The program may **sleep** until an absolute time called the **wakeup time**.
