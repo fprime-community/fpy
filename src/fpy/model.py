@@ -225,11 +225,14 @@ class FpySequencerModel:
         self,
         dirs: list[Directive],
         tlm: dict[int, bytearray] = None,
+        prm: dict[int, bytearray] = None,
         args: bytes | None = None,
         arg_types: list[FpyType] | None = None,
     ):
         if tlm is None:
             tlm = {}
+        if prm is None:
+            prm = {}
         if arg_types is None:
             arg_types = []
 
@@ -250,6 +253,7 @@ class FpySequencerModel:
         self.reset()
         self.dirs = dirs
         self.tlm_db = tlm
+        self.prm_db = prm
         # Push args as the very first thing on the stack
         if args is not None:
             self.stack = bytearray(args)
@@ -617,6 +621,7 @@ class FpySequencerModel:
         result = child_model.run(
             child_dirs,
             tlm=self.tlm_db,
+            prm=self.prm_db,
             args=child_args if child_args else None,
             arg_types=child_arg_types,
         )
@@ -1302,6 +1307,5 @@ class FpySequencerModel:
         severity = self.pop(type=int, signed=False, size=1)
         severity_names = {v: k for k, v in LOG_SEVERITY.enum_dict.items()}
         severity_name = severity_names.get(severity, f"UNKNOWN({severity})")
-        if debug:
-            print(f"POP_EVENT [{severity_name}]: {message.decode('utf-8')}")
+        print(f"[{severity_name}]: {message.decode('utf-8')}")
         return None

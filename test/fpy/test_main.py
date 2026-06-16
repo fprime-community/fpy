@@ -187,7 +187,7 @@ def test_model_main_success(monkeypatch, tmp_path):
             instances.append(self)
             self.ran_with = None
 
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
+        def run(self, directives, tlm=None, prm=None, args=None, arg_types=None):
             self.ran_with = directives
             return fpy_main.DirectiveErrorCode.NO_ERROR
 
@@ -206,7 +206,7 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
 
     class DummyModel:
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
+        def run(self, directives, tlm=None, prm=None, args=None, arg_types=None):
             return fpy_main.DirectiveErrorCode.EXIT_WITH_ERROR
 
     monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
@@ -217,6 +217,114 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Sequence failed" in captured.out
+
+
+REF_DICT_PATH = str(Path(__file__).parent / "RefTopologyDictionary.json")
+
+
+def test_parse_scalar_value_primitives():
+    from fpy.types import U32, F32, BOOL, TypeKind, FpyType
+
+    assert fpy_main.parse_scalar_value(U32, "42") == b"\x00\x00\x00\x2a"
+    # hex/oct/bin literals accepted for integers
+    assert fpy_main.parse_scalar_value(U32, "0x2a") == b"\x00\x00\x00\x2a"
+    assert fpy_main.parse_scalar_value(BOOL, "true") == b"\xff"
+    assert fpy_main.parse_scalar_value(BOOL, "false") == b"\x00"
+    import struct
+
+    assert fpy_main.parse_scalar_value(F32, "1.5") == struct.pack(">f", 1.5)
+
+    string_t = FpyType(TypeKind.STRING, "String_40", max_length=40)
+    # 2-byte length prefix followed by the utf-8 bytes
+    assert fpy_main.parse_scalar_value(string_t, "hi") == b"\x00\x02hi"
+
+
+def test_parse_scalar_value_out_of_range():
+    from fpy.types import U32
+
+    with pytest.raises(ValueError):
+        fpy_main.parse_scalar_value(U32, "-1")
+
+
+def test_parse_scalar_value_rejects_non_primitive():
+    from fpy.types import U32, TypeKind, FpyType
+
+    enum_t = FpyType(TypeKind.ENUM, "Ref.Choice", enum_dict={"ONE": 0}, rep_type=U32)
+    with pytest.raises(ValueError, match="not a primitive type"):
+        fpy_main.parse_scalar_value(enum_t, "ONE")
+
+
+def test_build_scalar_db_by_name_and_id():
+    from fpy.dictionary import load_dictionary
+
+    d = load_dictionary(REF_DICT_PATH)
+    by_name = fpy_main.build_scalar_db(
+        ["CdhCore.cmdDisp.CommandsDispatched=7"],
+        d["ch_name_dict"],
+        d["ch_id_dict"],
+        "ch_type",
+        "ch_id",
+        "telemetry channel",
+    )
+    assert by_name == {16777216: bytearray(b"\x00\x00\x00\x07")}
+
+    # lookup by numeric id resolves to the same channel
+    by_id = fpy_main.build_scalar_db(
+        ["16777216=7"],
+        d["ch_name_dict"],
+        d["ch_id_dict"],
+        "ch_type",
+        "ch_id",
+        "telemetry channel",
+    )
+    assert by_id == by_name
+
+
+def test_model_main_tlm_and_prm_end_to_end(monkeypatch, tmp_path):
+    """--tlm/--prm values are serialized and forwarded to model.run."""
+    binary = tmp_path / "seq.bin"
+    binary.write_bytes(b"data")
+
+    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
+
+    captured = {}
+
+    class DummyModel:
+        def run(self, directives, tlm=None, prm=None, args=None, arg_types=None):
+            captured["tlm"] = tlm
+            captured["prm"] = prm
+            return fpy_main.DirectiveErrorCode.NO_ERROR
+
+    monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
+
+    fpy_main.model_main(
+        [
+            str(binary),
+            "--dictionary",
+            REF_DICT_PATH,
+            "--tlm",
+            "CdhCore.cmdDisp.CommandsDispatched=7",
+            "--prm",
+            "Ref.cmdSeq0.STATEMENT_TIMEOUT_SECS=2.5",
+        ]
+    )
+
+    assert captured["tlm"] == {16777216: bytearray(b"\x00\x00\x00\x07")}
+    import struct
+
+    assert captured["prm"] == {268460032: bytearray(struct.pack(">f", 2.5))}
+
+
+def test_model_main_tlm_requires_dictionary(monkeypatch, tmp_path, capsys):
+    binary = tmp_path / "seq.bin"
+    binary.write_bytes(b"data")
+
+    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
+
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.model_main([str(binary), "--tlm", "Foo.Bar=1"])
+    assert exc.value.code == 1
+    assert "Must pass --dictionary" in capsys.readouterr().err
 
 
 def test_assemble_main_missing_input(tmp_path, capsys):

@@ -26,6 +26,7 @@ import fpy.model
 from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import text_to_ast, ast_to_directives, ast_to_dependencies
 from fpy.dictionary import load_dictionary
+from fpy.types import FpyType, FpyValue, TypeKind
 
 
 def human_readable_size(size_bytes):
@@ -147,6 +148,79 @@ def compile_main(args: list[str] = None):
         print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 
 
+def parse_scalar_value(typ: FpyType, raw: str) -> bytes:
+    """Parse a CLI string into serialized bytes for a primitive FpyType.
+
+    Only primitive types (integers, floats, bools, strings) and aliases of
+    them are supported -- the dictionary loader resolves aliases transparently,
+    so an alias of a primitive arrives here as the underlying primitive type.
+    Raises ValueError if the type is unsupported or the value cannot be parsed.
+    """
+    if typ.is_concrete_integer:
+        # int(raw, 0) accepts decimal as well as 0x/0o/0b prefixed literals
+        val = int(raw, 0)
+        typ.validate_value(val)
+    elif typ.is_concrete_float:
+        val = float(raw)
+    elif typ.kind == TypeKind.BOOL:
+        low = raw.strip().lower()
+        if low in ("true", "1"):
+            val = True
+        elif low in ("false", "0"):
+            val = False
+        else:
+            raise ValueError(f"could not parse bool from '{raw}'")
+    elif typ.is_string:
+        val = raw
+    else:
+        raise ValueError(
+            f"type '{typ.display_name}' is not a primitive type; only integers, "
+            "floats, bools, strings and aliases of them may be passed"
+        )
+    return FpyValue(typ, val).serialize()
+
+
+def build_scalar_db(
+    entries: list[str],
+    name_dict: dict,
+    id_dict: dict,
+    type_attr: str,
+    id_attr: str,
+    kind_label: str,
+) -> dict[int, bytearray]:
+    """Build an id->serialized-bytes database from CLI `NAME=VALUE` entries.
+
+    `name_dict`/`id_dict` map channel/parameter name/id to its definition.
+    `type_attr`/`id_attr` name the FpyType and id attributes on that definition.
+    """
+    db: dict[int, bytearray] = {}
+    for entry in entries:
+        if "=" not in entry:
+            print(
+                f"Invalid {kind_label} entry '{entry}', expected NAME=VALUE",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        name, raw = entry.split("=", 1)
+        name = name.strip()
+
+        definition = name_dict.get(name)
+        if definition is None and name.isdigit() and int(name) in id_dict:
+            definition = id_dict[int(name)]
+        if definition is None:
+            print(f"Unknown {kind_label} '{name}'", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            value_bytes = parse_scalar_value(getattr(definition, type_attr), raw)
+        except ValueError as e:
+            print(f"Invalid value for {kind_label} '{name}': {e}", file=sys.stderr)
+            sys.exit(1)
+
+        db[getattr(definition, id_attr)] = bytearray(value_bytes)
+    return db
+
+
 def model_main(args: list[str] = None):
     arg_parser = argparse.ArgumentParser(description=f"FpySequencer model for testing {get_version_str()}")
     arg_parser.add_argument(
@@ -168,7 +242,23 @@ def model_main(args: list[str] = None):
         "--dictionary",
         type=Path,
         default=None,
-        help="Path to JSON dictionary (required when sequence has arguments)",
+        help="Path to JSON dictionary (required when sequence has arguments or --tlm/--prm is used)",
+    )
+    arg_parser.add_argument(
+        "--tlm",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="Telemetry channel value, e.g. 'Ref.foo=42'. May be passed multiple "
+        "times. Only primitive channel types (ints/floats/bools/strings) are supported.",
+    )
+    arg_parser.add_argument(
+        "--prm",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="Parameter value, e.g. 'Ref.gain=1.5'. May be passed multiple "
+        "times. Only primitive parameter types (ints/floats/bools/strings) are supported.",
     )
 
     if args is not None:
@@ -185,25 +275,56 @@ def model_main(args: list[str] = None):
 
     directives, arg_specs = deserialize_directives(args.input.read_bytes())
 
+    # The dictionary is required to resolve arg types as well as to look up
+    # telemetry channels / parameters by name.
+    needs_dictionary = len(arg_specs) > 0 or args.tlm or args.prm
+    dictionary = None
+    if needs_dictionary:
+        if args.dictionary is None:
+            print(
+                "Must pass --dictionary when sequence has arguments or --tlm/--prm is used",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        dictionary = load_dictionary(str(args.dictionary))
+
     # Reconstruct FpyType list from deserialized (name, size) specs
     arg_types = []
     if len(arg_specs) > 0:
-        if args.dictionary is None:
-            print(f"Must pass --dictionary when sequence has arguments", file=sys.stderr)
-            sys.exit(1)
-        type_defs = load_dictionary(str(args.dictionary))["type_defs"]
         try:
-            arg_types = [t for _, t in resolve_arg_specs(arg_specs, type_defs)]
+            arg_types = [t for _, t in resolve_arg_specs(arg_specs, dictionary["type_defs"])]
         except RuntimeError as e:
             print(str(e), file=sys.stderr)
             sys.exit(1)
+
+    tlm_db = {}
+    if args.tlm:
+        tlm_db = build_scalar_db(
+            args.tlm,
+            dictionary["ch_name_dict"],
+            dictionary["ch_id_dict"],
+            "ch_type",
+            "ch_id",
+            "telemetry channel",
+        )
+
+    prm_db = {}
+    if args.prm:
+        prm_db = build_scalar_db(
+            args.prm,
+            dictionary["prm_name_dict"],
+            dictionary["prm_id_dict"],
+            "prm_type",
+            "prm_id",
+            "parameter",
+        )
 
     seq_args = None
     if args.args is not None:
         seq_args = bytes.fromhex(args.args)
 
     model = FpySequencerModel()
-    ret = model.run(directives, arg_types=arg_types, args=seq_args)
+    ret = model.run(directives, arg_types=arg_types, args=seq_args, tlm=tlm_db, prm=prm_db)
     if ret != DirectiveErrorCode.NO_ERROR:
         print("Sequence failed with " + str(ret))
         exit(1)
