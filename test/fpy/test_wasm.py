@@ -1,7 +1,8 @@
 """End-to-end tests for the LLVM/wasm backend.
 
-These compile a sequence all the way to a runnable wasm module, run it in
-wasmtime, and assert on the error code that ``fpy_main`` returns.
+These compile a sequence all the way to a runnable wasm module, run it through
+the NASA spacewasm interpreter, and assert on the error code that ``fpy_main``
+returns.
 
 The backend currently only supports ``assert`` over compile-time-constant
 conditions (all-literal expressions fold at compile time). Testing *runtime*
@@ -380,7 +381,7 @@ class TestWasmFloatToIntSaturates:
 
     def test_out_of_range_does_not_trap(self):
         # Runs to completion (returns a code) rather than trapping; a wasm trap
-        # would surface as a wasmtime.Trap out of run_seq_wasm.
+        # would surface as a RuntimeError (runner fault) out of run_seq_wasm.
         assert run_seq_wasm("x: F64 = 1e20\ny: I32 = I32(x)\nassert True\n") == NO_ERROR
 
     def test_stays_mvp_no_trunc_sat(self):

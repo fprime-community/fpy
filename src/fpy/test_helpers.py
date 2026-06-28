@@ -1,6 +1,5 @@
 from __future__ import annotations
 from pathlib import Path
-import math
 import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
@@ -16,7 +15,6 @@ from fpy.compiler import (
     analysis_to_fypbc_directives,
     analysis_to_wasm,
 )
-from fpy.codegen_llvm import FPY_ENTRY_POINT
 from fpy.state import get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
@@ -34,10 +32,13 @@ class CompilationFailed(Exception):
 
 
 # Flipped to True by conftest's pytest_configure when --wasm is passed, routing
-# the assert_* helpers through the LLVM/wasm backend (run via wasmtime) instead
-# of the bytecode VM. Sequences using features the wasm backend can't lower yet
-# will surface as CompilationFailed.
+# the assert_* helpers through the LLVM/wasm backend (run via the NASA spacewasm
+# interpreter, the on-board target runtime) instead of the bytecode VM.
 USE_WASM = False
+
+# Path to the built spacewasm runner harness, set by conftest's
+# pytest_configure when --wasm is passed.
+SPACEWASM_RUNNER: str | None = None
 
 
 def compile_seq(
@@ -77,51 +78,30 @@ def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
 def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
 
-    Runs in wasmtime, our interpreted wasm runtime for tests.
+    Runs the compiled module through the NASA spacewasm interpreter (the
+    on-board target runtime) via the runner harness built by conftest."""
+    import subprocess
 
-    Math host calls the backend emits are provided here, so any sequence runs
-    without the caller wiring up imports (unused defines are ignored, so this is
-    harmless for sequences that don't use them):
-      * `**` lowers to llvm.pow  -> imported ``env.pow``
-      * float `%` lowers to frem -> imported ``env.fmod``
-    The shims mirror the bytecode VM's handlers (see model.handle_fpow /
-    handle_fmod) so the two backends agree on edge cases like the 0**-1 pole.
-    """
-    from wasmtime import Engine, FuncType, Linker, Module, Store, ValType
+    assert SPACEWASM_RUNNER is not None, (
+        "SPACEWASM_RUNNER not set; run pytest with --wasm"
+    )
 
     wasm = compile_seq_wasm(seq, ground_binary_dir)
-    engine = Engine()
-    store = Store(engine)
-    module = Module(engine, wasm)
+    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
+    wasm_file.write(wasm)
+    wasm_file.close()
 
-    linker = Linker(engine)
-    f64 = ValType.f64()
-    binary_f64 = FuncType([f64, f64], [f64])
-    unary_f64 = FuncType([f64], [f64])
-    linker.define_func("env", "pow", binary_f64, _host_pow)
-    linker.define_func("env", "fmod", binary_f64, math.fmod)
-    linker.define_func("env", "log", unary_f64, math.log)
-
-    instance = linker.instantiate(store, module)
-    entry = instance.exports(store)[FPY_ENTRY_POINT]
-    return entry(store)
-
-
-def _host_pow(base: float, exp: float) -> float:
-    """C/IEEE pow() semantics, matching the VM's handle_fpow: a pole (0**neg)
-    is +/-inf rather than an error, and domain errors yield NaN -- where Python
-    would instead raise or return a complex number."""
-    try:
-        result = base**exp
-    except ZeroDivisionError:
-        # 0**<neg> is a pole; a negative odd-integer exponent keeps the base's
-        # signed zero (pow(-0.0, -1) == -inf), otherwise +inf.
-        if float(exp).is_integer() and int(exp) % 2 != 0:
-            return math.copysign(math.inf, base)
-        return math.inf
-    except (ValueError, OverflowError):
-        return math.nan
-    return math.nan if isinstance(result, complex) else result
+    result = subprocess.run(
+        [SPACEWASM_RUNNER, wasm_file.name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"spacewasm runner faulted (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+    return int(result.stdout.strip())
 
 
 def lookup_type(fprime_test_api, type_name: str):
