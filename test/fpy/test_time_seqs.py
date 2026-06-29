@@ -1013,26 +1013,6 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_with_different_time_base_crashes(self, fprime_test_api):
-        """Test that check crashes when now() and timeout have different time_bases.
-
-        This tests the full check statement integration: the check desugars to use
-        time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
-        """
-        seq = """
-# Construct a timeout with a different timeBase than what now() returns
-# now() returns timeBase=TimeBase.TB_NONE by default
-# Set timeout with timeBase=TimeBase.TB_PROC_TIME
-bad_timeout: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)
-
-check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 100000):
-    pass
-timeout:
-    pass
-"""
-        # Now run with default timeBase=0, but the timeout uses timeBase=1
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
-
     def test_check_with_simulated_time_timeout(self, fprime_test_api):
         """Test that check properly times out based on simulated time advancement.
 
@@ -1046,7 +1026,7 @@ timed_out: bool = False
 
 # Set timeout to be 100ms from now
 # With period of 10ms, we'll check ~10 times before timeout
-check False timeout time_add(now(), Fw.TimeIntervalValue(0, 100000)) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
+check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     # This shouldn't run because condition is always false
     assert False, 1
 timeout:
@@ -1074,7 +1054,7 @@ def condition() -> bool:
 
 # Require condition to persist for 50ms with 10ms frequency
 # Should need ~5 checks to persist
-check condition() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 50000) period Fw.TimeIntervalValue(0, 10000):
+check condition() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 50000) period Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1
@@ -1117,7 +1097,7 @@ def check_time_base() -> bool:
         time_base_ok = False
     return check_count >= 3
 
-check check_time_base() timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
+check check_time_base() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     pass
 timeout:
     assert False, 1

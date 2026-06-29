@@ -291,7 +291,7 @@ class TestAnonExprInCheck:
         """Anon struct for the persist clause."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {seconds: 0, useconds: 0} period Fw.TimeIntervalValue(0, 100000):
+check True timeout Fw.TimeIntervalValue(1, 0) persist {seconds: 0, useconds: 0} period Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
     assert False, 1
@@ -304,7 +304,7 @@ assert check_passed
         """Anon struct for the period clause."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period {seconds: 0, useconds: 100000}:
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
@@ -316,7 +316,7 @@ assert check_passed
         """Anon struct for the timeout clause (as TimeIntervalValue added to now())."""
         seq = """
 timed_out: bool = False
-check False timeout now() + {seconds: 0, useconds: 100000} persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
+check False timeout {seconds: 0, useconds: 100000} persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
     assert False, 1
 timeout:
     timed_out = True
@@ -328,7 +328,7 @@ assert timed_out
         """All three clauses use anon struct syntax simultaneously."""
         seq = """
 check_passed: bool = False
-check True timeout now() + {seconds: 1, useconds: 0} persist {seconds: 0, useconds: 0} period {seconds: 0, useconds: 100000}:
+check True timeout {seconds: 1, useconds: 0} persist {seconds: 0, useconds: 0} period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1
@@ -340,7 +340,7 @@ assert check_passed
         """Anon struct with defaults for persist (empty → {seconds:0, useconds:0})."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist {} period Fw.TimeIntervalValue(0, 100000):
+check True timeout Fw.TimeIntervalValue(1, 0) persist {} period Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 timeout:
     assert False, 1
@@ -352,7 +352,7 @@ assert check_passed
         """Anon struct with partial members for period (useconds only, seconds defaults to 0)."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(now(), Fw.TimeIntervalValue(1, 0)) persist Fw.TimeIntervalValue(0, 0) period {useconds: 100000}:
+check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) period {useconds: 100000}:
     check_passed = True
 timeout:
     assert False, 1

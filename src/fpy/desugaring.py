@@ -344,18 +344,23 @@ class DesugarCheckStatements(Transformer):
     The generated AST nodes will go through normal semantic analysis.
     
     A check statement:
-        check <condition> [timeout <timeout>] [persist <persist>] [period <period>]:
+        check <condition> [timeout <interval>] [persist <persist>] [period <period>]:
             <body>
         [timeout:
             <timeout_body>]
-    
+
+    <interval>, <persist> and <period> are all relative Fw.TimeIntervalValue.
+    The timeout is a duration measured from the moment the check is entered.
+    To time out at an absolute deadline T, write the interval as (T - now()).
+
     Default values:
         - timeout: no timeout (runs indefinitely until condition persists)
         - persist: 0 second interval (condition must be true once)
         - period: 1 second interval (check condition every second)
-    
+
     Gets desugared into (roughly):
-        $check_state: $CheckState = $CheckState(...)
+        # timeout deadline computed once, at entry, from the relative interval:
+        $check_state: $CheckState = $CheckState(timeout=time_add(now(), <interval>), ...)
         while True:
             $current_time: Fw.Time = now()
             # If timeout is specified:
@@ -485,10 +490,15 @@ class DesugarCheckStatements(Transformer):
             else self.call_parts(["Fw", "TimeIntervalValue"], self.number(1), self.number(0))
         )
         
-        # For timeout, the expression must be Fw.Time (absolute time).
+        # The user supplies the timeout as a relative Fw.TimeIntervalValue.
+        # We turn it into an absolute deadline once, here at entry, as
+        # time_add(now(), <interval>). The deadline inherits now()'s timebase,
+        # so the per-iteration time_cmp(now(), deadline) is always comparable.
         # If no timeout specified, use a dummy value (the timeout check will be skipped anyway)
         if has_timeout:
-            timeout_expr_to_use = copy.deepcopy(node.timeout)
+            timeout_expr_to_use = self.call(
+                "time_add", self.call("now"), copy.deepcopy(node.timeout)
+            )
         else:
             # Dummy timeout value - won't be used since we skip timeout checks
             timeout_expr_to_use = self.call_parts(
