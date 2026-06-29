@@ -29,8 +29,8 @@ from fpy.types import (
     NOTHING,
     NOTHING_VALUE,
     BOOL,
-    U8,
     U64,
+    I32,
     I64,
     F32,
     F64,
@@ -424,7 +424,7 @@ class GenerateFunctionBody(Emitter):
         # flag is true and response was not OK — exit with error
         dirs.append(
             PushValDirective(
-                FpyValue(U8, DirectiveErrorCode.CMD_FAIL.value).serialize()
+                FpyValue(I32, DirectiveErrorCode.CMD_FAIL.value).serialize()
             )
         )
         dirs.append(ExitDirective())
@@ -594,7 +594,7 @@ class GenerateFunctionBody(Emitter):
         # push the error code we should fail with if false
         dirs.append(
             PushValDirective(
-                FpyValue(U8, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
+                FpyValue(I32, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
             )
         )
         dirs.append(ExitDirective())
@@ -615,12 +615,26 @@ class GenerateFunctionBody(Emitter):
             )
         )
 
+    def _should_lower_stmt(self, stmt: Ast, state: CompileState) -> bool:
+        """Whether a statement needs code generated for it.
+
+        Constants are skipped, and this is required, not just an optimization: a
+        bare statement gives its expression no type context, so a folded literal
+        keeps its *abstract* type (Integer/Float/InternalString), which has no
+        serialized representation -- emitting `2 + 2` would assert in
+        try_emit_expr_as_const / FpyValue.serialize. They're also pure (const
+        folding only folds pure expressions), so dropping them changes nothing.
+        """
+        if is_instance_compat(stmt, AstNodeWithSideEffects):
+            return True
+        if is_instance_compat(stmt, AstExpr):
+            return state.const_expr_values.get(stmt) is None
+        return False
+
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
-            if not is_instance_compat(stmt, AstNodeWithSideEffects):
-                # if the stmt can't do anything on its own, ignore it
-                # TODO warn
+            if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
             if self._is_cmd_and_response_unhandled(stmt, state):
@@ -689,7 +703,7 @@ class GenerateFunctionBody(Emitter):
         # run body
 
         for stmt_idx, stmt in enumerate(node.body.stmts):
-            if not is_instance_compat(stmt, AstNodeWithSideEffects):
+            if not self._should_lower_stmt(stmt, state):
                 # if the stmt can't do anything on its own, ignore it
                 continue
             # we're going to manually emit the body's stmts instead
@@ -1255,7 +1269,7 @@ class GenerateFunctionBody(Emitter):
             # otherwise just use the default EXIT_WITH_ERROR error code
             dirs.append(
                 PushValDirective(
-                    FpyValue(U8, DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
+                    FpyValue(I32, DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
                 )
             )
         dirs.append(ExitDirective())

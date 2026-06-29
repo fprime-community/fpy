@@ -19,15 +19,17 @@ from fpy.syntax import (
     AstBinaryOp,
     AstBlock,
     AstDef,
+    AstExpr,
     AstFuncCall,
     AstIdent,
     AstIf,
+    AstNodeWithSideEffects,
     AstUnaryOp,
     BinaryStackOp,
     COMPARISON_OPS,
     UnaryStackOp,
 )
-from fpy.types import FpyValue
+from fpy.types import I32, FpyValue, is_instance_compat
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 
@@ -52,8 +54,11 @@ WASM_VERSION = "1.0 (MVP)"
 # telemetry ()
 # param ()
 
-# The sequence entry point returns an error code. 0 means success
-ERROR_CODE_TYPE = ir.IntType(32)
+# The sequence entry point returns an error code (0 means success). It's an I32
+# -- the same type semantics coerces exit/assert codes to -- so a code emitted at
+# its contextual type already matches the return type with no extra widening.
+ERROR_CODE_FPY_TYPE = I32
+ERROR_CODE_TYPE = ERROR_CODE_FPY_TYPE.llvm_type
 
 
 class EmitLlvmExpr(Emitter):
@@ -354,8 +359,113 @@ class CollectFrameVariables(TopDownVisitor):
         return STOP_DESCENT  # a def's locals belong to its own frame
 
 
+class EmitLlvmStmt(Emitter):
+    """Lowers Fpy statements into LLVM IR via a shared builder.
+    """
+
+    def __init__(self, builder: ir.IRBuilder):
+        super().__init__()
+        self.builder: ir.IRBuilder = builder
+        self.expr: EmitLlvmExpr = EmitLlvmExpr(builder)
+
+    def emit(self, node, state: CompileState) -> None:
+        emitter = self.emitters.get(type(node))
+        if emitter is None:
+            raise BackendError(
+                f"LLVM backend doesn't handle statement "
+                f"{type(node).__name__} yet"
+            )
+        return emitter(node, state)
+
+    def emit_AstBlock(self, node: AstBlock, state: CompileState) -> None:
+        """Lower the statements of *block* into the current basic block(s)."""
+        for stmt in node.stmts:
+            if is_instance_compat(stmt, AstExpr):
+                # Constants are skipped, and this is required, not just an
+                # optimization: a bare statement gives its expression no type
+                # context, so a literal keeps its *abstract* type
+                # (Integer/Float/InternalString), which has no machine
+                # representation -- emitting `10.0 ** 1000` or `"test"` would
+                # assert in FpyValue.llvm_value. They're also pure (const folding
+                # only folds pure expressions), so dropping them changes nothing.
+                if state.const_expr_values.get(stmt) is None:
+                    self.expr.emit(stmt, state)
+            elif is_instance_compat(stmt, AstNodeWithSideEffects):
+                # A non-expression statement (assign, if, assert, def, ...).
+                self.emit(stmt, state)
+            # else: a non-expression statement that can't affect the program on
+            # its own (e.g. `pass`, sequence metadata) -- nothing to lower.
+
+    def emit_AstDef(self, node: AstDef, state: CompileState) -> None:
+        # Function definitions (incl. the prepended builtin library) aren't
+        # lowered inline; a call to one is handled at its call site.
+        return
+
+    def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
+        sym = state.resolved_symbols[node.lhs]
+        # The rhs is coerced to the variable's type, so its emitted value
+        # already matches the slot's element type.
+        value = self.expr.emit(node.rhs, state)
+        self.builder.store(value, sym.llvm_ptr)
+
+    def emit_AstIf(self, node: AstIf, state: CompileState) -> None:
+        builder = self.builder
+        func = builder.function
+        end_block = func.append_basic_block("if_end")
+        cases = [(node.condition, node.body)]
+        cases += [(case.condition, case.body) for case in node.elifs]
+
+        for condition, case_body in cases:
+            cond = self.expr.emit(condition, state)
+            then_block = func.append_basic_block("if_then")
+            next_block = func.append_basic_block("if_next")
+            builder.cbranch(cond, then_block, next_block)
+
+            builder.position_at_end(then_block)
+            self.emit(case_body, state)
+            # block might already be terminated from a return
+            if not builder.block.is_terminated:
+                builder.branch(end_block)
+
+            # Subsequent cases (and the else) are tested/run when this condition
+            # was false, i.e. in next_block.
+            builder.position_at_end(next_block)
+
+        if node.els is not None:
+            self.emit(node.els, state)
+        if not builder.block.is_terminated:
+            builder.branch(end_block)
+
+        builder.position_at_end(end_block)
+
+    def emit_AstAssert(self, node: AstAssert, state: CompileState) -> None:
+        builder = self.builder
+        func = builder.function
+        condition = self.expr.emit(node.condition, state)
+
+        fail_block = func.append_basic_block(name="assert_fail")
+        ok_block = func.append_basic_block(name="assert_ok")
+        builder.cbranch(condition, ok_block, fail_block)
+
+        # Failure path: return the exit code the user wrote, or EXIT_WITH_ERROR
+        # by default. A written code is coerced to the error-code type (I32) by
+        # semantics, so emitting it already yields the entry point's return type.
+        builder.position_at_end(fail_block)
+        if node.exit_code is None:
+            code = ir.Constant(
+                ERROR_CODE_TYPE, DirectiveErrorCode.EXIT_WITH_ERROR.value
+            )
+        else:
+            code = self.expr.emit(node.exit_code, state)
+        builder.ret(code)
+
+        # Success path: continue lowering subsequent statements here.
+        builder.position_at_end(ok_block)
+
+
 class GenerateLlvmModule:
-    """Lowers a sequence's top-level statements into an LLVM module.
+    """Builds the LLVM module for a sequence: declares the entry function and
+    its storage, then lowers the root block's statements with EmitLlvmStmt.
     """
 
     def emit(self, body: AstBlock, state: CompileState) -> ir.Module:
@@ -375,80 +485,12 @@ class GenerateLlvmModule:
         for sym in collector.symbols:
             self._declare_variable(module, builder, sym)
 
-        self._emit_block(func, builder, body, state)
+        EmitLlvmStmt(builder).emit(body, state)
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
             builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
         return module
-
-    def _emit_block(
-        self,
-        func: ir.Function,
-        builder: ir.IRBuilder,
-        block: AstBlock,
-        state: CompileState,
-    ) -> None:
-        """Lower the statements of *block* into the current basic block(s)."""
-        for stmt in block.stmts:
-            if isinstance(stmt, AstAssign):
-                self._emit_assign(builder, stmt, state)
-            elif isinstance(stmt, AstAssert):
-                self._emit_assert(func, builder, stmt, state)
-            elif isinstance(stmt, AstIf):
-                self._emit_if(func, builder, stmt, state)
-            elif isinstance(stmt, AstFuncCall):
-                # A call statement (e.g. exit(...)); its result, if any, is
-                # discarded. Unsupported calls raise inside emit_AstFuncCall.
-                EmitLlvmExpr(builder).emit(stmt, state)
-            elif isinstance(stmt, AstDef):
-                # Function definitions (incl. the prepended builtin library)
-                # aren't lowered here; a call to one is handled at the call site.
-                continue
-            else:
-                assert False, (
-                    f"LLVM backend doesn't handle statement {type(stmt).__name__}"
-                )
-
-    def _emit_if(
-        self,
-        func: ir.Function,
-        builder: ir.IRBuilder,
-        node: AstIf,
-        state: CompileState,
-    ) -> None:
-        """Lower an if / elif* / else chain.
-
-        Each case tests its condition; on true it runs its body and jumps to a
-        shared end block, on false it falls through to test the next case. A
-        block that already ends in a terminator (e.g. its body called exit())
-        is not given a redundant branch to the end.
-        """
-        end_block = func.append_basic_block("if_end")
-        cases = [(node.condition, node.body)]
-        cases += [(case.condition, case.body) for case in node.elifs]
-
-        for condition, case_body in cases:
-            cond = EmitLlvmExpr(builder).emit(condition, state)
-            then_block = func.append_basic_block("if_then")
-            next_block = func.append_basic_block("if_next")
-            builder.cbranch(cond, then_block, next_block)
-
-            builder.position_at_end(then_block)
-            self._emit_block(func, builder, case_body, state)
-            if not builder.block.is_terminated:
-                builder.branch(end_block)
-
-            # Subsequent cases (and the else) are tested/run when this condition
-            # was false, i.e. in next_block.
-            builder.position_at_end(next_block)
-
-        if node.els is not None:
-            self._emit_block(func, builder, node.els, state)
-        if not builder.block.is_terminated:
-            builder.branch(end_block)
-
-        builder.position_at_end(end_block)
 
     def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
         """Create the built-in ``flags`` struct as a global, seeded with its
@@ -482,51 +524,6 @@ class GenerateLlvmModule:
             sym.llvm_ptr = gvar
         else:
             sym.llvm_ptr = builder.alloca(sym.type.llvm_type, name=sym.name)
-
-    def _emit_assign(
-        self, builder: ir.IRBuilder, node: AstAssign, state: CompileState
-    ) -> None:
-        sym = state.resolved_symbols[node.lhs]
-        # The rhs is coerced to the variable's type, so its emitted value
-        # already matches the slot's element type.
-        value = EmitLlvmExpr(builder).emit(node.rhs, state)
-        builder.store(value, sym.llvm_ptr)
-
-    def _emit_assert(
-        self,
-        func: ir.Function,
-        builder: ir.IRBuilder,
-        node: AstAssert,
-        state: CompileState,
-    ) -> None:
-        """Emit ``assert cond``: if cond is false, return the exit code.
-
-        On success, control continues in a fresh block so subsequent statements
-        keep lowering after the check.
-        """
-        condition = EmitLlvmExpr(builder).emit(node.condition, state)
-
-        fail_block = func.append_basic_block(name="assert_fail")
-        ok_block = func.append_basic_block(name="assert_ok")
-        builder.cbranch(condition, ok_block, fail_block)
-
-        # Failure path: return the exit code the user wrote (verbatim), or
-        # EXIT_WITH_ERROR by default. A written code is coerced to U8 (i8), so
-        # widen it to the i32 return type.
-        builder.position_at_end(fail_block)
-        if node.exit_code is None:
-            code = ir.Constant(
-                ERROR_CODE_TYPE, DirectiveErrorCode.EXIT_WITH_ERROR.value
-            )
-        else:
-            code = EmitLlvmExpr(builder).emit(node.exit_code, state)
-            if code.type != ERROR_CODE_TYPE:
-                code = builder.zext(code, ERROR_CODE_TYPE)
-        builder.ret(code)
-
-        # Success path: continue lowering subsequent statements here.
-        builder.position_at_end(ok_block)
-
 
 
 _llvm_targets_initialized = False

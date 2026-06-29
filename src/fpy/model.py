@@ -1147,9 +1147,10 @@ class FpySequencerModel:
         return None
 
     def handle_exit(self, dir: ExitDirective):
-        if len(self.stack) < 1:
+        # The exit code is an I32 (4-byte, signed) pushed by codegen.
+        if len(self.stack) < 4:
             return DirectiveErrorCode.STACK_UNDERFLOW
-        exit_code = self.pop(type=int, size=1)
+        exit_code = self.pop(type=int, size=4)
         print(exit_code)
         if exit_code == 0:
             self.next_dir_idx = len(self.dirs)

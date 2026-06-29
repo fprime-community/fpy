@@ -23,6 +23,7 @@ from fpy.codegen_llvm import (
     _ensure_llvm_targets,
 )
 from fpy.compiler import analyze_ast, text_to_ast
+from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
@@ -267,7 +268,30 @@ class TestWasmExit:
 
     def test_exit_with_runtime_code(self):
         # The exit code comes from a variable (read at runtime), not a literal.
-        assert run_seq_wasm("code: U8 = 9\nexit(code)\n") == 9
+        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
+        # so a runtime code must be a signed int.
+        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
+
+
+class TestWasmBareExpressionStatements:
+    """A bare expression statement must be lowered for its side effects, even
+    when its top-level node type doesn't advertise any."""
+
+    def test_constant_bare_expr_is_noop(self):
+        # A constant expression statement is pure -- it folds away and the
+        # sequence runs cleanly to the end.
+        assert run_seq_wasm("10.0 ** 1000\nassert 1 == 1\n") == NO_ERROR
+
+    def test_embedded_call_is_lowered_not_dropped(self):
+        # `f() == 0` is an AstBinaryOp -- not a side-effecting node type -- but
+        # it embeds a call that is. Lowering it must reach the call rather than
+        # silently dropping the statement. The wasm backend can't lower
+        # script-function calls yet, so reaching the call surfaces as a
+        # BackendError; before the fix the statement was dropped and the module
+        # compiled to a (wrong) no-op with no error at all.
+        seq = "def f() -> U32:\n    return 0\nf() == 0\n"
+        with pytest.raises(BackendError, match="FunctionSymbol"):
+            _seq_to_llvm_module(seq)
 
 
 class TestWasmIf:

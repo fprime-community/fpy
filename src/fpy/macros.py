@@ -26,6 +26,7 @@ from fpy.types import (
     U8,
     U16,
     U32,
+    I32,
     I64,
     F64,
     FpyValue,
@@ -179,10 +180,8 @@ def generate_exit_llvm(builder, args):
     on the bytecode-only path doesn't pull in the LLVM native library.
     """
     [(code, _const)] = args
-    # The exit code is a U8; widen it to fpy_main's return type (i32).
-    return_type = builder.function.ftype.return_type
-    if code.type != return_type:
-        code = builder.zext(code, return_type)
+    # exit's parameter is an I32, matching fpy_main's return type, so the already
+    # type-coerced value can be returned directly.
     builder.ret(code)
     builder.position_at_end(builder.function.append_basic_block("after_exit"))
     return None
@@ -259,7 +258,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "exit": BuiltinFuncSymbol(
         "exit",
         NOTHING,
-        [("exit_code", U8, None)],
+        [("exit_code", I32, None)],
         lambda n, c: [ExitDirective()],
         generate_llvm=generate_exit_llvm,
     ),

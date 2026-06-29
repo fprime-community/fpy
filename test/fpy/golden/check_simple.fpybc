@@ -103,7 +103,7 @@ get_field 11 2
 memcmp 2
 not
 if 107
-push_val 1
+push_val 0 0 0 1
 exit
 load_rel -30 11
 push_val 0 0 0 3
@@ -134,7 +134,7 @@ load_rel 8 8
 uge
 not
 if 138
-push_val 1
+push_val 0 0 0 1
 exit
 load_rel 0 8
 load_rel 8 8
@@ -149,7 +149,7 @@ push_val 0 0 0 0 255 255 255 255
 ule
 not
 if 153
-push_val 1
+push_val 0 0 0 1
 exit
 load_rel 24 8
 itrunc_64_32
@@ -185,7 +185,7 @@ memcmp 4
 not
 not
 if 189
-push_val 1
+push_val 0 0 0 1
 exit
 load_rel 63 4
 push_val 0 0 0 1
