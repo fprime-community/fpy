@@ -358,7 +358,8 @@ assert i == 2
         assert_run_success(fprime_test_api, seq)
 
     def test_modify_global_var_in_func_before_definition(self, fprime_test_api):
-        """Test that functions can modify top-level (global) variables, declared after the function definition"""
+        """Calling a function that reads a global before that global is declared
+        is an error, even though the function itself may be defined earlier."""
         seq = """
 increment()
 
@@ -371,7 +372,128 @@ i: I64 = 123
 assert i == 123
 """
 
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_call_after_global_defined(self, fprime_test_api):
+        """A function defined before its global is fine as long as the call
+        comes after the global's declaration."""
+        seq = """
+def increment():
+    i = i + 1
+
+i: I64 = 0
+increment()
+assert i == 1
+"""
+
         assert_run_success(fprime_test_api, seq)
+
+    def test_call_reads_global_transitively_before_definition(
+        self, fprime_test_api
+    ):
+        """Calling a function that reads a global only through a function it
+        calls is still an error if the global isn't defined yet."""
+        seq = """
+def reader():
+    assert i == 0
+
+def caller():
+    reader()
+
+caller()
+
+i: I64 = 5
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_call_reads_global_transitively_after_definition(
+        self, fprime_test_api
+    ):
+        """The transitive case succeeds once the global is declared before the
+        top-level call."""
+        seq = """
+def reader():
+    assert i == 5
+
+def caller():
+    reader()
+
+i: I64 = 5
+caller()
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_recursive_func_reads_global_before_definition(
+        self, fprime_test_api
+    ):
+        """A recursive function that reads a global, called before that global
+        is declared, is an error."""
+        seq = """
+def countdown(n: I64):
+    if n == 0:
+        assert g == 1
+        return
+    countdown(n - 1)
+
+countdown(3)
+g: I64 = 1
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_recursive_func_reads_global_after_definition(
+        self, fprime_test_api
+    ):
+        """The same recursive function succeeds when the global is declared
+        before the call."""
+        seq = """
+def countdown(n: I64):
+    if n == 0:
+        assert g == 1
+        return
+    countdown(n - 1)
+
+g: I64 = 1
+countdown(3)
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_mutually_recursive_funcs_read_global_before_definition(
+        self, fprime_test_api
+    ):
+        """Mutual recursion: a global read only in one of two mutually
+        recursive functions must still be defined before either is called."""
+        seq = """
+def ping(n: I64):
+    if n == 0:
+        return
+    pong(n - 1)
+
+def pong(n: I64):
+    assert g == 1
+    ping(n - 1)
+
+ping(3)
+g: I64 = 1
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_call_in_own_initializer_reads_global(self, fprime_test_api):
+        """A global whose initializer calls a function that reads that same
+        global is an error: the global isn't defined until the assignment
+        completes."""
+        seq = """
+def read_g() -> I64:
+    return g
+
+g: I64 = read_g()
+"""
+
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_use_lvar_from_func_outside_func(self, fprime_test_api):
         seq = """

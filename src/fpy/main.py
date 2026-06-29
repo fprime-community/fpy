@@ -110,7 +110,7 @@ def compile_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
     try:
-        body = text_to_ast(parsed_args.input.read_text())
+        body = text_to_ast(parsed_args.input.read_text(encoding="utf-8"))
     except RecursionError:
         print("Recursion limit exceeded in parsing")
         sys.exit(1)
@@ -233,7 +233,7 @@ def assemble_main(args: list[str] = None):
         print(f"Input file {args.input} does not exist")
         exit(1)
 
-    body = fpybc_parse(args.input.read_text())
+    body = fpybc_parse(args.input.read_text(encoding="utf-8"))
     directives = assemble(body)
     output = args.output
     if output is None:
@@ -272,7 +272,7 @@ def disassemble_main(args: list[str] = None):
     output = args.output
     if output is None:
         output = args.input.with_suffix(".fpybc")
-    output.write_text(fpybc)
+    output.write_text(fpybc, encoding="utf-8")
     print("Done")
 
 
@@ -509,7 +509,7 @@ def depend_main(args: list[str] = None):
         ground_binary_dir = parsed_args.input.parent
 
     try:
-        body = text_to_ast(parsed_args.input.read_text())
+        body = text_to_ast(parsed_args.input.read_text(encoding="utf-8"))
     except RecursionError:
         print("Recursion limit exceeded in parsing", file=sys.stderr)
         sys.exit(1)

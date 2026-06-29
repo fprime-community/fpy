@@ -14,6 +14,7 @@ from fpy.syntax import (
     AstExpr,
     AstFor,
     AstFuncCall,
+    AstIdent,
     AstOp,
     AstReference,
     AstReturn,
@@ -255,6 +256,8 @@ def is_symbol_an_expr(symbol: Symbol) -> bool:
         ),
     )
 
+ModuleSymbol = SymbolTable
+
 Symbol = typing.Union[
     ChDef,
     PrmDef,
@@ -262,7 +265,7 @@ Symbol = typing.Union[
     CallableSymbol,
     FpyType,
     VariableSymbol,
-    SymbolTable,
+    ModuleSymbol,
     FieldAccess
 ]
 """a named entity in fpy that can be looked up in a symbol table"""
@@ -290,6 +293,8 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
+    parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
+    """map of each node to its parent node in the AST"""
     enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
@@ -333,6 +338,14 @@ class CompileState:
     """Maps function calls, anon structs, and anon arrays to resolved arguments
     in positional order. Default values are filled in for arguments not provided
     at the call site (or struct members / array elements with defaults)."""
+
+    function_global_uses: dict[AstDef, list[VariableSymbol]] = field(default_factory=dict)
+    """function definition -> globals it reads. Populated with direct uses by
+    CollectFunctionGlobalUses, then grown to the transitive closure (globals
+    read through called functions too) by ResolveTransitiveGlobalUses."""
+
+    function_callees: dict[AstDef, list[AstDef]] = field(default_factory=dict)
+    """function definition -> the user function definitions it directly calls"""
 
     while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
     """while loop node mapped to the label pointing to the end of the loop"""

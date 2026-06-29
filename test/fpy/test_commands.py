@@ -14,7 +14,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_call_namespace_fails(self, fprime_test_api):
+    def test_call_module_fails(self, fprime_test_api):
         seq = """
 CdhCore.cmdDisp()
 """
@@ -167,9 +167,9 @@ _: Fw.CmdResponse = CdhCore.health.HLTH_PING_ENABLE("task1", en)
         assert_run_success(fprime_test_api, seq)
 
 
-class TestNamespaces:
+class TestModules:
 
-    def test_get_item_of_namespace(self, fprime_test_api):
+    def test_get_item_of_module(self, fprime_test_api):
         seq = """
 value: U32 = CdhCore.cmdDisp[0]
 """

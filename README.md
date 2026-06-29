@@ -293,15 +293,15 @@ check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
 
 If you don't specify a value for `persist`, the condition only has to be true once.
 
-You can specify an absolute time at which the `check` should time out:
+You can specify a `timeout`: a `Fw.TimeInterval` duration, measured from when the `check` is entered, after which the `check` gives up:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout {seconds: 60} persist {seconds: 2}:
     log("more than 30 commands for 2 seconds!")
 ```
 
-You can also specify a `timeout` clause, which executes if the `check` times out:
+You can also specify a `timeout:` body, which executes if the `check` times out:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60} persist {seconds: 2}:
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout {seconds: 60} persist {seconds: 2}:
     log("more than 30 commands for 2 seconds!")
 timeout:
     log("took more than 60 seconds :(")
@@ -318,7 +318,7 @@ If you don't specify a value for `period`, the default period is 1 second.
 The `timeout`, `persist` and `period` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30
-    timeout now() + {seconds: 60}
+    timeout {seconds: 60}
     persist {seconds: 2}
     period {seconds: 1}
     log("more than 30 commands for 2 seconds!")
@@ -328,7 +328,7 @@ timeout:
 
 If you just want to wait until a condition is true without running any body, you can omit the colon and body:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 timeout now() + {seconds: 60}
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout {seconds: 60}
 # execution continues here once the condition is satisfied (or times out)
 log("done waiting!")
 ```
