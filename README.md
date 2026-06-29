@@ -638,7 +638,11 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 6. `fprime-util generate -f`
 7. `fprime-util build -j16`
 8. `fprime-gds`. You should see a green circle in the top right.
-9. In the `fpy` repo, `pytest --use-gds --dictionary test/fpy/RefTopologyDictionary.json test/fpy/test_seqs.py` will run all of the test sequences against the live GDS deployment.
+9. Run the tests against the live GDS deployment from the `fpy` repo. The `--dictionary` option is provided by the **fprime-gds pytest plugin**, so it must be installed in the environment you run `pytest` from. If `pytest` reports `--dictionary` as an unrecognized argument, `fprime-gds` is not installed in your active venv. Either install it into the `fpy` venv (`pip install fprime-gds`), or run `pytest` from the testbed's venv with `fpy` installed there. Then run:
+   ```sh
+   pytest --use-gds --dictionary path/to/Ref/build-artifacts/<platform>/dict/RefTopologyDictionary.json test/fpy
+   ```
+   where the dictionary path points at the JSON dictionary produced by the `fprime-util build` step above. Make sure the dictionary was built with the same fprime/fprime-gds version installed in your venv, or the GDS plugin may fail to load it.
 
 ## Tools
 
