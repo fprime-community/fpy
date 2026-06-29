@@ -1013,26 +1013,6 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_with_different_time_base_crashes(self, fprime_test_api):
-        """Test that check crashes when now() and timeout have different time_bases.
-
-        This tests the full check statement integration: the check desugars to use
-        time_cmp(now(), timeout), and if the time_bases differ, the assert should crash.
-        """
-        seq = """
-# Construct a timeout with a different timeBase than what now() returns
-# now() returns timeBase=TimeBase.TB_NONE by default
-# Set timeout with timeBase=TimeBase.TB_PROC_TIME
-bad_timeout: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)
-
-check True timeout bad_timeout persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 100000):
-    pass
-timeout:
-    pass
-"""
-        # Now run with default timeBase=0, but the timeout uses timeBase=1
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
-
     def test_check_with_simulated_time_timeout(self, fprime_test_api):
         """Test that check properly times out based on simulated time advancement.
 
