@@ -1,4 +1,4 @@
-goto 160
+goto 182
 allocate 16
 load_rel -30 11
 push_val 0 0 0 0
@@ -102,9 +102,17 @@ push_val 0 0 0 0
 get_field 11 2
 memcmp 2
 not
-if 107
+if 115
+push_val 2
+push_val 116 105 109 101 95 115 117 98 58 32 111 112 101 114 97 110 100 115 32 104 97 118 101 32 100 105 102 102 101 114 101 110 116 32 116 105 109 101 32 98 97 115 101 115
+push_val 0 0 0 44
+pop_event
+push_val 0
+not
+if 114
 push_val 0 0 0 1
 exit
+goto 115
 load_rel -30 11
 push_val 0 0 0 3
 get_field 11 4
@@ -131,11 +139,18 @@ add
 store_rel_const_offset 8 8
 load_rel 0 8
 load_rel 8 8
-uge
+ult
+if 153
+push_val 2
+push_val 116 105 109 101 95 115 117 98 58 32 115 117 98 116 114 97 99 116 105 111 110 32 119 111 117 108 100 32 117 110 100 101 114 102 108 111 119
+push_val 0 0 0 37
+pop_event
+push_val 0
 not
-if 138
+if 152
 push_val 0 0 0 1
 exit
+goto 153
 load_rel 0 8
 load_rel 8 8
 sub
@@ -146,11 +161,18 @@ udiv
 store_rel_const_offset 24 8
 load_rel 24 8
 push_val 0 0 0 0 255 255 255 255
-ule
+ugt
+if 175
+push_val 2
+push_val 116 105 109 101 95 115 117 98 58 32 114 101 115 117 108 116 32 115 101 99 111 110 100 115 32 101 120 99 101 101 100 32 85 51 50
+push_val 0 0 0 35
+pop_event
+push_val 0
 not
-if 153
+if 174
 push_val 0 0 0 1
 exit
+goto 175
 load_rel 24 8
 itrunc_64_32
 load_rel 16 8
@@ -169,7 +191,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 1 51
 push_val 255
-if 248
+if 270
 push_time
 store_rel_const_offset 52 11
 load_rel 52 11
@@ -184,27 +206,27 @@ push_val 0 0 0 2
 memcmp 4
 not
 not
-if 189
+if 211
 push_val 0 0 0 1
 exit
 load_rel 63 4
 push_val 0 0 0 1
 memcmp 4
-if 195
-goto 248
-goto 195
+if 217
+goto 270
+goto 217
 push_val 255
-if 234
+if 256
 load_rel 1 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 207
+if 229
 load_rel 52 11
 store_rel_const_offset 30 11
 push_val 255
 store_rel_const_offset 29 1
-goto 207
+goto 229
 load_rel 52 11
 load_rel 1 51
 push_val 0 0 0 29
@@ -220,18 +242,18 @@ store_rel_const_offset 67 4
 load_rel 67 4
 push_val 0 0 0 1
 memcmp 4
-if 225
+if 247
 push_val 255
-goto 228
+goto 250
 load_rel 67 4
 push_val 0 0 0 0
 memcmp 4
-if 233
+if 255
 push_val 255
 store_rel_const_offset 28 1
-goto 248
-goto 233
-goto 236
+goto 270
+goto 255
+goto 258
 push_val 0
 store_rel_const_offset 29 1
 load_rel 1 51
@@ -245,9 +267,9 @@ get_field 51 8
 push_val 0 0 0 4
 get_field 8 4
 wait_rel
-goto 170
+goto 192
 load_rel 1 51
 push_val 0 0 0 27
 get_field 51 1
-if 253
-goto 253
+if 275
+goto 275
