@@ -30,7 +30,7 @@ from fpy.compiler import (
     analysis_to_wat,
     analyze_ast,
     text_to_ast,
-    analysis_to_fypbc_directives,
+    analysis_to_fpybc_directives,
     ast_to_dependencies,
 )
 from fpy.codegen_llvm import backend_version_str
@@ -167,7 +167,7 @@ def compile_main(args: list[str] = None):
         elif parsed_args.emit == "wat":
             output, seq_arg_types = analysis_to_wat(body, state)
         elif parsed_args.emit in ["fpybin", "fpyasm"]:
-            output, seq_arg_types = analysis_to_fypbc_directives(body, state)
+            output, seq_arg_types = analysis_to_fpybc_directives(body, state)
         else:
             assert False, parsed_args.emit
     except fpy.error.BackendError as e:
@@ -490,7 +490,7 @@ def cmd_main(args: list[str] = None):
 
     try:
         state = analyze_ast(body, state)
-        directives, _ = analysis_to_fypbc_directives(body, state)
+        directives, _ = analysis_to_fpybc_directives(body, state)
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
         sys.exit(1)

@@ -256,7 +256,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     return state
 
 
-def analysis_to_fypbc_directives(
+def analysis_to_fpybc_directives(
     body: AstBlock, state: CompileState
 ) -> tuple[list[Directive], list[FpyType]]:
     """Runs fpybc codegen passes on analysis results, returning fpybc directives.

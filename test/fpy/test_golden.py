@@ -13,7 +13,7 @@ import pytest
 from pathlib import Path
 
 import fpy.error
-from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fypbc_directives
+from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
 from fpy.state import get_base_compile_state
 from fpy.bytecode.assembler import fpybc_directives_to_fpyasm
 
@@ -38,7 +38,7 @@ def compile_to_fpybc(source: str) -> str:
     assert body is not None, "Parsing failed"
 
     state = analyze_ast(body, state)
-    directives, _ = analysis_to_fypbc_directives(body, state)
+    directives, _ = analysis_to_fpybc_directives(body, state)
     return fpybc_directives_to_fpyasm(directives)
 
 

@@ -17,7 +17,7 @@ import fpy.error
 from fpy.compiler import (
     text_to_ast,
     analyze_ast,
-    analysis_to_fypbc_directives,
+    analysis_to_fpybc_directives,
 )
 from fpy.state import (
     get_base_compile_state,
@@ -226,7 +226,7 @@ def test_too_many_directives_with_custom_limit():
         # Should fail because we exceed the custom limit
         with pytest.raises(fpy.error.BackendError) as exc_info:
             state = analyze_ast(body, state)
-            analysis_to_fypbc_directives(body, state)
+            analysis_to_fpybc_directives(body, state)
         assert "Too many directives" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
@@ -260,7 +260,7 @@ def test_within_custom_limit_succeeds():
 
         # Should succeed
         state = analyze_ast(body, state)
-        analysis_to_fypbc_directives(body, state)
+        analysis_to_fpybc_directives(body, state)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -440,4 +440,4 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     assert body is not None
 
     state = analyze_ast(body, state)
-    analysis_to_fypbc_directives(body, state)
+    analysis_to_fpybc_directives(body, state)

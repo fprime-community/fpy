@@ -12,7 +12,7 @@ from fpy.bytecode.directives import (
 from fpy.compiler import (
     text_to_ast,
     analyze_ast,
-    analysis_to_fypbc_directives,
+    analysis_to_fpybc_directives,
     analysis_to_wasm,
 )
 from fpy.state import get_base_compile_state
@@ -52,7 +52,7 @@ def compile_seq(
     try:
         body = text_to_ast(seq)
         state = analyze_ast(body, state)
-        directives, arg_types = analysis_to_fypbc_directives(body, state)
+        directives, arg_types = analysis_to_fpybc_directives(body, state)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
