@@ -84,6 +84,7 @@ from fpy.bytecode.directives import (
     COMPARISON_OPS,
     NUMERIC_OPERATORS,
     ArrayIndexType,
+    ErrorCodeType,
     LoopVarType,
     BinaryStackOp,
     UnaryStackOp,
@@ -2048,7 +2049,7 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.condition, BOOL, state):
             return
         if node.exit_code is not None:
-            if not self.coerce_expr_type(node.exit_code, I32, state):
+            if not self.coerce_expr_type(node.exit_code, ErrorCodeType, state):
                 return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):

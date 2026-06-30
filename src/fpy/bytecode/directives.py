@@ -44,6 +44,9 @@ ArrayIndexType = I64
 StackSizeType = U32
 SignedStackSizeType = I32
 LoopVarType = I64  # same as ArrayIndexType
+# The type an exit/assert error code is coerced to (0 == success). Also the type
+# the LLVM/wasm entry point returns and that the fpy_exit host import takes.
+ErrorCodeType = I32
 
 
 def _update_configurable_type(

@@ -29,7 +29,8 @@ from fpy.syntax import (
     COMPARISON_OPS,
     UnaryStackOp,
 )
-from fpy.types import I32, FpyValue, is_instance_compat
+from fpy.bytecode.directives import ErrorCodeType
+from fpy.types import FpyValue, is_instance_compat
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 
@@ -45,22 +46,38 @@ WASM_VERSION = "1.0 (MVP)"
 
 # TODO with wasm mvp llvm will provide pow/fmod?? 
 
-# TODO will have to make exit() macro a host function
-
 # TODO could just start with a .a and a header??
 
 # TODO need to disable WASI so we aren't generating these env :: pow
 
-# exit
-# command (opcode i32, ptr i32, len i32)
-# telemetry ()
-# param ()
+ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 
-# The sequence entry point returns an error code (0 means success). It's an I32
-# -- the same type semantics coerces exit/assert codes to -- so a code emitted at
-# its contextual type already matches the return type with no extra widening.
-ERROR_CODE_FPY_TYPE = I32
-ERROR_CODE_TYPE = ERROR_CODE_FPY_TYPE.llvm_type
+# Host import that ends the whole sequence
+HOST_EXIT_FUNC_NAME = "fpy_exit"
+
+
+# TODO this adhoc emit and declare stuff is not super nice. should probably
+# clean it up, have a list of the expected host module signature funcs, declare them
+# all at the start.
+def _declare_host_exit(module: ir.Module) -> ir.Function:
+    """Get-or-declare the fpy_exit host import on *module*."""
+    existing = module.globals.get(HOST_EXIT_FUNC_NAME)
+    if existing is not None:
+        return existing
+    fn = ir.Function(
+        module,
+        ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
+        name=HOST_EXIT_FUNC_NAME,
+    )
+    # It never returns to wasm: the host unwinds the interpreter.
+    fn.attributes.add("noreturn")
+    return fn
+
+
+def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
+    """Emit a call to fpy_exit(code) and terminate the current block."""
+    builder.call(_declare_host_exit(builder.module), [code])
+    builder.unreachable()
 
 
 class EmitLlvmExpr(Emitter):
@@ -449,9 +466,6 @@ class EmitLlvmStmt(Emitter):
         ok_block = func.append_basic_block(name="assert_ok")
         builder.cbranch(condition, ok_block, fail_block)
 
-        # Failure path: return the exit code the user wrote, or EXIT_WITH_ERROR
-        # by default. A written code is coerced to the error-code type (I32) by
-        # semantics, so emitting it already yields the entry point's return type.
         builder.position_at_end(fail_block)
         if node.exit_code is None:
             code = ir.Constant(
@@ -459,7 +473,7 @@ class EmitLlvmStmt(Emitter):
             )
         else:
             code = self.expr.emit(node.exit_code, state)
-        builder.ret(code)
+        emit_host_exit(builder, code)
 
         # Success path: continue lowering subsequent statements here.
         builder.position_at_end(ok_block)

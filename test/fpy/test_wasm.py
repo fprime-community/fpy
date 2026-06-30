@@ -83,6 +83,21 @@ class TestWasmAssert:
         assert run_seq_wasm(f"assert 1 == 2{suffix}\n") == expected
 
 
+class TestWasmExit:
+    """exit() lowers to the host fpy_exit call rather than a `ret`, so it ends
+    the whole sequence (code 0 is a normal exit, nonzero a fault)."""
+
+    @pytest.mark.parametrize("code", [0, 5, 123])
+    def test_exit_returns_code(self, code):
+        assert run_seq_wasm(f"exit({code})\n") == code
+
+    def test_exit_ends_sequence_early(self):
+        # The exit happens before the (would-fail) assert, so the sequence ends
+        # with exit's code and never reaches the assert.
+        assert run_seq_wasm("exit(0)\nassert 1 == 2\n") == NO_ERROR
+        assert run_seq_wasm("exit(9)\nassert 1 == 1\n") == 9
+
+
 class TestWasmVariables:
     """Variables give us genuine *runtime* computation: reading a variable is not
     const-foldable, so these exercise the load/store/convert/arithmetic emitters

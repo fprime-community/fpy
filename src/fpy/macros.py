@@ -26,7 +26,6 @@ from fpy.types import (
     U8,
     U16,
     U32,
-    I32,
     I64,
     F64,
     FpyValue,
@@ -46,6 +45,7 @@ from fpy.bytecode.directives import (
     FloatLogDirective,
     Directive,
     ExitDirective,
+    ErrorCodeType,
     StackSizeType,
     UnsignedIntToFloatDirective,
     WaitAbsDirective,
@@ -131,18 +131,14 @@ def generate_log_signed_int(
 
 
 def generate_exit_llvm(builder, args):
-    """LLVM/wasm lowering of exit(code): return the code from the sequence
-    entry point (fpy_main), then continue emitting into a fresh, unreachable
-    block so any following statements still have a valid place to go.
-
-    args is a list of (ir.Value, FpyValue or None) pairs; exit takes one.
-    Uses only the builder API (no llvmlite import) so importing this module
-    on the bytecode-only path doesn't pull in the LLVM native library.
+    """LLVM/wasm lowering of exit(code): call the host fpy_exit function, which
+    ends the whole sequence from any call depth (code 0 is a normal exit,
+    nonzero a fault).
     """
+    from fpy.codegen_llvm import emit_host_exit
+
     [(code, _const)] = args
-    # exit's parameter is an I32, matching fpy_main's return type, so the already
-    # type-coerced value can be returned directly.
-    builder.ret(code)
+    emit_host_exit(builder, code)
     builder.position_at_end(builder.function.append_basic_block("after_exit"))
     return None
 
@@ -218,7 +214,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "exit": BuiltinFuncSymbol(
         "exit",
         NOTHING,
-        [("exit_code", I32, None)],
+        [("exit_code", ErrorCodeType, None)],
         lambda n, c: [ExitDirective()],
         generate_llvm=generate_exit_llvm,
     ),
