@@ -1,4 +1,4 @@
-goto 182
+goto 258
 allocate 16
 load_rel -30 11
 push_val 0 0 0 0
@@ -180,10 +180,89 @@ push_val 0 0 0 0 0 15 66 64
 umod
 itrunc_64_32
 return 8 22
+allocate 32
+load_rel -27 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -27 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 0 8
+load_rel -16 8
+push_val 0 0 0 0
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -16 8
+push_val 0 0 0 4
+get_field 8 4
+ziext_32_64
+add
+store_rel_const_offset 8 8
+push_val 255 255 255 255 255 255 255 255
+load_rel 0 8
+sub
+load_rel 8 8
+ult
+if 223
+push_val 2
+push_val 116 105 109 101 95 97 100 100 58 32 97 100 100 105 116 105 111 110 32 119 111 117 108 100 32 111 118 101 114 102 108 111 119
+push_val 0 0 0 33
+pop_event
+push_val 0
+not
+if 222
+push_val 0 0 0 1
+exit
+goto 223
+load_rel 0 8
+load_rel 8 8
+add
+store_rel_const_offset 16 8
+load_rel 16 8
+push_val 0 0 0 0 0 15 66 64
+udiv
+store_rel_const_offset 24 8
+load_rel 24 8
+push_val 0 0 0 0 255 255 255 255
+ugt
+if 245
+push_val 2
+push_val 116 105 109 101 95 97 100 100 58 32 114 101 115 117 108 116 32 115 101 99 111 110 100 115 32 101 120 99 101 101 100 32 85 51 50
+push_val 0 0 0 35
+pop_event
+push_val 0
+not
+if 244
+push_val 0 0 0 1
+exit
+goto 245
+load_rel -27 11
+push_val 0 0 0 0
+get_field 11 2
+load_rel -27 11
+push_val 0 0 0 2
+get_field 11 1
+load_rel 24 8
+itrunc_64_32
+load_rel 16 8
+push_val 0 0 0 0 0 15 66 64
+umod
+itrunc_64_32
+return 11 19
 push_val 255
 allocate 70
 push_val 0 0 0 0 0 0 0 0
-push_val 0 0 0 0 0 0 1 0 0 0 0
+push_time
+push_val 0 0 0 1 0 0 0 0
+push_val 0 0 0 182
+call
 push_val 0 0 0 0 0 1 134 160
 push_val 0
 push_val 0
@@ -191,7 +270,7 @@ push_val 0 0 0 0 0 0 0 0 0 0 0
 push_time
 store_rel_const_offset 1 51
 push_val 255
-if 270
+if 349
 push_time
 store_rel_const_offset 52 11
 load_rel 52 11
@@ -206,27 +285,27 @@ push_val 0 0 0 2
 memcmp 4
 not
 not
-if 211
+if 290
 push_val 0 0 0 1
 exit
 load_rel 63 4
 push_val 0 0 0 1
 memcmp 4
-if 217
-goto 270
-goto 217
+if 296
+goto 349
+goto 296
 push_val 255
-if 256
+if 335
 load_rel 1 51
 push_val 0 0 0 28
 get_field 51 1
 not
-if 229
+if 308
 load_rel 52 11
 store_rel_const_offset 30 11
 push_val 255
 store_rel_const_offset 29 1
-goto 229
+goto 308
 load_rel 52 11
 load_rel 1 51
 push_val 0 0 0 29
@@ -242,18 +321,18 @@ store_rel_const_offset 67 4
 load_rel 67 4
 push_val 0 0 0 1
 memcmp 4
-if 247
+if 326
 push_val 255
-goto 250
+goto 329
 load_rel 67 4
 push_val 0 0 0 0
 memcmp 4
-if 255
+if 334
 push_val 255
 store_rel_const_offset 28 1
-goto 270
-goto 255
-goto 258
+goto 349
+goto 334
+goto 337
 push_val 0
 store_rel_const_offset 29 1
 load_rel 1 51
@@ -267,9 +346,9 @@ get_field 51 8
 push_val 0 0 0 4
 get_field 8 4
 wait_rel
-goto 192
+goto 271
 load_rel 1 51
 push_val 0 0 0 27
 get_field 51 1
-if 275
-goto 275
+if 354
+goto 354

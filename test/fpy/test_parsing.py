@@ -302,12 +302,12 @@ assert x == 30
         """Nested multi-line expressions with braces inside parens."""
         seq = """
 check_passed: bool = False
-check True timeout time_add(
-    now(),
+check True timeout time_interval_add(
     {
         seconds: 1,
         useconds: 0,
     },
+    {seconds: 0, useconds: 0},
 ) persist {seconds: 0, useconds: 0} period {seconds: 0, useconds: 100000}:
     check_passed = True
 timeout:
@@ -320,7 +320,7 @@ assert check_passed
         """Check statement with multi-line anon struct in timeout position."""
         seq = """
 check_passed: bool = False
-check True timeout now() + {
+check True timeout {
     seconds: 1,
     useconds: 0,
 } persist {
