@@ -29,6 +29,11 @@ from fpy.state import get_base_compile_state
 from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
 
 
+# Every test in this module drives the LLVM/wasm backend end-to-end, so the
+# whole module is skipped unless pytest is run with --wasm.
+pytestmark = pytest.mark.wasm
+
+
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
 

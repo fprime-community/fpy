@@ -69,12 +69,28 @@ def _build_spacewasm_runner():
 
 
 def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "wasm: end-to-end LLVM/wasm tests; only run when --wasm is passed",
+    )
+
     # Flip the test helpers over to the LLVM/wasm backend for the whole run.
     import fpy.test_helpers as test_helpers
 
     test_helpers.USE_WASM = config.getoption("--wasm")
     if test_helpers.USE_WASM:
         test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
+
+
+def pytest_collection_modifyitems(config, items):
+    # The wasm-marked tests drive the spacewasm runner directly; without --wasm
+    # the runner is never built, so skip them rather than letting them fail.
+    if config.getoption("--wasm"):
+        return
+    skip_wasm = pytest.mark.skip(reason="requires --wasm")
+    for item in items:
+        if "wasm" in item.keywords:
+            item.add_marker(skip_wasm)
 
 
 @pytest.fixture(autouse=True)
