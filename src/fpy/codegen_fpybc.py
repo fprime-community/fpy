@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import Union
 
+from fpy.state import CompileState
+
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
 try:
@@ -27,25 +29,24 @@ from fpy.types import (
     NOTHING,
     NOTHING_VALUE,
     BOOL,
-    U8,
     U64,
+    I32,
     I64,
     F32,
     F64,
     SEQ_ARGS,
     is_instance_compat,
 )
-from fpy.state import (
+from fpy.symbols import (
     BuiltinFuncSymbol,
     CastSymbol,
     CommandSymbol,
-    CompileState,
     FieldAccess,
     FunctionSymbol,
     TypeCtorSymbol,
     VariableSymbol,
 )
-from fpy.state import ChDef, PrmDef
+from fpy.types import ChDef, PrmDef
 from fpy.visitors import (
     STOP_DESCENT,
     Emitter,
@@ -65,6 +66,7 @@ from fpy.bytecode.directives import (
     ExitDirective,
     FloatDivideDirective,
     FloatExtendDirective,
+    FloatFloorDirective,
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
@@ -422,7 +424,7 @@ class GenerateFunctionBody(Emitter):
         # flag is true and response was not OK — exit with error
         dirs.append(
             PushValDirective(
-                FpyValue(U8, DirectiveErrorCode.CMD_FAIL.value).serialize()
+                FpyValue(I32, DirectiveErrorCode.CMD_FAIL.value).serialize()
             )
         )
         dirs.append(ExitDirective())
@@ -592,7 +594,7 @@ class GenerateFunctionBody(Emitter):
         # push the error code we should fail with if false
         dirs.append(
             PushValDirective(
-                FpyValue(U8, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
+                FpyValue(I32, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value).serialize()
             )
         )
         dirs.append(ExitDirective())
@@ -613,12 +615,26 @@ class GenerateFunctionBody(Emitter):
             )
         )
 
+    def _should_lower_stmt(self, stmt: Ast, state: CompileState) -> bool:
+        """Whether a statement needs code generated for it.
+
+        Constants are skipped, and this is required, not just an optimization: a
+        bare statement gives its expression no type context, so a folded literal
+        keeps its *abstract* type (Integer/Float/InternalString), which has no
+        serialized representation -- emitting `2 + 2` would assert in
+        try_emit_expr_as_const / FpyValue.serialize. They're also pure (const
+        folding only folds pure expressions), so dropping them changes nothing.
+        """
+        if is_instance_compat(stmt, AstNodeWithSideEffects):
+            return True
+        if is_instance_compat(stmt, AstExpr):
+            return state.const_expr_values.get(stmt) is None
+        return False
+
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
-            if not is_instance_compat(stmt, AstNodeWithSideEffects):
-                # if the stmt can't do anything on its own, ignore it
-                # TODO warn
+            if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
             if self._is_cmd_and_response_unhandled(stmt, state):
@@ -687,7 +703,7 @@ class GenerateFunctionBody(Emitter):
         # run body
 
         for stmt_idx, stmt in enumerate(node.body.stmts):
-            if not is_instance_compat(stmt, AstNodeWithSideEffects):
+            if not self._should_lower_stmt(stmt, state):
                 # if the stmt can't do anything on its own, ignore it
                 continue
             # we're going to manually emit the body's stmts instead
@@ -924,10 +940,9 @@ class GenerateFunctionBody(Emitter):
             elif (
                 node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64
             ):
-                # for float floor division, do fdiv then truncate to int then back to float
+                # float floor division: divide, then floor toward -inf
                 dirs.append(FloatDivideDirective())
-                dirs.append(FloatToSignedIntDirective())
-                dirs.append(SignedIntToFloatDirective())
+                dirs.append(FloatFloorDirective())
             else:
 
                 dir = BINARY_STACK_OPS[node.op][intermediate_type]
@@ -1065,7 +1080,7 @@ class GenerateFunctionBody(Emitter):
                 if i not in func.const_arg_indices:
                     dirs.extend(self._emit_func_arg(arg_node, state))
 
-            dirs.extend(func.generate(node, const_arg_values))
+            dirs.extend(func.generate_fpybc(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
@@ -1254,7 +1269,7 @@ class GenerateFunctionBody(Emitter):
             # otherwise just use the default EXIT_WITH_ERROR error code
             dirs.append(
                 PushValDirective(
-                    FpyValue(U8, DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
+                    FpyValue(I32, DirectiveErrorCode.EXIT_WITH_ERROR.value).serialize()
                 )
             )
         dirs.append(ExitDirective())

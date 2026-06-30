@@ -12,17 +12,17 @@ import pytest
 
 import fpy.error
 from fpy.compiler import ast_to_dependencies, text_to_ast
+from fpy.state import get_base_compile_state
 from fpy.test_helpers import default_dictionary
 
 
 def _collect(seq: str, ground_binary_dir: str = None) -> list[str]:
     """Run ast_to_dependencies on a sequence string; return the dependency list."""
     fpy.error.file_name = "<test>"
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
     body = text_to_ast(seq)
     assert body is not None
-    result = ast_to_dependencies(body, default_dictionary, ground_binary_dir=ground_binary_dir)
-    assert not isinstance(result, fpy.error.CompileError), f"Unexpected error: {result}"
-    return result
+    return ast_to_dependencies(body, state)
 
 
 class TestNoDependencies:
@@ -135,10 +135,11 @@ name: I32 = 0
 Ref.seqDisp.RUN_ARGS(name, Svc.BlockState.BLOCK)
 """
         fpy.error.file_name = "<test>"
+        state = get_base_compile_state(default_dictionary, "/tmp")
         body = text_to_ast(seq)
-        result = ast_to_dependencies(body, default_dictionary, ground_binary_dir="/tmp")
-        assert isinstance(result, fpy.error.CompileError)
-        assert "string literal" in str(result)
+        with pytest.raises(fpy.error.CompileError) as exc_info:
+            ast_to_dependencies(body, state)
+        assert "string literal" in str(exc_info.value)
 
 
 class TestDependMainCLI:

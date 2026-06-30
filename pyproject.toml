@@ -7,7 +7,7 @@ name = "fprime-fpy"
 dynamic = ["version"]
 description = "Fpy Advanced Sequencing Language for F Prime"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {file = "LICENSE.txt"}
 keywords = ["fprime", "embedded", "nasa", "flight", "software"]
 authors = [
@@ -21,7 +21,6 @@ classifiers = [
     "Operating System :: POSIX",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -33,6 +32,11 @@ classifiers = [
 dependencies = [
     "pytest>=6.2.4",
     "lark>=1.2.2",
+    "llvmlite>=0.44.0",
+    # Provides wasm-ld (LLVM's linker) to link the LLVM/wasm backend's object output.
+    "ziglang>=0.16.0",
+    # Interpreted wasm runtime used to execute the LLVM/wasm backend's output.
+    "wasmtime>=45.0.0",
 ]
 
 [project.urls]

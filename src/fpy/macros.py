@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from llvmlite import ir
 from fpy.bytecode.directives import (
     PushRandDirective,
     ExitDirective,
@@ -11,17 +13,30 @@ from fpy.bytecode.directives import (
     WaitAbsDirective,
     WaitRelDirective,
 )
-from fpy.ir import Ir, IrIf, IrLabel
+from fpy.ir import Ir
+from fpy.symbols import BuiltinFuncSymbol
 from fpy.syntax import Ast
-from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
-from fpy.state import BuiltinFuncSymbol
+from fpy.types import (
+    INTERNAL_STRING,
+    LOG_SEVERITY,
+    NOTHING,
+    TIME,
+    TIME_BASE,
+    BOOL,
+    U8,
+    U16,
+    U32,
+    I64,
+    F64,
+    FpyValue,
+    FpyType,
+)
 from fpy.bytecode.directives import (
-    FloatLessThanDirective,
     FloatDivideDirective,
-    FloatMultiplyDirective,
     FloatSubtractDirective,
     FloatToUnsignedIntDirective,
-    IntMultiplyDirective,
+    FloatAbsDirective,
+    IntAbsDirective,
     IntegerTruncate64To32Directive,
     IntegerZeroExtend32To64Directive,
     PeekDirective,
@@ -30,7 +45,7 @@ from fpy.bytecode.directives import (
     FloatLogDirective,
     Directive,
     ExitDirective,
-    SignedLessThanDirective,
+    ErrorCodeType,
     StackSizeType,
     UnsignedIntToFloatDirective,
     WaitAbsDirective,
@@ -38,58 +53,17 @@ from fpy.bytecode.directives import (
 )
 
 
-def generate_abs_float(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
-    # if input is < 0 multiply by -1
-    leave_unmodified = IrLabel(node, "else")
-    dirs = [
-        # copy the f64
-        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # push 0
-        PushValDirective(FpyValue(F64, 0.0).serialize()),
-        # check <
-        FloatLessThanDirective(),
-        IrIf(leave_unmodified),
-        # push -1
-        PushValDirective(FpyValue(F64, -1.0).serialize()),
-        # and multiply
-        FloatMultiplyDirective(),
-        # otherwise do nothing
-        leave_unmodified,
-    ]
-    return dirs
+def generate_abs_float(
+    node: Ast, const_args: dict[int, FpyValue]
+) -> list[Directive | Ir]:
+    return [FloatAbsDirective()]
 
 
-MACRO_ABS_FLOAT = BuiltinFuncSymbol("abs", F64, [("value", F64, None)], generate_abs_float)
+def generate_abs_signed_int(
+    node: Ast, const_args: dict[int, FpyValue]
+) -> list[Directive | Ir]:
+    return [IntAbsDirective()]
 
-
-def generate_abs_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
-    # if input is < 0 multiply by -1
-    leave_unmodified = IrLabel(node, "else")
-    dirs = [
-        # copy the I64
-        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # push 0
-        PushValDirective(FpyValue(I64, 0).serialize()),
-        # check <
-        SignedLessThanDirective(),
-        IrIf(leave_unmodified),
-        # push -1
-        PushValDirective(FpyValue(I64, -1).serialize()),
-        # and multiply
-        IntMultiplyDirective(),
-        # otherwise do nothing
-        leave_unmodified,
-    ]
-    return dirs
-
-
-MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
-    "abs", I64, [("value", I64, None)], generate_abs_signed_int
-)
 
 MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     "sleep",
@@ -106,7 +80,9 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
 )
 
 
-def generate_sleep_float(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
+def generate_sleep_float(
+    node: Ast, const_args: dict[int, FpyValue]
+) -> list[Directive | Ir]:
     # convert F64 to seconds and microseconds
     dirs = [
         # first do seconds
@@ -144,12 +120,66 @@ MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
 )
 
 
-def generate_log_signed_int(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
+def generate_log_signed_int(
+    node: Ast, const_args: dict[int, FpyValue]
+) -> list[Directive | Ir]:
     return [
         # convert int to float
         SignedIntToFloatDirective(),
         FloatLogDirective(),
     ]
+
+
+def generate_exit_llvm(builder, args):
+    """LLVM/wasm lowering of exit(code): call the host fpy_exit function, which
+    ends the whole sequence from any call depth (code 0 is a normal exit,
+    nonzero a fault).
+    """
+    from fpy.codegen_llvm import emit_host_exit
+
+    [(code, _const)] = args
+    emit_host_exit(builder, code)
+    builder.position_at_end(builder.function.append_basic_block("after_exit"))
+    return None
+
+
+def generate_abs_float_llvm(builder, args):
+    [(value, _)] = args
+    fn = builder.module.declare_intrinsic("llvm.fabs", [value.type])
+    return builder.call(fn, [value])
+
+
+def generate_abs_signed_int_llvm(builder, args):
+    [(value, _)] = args
+    fn = builder.module.declare_intrinsic(
+        "llvm.abs",
+        [value.type, ir.IntType(1)],
+        ir.FunctionType(ir.IntType(64), [value.type, ir.IntType(1)]),
+    )
+    return builder.call(fn, [value, ir.Constant(ir.IntType(1), 0)])
+
+
+def generate_log_llvm(builder, args):
+    [(value, _)] = args
+    fn = builder.module.declare_intrinsic(
+        "llvm.log",
+        [value.type],
+        ir.FunctionType(value.type, [value.type]),
+    )
+    return builder.call(fn, [value])
+
+
+MACRO_ABS_FLOAT = BuiltinFuncSymbol(
+    "abs", F64, [("value", F64, None)], generate_abs_float, generate_abs_float_llvm
+)
+
+MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
+    "abs",
+    I64,
+    [("value", I64, None)],
+    generate_abs_signed_int,
+    generate_abs_signed_int_llvm,
+)
 
 
 def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
@@ -161,16 +191,17 @@ def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive
         FloatDivideDirective(),
     ]
 
+
 TIME_MACRO = BuiltinFuncSymbol(
-        "time",
-        TIME,
-        [
-            ("timestamp", INTERNAL_STRING, None),
-            ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
-            ("timeContext", U8, FpyValue(U8, 0)),
-        ],
-        lambda n, c: [],  # placeholder - const eval handles this
-    )
+    "time",
+    TIME,
+    [
+        ("timestamp", INTERNAL_STRING, None),
+        ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
+        ("timeContext", U8, FpyValue(U8, 0)),
+    ],
+    lambda n, c: [],  # placeholder - const eval handles this
+)
 
 MACROS: dict[str, BuiltinFuncSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
@@ -181,10 +212,14 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         lambda n, c: [WaitAbsDirective()],
     ),
     "exit": BuiltinFuncSymbol(
-        "exit", NOTHING, [("exit_code", U8, None)], lambda n, c: [ExitDirective()]
+        "exit",
+        NOTHING,
+        [("exit_code", ErrorCodeType, None)],
+        lambda n, c: [ExitDirective()],
+        generate_llvm=generate_exit_llvm,
     ),
     "ln": BuiltinFuncSymbol(
-        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()]
+        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()], generate_log_llvm
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),
@@ -199,14 +234,18 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "time": TIME_MACRO,
     # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
     "log": BuiltinFuncSymbol(
-        "log", NOTHING, [
+        "log",
+        NOTHING,
+        [
             ("message", INTERNAL_STRING, None),
             ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
         ],
         lambda n, c: [
             PushValDirective(c[1].serialize()),
             PushValDirective(c[0].val.encode("utf-8")),
-            PushValDirective(FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()),
+            PushValDirective(
+                FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()
+            ),
             PopEventDirective(),
         ],
         const_arg_indices=frozenset({0, 1}),

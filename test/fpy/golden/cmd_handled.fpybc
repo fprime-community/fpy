@@ -6,8 +6,8 @@ load_rel 1 1
 push_val 0
 memcmp 1
 if 11
-push_val 0
+push_val 0 0 0 0
 exit
 goto 11
-push_val 1
+push_val 0 0 0 1
 exit

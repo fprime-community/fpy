@@ -162,6 +162,37 @@ CdhCore.cmdDisp.CMD_NO_OP
 
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_side_effecting_call_in_bare_expr_runs(self, fprime_test_api):
+        """A bare expression statement is not a no-op just because its top-level
+        node carries no side effects.
+
+        Here the statement is an ``AstBinaryOp`` (``==``), which isn't a
+        side-effecting node type -- but it embeds a call that *is*. The codegen
+        once skipped bare statements by node type alone, dropping the call (and
+        its side effect) entirely. ``bump`` sets the global ``hit``; if the call
+        runs, the following assert holds.
+        """
+        seq = """
+hit: U32 = 0
+def bump() -> U32:
+    hit = 1
+    return 0
+bump() == 0
+assert hit == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_constant_bare_expr_is_noop(self, fprime_test_api):
+        """The flip side: a *constant* bare expression has no side effects (const
+        folding only folds pure expressions), so it is correctly skipped and the
+        sequence runs cleanly to the end."""
+        seq = """
+1 + 2 * 3
+hit: U32 = 5
+assert hit == 5
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestMultilineAndTrailingComma:
     """Expressions inside brackets/braces/parens can span multiple lines,

@@ -41,16 +41,20 @@ from fpy.types import (
     F32,
     F64,
     SEQ_ARGS,
+    ChDef,
+    PrmDef,
     is_instance_compat,
 )
 from fpy.state import (
+    CompileState,
+    ForLoopAnalysis,
+)
+from fpy.symbols import (
     BuiltinFuncSymbol,
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
-    CompileState,
     FieldAccess,
-    ForLoopAnalysis,
     FunctionSymbol,
     NameGroup,
     ModuleSymbol,
@@ -80,11 +84,11 @@ from fpy.bytecode.directives import (
     COMPARISON_OPS,
     NUMERIC_OPERATORS,
     ArrayIndexType,
+    ErrorCodeType,
     LoopVarType,
     BinaryStackOp,
     UnaryStackOp,
 )
-from fpy.state import ChDef, PrmDef
 from fpy.syntax import (
     AstAssert,
     AstAnonStruct,
@@ -333,7 +337,7 @@ class DefineVariables(TopDownVisitor):
             )
             return
 
-        sym.is_global = not scope.in_function
+        sym.is_global = scope is state.global_value_scope
 
         # new var. put it in the scope
         scope[sym.name] = sym
@@ -2045,7 +2049,7 @@ class PickTypesAndResolveFields(Visitor):
         if not self.coerce_expr_type(node.condition, BOOL, state):
             return
         if node.exit_code is not None:
-            if not self.coerce_expr_type(node.exit_code, U8, state):
+            if not self.coerce_expr_type(node.exit_code, ErrorCodeType, state):
                 return
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
@@ -2536,7 +2540,6 @@ class CalculateConstExprValues(Visitor):
 
         expr_value = None
 
-        # whether the conversion that will happen is due to an explicit cast
         if is_instance_compat(func, TypeCtorSymbol):
             # actually construct the type
             if func.type.kind == TypeKind.STRUCT:
@@ -2624,21 +2627,17 @@ class CalculateConstExprValues(Visitor):
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
-                # Use truncation toward zero to match C++ semantics
+                # Floor toward -inf (Python `//`), matching the runtime backends.
                 if isinstance(lhs_value, int) and isinstance(rhs_value, int):
-                    # Exact integer truncation toward zero. Must NOT route through
-                    # float division (int(a / b)): for operands beyond 2**53 that
-                    # loses precision and bakes a wrong constant into the bytecode.
-                    sign = -1 if (lhs_value < 0) != (rhs_value < 0) else 1
-                    folded_value = sign * (abs(lhs_value) // abs(rhs_value))
+                    folded_value = lhs_value // rhs_value
                 elif isinstance(lhs_value, Decimal):
                     folded_value = (lhs_value / rhs_value).to_integral_value(
-                        rounding=decimal.ROUND_DOWN
+                        rounding=decimal.ROUND_FLOOR
                     )
                 else:
                     folded_value = Decimal(
                         str(lhs_value / rhs_value)
-                    ).to_integral_value(rounding=decimal.ROUND_DOWN)
+                    ).to_integral_value(rounding=decimal.ROUND_FLOOR)
             elif node.op == BinaryStackOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations

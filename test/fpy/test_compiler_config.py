@@ -11,10 +11,15 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 import fpy.error
 from fpy.compiler import (
     text_to_ast,
-    ast_to_directives,
+    analyze_ast,
+    analysis_to_fpybc_directives,
+)
+from fpy.state import (
     get_base_compile_state,
     _build_global_scopes,
 )
@@ -214,14 +219,15 @@ def test_too_many_directives_with_custom_limit():
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * (custom_count + 1)
 
         fpy.error.file_name = "<test>"
+        state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
-
         # Should fail because we exceed the custom limit
-        assert isinstance(result, fpy.error.BackendError)
-        assert "Too many directives" in str(result)
+        with pytest.raises(fpy.error.BackendError) as exc_info:
+            state = analyze_ast(body, state)
+            analysis_to_fpybc_directives(body, state)
+        assert "Too many directives" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -248,14 +254,13 @@ def test_within_custom_limit_succeeds():
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * 10
 
         fpy.error.file_name = "<test>"
+        state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
-
         # Should succeed
-        assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
-            f"Compilation failed unexpectedly: {result}"
+        state = analyze_ast(body, state)
+        analysis_to_fpybc_directives(body, state)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -430,9 +435,9 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     fpy.error.input_text = seq
     fpy.error.input_lines = seq.splitlines()
 
+    state = get_base_compile_state(DEFAULT_DICTIONARY)
     body = text_to_ast(seq)
     assert body is not None
 
-    result = ast_to_directives(body, DEFAULT_DICTIONARY)
-    assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
-        f"Compilation failed: {result}"
+    state = analyze_ast(body, state)
+    analysis_to_fpybc_directives(body, state)

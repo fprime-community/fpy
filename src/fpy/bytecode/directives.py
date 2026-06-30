@@ -44,6 +44,9 @@ ArrayIndexType = I64
 StackSizeType = U32
 SignedStackSizeType = I32
 LoopVarType = I64  # same as ArrayIndexType
+# The type an exit/assert error code is coerced to (0 == success). Also the type
+# the LLVM/wasm entry point returns and that the fpy_exit host import takes.
+ErrorCodeType = I32
 
 
 def _update_configurable_type(
@@ -172,6 +175,10 @@ class DirectiveId(Enum):
     POP_EVENT = 75
     SET_SEED = 76
     PUSH_RAND = 77
+    POP_SERIALIZABLE = 78
+    FFLOOR = 79
+    IABS = 80
+    FABS = 81
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -642,6 +649,25 @@ class FloatTruncateDirective(StackOpDirective):
 @dataclass
 class FloatExtendDirective(StackOpDirective):
     opcode: ClassVar[DirectiveId] = DirectiveId.FPEXT
+
+
+@dataclass
+class FloatFloorDirective(StackOpDirective):
+    """Floor a float toward -inf (used to lower float `//`)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
+
+
+@dataclass
+class IntAbsDirective(StackOpDirective):
+    """Absolute value of a signed I64. abs(I64 min) wraps to I64 min, matching
+    libm's llabs and LLVM's llvm.abs (no overflow trap)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.IABS
+
+
+@dataclass
+class FloatAbsDirective(StackOpDirective):
+    """Absolute value of an F64 (matching llvm.fabs)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.FABS
 
 
 @dataclass

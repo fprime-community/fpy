@@ -32,8 +32,10 @@ from fpy.types import (
 )
 from fpy.state import (
     CompileState,
-    FieldAccess,
     ForLoopAnalysis,
+)
+from fpy.symbols import (
+    FieldAccess,
     Symbol,
 )
 from fpy.visitors import Transformer

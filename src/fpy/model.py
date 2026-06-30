@@ -5,7 +5,7 @@ import math
 import random
 import struct
 import typing
-from fpy.types import FpyType
+from fpy.types import CmdDef, FpyType
 from fpy.bytecode.directives import (
     AllocateDirective,
     AndDirective,
@@ -71,6 +71,9 @@ from fpy.bytecode.directives import (
     FloatLessThanDirective,
     FloatLessThanOrEqualDirective,
     FloatNotEqualDirective,
+    FloatFloorDirective,
+    IntAbsDirective,
+    FloatAbsDirective,
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
@@ -88,7 +91,6 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To8Directive,
 )
 from fpy.types import FpyValue, LOG_SEVERITY, TIME, U32
-from fpy.state import CmdDef
 
 debug = False
 
@@ -161,6 +163,9 @@ class FpySequencerModel:
 
         self.dirs: list[Directive] = None
         self.next_dir_idx = 0
+        # The error code set by an exit directive (0 == nominal). Distinct from a
+        # trap, which is a VM fault surfaced via a DirectiveErrorCode.
+        self.error_code = 0
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
 
@@ -199,6 +204,7 @@ class FpySequencerModel:
 
         self.dirs: list[Directive] = None
         self.next_dir_idx = 0
+        self.error_code = 0
         self.tlm_db: dict[int, bytearray] = {}
         self.prm_db: dict[int, bytearray] = {}
         self.simulated_time_us = self.initial_time_us
@@ -270,7 +276,9 @@ class FpySequencerModel:
             self.next_dir_idx += 1
             result = self.dispatch(next_dir)
             if result != DirectiveErrorCode.NO_ERROR:
-                return result
+                # A directive trapped: halt and report the trap. No exit ran, so
+                # the error code is still nominal.
+                return self.error_code, result
             if debug:
                 print("stack", len(self.stack), "frame", self.stack_frame_start)
                 for byte in range(0, len(self.stack)):
@@ -280,7 +288,9 @@ class FpySequencerModel:
                         end=" ",
                     )
                 print()
-        return DirectiveErrorCode.NO_ERROR
+        # Sequence ran to completion (or hit an exit). No trap; the error code is
+        # whatever an exit directive set, or 0 if none ran.
+        return self.error_code, DirectiveErrorCode.NO_ERROR
 
     def get_int_fmt_str(self, size: int, signed: bool) -> str:
         fmt_char = None
@@ -614,14 +624,14 @@ class FpySequencerModel:
             seq_run_opcodes=self.seq_run_opcodes,
             arg_type_defs=self.arg_type_defs,
         )
-        result = child_model.run(
+        child_error_code, child_trap = child_model.run(
             child_dirs,
             tlm=self.tlm_db,
             args=child_args if child_args else None,
             arg_types=child_arg_types,
         )
-        if result != DirectiveErrorCode.NO_ERROR:
-            # Child sequence failed
+        if child_trap != DirectiveErrorCode.NO_ERROR or child_error_code != 0:
+            # Child sequence failed (either trapped or exited with a nonzero code)
             self.push(self.CMD_RESPONSE_EXECUTION_ERROR, size=1)
             return None
 
@@ -930,6 +940,30 @@ class FpySequencerModel:
         self.push(val)
         return None
 
+    def handle_ffloor(self, dir: FloatFloorDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop(type=float)
+        # Match wasm's f64.floor: inf/nan pass through unchanged.
+        self.push(val if not math.isfinite(val) else float(math.floor(val)))
+        return None
+
+    def handle_iabs(self, dir: IntAbsDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop()
+        # overflow_check makes abs(I64 min) wrap back to I64 min (matching
+        # libm's llabs and llvm.abs) rather than trapping.
+        self.push(overflow_check(abs(val)))
+        return None
+
+    def handle_fabs(self, dir: FloatAbsDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop(type=float)
+        self.push(math.fabs(val))
+        return None
+
     def handle_fptosi(self, dir: FloatToSignedIntDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
@@ -1024,9 +1058,7 @@ class FpySequencerModel:
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
 
-        # C++-style truncation toward zero (can't use int(lhs/rhs) because
-        # float conversion loses precision for large I64 values)
-        result = _trunc_div(lhs, rhs)
+        result = lhs // rhs
 
         self.push(result)
         return None
@@ -1141,17 +1173,17 @@ class FpySequencerModel:
         return None
 
     def handle_exit(self, dir: ExitDirective):
-        if len(self.stack) < 1:
+        # The exit code is an I32 (4-byte, signed) pushed by codegen.
+        if len(self.stack) < 4:
             return DirectiveErrorCode.STACK_UNDERFLOW
-        exit_code = self.pop(type=int, size=1)
-        print(exit_code)
-        if exit_code == 0:
-            self.next_dir_idx = len(self.dirs)
-            return None
-        elif exit_code == DirectiveErrorCode.CMD_FAIL.value:
-            return DirectiveErrorCode.CMD_FAIL
-        else:
-            return DirectiveErrorCode.EXIT_WITH_ERROR
+        # exit always ends the sequence. The popped value becomes the sequence's
+        # error code: an arbitrary, user-controlled I32 (distinct from a VM trap).
+        # Code 0 means the sequence finished nominally.
+        self.error_code = self.pop(type=int, size=4)
+        if debug:
+            print(self.error_code)
+        self.next_dir_idx = len(self.dirs)
+        return None
 
     def handle_memcmp(self, dir: MemCompareDirective):
         if len(self.stack) < dir.size * 2:

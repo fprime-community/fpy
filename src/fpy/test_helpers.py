@@ -1,42 +1,107 @@
+from __future__ import annotations
 from pathlib import Path
 import tempfile
 import fpy.error
 from fpy.model import DirectiveErrorCode, FpySequencerModel, ValidationError
-from fpy.bytecode.directives import AllocateDirective, Directive, GotoDirective, PushValDirective
-from fpy.compiler import text_to_ast, ast_to_directives
+from fpy.bytecode.directives import (
+    AllocateDirective,
+    Directive,
+    GotoDirective,
+    PushValDirective,
+)
+from fpy.compiler import (
+    text_to_ast,
+    analyze_ast,
+    analysis_to_fpybc_directives,
+    analysis_to_wasm,
+)
+from fpy.state import get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 from fpy.types import FpyType, FpyValue
 
-
 default_dictionary = str(
-    Path(__file__).parent.parent.parent
-    / "test"
-    / "fpy"
-    / "RefTopologyDictionary.json"
+    Path(__file__).parent.parent.parent / "test" / "fpy" / "RefTopologyDictionary.json"
 )
 
 
 class CompilationFailed(Exception):
     """Raised when compilation fails expectedly (parse error or semantic error)."""
+
     pass
 
 
-def compile_seq(fprime_test_api, seq: str, ground_binary_dir: str = None) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
+# Flipped to True by conftest's pytest_configure when --wasm is passed, routing
+# the assert_* helpers through the LLVM/wasm backend (run via the NASA spacewasm
+# interpreter, the on-board target runtime) instead of the bytecode VM.
+USE_WASM = False
+
+# Path to the built spacewasm runner harness, set by conftest's
+# pytest_configure when --wasm is passed.
+SPACEWASM_RUNNER: str | None = None
+
+
+def compile_seq(
+    fprime_test_api, seq: str, ground_binary_dir: str = None
+) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string to a list of directives and arg types."""
     fpy.error.file_name = "<test>"
 
-    body = text_to_ast(seq)
-    if body is None:
-        # This shouldn't happen - text_to_ast calls exit(1) on parse errors
-        raise CompilationFailed("Parsing failed")
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
 
-    result = ast_to_directives(body, default_dictionary, ground_binary_dir=ground_binary_dir)
-    if isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)):
-        raise CompilationFailed(f"Compilation failed:\n{result}")
-    
-    directives, arg_types = result
+    try:
+        body = text_to_ast(seq)
+        state = analyze_ast(body, state)
+        directives, arg_types = analysis_to_fpybc_directives(body, state)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
     return directives, arg_types
+
+
+def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
+    """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
+    fpy.error.file_name = "<test>"
+
+    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+
+    try:
+        body = text_to_ast(seq)
+        state = analyze_ast(body, state)
+        wasm, _ = analysis_to_wasm(body, state)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
+    return wasm
+
+
+def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
+    """Compile *seq* to wasm and run it, returning fpy_main's error code.
+
+    Runs the compiled module through the NASA spacewasm interpreter (the
+    on-board target runtime) via the runner harness built by conftest."""
+    import subprocess
+
+    assert SPACEWASM_RUNNER is not None, (
+        "SPACEWASM_RUNNER not set; run pytest with --wasm"
+    )
+
+    wasm = compile_seq_wasm(seq, ground_binary_dir)
+    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
+    wasm_file.write(wasm)
+    wasm_file.close()
+
+    result = subprocess.run(
+        [SPACEWASM_RUNNER, wasm_file.name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"spacewasm runner faulted (exit {result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+    return int(result.stdout.strip())
 
 
 def lookup_type(fprime_test_api, type_name: str):
@@ -44,17 +109,22 @@ def lookup_type(fprime_test_api, type_name: str):
     return d["type_defs"][type_name]
 
 
-def _write_seq_to_tmpfile(directives: list[Directive], arg_types: list[tuple[str, FpyType]] = None) -> str:
+def _write_seq_to_tmpfile(
+    directives: list[Directive], arg_types: list[tuple[str, FpyType]] = None
+) -> str:
     """Serialize directives to a temp .bin file and return its path."""
     arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
     seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-    Path(seq_file.name).write_bytes(serialize_directives(directives, arg_specs=arg_specs)[0])
+    Path(seq_file.name).write_bytes(
+        serialize_directives(directives, arg_specs=arg_specs)[0]
+    )
     return seq_file.name
 
 
 def _build_seq_args_json(args: bytes) -> str:
     """Build a JSON string for the Svc.SeqArgs struct expected by RUN_ARGS."""
     import json
+
     buf = list(args) + [0] * (255 - len(args))
     return json.dumps({"size": len(args), "buffer": buf})
 
@@ -88,9 +158,13 @@ def run_seq(
         seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
         if args:
             seq_args = _build_seq_args_json(args)
-            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN_ARGS", [seq_path, "BLOCK", seq_args], timeout=timeout_s)
+            fprime_test_api.send_and_assert_command(
+                "Ref.seqDisp.RUN_ARGS", [seq_path, "BLOCK", seq_args], timeout=timeout_s
+            )
         else:
-            fprime_test_api.send_and_assert_command("Ref.seqDisp.RUN", [seq_path, "BLOCK"], timeout=timeout_s)
+            fprime_test_api.send_and_assert_command(
+                "Ref.seqDisp.RUN", [seq_path, "BLOCK"], timeout=timeout_s
+            )
         return
 
     d = load_dictionary(default_dictionary)
@@ -120,18 +194,25 @@ def run_seq(
         tlm_db[ch_template.ch_id] = val
 
     import os
+
     old_cwd = None
     if ground_binary_dir is not None:
         old_cwd = os.getcwd()
         os.chdir(ground_binary_dir)
     try:
-        ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
+        error_code, trap = model.run(
+            directives, tlm_db, args=args, arg_types=arg_types
+        )
     finally:
         if old_cwd is not None:
             os.chdir(old_cwd)
 
-    if ret != DirectiveErrorCode.NO_ERROR:
-        raise RuntimeError(ret)
+    # A trap (VM fault) surfaces as its DirectiveErrorCode; an exit with a nonzero
+    # code surfaces as the raw error code int.
+    if trap != DirectiveErrorCode.NO_ERROR:
+        raise RuntimeError(trap)
+    if error_code != 0:
+        raise RuntimeError(error_code)
     # Compute expected frame size: args + setup directives (PushVal for flags, then Allocate)
     # If functions are present, the first directive is a Goto that jumps past them;
     # skip to the goto target to find the actual setup directives.
@@ -141,9 +222,13 @@ def run_seq(
         setup_start = directives[0].dir_idx
     setup_size = 0
     # The frame setup is exactly: PushVal (flags default), then optionally Allocate (remaining locals).
-    if setup_start < len(directives) and isinstance(directives[setup_start], PushValDirective):
+    if setup_start < len(directives) and isinstance(
+        directives[setup_start], PushValDirective
+    ):
         setup_size += len(directives[setup_start].val)
-        if setup_start + 1 < len(directives) and isinstance(directives[setup_start + 1], AllocateDirective):
+        if setup_start + 1 < len(directives) and isinstance(
+            directives[setup_start + 1], AllocateDirective
+        ):
             setup_size += directives[setup_start + 1].size
     expected_stack = args_size + setup_size
     if expected_stack > 0 and len(model.stack) != expected_stack:
@@ -151,6 +236,9 @@ def run_seq(
 
 
 def assert_compile_success(fprime_test_api, seq: str):
+    if USE_WASM:
+        compile_seq_wasm(seq)
+        return
     compile_seq(fprime_test_api, seq)
 
 
@@ -167,7 +255,14 @@ def assert_run_success(
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
 ):
-    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+    if USE_WASM:
+        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        if code != DirectiveErrorCode.NO_ERROR.value:
+            raise RuntimeError(f"wasm sequence returned error code {code}")
+        return
+    directives, arg_name_types = compile_seq(
+        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
@@ -175,15 +270,35 @@ def assert_run_success(
     if seq_run_opcodes is None and ground_binary_dir is not None:
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
-    run_seq(fprime_test_api, directives, tlm, time_base, time_context, initial_time_us, timeout_s, failing_opcodes, args=args_bytes, arg_types=arg_types, arg_name_types=arg_name_types, seq_run_opcodes=seq_run_opcodes, ground_binary_dir=ground_binary_dir)
+    run_seq(
+        fprime_test_api,
+        directives,
+        tlm,
+        time_base,
+        time_context,
+        initial_time_us,
+        timeout_s,
+        failing_opcodes,
+        args=args_bytes,
+        arg_types=arg_types,
+        arg_name_types=arg_name_types,
+        seq_run_opcodes=seq_run_opcodes,
+        ground_binary_dir=ground_binary_dir,
+    )
 
 
-def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None):
+def assert_compile_failure(
+    fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None
+):
     try:
-        compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+        if USE_WASM:
+            compile_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        else:
+            compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
+
             assert re.search(match, str(e)), f"Expected match {match!r} in {e!r}"
         return
 
@@ -194,7 +309,7 @@ def assert_compile_failure(fprime_test_api, seq: str, match: str = None, ground_
 def assert_run_failure(
     fprime_test_api,
     seq: str,
-    error_code: DirectiveErrorCode = None,
+    error_code: DirectiveErrorCode | int = None,
     validation_error: bool = False,
     timeBase: int = 0,
     timeContext: int = 0,
@@ -204,12 +319,31 @@ def assert_run_failure(
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
 ):
-    assert not (error_code is not None and validation_error), \
-        "Cannot specify both error_code and validation_error"
-    assert error_code is not None or validation_error, \
-        "Must specify either error_code or validation_error"
+    assert not (
+        error_code is not None and validation_error
+    ), "Cannot specify both error_code and validation_error"
+    assert (
+        error_code is not None or validation_error
+    ), "Must specify either error_code or validation_error"
 
-    directives, arg_name_types = compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+    if USE_WASM:
+        # The wasm backend has no separate validation step or VM-internal
+        # faults: a failed sequence is one whose entry point returns nonzero.
+        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        if code == DirectiveErrorCode.NO_ERROR.value:
+            raise RuntimeError("wasm sequence succeeded")
+        if error_code is not None:
+            if (
+                isinstance(error_code, DirectiveErrorCode) and code != error_code.value
+            ) or (isinstance(error_code, int) and code != error_code):
+                raise RuntimeError(
+                    f"wasm sequence returned {code}, expected {error_code}"
+                )
+        return
+
+    directives, arg_name_types = compile_seq(
+        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
     if args is not None:
@@ -239,7 +373,18 @@ def assert_run_failure(
         return
 
     try:
-        run_seq(fprime_test_api, directives, time_base=timeBase, time_context=timeContext, initial_time_us=initial_time_us, failing_opcodes=failing_opcodes, args=args_bytes, arg_types=arg_types, seq_run_opcodes=seq_run_opcodes, ground_binary_dir=ground_binary_dir)
+        run_seq(
+            fprime_test_api,
+            directives,
+            time_base=timeBase,
+            time_context=timeContext,
+            initial_time_us=initial_time_us,
+            failing_opcodes=failing_opcodes,
+            args=args_bytes,
+            arg_types=arg_types,
+            seq_run_opcodes=seq_run_opcodes,
+            ground_binary_dir=ground_binary_dir,
+        )
     except ValidationError as e:
         if not validation_error:
             raise
@@ -248,8 +393,16 @@ def assert_run_failure(
     except RuntimeError as e:
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
-        if len(e.args) == 1 and e.args[0] != error_code:
-            raise RuntimeError("run_seq failed with error", e.args[0], "expected", error_code)
+        # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
+        # code int; the expected value may likewise be either. Compare by integer
+        # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.
+        def _as_int(v):
+            return v.value if isinstance(v, DirectiveErrorCode) else v
+
+        if len(e.args) == 1 and _as_int(e.args[0]) != _as_int(error_code):
+            raise RuntimeError(
+                "run_seq failed with error", e.args[0], "expected", error_code
+            )
         print(e)
         return
 

@@ -10,7 +10,7 @@ from lark import Lark, Token, Transformer, v_args
 from lark.tree import Meta
 
 from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
-from fpy.types import FpyValue, INTERNAL_STRING
+from fpy.types import FpyType, FpyValue, INTERNAL_STRING
 
 from fpy.error import CompileError
 
@@ -197,7 +197,7 @@ def assemble(body: NodeBody) -> tuple[bytes, int]:
     return dirs
 
 
-def directives_to_fpybc(dirs: list[Directive]) -> str:
+def fpybc_directives_to_fpyasm(dirs: list[Directive]) -> str:
     out = ""
     for dir in dirs:
         # write the op name
@@ -370,8 +370,8 @@ def read_bin_arg_specs(path: Path) -> list[tuple[str, str, int]]:
 
 def resolve_arg_specs(
     arg_specs: list[tuple[str, str, int]],
-    type_defs: dict[str, "FpyType"],
-) -> list[tuple[str, "FpyType"]]:
+    type_defs: dict[str, FpyType],
+) -> list[tuple[str, FpyType]]:
     """Resolve (arg_name, type_name, size) arg_spec triples into (arg_name, FpyType) pairs.
 
     Looks up each type name in PRIMITIVE_TYPE_MAP first, then in *type_defs*.

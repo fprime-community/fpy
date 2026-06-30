@@ -1,10 +1,9 @@
 from __future__ import annotations
-import sys
-from functools import lru_cache
 from pathlib import Path
 from lark import Lark, LarkError
-from fpy.bytecode.directives import Directive, update_configurable_types_from_dict
-from fpy.codegen import (
+from llvmlite import ir
+from fpy.bytecode.directives import Directive
+from fpy.codegen_fpybc import (
     CalculateFrameSizes,
     CollectUsedFunctions,
     FinalChecks,
@@ -14,8 +13,17 @@ from fpy.codegen import (
     IrPass,
     ResolveLabels,
 )
-from fpy.desugaring import DesugarDefaultArgs, DesugarForLoops, DesugarCheckStatements, DesugarTimeOperators
-from fpy.dictionary import load_dictionary, json_default_to_fpy_value
+from fpy.codegen_llvm import (
+    GenerateLlvmModule,
+    llvm_module_to_wasm,
+    llvm_module_to_wasm_text,
+)
+from fpy.desugaring import (
+    DesugarDefaultArgs,
+    DesugarForLoops,
+    DesugarCheckStatements,
+    DesugarTimeOperators,
+)
 from fpy.semantics import (
     AssignIds,
     CreateScopes,
@@ -45,7 +53,6 @@ from fpy.semantics import (
     WarnRangesAreNotEmpty,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
-from fpy.macros import MACROS
 from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
@@ -60,25 +67,13 @@ from fpy.types import (
     TIME_INTERVAL,
     TIME_BASE,
     FpyType,
-    FpyValue,
-    TypeKind,
-    TIME,
-    BOOL,
-    I64,
 )
 from fpy.state import (
-    CallableSymbol,
-    CastSymbol,
-    CommandSymbol,
     CompileState,
-    TypeCtorSymbol,
-    VariableSymbol,
-    create_symbol_table,
-    merge_symbol_tables,
 )
 from fpy.visitors import Visitor
 
-from fpy.error import BackendError, CompileError, DictionaryError, handle_lark_error
+from fpy.error import BackendError, handle_lark_error
 import fpy.error
 
 # Load grammar once at module level
@@ -112,19 +107,19 @@ def _get_builtin_library_ast():
         old_input_text = fpy.error.input_text
         old_input_lines = fpy.error.input_lines
         old_file_name = fpy.error.file_name
-        
+
         fpy.error.file_name = str(_builtin_time_path)
         fpy.error.input_text = _builtin_time_text
         fpy.error.input_lines = _builtin_time_text.splitlines()
-        
+
         tree = _fpy_parser.parse(_builtin_time_text)
         _builtin_library_ast = FpyTransformer().transform(tree)
-        
+
         # Restore error state
         fpy.error.input_text = old_input_text
         fpy.error.input_lines = old_input_lines
         fpy.error.file_name = old_file_name
-    
+
     return _builtin_library_ast
 
 
@@ -141,477 +136,52 @@ def text_to_ast(text: str):
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
-        print(
-            fpy.error.CompileError(
-                "Maximum recursion depth exceeded (code is too deeply nested)"
-            ),
-            file=sys.stderr,
+        raise fpy.error.CompileError(
+            "Maximum recursion depth exceeded (code is too deeply nested)"
         )
-        exit(1)
     except VisitError as e:
         # VisitError wraps exceptions that occur during tree transformation
         if isinstance(e.orig_exc, RecursionError):
-            print(
-                fpy.error.CompileError(
-                    "Maximum recursion depth exceeded (code is too deeply nested)"
-                ),
-                file=sys.stderr,
+            raise fpy.error.CompileError(
+                "Maximum recursion depth exceeded (code is too deeply nested)"
             )
         elif isinstance(e.orig_exc, fpy.error.SyntaxErrorDuringTransform):
-            print(
-                fpy.error.CompileError(e.orig_exc.msg, e.orig_exc.node),
-                file=sys.stderr,
-            )
+            raise fpy.error.CompileError(e.orig_exc.msg, e.orig_exc.node)
         else:
-            print(
-                fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}"),
-                file=sys.stderr,
+            raise fpy.error.CompileError(
+                f"Internal error during parsing: {e.orig_exc}"
             )
-        exit(1)
     return transformed
 
 
+def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
+    """Run the shared, backend-independent front end on an AST.
 
-def _validate_and_replace_type(
-    type_dict: dict[str, FpyType],
-    name: str,
-    canonical: FpyType,
-) -> None:
-    """Validate that a required type exists in the dictionary and matches the
-    canonical definition, then replace it with the canonical version.
-
-    Raises DictionaryError (with a user-facing explanation) if the dictionary is
-    missing the type or defines it incompatibly with the canonical version."""
-    if name not in type_dict:
-        raise DictionaryError(name, "The dictionary does not define this type at all.")
-    dict_type = type_dict[name]
-    if dict_type.kind != canonical.kind:
-        raise DictionaryError(
-            name,
-            f"The dictionary defines it as a {dict_type.kind.name} type, "
-            f"but Fpy expects a {canonical.kind.name} type.",
-        )
-    if canonical.kind == TypeKind.STRUCT:
-        if dict_type.members != canonical.members:
-            raise DictionaryError(
-                name,
-                f"Its struct members do not match what fpy expects.\n"
-                f"    dictionary: {dict_type.members}\n"
-                f"    expected:   {canonical.members}",
-            )
-    elif canonical.kind == TypeKind.ENUM:
-        if dict_type.enum_dict != canonical.enum_dict:
-            raise DictionaryError(
-                name,
-                f"Its enum constants do not match what fpy expects.\n"
-                f"    dictionary: {dict_type.enum_dict}\n"
-                f"    expected:   {canonical.enum_dict}",
-            )
-        if dict_type.rep_type != canonical.rep_type:
-            raise DictionaryError(
-                name,
-                f"Its underlying representation type is {dict_type.rep_type}, "
-                f"but Fpy expects {canonical.rep_type}.",
-            )
-    elif canonical.kind == TypeKind.ARRAY:
-        if dict_type.elem_type != canonical.elem_type:
-            raise DictionaryError(
-                name,
-                f"Its element type is {dict_type.elem_type}, "
-                f"but Fpy expects {canonical.elem_type}.",
-            )
-        if dict_type.length != canonical.length:
-            raise DictionaryError(
-                name,
-                f"It has length {dict_type.length}, "
-                f"but Fpy expects length {canonical.length}.",
-            )
-    type_dict[name] = canonical
-    # Preserve raw JSON defaults from the dictionary definition on the canonical type
-    canonical.json_default = dict_type.json_default
-
-
-def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
-    """Update the canonical TIME_BASE singleton from the dictionary's TimeBase.
-
-    The dictionary's TimeBase enum supercedes the hardcoded placeholder.
-    We only require that TB_NONE exists with value 0.  The full set of enum
-    constants and the representation type (FwTimeBaseStoreType) come from the
-    dictionary.
+    Returns the populated CompileState. Raises the first CompileError encountered.
     """
-    if "TimeBase" not in dict_type_name_dict:
-        raise DictionaryError(
-            "TimeBase", "The dictionary does not define this enum type at all."
-        )
-    dict_tb = dict_type_name_dict["TimeBase"]
-    if dict_tb.kind != TypeKind.ENUM:
-        raise DictionaryError(
-            "TimeBase",
-            f"The dictionary defines it as a {dict_tb.kind.name} type, "
-            f"but Fpy expects an ENUM type.",
-        )
-    if "TB_NONE" not in dict_tb.enum_dict:
-        raise DictionaryError(
-            "TimeBase", "Its enum constants must include TB_NONE, but it is missing."
-        )
-    if dict_tb.enum_dict["TB_NONE"] != 0:
-        raise DictionaryError(
-            "TimeBase",
-            f"Its TB_NONE constant must have value 0, "
-            f"but the dictionary gives it value {dict_tb.enum_dict['TB_NONE']}.",
-        )
-
-    # Adopt the dictionary's enum constants and representation type
-    TIME_BASE.enum_dict = dict_tb.enum_dict
-    TIME_BASE.rep_type = dict_tb.rep_type
-    TIME_BASE.json_default = dict_tb.json_default
-
-    # Replace the dict entry with the canonical singleton
-    dict_type_name_dict["TimeBase"] = TIME_BASE
-
-
-def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
-    """Update the canonical SEQ_ARGS singleton from the dictionary's Svc.SeqArgs.
-
-    The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
-    deployment.  The compiler adopts that length onto the canonical singleton's
-    buffer type so codegen and semantics use the correct size.
-    """
-    assert "Svc.SeqArgs" in dict_type_name_dict, (
-        "Dictionary must contain Svc.SeqArgs type"
-    )
-    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
-    assert dict_seq_args.kind == TypeKind.STRUCT, (
-        f"Dictionary Svc.SeqArgs has kind {dict_seq_args.kind}, expected struct"
-    )
-    assert dict_seq_args.members is not None and len(dict_seq_args.members) == 2, (
-        f"Dictionary Svc.SeqArgs must have exactly 2 members, "
-        f"got {dict_seq_args.members}"
-    )
-    size_member, buffer_member = dict_seq_args.members
-    canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
-    assert size_member.name == canonical_size_member.name, (
-        f"Dictionary Svc.SeqArgs first member is '{size_member.name}', "
-        f"expected '{canonical_size_member.name}'"
-    )
-    assert size_member.type == canonical_size_member.type, (
-        f"Dictionary Svc.SeqArgs.{size_member.name} has type {size_member.type}, "
-        f"expected {canonical_size_member.type}"
-    )
-    assert buffer_member.name == canonical_buffer_member.name, (
-        f"Dictionary Svc.SeqArgs second member is '{buffer_member.name}', "
-        f"expected '{canonical_buffer_member.name}'"
-    )
-    dict_buffer_type = buffer_member.type
-    canonical_buffer_type = canonical_buffer_member.type
-    assert dict_buffer_type.kind == TypeKind.ARRAY, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has kind "
-        f"{dict_buffer_type.kind}, expected array"
-    )
-    assert dict_buffer_type.elem_type == canonical_buffer_type.elem_type, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has element type "
-        f"{dict_buffer_type.elem_type}, "
-        f"expected {canonical_buffer_type.elem_type}"
-    )
-    assert dict_buffer_type.length is not None and dict_buffer_type.length > 0, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} must have a positive "
-        f"length, got {dict_buffer_type.length}"
-    )
-
-    # Adopt the dictionary's buffer length onto the canonical buffer singleton.
-    canonical_buffer_type.length = dict_buffer_type.length
-    canonical_buffer_type.name = f"Array_U8_{dict_buffer_type.length}"
-
-    # Preserve raw JSON defaults from the dictionary so _populate_type_defaults
-    # can derive the correct-length buffer default.
-    SEQ_ARGS.json_default = dict_seq_args.json_default
-
-    # Replace the dict entry with the canonical singleton.
-    dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
-
-
-def _update_time_context_type_from_dict(
-    dict_type_name_dict: dict[str, FpyType],
-) -> None:
-    """Update TIME's timeContext member type from FwTimeContextStoreType."""
-    if "FwTimeContextStoreType" not in dict_type_name_dict:
-        return  # Keep the default U8
-    ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
-    if not ctx_type.is_primitive:
-        raise DictionaryError(
-            "FwTimeContextStoreType",
-            f"It must resolve to a primitive type, but the dictionary defines "
-            f"it as {ctx_type}.",
-        )
-    TIME.members[1].type = ctx_type
-
-
-def _get_elem_type_default(elem_type: FpyType) -> FpyValue:
-    """Return the zero/default FpyValue for a primitive, enum, or other element type."""
-    if elem_type.kind == TypeKind.BOOL:
-        return FpyValue(elem_type, False)
-    if elem_type.is_integer:
-        return FpyValue(elem_type, 0)
-    if elem_type.is_float:
-        return FpyValue(elem_type, 0.0)
-    if elem_type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-        return FpyValue(elem_type, "")
-    assert elem_type.json_default is not None, (
-        f"Element type {elem_type.name} must have json_default"
-    )
-    return json_default_to_fpy_value(elem_type.json_default, elem_type)
-
-
-def _derive_elem_defaults(typ: FpyType) -> list[FpyValue]:
-    """Derive elem_defaults for a struct member array type (no json_default)."""
-    elem_default = _get_elem_type_default(typ.elem_type)
-    return [elem_default] * typ.length
-
-
-def _populate_type_defaults(typ: FpyType) -> None:
-    """Populate per-member/per-element defaults on an FpyType from its json_default.
-
-    Sets FpyType.member_defaults for structs and FpyType.elem_defaults for arrays.
-    Every type is guaranteed to have a default value.
-    """
-    if typ.kind == TypeKind.STRUCT:
-        if typ.member_defaults is not None:
-            return  # Already populated (e.g., built-in FLAGS_TYPE)
-        assert typ.json_default is not None, (
-            f"Struct {typ.name} must have json_default"
-        )
-        struct_defaults: dict[str, FpyValue] = {}
-        for m in typ.members:
-            raw_val = typ.json_default.get(m.name)
-            assert raw_val is not None, (
-                f"Missing default for member '{m.name}' of struct {typ.name}"
-            )
-            if m.type.kind == TypeKind.ARRAY and not (
-                isinstance(raw_val, list) and len(raw_val) == m.type.length
-            ):
-                # Struct member arrays (members with a "size" key in the JSON)
-                # get wrapped in a struct member array type, but the dictionary's
-                # raw default is a single element value rather than an
-                # array-shaped value.  Per FPP's spec
-                # (see https://github.com/nasa/fpp/issues/925), this single
-                # value initializes every element of the member array.
-                # We replicate it to build the full array-shaped FpyValue.
-                elem_val = json_default_to_fpy_value(raw_val, m.type.elem_type)
-                struct_defaults[m.name] = FpyValue(
-                    m.type, [elem_val] * m.type.length
-                )
-            else:
-                struct_defaults[m.name] = json_default_to_fpy_value(raw_val, m.type)
-        typ.member_defaults = struct_defaults
-    elif typ.kind == TypeKind.ARRAY:
-        if typ.json_default is not None:
-            default_val = json_default_to_fpy_value(typ.json_default, typ)
-            array_defaults = default_val.val  # list of FpyValue
-            assert len(array_defaults) == typ.length, (
-                f"Dictionary array type {typ.name} has default with "
-                f"{len(array_defaults)} elements but declared length {typ.length}"
-            )
-        else:
-            # Struct member array type (no json_default of its own) —
-            # derive element defaults from the element type.
-            array_defaults = _derive_elem_defaults(typ)
-        typ.elem_defaults = tuple(array_defaults)
-
-
-def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
-    """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor.
-    """
-    if typ.kind == TypeKind.STRUCT:
-        args = [(m.name, m.type, typ.member_defaults[m.name]) for m in typ.members]
-    elif typ.kind == TypeKind.ARRAY:
-        args = [
-            ("e" + str(i), typ.elem_type, typ.elem_defaults[i])
-            for i in range(typ.length)
-        ]
-    else:
-        return None
-    return TypeCtorSymbol(name, typ, args, typ)
-
-
-@lru_cache(maxsize=4)
-def _build_global_scopes(dictionary: str) -> tuple:
-    """
-    Build and cache the 3 global scopes and type_name_dict for a dictionary.
-    Returns tuple of (type_scope, callable_scope, values_scope, type_name_dict).
-    """
-    d = load_dictionary(dictionary)
-    cmd_name_dict = d["cmd_name_dict"]
-    ch_name_dict = d["ch_name_dict"]
-    prm_name_dict = d["prm_name_dict"]
-    dict_type_name_dict = d["type_defs"]
-
-    # Update user-configurable bytecode types (FwChanIdType, FwOpcodeType,
-    # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
-    update_configurable_types_from_dict(dict_type_name_dict)
-
-    # Validate required dictionary types
-    _update_time_base_from_dict(dict_type_name_dict)
-    _update_time_context_type_from_dict(dict_type_name_dict)
-    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
-    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL)
-    _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
-    _validate_and_replace_type(dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON)
-    _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
-    _update_seq_args_from_dict(dict_type_name_dict)
-
-    # Build the full type dict: start from (now-validated) dictionary types,
-    # then layer on builtins and internal types.  Later entries win, so
-    # canonical replacements from _validate_and_replace_type are preserved.
-    type_name_dict: dict[str, FpyType] = {
-        **dict_type_name_dict,
-        # Aliases: Fw.Time -> Fw.TimeValue, Fw.TimeInterval -> Fw.TimeIntervalValue
-        "Fw.Time": TIME,
-        "Fw.TimeInterval": TIME_INTERVAL,
-        **{typ.name: typ for typ in SPECIFIC_NUMERIC_TYPES},
-        BOOL.name: BOOL,
-        CHECK_STATE.name: CHECK_STATE,
-        FLAGS_TYPE.name: FLAGS_TYPE,
-        LOG_SEVERITY.name: LOG_SEVERITY,
-    }
-
-    # Collect enum constants from the final type dict (after builtins and
-    # canonical replacements are in place).
-    enum_const_name_dict: dict[str, FpyValue] = {}
-    for name, typ in type_name_dict.items():
-        if typ.kind == TypeKind.ENUM:
-            for enum_const_name in typ.enum_dict:
-                enum_const_name_dict[name + "." + enum_const_name] = FpyValue(
-                    typ, enum_const_name
-                )
-
-    # Populate per-member/per-element defaults on types before building ctors
-    for typ in type_name_dict.values():
-        _populate_type_defaults(typ)
-
-    # Build callable dict: commands, numeric casts, type constructors, macros
-    callable_name_dict: dict[str, CallableSymbol] = {}
-
-    for name, cmd in cmd_name_dict.items():
-        args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
-        # Detect sequence-run commands by matching the 3-arg signature:
-        # (fileName: string, block: Svc.BlockState, args: Svc.SeqArgs)
-        if (
-            len(args) == 3
-            and args[0][1].is_string
-            and args[1][1].name == "Svc.BlockState"
-            and args[2][1].name == "Svc.SeqArgs"
-        ):
-            # Strip the SeqArgs param; user provides varargs instead
-            fixed_args = args[:2]
-            callable_name_dict[name] = CommandSymbol(
-                cmd.name, CMD_RESPONSE, fixed_args, cmd, is_seq_run_with_args=True
-            )
-        else:
-            callable_name_dict[name] = CommandSymbol(
-                cmd.name, CMD_RESPONSE, args, cmd
-            )
-
-    for typ in SPECIFIC_NUMERIC_TYPES:
-        callable_name_dict[typ.name] = CastSymbol(
-            typ.name, typ, [("value", I64, None)], typ
-        )
-
-    for name, typ in type_name_dict.items():
-        ctor = _make_type_ctor(name, typ)
-        if ctor is not None:
-            callable_name_dict[name] = ctor
-
-    for macro_name, macro in MACROS.items():
-        callable_name_dict[macro_name] = macro
-
-    # Build the 3 global scopes per SPEC:
-    # 1. global type scope - leaf nodes are types
-    type_scope = create_symbol_table(type_name_dict)
-    # 2. global callable scope - leaf nodes are callables
-    callable_scope = create_symbol_table(callable_name_dict)
-    # 3. global value scope - leaf nodes are values (tlm channels, parameters, enum constants, FPP constants)
-    fpp_constants = d["constants"]
-    values_scope = merge_symbol_tables(
-        create_symbol_table(ch_name_dict),
-        merge_symbol_tables(
-            create_symbol_table(prm_name_dict),
-            merge_symbol_tables(
-                create_symbol_table(enum_const_name_dict),
-                create_symbol_table(fpp_constants),
-            ),
-        ),
-    )
-
-    return (type_scope, callable_scope, values_scope, type_name_dict)
-
-
-def get_base_compile_state(dictionary: str, ground_binary_dir: str | None = None) -> CompileState:
-    """return the initial state of the compiler, based on the given dict path"""
-    type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(dictionary)
-    constants = load_dictionary(dictionary)["constants"]
-
-    def _const_int(key: str, default: int) -> int:
-        """Extract an integer constant value, falling back to *default*."""
-        val = constants.get(key)
-        if val is None:
-            return default
-        assert isinstance(val.val, int), (
-            f"Expected int for constant {key}, got {type(val.val)}"
-        )
-        return val.val
-
-    # Make copies of the scopes since we'll mutate them during compilation
-    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
-    # if we don't make copies, then the lru cache will return the modified versions, causing
-    # two runs of the compiler to conflict
-    state = CompileState(
-        global_type_scope=type_scope,  # types are not mutated
-        global_callable_scope=callable_scope.copy(),
-        global_value_scope=values_scope.copy(),
-        type_defs=type_defs,
-        ground_binary_dir=ground_binary_dir,
-        max_directives_count=_const_int("Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT", DEFAULT_MAX_DIRECTIVES_COUNT),
-        max_directive_size=_const_int("Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE),
-    )
-
-    # Create the built-in 'flags' variable ($Flags struct).
-    # declaration=None marks it as a built-in that is always defined.
-    flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
-    state.global_value_scope["flags"] = flags_var
-    state.flags_var = flags_var
-
-    return state
-
-
-def ast_to_directives(
-    body: AstBlock,
-    dictionary: str,
-    ground_binary_dir: str | None = None,
-) -> tuple[list[Directive], list[FpyType]] | CompileError | BackendError:
-    # Create initial compile state (without builtins yet)
-    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
     state.root = body
 
-    # Run pre-builtin validation passes
-    pre_builtin_passes = [
+    # we want to run this past first, because the next
+    # stage will add statements to the start of the file
+    # which would mess with this pass
+    pre_builtin_lib_include_passes = [
         CheckSequenceMetadataDefinedAtTop(),
     ]
 
-    for compile_pass in pre_builtin_passes:
+    for compile_pass in pre_builtin_lib_include_passes:
         compile_pass.run(body, state)
         if len(state.errors) != 0:
-            return state.errors[0]
+            raise state.errors[0]
 
     # Now prepend builtin library functions to user code - always available.
     # will be elided if unused
     import copy
+
     builtin_library_ast = _get_builtin_library_ast()
     body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
 
-    pre_semantic_desugaring_passes = [
-        DesugarCheckStatements()
-    ]
-    
+    pre_semantic_desugaring_passes = [DesugarCheckStatements()]
+
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
         AssignIds(),
@@ -667,6 +237,31 @@ def ast_to_directives(
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
     ]
+
+    for compile_pass in pre_semantic_desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            raise state.errors[0]
+
+    for compile_pass in semantics_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            raise state.errors[0]
+
+    for compile_pass in desugaring_passes:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            raise state.errors[0]
+
+    return state
+
+
+def analysis_to_fpybc_directives(
+    body: AstBlock, state: CompileState
+) -> tuple[list[Directive], list[FpyType]]:
+    """Runs fpybc codegen passes on analysis results, returning fpybc directives.
+
+    Raises BackendError on failure."""
     codegen_passes = [
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
@@ -677,37 +272,19 @@ def ast_to_directives(
         # generate all function bodies
         GenerateFunctions(),
     ]
-    module_generator = GenerateModule()
-
-    ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
-
-    for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            return state.errors[0]
-
-    for compile_pass in semantics_passes:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            return state.errors[0]
-
-    for compile_pass in desugaring_passes:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            return state.errors[0]
-
     for compile_pass in codegen_passes:
         compile_pass.run(body, state)
         if len(state.errors) != 0:
-            return state.errors[0]
+            raise state.errors[0]
 
-    ir = module_generator.emit(body, state)
+    ir = GenerateModule().emit(body, state)
 
+    ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
     for compile_pass in ir_passes:
         ir = compile_pass.run(ir, state)
         if isinstance(ir, BackendError):
-            # early return errors
-            return ir
+            # early exit on errors
+            raise ir
 
     # print out warnings
     for warning in state.warnings:
@@ -717,26 +294,71 @@ def ast_to_directives(
     return ir, state.this_seq_arg_specs
 
 
+def analysis_to_llvm_module(
+    body: AstBlock,
+    state: CompileState
+) -> tuple[ir.Module, list[FpyType]]:
+    """Runs LLVM codegen passes on analysis results, returning an llvmlite ir.Module (the LLVM backend).
+
+    Raises BackendError on failure."""
+
+    for compile_pass in []:
+        compile_pass.run(body, state)
+        if len(state.errors) != 0:
+            raise state.errors[0]
+
+    module = GenerateLlvmModule().emit(body, state)
+
+    # print out warnings
+    for warning in state.warnings:
+        print(warning)
+
+    return module, state.this_seq_arg_specs
+
+
+def analysis_to_wasm(
+    body: AstBlock,
+    state: CompileState,
+) -> tuple[bytes, list[FpyType]]:
+    """Runs the LLVM backend and lowers the result to a runnable wasm module.
+
+    Raises BackendError on failure."""
+    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    return llvm_module_to_wasm(module), seq_arg_types
+
+
+def analysis_to_wat(
+    body: AstBlock,
+    state: CompileState,
+) -> tuple[str, list[FpyType]]:
+    """Runs the LLVM backend and lowers the result to WebAssembly text.
+
+    Raises BackendError on failure."""
+    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    return llvm_module_to_wasm_text(module), seq_arg_types
+
+
 def ast_to_dependencies(
     body: AstBlock,
-    dictionary: str,
-    ground_binary_dir: str | None = None,
-) -> list[str] | CompileError:
+    state: CompileState
+) -> list[str]:
     """Return the list of .bin paths that a sequence source file depends on.
 
     Runs only the passes needed to resolve command symbols — does not attempt
     to read the binary files, so this works before any binaries are compiled.
+
+    Raises CompileError on failure.
     """
-    state = get_base_compile_state(dictionary, ground_binary_dir=ground_binary_dir)
     state.root = body
 
     pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
     for compile_pass in pre_builtin_passes:
         compile_pass.run(body, state)
         if state.errors:
-            return state.errors[0]
+            raise state.errors[0]
 
     import copy
+
     body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
 
     discovery_passes: list[Visitor] = [
@@ -750,13 +372,13 @@ def ast_to_dependencies(
     for compile_pass in discovery_passes:
         compile_pass.run(body, state)
         if state.errors:
-            return state.errors[0]
+            raise state.errors[0]
 
     discover = CollectSequenceDependencies()
     discover.run(body, state)
     if state.errors:
-        return state.errors[0]
+        raise state.errors[0]
 
-    if ground_binary_dir is not None:
-        return [str(Path(ground_binary_dir) / name) for name in discover.bin_names]
+    if state.ground_binary_dir is not None:
+        return [str(Path(state.ground_binary_dir) / name) for name in discover.bin_names]
     return discover.bin_names

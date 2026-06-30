@@ -74,12 +74,15 @@ class SyntaxErrorDuringTransform(Exception):
 
 
 @dataclass
-class CompileError:
+class CompileError(Exception):
     msg: str
     node: Any = None
 
     def __post_init__(self):
         self.stack_trace = "\n".join(traceback.format_stack(limit=8)[:-1])
+
+    def __str__(self):
+        return self.__repr__()
 
     def __repr__(self):
 
@@ -143,12 +146,15 @@ class CompileError:
 
 
 @dataclass
-class BackendError:
+class BackendError(Exception):
     msg: str
 
     def __repr__(self):
         file_name_str = file_name if file_name is not None else "<unknown file>"
         return f"{Colors.cyan(file_name_str)}: {Colors.bold(Colors.red(self.msg))}"
+
+    def __str__(self):
+        return self.__repr__()
 
 
 class DictionaryError(Exception):

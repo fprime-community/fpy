@@ -15,7 +15,7 @@ from dataclasses import fields
 from fpy.bytecode.assembler import (
     parse as fpybc_parse,
     assemble,
-    directives_to_fpybc,
+    fpybc_directives_to_fpyasm,
     HEADER_FORMAT,
     HEADER_SIZE,
 )
@@ -645,32 +645,32 @@ class TestDisassembler:
 
     def test_disassemble_no_op(self):
         dirs = [NoOpDirective()]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "no_op"
 
     def test_disassemble_allocate(self):
         dirs = [AllocateDirective(size=100)]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "allocate 100"
 
     def test_disassemble_load_rel(self):
         dirs = [LoadRelDirective(lvar_offset=-8, size=4)]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "load_rel -8 4"
 
     def test_disassemble_push_val(self):
         dirs = [PushValDirective(val=b"\x01\x02\x03")]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "push_val 1 2 3"
 
     def test_disassemble_goto(self):
         dirs = [GotoDirective(dir_idx=10)]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "goto 10"
 
     def test_disassemble_const_cmd(self):
         dirs = [ConstCmdDirective(cmd_opcode=123, args=b"\x01\x02")]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         assert text.strip() == "const_cmd 123 1 2"
 
     def test_disassemble_multiple(self):
@@ -679,7 +679,7 @@ class TestDisassembler:
             NoOpDirective(),
             ExitDirective(),
         ]
-        text = directives_to_fpybc(dirs)
+        text = fpybc_directives_to_fpyasm(dirs)
         lines = [line for line in text.strip().split('\n') if line]
         assert len(lines) == 3
         assert lines[0] == "allocate 16"
@@ -744,7 +744,7 @@ exit
         dirs = assemble(body)
         
         # Disassemble back to text
-        result_text = directives_to_fpybc(dirs)
+        result_text = fpybc_directives_to_fpyasm(dirs)
         
         # Parse again and compare directives
         body2 = fpybc_parse(result_text)
@@ -874,7 +874,7 @@ uitofp
         assert arg_type_names == []
         
         # Step 4: Convert directives back to text
-        result_text = directives_to_fpybc(dirs2)
+        result_text = fpybc_directives_to_fpyasm(dirs2)
         
         # Step 5: Parse the result text and compare directives
         body3 = fpybc_parse(result_text)

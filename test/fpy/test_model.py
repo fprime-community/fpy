@@ -111,8 +111,9 @@ class TestStackAllocation:
     def test_allocate_stack_overflow(self):
         """Test that allocating more than max stack size returns STACK_OVERFLOW."""
         model = FpySequencerModel(stack_size=100)
-        result = model.run([AllocateDirective(200)])
-        assert result == DirectiveErrorCode.STACK_OVERFLOW
+        error_code, trap = model.run([AllocateDirective(200)])
+        assert trap == DirectiveErrorCode.STACK_OVERFLOW
+        assert error_code == 0
 
     def test_discard_out_of_bounds(self):
         """Test discarding more bytes than on stack."""
@@ -937,30 +938,33 @@ class TestArgPassing:
     def test_no_args_no_types(self):
         """Running with no args and no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run([NoOpDirective()])
-        assert result == DirectiveErrorCode.NO_ERROR
+        error_code, trap = model.run([NoOpDirective()])
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_single_arg(self):
         """Passing correct-size bytes for a single U32 arg should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # 42 as big-endian U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=4), NoOpDirective()],
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_multiple_args(self):
         """Passing correct-size bytes for multiple args should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x01" + b"\x00\x2a" + b"\x00\x00\x00\x03"  # U8 + U16 + U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=7), NoOpDirective()],
             arg_types=[U8, U16, U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_too_short(self):
         """Should raise ValidationError if args bytes are shorter than expected."""
@@ -994,12 +998,13 @@ class TestArgPassing:
     def test_args_none_with_no_types(self):
         """Passing args=None with no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run(
+        error_code, trap = model.run(
             [NoOpDirective()],
             arg_types=[],
             args=None,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_pushed_to_stack_before_allocate(self):
         """Args should be on the stack at offset 0, before AllocateDirective runs."""
@@ -1017,7 +1022,7 @@ class TestArgPassing:
         """Sequence should be able to read arg values from the stack."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # U32 = 42
-        result = model.run(
+        error_code, trap = model.run(
             [
                 AllocateDirective(size=8),  # 4 for arg + 4 for working space
                 LoadAbsDirective(global_offset=0, size=4),  # push arg value onto stack
@@ -1026,7 +1031,8 @@ class TestArgPassing:
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_multiple_arg_types_size_mismatch(self):
         """Size mismatch with multiple arg types should report correct totals."""
