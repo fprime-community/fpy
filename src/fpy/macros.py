@@ -13,7 +13,7 @@ from fpy.bytecode.directives import (
     WaitAbsDirective,
     WaitRelDirective,
 )
-from fpy.ir import Ir, IrIf, IrLabel
+from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
 from fpy.syntax import Ast
 from fpy.types import (
@@ -33,12 +33,11 @@ from fpy.types import (
     FpyType,
 )
 from fpy.bytecode.directives import (
-    FloatLessThanDirective,
     FloatDivideDirective,
-    FloatMultiplyDirective,
     FloatSubtractDirective,
     FloatToUnsignedIntDirective,
-    IntMultiplyDirective,
+    FloatAbsDirective,
+    IntAbsDirective,
     IntegerTruncate64To32Directive,
     IntegerZeroExtend32To64Directive,
     PeekDirective,
@@ -47,7 +46,6 @@ from fpy.bytecode.directives import (
     FloatLogDirective,
     Directive,
     ExitDirective,
-    SignedLessThanDirective,
     StackSizeType,
     UnsignedIntToFloatDirective,
     WaitAbsDirective,
@@ -58,51 +56,13 @@ from fpy.bytecode.directives import (
 def generate_abs_float(
     node: Ast, const_args: dict[int, FpyValue]
 ) -> list[Directive | Ir]:
-    # if input is < 0 multiply by -1
-    leave_unmodified = IrLabel(node, "else")
-    dirs = [
-        # copy the f64
-        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # push 0
-        PushValDirective(FpyValue(F64, 0.0).serialize()),
-        # check <
-        FloatLessThanDirective(),
-        IrIf(leave_unmodified),
-        # push -1
-        PushValDirective(FpyValue(F64, -1.0).serialize()),
-        # and multiply
-        FloatMultiplyDirective(),
-        # otherwise do nothing
-        leave_unmodified,
-    ]
-    return dirs
+    return [FloatAbsDirective()]
 
 
 def generate_abs_signed_int(
     node: Ast, const_args: dict[int, FpyValue]
 ) -> list[Directive | Ir]:
-    # if input is < 0 multiply by -1
-    leave_unmodified = IrLabel(node, "else")
-    dirs = [
-        # copy the I64
-        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # push 0
-        PushValDirective(FpyValue(I64, 0).serialize()),
-        # check <
-        SignedLessThanDirective(),
-        IrIf(leave_unmodified),
-        # push -1
-        PushValDirective(FpyValue(I64, -1).serialize()),
-        # and multiply
-        IntMultiplyDirective(),
-        # otherwise do nothing
-        leave_unmodified,
-    ]
-    return dirs
+    return [IntAbsDirective()]
 
 
 MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(

@@ -493,6 +493,20 @@ assert fabs(0.0) == 0.0
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_abs_float_edge_cases(self, fprime_test_api):
+        seq = """
+# -0.0 has the same magnitude as 0.0
+assert fabs(-0.0) == 0.0
+# large magnitudes survive unchanged
+assert fabs(-1.5e300) == 1.5e300
+assert fabs(1.5e300) == 1.5e300
+# already-positive small values are untouched
+assert fabs(0.5) == 0.5
+assert fabs(-0.5) == 0.5
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
     def test_abs_i64(self, fprime_test_api):
         seq = """
 assert iabs(I64(-1)) == 1
@@ -501,6 +515,20 @@ assert iabs(I64(0)) == 0
 # need to use a large subtract here cuz otherwise float precision kills us... this is kinda sus
 assert iabs(I64(2**63 - 6556)) == 2**63 - 6556
 assert iabs(I64(-2**63)) == I64(-2**63) # abs int min is int min
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_abs_i64_edge_cases(self, fprime_test_api):
+        seq = """
+# I64 min: abs wraps back to I64 min (matching libm's llabs), no overflow trap
+assert iabs(I64(-2**63)) == I64(-2**63)
+# I64 max is its own absolute value
+assert iabs(I64(2**63 - 1)) == 2**63 - 1
+# -(I64 max) negates cleanly to I64 max
+assert iabs(I64(-(2**63 - 1))) == 2**63 - 1
+# values just inside I64 min negate without trapping
+assert iabs(I64(-2**63 + 1)) == 2**63 - 1
 """
 
         assert_run_success(fprime_test_api, seq)

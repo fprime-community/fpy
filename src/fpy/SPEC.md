@@ -126,8 +126,8 @@ Available macros:
 * `randf() -> F64`: pushes the next random number via `PushRandDirective`, converts it to `F64`, and divides by `2**32` to produce a value in the half-open range `[0.0, 1.0)`.
 * `set_seed(seed: U32)`: seeds the random number generator via `SetSeedDirective`.
 * `time(timestamp: String, timeBase: TimeBase = TimeBase.TB_NONE, timeContext: U8 = 0) -> Fw.TimeValue`: parses an ISO 8601 timestamp string (e.g., `"2025-12-19T14:30:00Z"` or `"2025-12-19T14:30:00.123456Z"`) at compile time and returns an `Fw.TimeValue` with the specified `timeBase` and `timeContext`. The timestamp must be in UTC with a `Z` suffix.
-* `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
-* `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
+* `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer by emitting an `IntAbsDirective`. The absolute value of `I64` min (`-2**63`) wraps back to `I64` min rather than trapping, matching libm's `llabs`.
+* `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float by emitting a `FloatAbsDirective`.
 * `log(message: String, severity: Fw.LogSeverity = Fw.LogSeverity.ACTIVITY_HI)`: pushes the severity, message, and message size onto the stack, then emits a `PopEventDirective`. Both arguments must be compile-time constants.
 
 ## Type constructors

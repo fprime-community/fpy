@@ -49,6 +49,8 @@ WASM_VERSION = "1.0 (MVP)"
 
 # TODO could just start with a .a and a header??
 
+# TODO need to disable WASI so we aren't generating these env :: pow
+
 # exit
 # command (opcode i32, ptr i32, len i32)
 # telemetry ()

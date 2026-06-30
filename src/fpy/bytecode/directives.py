@@ -173,6 +173,8 @@ class DirectiveId(Enum):
     SET_SEED = 76
     PUSH_RAND = 77
     FFLOOR = 78
+    IABS = 79
+    FABS = 80
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -649,6 +651,19 @@ class FloatExtendDirective(StackOpDirective):
 class FloatFloorDirective(StackOpDirective):
     """Floor a float toward -inf (used to lower float `//`)."""
     opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
+
+
+@dataclass
+class IntAbsDirective(StackOpDirective):
+    """Absolute value of a signed I64. abs(I64 min) wraps to I64 min, matching
+    libm's llabs and LLVM's llvm.abs (no overflow trap)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.IABS
+
+
+@dataclass
+class FloatAbsDirective(StackOpDirective):
+    """Absolute value of an F64 (matching llvm.fabs)."""
+    opcode: ClassVar[DirectiveId] = DirectiveId.FABS
 
 
 @dataclass

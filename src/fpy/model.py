@@ -72,6 +72,8 @@ from fpy.bytecode.directives import (
     FloatLessThanOrEqualDirective,
     FloatNotEqualDirective,
     FloatFloorDirective,
+    IntAbsDirective,
+    FloatAbsDirective,
     FloatToSignedIntDirective,
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
@@ -936,6 +938,22 @@ class FpySequencerModel:
         val = self.pop(type=float)
         # Match wasm's f64.floor: inf/nan pass through unchanged.
         self.push(val if not math.isfinite(val) else float(math.floor(val)))
+        return None
+
+    def handle_iabs(self, dir: IntAbsDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop()
+        # overflow_check makes abs(I64 min) wrap back to I64 min (matching
+        # libm's llabs and llvm.abs) rather than trapping.
+        self.push(overflow_check(abs(val)))
+        return None
+
+    def handle_fabs(self, dir: FloatAbsDirective):
+        if len(self.stack) < 8:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        val = self.pop(type=float)
+        self.push(math.fabs(val))
         return None
 
     def handle_fptosi(self, dir: FloatToSignedIntDirective):
