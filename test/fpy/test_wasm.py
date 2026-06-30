@@ -29,8 +29,9 @@ from fpy.state import get_base_compile_state
 from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
 
 
-# Every test in this module drives the LLVM/wasm backend end-to-end, so the
-# whole module is skipped unless pytest is run with --wasm.
+# Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
+# marker makes conftest build the spacewasm runner on demand, so these always
+# run on the wasm backend even when --wasm isn't passed.
 pytestmark = pytest.mark.wasm
 
 

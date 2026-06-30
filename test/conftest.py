@@ -82,15 +82,17 @@ def pytest_configure(config):
         test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
 
 
-def pytest_collection_modifyitems(config, items):
-    # The wasm-marked tests drive the spacewasm runner directly; without --wasm
-    # the runner is never built, so skip them rather than letting them fail.
-    if config.getoption("--wasm"):
+@pytest.fixture(autouse=True)
+def _ensure_wasm_runner(request):
+    # wasm-marked tests always run on the wasm backend, regardless of --wasm, so
+    # make sure the spacewasm runner is built before any of them run. The build
+    # result is cached on the module global, so this only builds once per session.
+    if "wasm" not in request.keywords:
         return
-    skip_wasm = pytest.mark.skip(reason="requires --wasm")
-    for item in items:
-        if "wasm" in item.keywords:
-            item.add_marker(skip_wasm)
+    import fpy.test_helpers as test_helpers
+
+    if test_helpers.SPACEWASM_RUNNER is None:
+        test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
 
 
 @pytest.fixture(autouse=True)
