@@ -271,10 +271,13 @@ def model_main(args: list[str] = None):
         seq_args = bytes.fromhex(args.args)
 
     model = FpySequencerModel()
-    ret = model.run(directives, arg_types=arg_types, args=seq_args)
-    if ret != DirectiveErrorCode.NO_ERROR:
-        print("Sequence failed with " + str(ret))
+    error_code, trap = model.run(directives, arg_types=arg_types, args=seq_args)
+    if trap != DirectiveErrorCode.NO_ERROR:
+        print("Sequence trapped with " + str(trap))
         exit(1)
+    if error_code != 0:
+        print("Sequence exited with error code " + str(error_code))
+        exit(error_code)
 
 
 def assemble_main(args: list[str] = None):

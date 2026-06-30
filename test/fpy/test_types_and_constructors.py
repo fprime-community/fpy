@@ -295,7 +295,7 @@ if val[idx] == 123:
 exit(1)
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_get_variable_array_idx_oob_2(self, fprime_test_api):
         seq = """
@@ -306,8 +306,7 @@ if val[idx] == 123:
 exit(1)
 """
 
-        # TODO this really should also assert the failure code
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_set_variable_array_idx_oob(self, fprime_test_api):
         seq = """
@@ -316,7 +315,7 @@ idx: I8 = 2
 val[idx] = 111
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_set_variable_array_idx(self, fprime_test_api):
         seq = """

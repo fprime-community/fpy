@@ -172,9 +172,10 @@ class DirectiveId(Enum):
     POP_EVENT = 75
     SET_SEED = 76
     PUSH_RAND = 77
-    FFLOOR = 78
-    IABS = 79
-    FABS = 80
+    POP_SERIALIZABLE = 78
+    FFLOOR = 79
+    IABS = 80
+    FABS = 81
 
 
 # ─────────────────────────────────────────────────────────────────────────────

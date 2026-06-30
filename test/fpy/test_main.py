@@ -242,7 +242,7 @@ def test_model_main_success(monkeypatch, tmp_path):
 
         def run(self, directives, tlm_db=None, args=None, arg_types=None):
             self.ran_with = directives
-            return fpy_main.DirectiveErrorCode.NO_ERROR
+            return 0, fpy_main.DirectiveErrorCode.NO_ERROR
 
     monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
 
@@ -260,7 +260,7 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
 
     class DummyModel:
         def run(self, directives, tlm_db=None, args=None, arg_types=None):
-            return fpy_main.DirectiveErrorCode.EXIT_WITH_ERROR
+            return 0, fpy_main.DirectiveErrorCode.STACK_OVERFLOW
 
     monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
 
@@ -269,7 +269,7 @@ def test_model_main_failure(monkeypatch, tmp_path, capsys):
 
     assert exc.value.code == 1
     captured = capsys.readouterr()
-    assert "Sequence failed" in captured.out
+    assert "Sequence trapped" in captured.out
 
 
 def test_assemble_main_missing_input(tmp_path, capsys):

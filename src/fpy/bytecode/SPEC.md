@@ -1136,7 +1136,10 @@ If this is called without the seed being manually set beforehand, then the seed 
 | ------------------|-------------|
 | U32 | The next pseudorandom 32-bit value from the sequencer's internal PRNG |
 
-## FFLOOR (78)
+## POP_SERIALIZABLE (78)
+Reserved for a future directive that pops a serializable value off the stack. Not yet implemented — the opcode is reserved so its id stays stable for future use.
+
+## FFLOOR (79)
 Floors a float toward negative infinity, pushes result to stack. Infinity and NaN values pass through unchanged, consistent with wasm's `f64.floor`. Used to lower float floor division (`//`).
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -1148,7 +1151,7 @@ Floors a float toward negative infinity, pushes result to stack. Infinity and Na
 
 **Requirement:**  FPY-SEQ-002
 
-## IABS (79)
+## IABS (80)
 Pops a signed `I64`, pushes its absolute value to the stack. The absolute value of `I64` min (`-2**63`) wraps back to `I64` min rather than trapping, matching libm's `llabs` and LLVM's `llvm.abs`.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
@@ -1160,7 +1163,7 @@ Pops a signed `I64`, pushes its absolute value to the stack. The absolute value 
 
 **Requirement:**  FPY-SEQ-002
 
-## FABS (80)
+## FABS (81)
 Pops an `F64`, pushes its absolute value to the stack, consistent with `llvm.fabs`. The sign bit is cleared, so negative zero becomes positive zero and NaN/infinity magnitudes pass through.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|

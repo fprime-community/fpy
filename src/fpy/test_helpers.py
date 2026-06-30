@@ -200,13 +200,19 @@ def run_seq(
         old_cwd = os.getcwd()
         os.chdir(ground_binary_dir)
     try:
-        ret = model.run(directives, tlm_db, args=args, arg_types=arg_types)
+        error_code, trap = model.run(
+            directives, tlm_db, args=args, arg_types=arg_types
+        )
     finally:
         if old_cwd is not None:
             os.chdir(old_cwd)
 
-    if ret != DirectiveErrorCode.NO_ERROR:
-        raise RuntimeError(ret)
+    # A trap (VM fault) surfaces as its DirectiveErrorCode; an exit with a nonzero
+    # code surfaces as the raw error code int.
+    if trap != DirectiveErrorCode.NO_ERROR:
+        raise RuntimeError(trap)
+    if error_code != 0:
+        raise RuntimeError(error_code)
     # Compute expected frame size: args + setup directives (PushVal for flags, then Allocate)
     # If functions are present, the first directive is a Goto that jumps past them;
     # skip to the goto target to find the actual setup directives.
@@ -387,7 +393,13 @@ def assert_run_failure(
     except RuntimeError as e:
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
-        if len(e.args) == 1 and e.args[0] != error_code:
+        # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
+        # code int; the expected value may likewise be either. Compare by integer
+        # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.
+        def _as_int(v):
+            return v.value if isinstance(v, DirectiveErrorCode) else v
+
+        if len(e.args) == 1 and _as_int(e.args[0]) != _as_int(error_code):
             raise RuntimeError(
                 "run_seq failed with error", e.args[0], "expected", error_code
             )

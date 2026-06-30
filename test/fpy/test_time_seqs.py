@@ -242,7 +242,7 @@ t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 50, 0)
 t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_sub_different_time_base_asserts(self, fprime_test_api):
         """Test that subtracting times with different time bases asserts."""
@@ -251,7 +251,7 @@ t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)
 t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 50, 0)  # Different timeBase
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_sub_large_difference(self, fprime_test_api):
         """Test subtraction with large second values."""
@@ -403,7 +403,7 @@ t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 4294967295, 0)
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
 result: Fw.Time = time_add(t, interval)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_add_with_now(self, fprime_test_api):
         """Test time_add works with now()."""
@@ -1031,7 +1031,7 @@ timeout:
     pass
 """
         # Now run with default timeBase=0, but the timeout uses timeBase=1
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_check_with_simulated_time_timeout(self, fprime_test_api):
         """Test that check properly times out based on simulated time advancement.
