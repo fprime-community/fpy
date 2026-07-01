@@ -1,0 +1,633 @@
+"""Tests for the `import` statement (spec / TDD).
+
+`import foo` inlines the definitions of a sibling `foo.fpy` source file into
+the importing sequence and sections its symbols off under the name `foo`, so a
+function `bar` defined in `foo.fpy` is called as `foo.bar()`.
+
+Design decisions encoded here (see conversation):
+  * Import path resolves relative to `state.import_dir` (defaults to cwd in the
+    CLI).  This is DISTINCT from `ground_binary_dir`, which roots runtime
+    sequence-binary (.bin) paths -- imports are a compile-time-only source
+    inlining and never survive into the emitted bytecode.
+  * MVP syntax is a bare name: `import foo` -> `foo.fpy`.  Dotted module paths
+    are a later extension.
+  * `import` is only valid as a top-level statement (not nested in a block),
+    but an imported module MAY itself import other modules (transitive imports
+    are supported, with cycle detection).
+  * Inlining an imported file that does more than define functions emits the
+    `import-side-effects` warning (its top-level code runs as part of the
+    importing sequence).
+  * Importing a file that declares sequence arguments (`sequence(x: U32)`) is a
+    hard error.
+
+Every sequence that is expected to compile is also *run* (via
+`assert_run_success`), so the asserts embedded in the sequences actually
+execute.  Every sequence that is expected to fail compilation uses
+`assert_compile_failure`.  These tests are `xfail` until the import passes are
+implemented; they define the target behavior.  Remove the `pytestmark` once
+`import` is implemented.
+"""
+from pathlib import Path
+
+import pytest
+
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_success,
+    compile_seq,
+)
+from fpy.warnings import WarningType
+
+# The whole module targets not-yet-implemented behavior.
+pytestmark = pytest.mark.xfail(
+    reason="import statement not yet implemented", strict=False
+)
+
+
+def _write_module(import_dir: Path, name: str, src: str) -> None:
+    """Write an importable module `<name>.fpy` into *import_dir*."""
+    (import_dir / f"{name}.fpy").write_text(src)
+
+
+class TestImportInlining:
+    """An imported function is inlined and callable under the module name."""
+
+    def test_call_imported_function(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def add_one(x: U32) -> U32:
+    return x + 1
+""",
+        )
+        main = """\
+import lib
+
+result: U32 = lib.add_one(41)
+assert result == 42
+"""
+        # Funcs-only module: compiles cleanly with no side-effect warning...
+        state, _, _ = compile_seq(main, import_dir=str(tmp_path))
+        assert state.warnings == []
+        # ...and the embedded assert holds at run time.
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_imported_function_runs(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def double(x: U32) -> U32:
+    return x * 2
+""",
+        )
+        main = """\
+import lib
+
+v: U32 = lib.double(21)
+assert v == 42
+"""
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_local_and_imported_names_coexist(self, fprime_test_api, tmp_path):
+        """A local `helper` and an imported `lib.helper` must not collide --
+        the imported symbols are sectioned off under `lib`."""
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def helper() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import lib
+
+def helper() -> U32:
+    return 2
+
+a: U32 = helper()
+b: U32 = lib.helper()
+assert a == 2
+assert b == 1
+"""
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportSideEffects:
+    """Importing a file with top-level, non-def code warns."""
+
+    SIDE_EFFECT_MODULE = """\
+CdhCore.cmdDisp.CMD_NO_OP()
+
+def noop_wrapper():
+    CdhCore.cmdDisp.CMD_NO_OP()
+"""
+
+    def test_side_effecting_import_warns(self, fprime_test_api, tmp_path):
+        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        main = """\
+import sfx
+
+sfx.noop_wrapper()
+"""
+        state, _, _ = compile_seq(main, import_dir=str(tmp_path))
+        assert any(
+            w.type == WarningType.IMPORT_SIDE_EFFECTS for w in state.warnings
+        ), f"expected an import-side-effects warning, got {state.warnings}"
+        # The warning is non-fatal: the sequence still compiles and runs.
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_side_effect_warning_can_be_ignored(self, fprime_test_api, tmp_path):
+        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        main = """\
+import sfx
+
+sfx.noop_wrapper()
+"""
+        state, _, _ = compile_seq(
+            main,
+            import_dir=str(tmp_path),
+            ignored_warnings={WarningType.IMPORT_SIDE_EFFECTS},
+        )
+        assert state.warnings == []
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_side_effect_warning_can_be_escalated(self, fprime_test_api, tmp_path):
+        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        main = """\
+import sfx
+
+sfx.noop_wrapper()
+"""
+        assert_compile_failure(
+            fprime_test_api,
+            main,
+            match="import-side-effects",
+            import_dir=str(tmp_path),
+            error_warnings={WarningType.IMPORT_SIDE_EFFECTS},
+        )
+
+    def test_functions_only_module_does_not_warn(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "clean",
+            """\
+def a() -> U32:
+    return 1
+
+def b() -> U32:
+    return 2
+""",
+        )
+        main = """\
+import clean
+
+x: U32 = clean.a() + clean.b()
+assert x == 3
+"""
+        state, _, _ = compile_seq(main, import_dir=str(tmp_path))
+        assert state.warnings == []
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportErrors:
+    """Error cases for import."""
+
+    def test_cannot_import_sequence_with_arguments(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "withargs",
+            """\
+sequence(x: U32)
+
+def f() -> U32:
+    return x
+""",
+        )
+        main = """\
+import withargs
+"""
+        assert_compile_failure(
+            fprime_test_api, main, match="argument", import_dir=str(tmp_path)
+        )
+
+    def test_missing_module_is_an_error(self, fprime_test_api, tmp_path):
+        main = """\
+import does_not_exist
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_no_arg_sequence_is_importable(self, fprime_test_api, tmp_path):
+        """A bare `sequence()` with no arguments is importable -- only
+        sequences *with arguments* are rejected (per the feature's wording)."""
+        _write_module(
+            tmp_path,
+            "noargseq",
+            """\
+sequence()
+
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import noargseq
+
+x: U32 = noargseq.f()
+assert x == 1
+"""
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportFileErrors:
+    """Failure modes rooted in the imported file itself."""
+
+    def test_parse_error_in_imported_file_fails(self, fprime_test_api, tmp_path):
+        """A syntax error inside the imported file is a hard compile error.
+        Ideally the diagnostic points into the imported file, not the importer."""
+        _write_module(
+            tmp_path,
+            "broken",
+            """\
+def f( ->
+    return 1
+""",
+        )
+        main = """\
+import broken
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_import_path_is_a_directory_fails(self, fprime_test_api, tmp_path):
+        """If the resolved `<name>.fpy` is a directory, importing fails cleanly
+        rather than crashing with an IO error."""
+        (tmp_path / "adir.fpy").mkdir()
+        main = """\
+import adir
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_empty_module_compiles_without_warning(self, fprime_test_api, tmp_path):
+        """An empty module has no definitions and no side effects."""
+        _write_module(tmp_path, "empty", "")
+        main = """\
+import empty
+
+CdhCore.cmdDisp.CMD_NO_OP()
+"""
+        state, _, _ = compile_seq(main, import_dir=str(tmp_path))
+        assert state.warnings == []
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportNamespaceIsolation:
+    """Imported symbols are sectioned under the module name and isolated."""
+
+    def test_imported_symbol_requires_module_prefix(self, fprime_test_api, tmp_path):
+        """`add_one` is only reachable as `lib.add_one`, never bare."""
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def add_one(x: U32) -> U32:
+    return x + 1
+""",
+        )
+        main = """\
+import lib
+
+y: U32 = add_one(1)
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_module_name_not_usable_as_value(self, fprime_test_api, tmp_path):
+        """The module name is a namespace, not an expression."""
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def add_one(x: U32) -> U32:
+    return x + 1
+""",
+        )
+        main = """\
+import lib
+
+y: U32 = lib
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_same_function_name_in_two_modules_no_collision(
+        self, fprime_test_api, tmp_path
+    ):
+        _write_module(
+            tmp_path,
+            "lib_a",
+            """\
+def helper() -> U32:
+    return 1
+""",
+        )
+        _write_module(
+            tmp_path,
+            "lib_b",
+            """\
+def helper() -> U32:
+    return 2
+""",
+        )
+        main = """\
+import lib_a
+import lib_b
+
+a: U32 = lib_a.helper()
+b: U32 = lib_b.helper()
+assert a == 1
+assert b == 2
+"""
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_imported_function_cannot_see_importer_globals(
+        self, fprime_test_api, tmp_path
+    ):
+        """An imported function is analyzed in its own module scope: a name
+        defined only in the importing sequence must NOT resolve inside it."""
+        _write_module(
+            tmp_path,
+            "iso",
+            """\
+def uses_outside() -> U32:
+    return main_global
+""",
+        )
+        main = """\
+import iso
+
+main_global: U32 = 5
+x: U32 = iso.uses_outside()
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportNameCollisions:
+    """The module name must not clash with an existing top-level name."""
+
+    def test_import_collides_with_local_function(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "dup",
+            """\
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import dup
+
+def dup() -> U32:
+    return 2
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_import_collides_with_local_variable(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "dup",
+            """\
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import dup
+
+dup: U32 = 3
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportDuplicates:
+    """Importing the same module twice inlines it once."""
+
+    def test_duplicate_import_is_idempotent(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def add_one(x: U32) -> U32:
+    return x + 1
+""",
+        )
+        main = """\
+import lib
+import lib
+
+y: U32 = lib.add_one(41)
+assert y == 42
+"""
+        # Must not raise a duplicate-definition error from inlining twice.
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportOnlyAtTopLevel:
+    """`import` is only valid as a top-level statement (never nested in a
+    block).  Note: an imported *module* may still contain its own top-level
+    imports -- see TestImportTransitive."""
+
+    def test_import_inside_if_block_fails(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+if 1 == 1:
+    import lib
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_import_inside_function_fails(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "lib",
+            """\
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+def wrapper() -> U32:
+    import lib
+    return 1
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportTransitive:
+    """An imported module may itself import other modules."""
+
+    def test_transitive_import_works(self, fprime_test_api, tmp_path):
+        """main -> a -> b: `a` uses `b` internally, and main runs `a.f()`."""
+        _write_module(
+            tmp_path,
+            "b",
+            """\
+def g() -> U32:
+    return 7
+""",
+        )
+        _write_module(
+            tmp_path,
+            "a",
+            """\
+import b
+
+def f() -> U32:
+    return b.g()
+""",
+        )
+        main = """\
+import a
+
+x: U32 = a.f()
+assert x == 7
+"""
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))
+
+    def test_transitive_dependency_is_private(self, fprime_test_api, tmp_path):
+
+        _write_module(
+            tmp_path,
+            "b",
+            """\
+def g() -> U32:
+    return 7
+""",
+        )
+        _write_module(
+            tmp_path,
+            "a",
+            """\
+import b
+
+def f() -> U32:
+    return b.g()
+""",
+        )
+        main = """\
+import a
+
+x: U32 = b.g()
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportCycles:
+    """Import cycles are detected and rejected."""
+
+    def test_self_import_is_cycle_error(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "selfmod",
+            """\
+import selfmod
+
+def f() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import selfmod
+"""
+        assert_compile_failure(
+            fprime_test_api, main, match="(?i)(circular|cycle)", import_dir=str(tmp_path)
+        )
+
+    def test_mutual_import_is_cycle_error(self, fprime_test_api, tmp_path):
+        _write_module(
+            tmp_path,
+            "mod_a",
+            """\
+import mod_b
+
+def a() -> U32:
+    return mod_b.b()
+""",
+        )
+        _write_module(
+            tmp_path,
+            "mod_b",
+            """\
+import mod_a
+
+def b() -> U32:
+    return 1
+""",
+        )
+        main = """\
+import mod_a
+"""
+        assert_compile_failure(
+            fprime_test_api, main, match="(?i)(circular|cycle)", import_dir=str(tmp_path)
+        )
+
+    def test_three_way_cycle_error(self, fprime_test_api, tmp_path):
+        _write_module(tmp_path, "c1", "import c2\n\ndef f() -> U32:\n    return 1\n")
+        _write_module(tmp_path, "c2", "import c3\n\ndef f() -> U32:\n    return 1\n")
+        _write_module(tmp_path, "c3", "import c1\n\ndef f() -> U32:\n    return 1\n")
+        main = """\
+import c1
+"""
+        assert_compile_failure(
+            fprime_test_api, main, match="(?i)(circular|cycle)", import_dir=str(tmp_path)
+        )
+
+
+class TestImportSyntax:
+    """Syntax-level constraints of the MVP."""
+
+    def test_dotted_import_rejected(self, fprime_test_api, tmp_path):
+        """Dotted module paths are not supported yet."""
+        main = """\
+import pkg.mod
+"""
+        assert_compile_failure(fprime_test_api, main, import_dir=str(tmp_path))
+
+
+class TestImportVariables:
+    """A module's top-level variable is both a side effect and a namespaced
+    symbol."""
+
+    def test_top_level_variable_is_side_effect_and_namespaced(
+        self, fprime_test_api, tmp_path
+    ):
+        _write_module(
+            tmp_path,
+            "withvar",
+            """\
+counter: U32 = 5
+
+def get() -> U32:
+    return counter
+""",
+        )
+        main = """\
+import withvar
+
+x: U32 = withvar.counter
+assert x == 5
+assert withvar.counter == 5
+assert withvar.get() == 5
+"""
+        # The top-level assignment runs at sequence start -> side effect warning,
+        # but `withvar.counter` still resolves as a namespaced symbol.
+        state, _, _ = compile_seq(main, import_dir=str(tmp_path))
+        assert any(
+            w.type == WarningType.IMPORT_SIDE_EFFECTS for w in state.warnings
+        ), f"expected an import-side-effects warning, got {state.warnings}"
+        assert_run_success(fprime_test_api, main, import_dir=str(tmp_path))

@@ -73,11 +73,23 @@ def compile_seq(
     return state, directives, arg_types
 
 
-def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
+def compile_seq_wasm(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_dir: str = None,
+    ignored_warnings=None,
+    error_warnings=None,
+) -> bytes:
     """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
     fpy.error.file_name = "<test>"
 
-    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+    state = get_base_compile_state(
+        default_dictionary,
+        ground_binary_dir,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        import_dir=import_dir,
+    )
 
     try:
         body = text_to_ast(seq)
@@ -89,7 +101,9 @@ def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
     return wasm
 
 
-def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
+def run_seq_wasm(
+    seq: str, ground_binary_dir: str = None, import_dir: str = None
+) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
 
     Runs the compiled module through the NASA spacewasm interpreter (the
@@ -100,7 +114,7 @@ def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
         "SPACEWASM_RUNNER not set; run pytest with --wasm"
     )
 
-    wasm = compile_seq_wasm(seq, ground_binary_dir)
+    wasm = compile_seq_wasm(seq, ground_binary_dir, import_dir=import_dir)
     wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     wasm_file.write(wasm)
     wasm_file.close()
@@ -249,11 +263,11 @@ def run_seq(
         raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
-def assert_compile_success(fprime_test_api, seq: str):
+def assert_compile_success(fprime_test_api, seq: str, import_dir: str = None):
     if USE_WASM:
-        compile_seq_wasm(seq)
+        compile_seq_wasm(seq, import_dir=import_dir)
         return
-    compile_seq(seq)
+    compile_seq(seq, import_dir=import_dir)
 
 
 def assert_run_success(
@@ -268,14 +282,17 @@ def assert_run_success(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
+    import_dir: str = None,
 ):
     if USE_WASM:
-        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        code = run_seq_wasm(
+            seq, ground_binary_dir=ground_binary_dir, import_dir=import_dir
+        )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return
     _, directives, arg_name_types = compile_seq(
-        seq, ground_binary_dir=ground_binary_dir
+        seq, ground_binary_dir=ground_binary_dir, import_dir=import_dir
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -302,13 +319,31 @@ def assert_run_success(
 
 
 def assert_compile_failure(
-    fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None
+    fprime_test_api,
+    seq: str,
+    match: str = None,
+    ground_binary_dir: str = None,
+    import_dir: str = None,
+    ignored_warnings=None,
+    error_warnings=None,
 ):
     try:
         if USE_WASM:
-            compile_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+            compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_dir=import_dir,
+                ignored_warnings=ignored_warnings,
+                error_warnings=error_warnings,
+            )
         else:
-            compile_seq(seq, ground_binary_dir=ground_binary_dir)
+            compile_seq(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_dir=import_dir,
+                ignored_warnings=ignored_warnings,
+                error_warnings=error_warnings,
+            )
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
@@ -332,6 +367,7 @@ def assert_run_failure(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
+    import_dir: str = None,
 ):
     assert not (
         error_code is not None and validation_error
@@ -343,7 +379,9 @@ def assert_run_failure(
     if USE_WASM:
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one whose entry point returns nonzero.
-        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        code = run_seq_wasm(
+            seq, ground_binary_dir=ground_binary_dir, import_dir=import_dir
+        )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
         if error_code is not None:
@@ -356,7 +394,7 @@ def assert_run_failure(
         return
 
     _, directives, arg_name_types = compile_seq(
-        seq, ground_binary_dir=ground_binary_dir
+        seq, ground_binary_dir=ground_binary_dir, import_dir=import_dir
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
