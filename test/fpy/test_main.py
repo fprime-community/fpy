@@ -33,7 +33,7 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
 
     captured_kwargs = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None):
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
         return "STATE"
 
@@ -70,7 +70,7 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
 
     captured_kwargs = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None):
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
         return "STATE"
 
@@ -120,7 +120,7 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_error, "debug", False, raising=False)
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -164,7 +164,7 @@ def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -197,7 +197,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -340,7 +340,7 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", fake_text_to_ast)
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -374,7 +374,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     """Exit 1 when the compiler raises an error."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -398,7 +398,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -420,7 +420,7 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     """Exit 1 when the ZMQ send raises an exception."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -451,7 +451,7 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
 
     captured_kwargs = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None):
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
         return "STATE"
 
@@ -479,7 +479,7 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     """--zmq-addr is passed through to send_command_zmq."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -526,7 +526,7 @@ def test_depend_main_ground_binary_dir_resolved(monkeypatch, tmp_path):
 
     captured = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None):
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured["ground_binary_dir"] = ground_binary_dir
         return "STATE"
 
@@ -547,7 +547,7 @@ def test_depend_main_default_ground_binary_dir(monkeypatch, tmp_path):
 
     captured = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None):
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured["ground_binary_dir"] = ground_binary_dir
         return "STATE"
 
@@ -566,7 +566,7 @@ def test_depend_main_compile_error_exits(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
 
     def raise_compile_error(_body, _state):
@@ -588,7 +588,7 @@ def test_depend_main_outputs_deps(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None: "STATE"
+        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
     )
     monkeypatch.setattr(
         fpy_main,

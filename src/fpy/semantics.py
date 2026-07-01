@@ -49,6 +49,7 @@ from fpy.state import (
     CompileState,
     ForLoopAnalysis,
 )
+from fpy.warnings import WarningType
 from fpy.symbols import (
     BuiltinFuncSymbol,
     CallableSymbol,
@@ -2934,7 +2935,7 @@ class WarnRangesAreNotEmpty(Visitor):
             return
 
         if lower_value.val >= upper_value.val:
-            state.warn("Range is empty", node)
+            state.warn(WarningType.EMPTY_RANGE, "Range is empty", node)
 
 
 class CheckSequenceArgs(Visitor):

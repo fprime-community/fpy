@@ -15,7 +15,7 @@ from fpy.compiler import (
     analysis_to_fpybc_directives,
     analysis_to_wasm,
 )
-from fpy.state import get_base_compile_state
+from fpy.state import CompileState, get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 from fpy.types import FpyType, FpyValue
@@ -42,12 +42,26 @@ SPACEWASM_RUNNER: str | None = None
 
 
 def compile_seq(
-    fprime_test_api, seq: str, ground_binary_dir: str = None
-) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string to a list of directives and arg types."""
+    seq: str,
+    ground_binary_dir: str = None,
+    ignored_warnings=None,
+    error_warnings=None,
+    import_dir: str = None,
+) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
+    """Compile a sequence string and return (state, directives, arg_types).
+
+    Exposes the CompileState so tests can inspect collected warnings.
+    Raises CompilationFailed on a compile/backend error (which is also how an
+    `error_warnings`-escalated warning surfaces)."""
     fpy.error.file_name = "<test>"
 
-    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+    state = get_base_compile_state(
+        default_dictionary,
+        ground_binary_dir,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        import_dir=import_dir,
+    )
 
     try:
         body = text_to_ast(seq)
@@ -56,7 +70,7 @@ def compile_seq(
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
-    return directives, arg_types
+    return state, directives, arg_types
 
 
 def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
@@ -239,7 +253,7 @@ def assert_compile_success(fprime_test_api, seq: str):
     if USE_WASM:
         compile_seq_wasm(seq)
         return
-    compile_seq(fprime_test_api, seq)
+    compile_seq(seq)
 
 
 def assert_run_success(
@@ -260,8 +274,8 @@ def assert_run_success(
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return
-    directives, arg_name_types = compile_seq(
-        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    _, directives, arg_name_types = compile_seq(
+        seq, ground_binary_dir=ground_binary_dir
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -294,7 +308,7 @@ def assert_compile_failure(
         if USE_WASM:
             compile_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
         else:
-            compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+            compile_seq(seq, ground_binary_dir=ground_binary_dir)
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
@@ -341,8 +355,8 @@ def assert_run_failure(
                 )
         return
 
-    directives, arg_name_types = compile_seq(
-        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    _, directives, arg_name_types = compile_seq(
+        seq, ground_binary_dir=ground_binary_dir
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None

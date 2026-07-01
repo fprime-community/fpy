@@ -625,7 +625,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 sequence({name_255}: U32)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
-        compile_seq(fprime_test_api, seq)
+        compile_seq(seq)
 
 
 def _dict_with_seq_args_buffer_size(buffer_size: int, tmpdir: Path) -> str:
