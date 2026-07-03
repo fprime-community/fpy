@@ -110,6 +110,20 @@ def compile_main(args: list[str] = None):
         help="Local directory to resolve Fpy binary file paths. Needed for sequence argument type checking when calling sequences (default: input file directory)",
     )
     arg_parser.add_argument(
+        "-i",
+        "--include",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="DIR",
+        dest="include",
+        help=(
+            "Directory to search when resolving `import` statements (repeatable). "
+            "The importing file's own directory is always searched first; each "
+            "--include directory is searched afterwards, in the order given"
+        ),
+    )
+    arg_parser.add_argument(
         "--ignore",
         type=str,
         default="",
@@ -152,7 +166,13 @@ def compile_main(args: list[str] = None):
     ground_binary_dir = parsed_args.ground_binary_dir
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
-    
+
+    # imports resolve against the importing file's own directory first, then
+    # each -i/--include directory in the order given
+    import_search_dirs = [str(parsed_args.input.parent.resolve())] + [
+        str(d.resolve()) for d in parsed_args.include
+    ]
+
     # reading dictionary
     try:
         state = get_base_compile_state(
@@ -160,8 +180,7 @@ def compile_main(args: list[str] = None):
             str(ground_binary_dir.resolve()),
             ignored_warnings=ignored_warnings,
             error_warnings=error_warnings,
-            # imports resolve relative to the current working directory
-            import_dir=str(Path.cwd()),
+            import_search_dirs=import_search_dirs,
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)

@@ -94,6 +94,82 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
     assert captured_kwargs["ground_binary_dir"] == str(input_path.parent.resolve())
 
 
+def _run_compile_capturing_kwargs(monkeypatch, argv):
+    """Invoke compile_main with the codegen chain stubbed out, returning the
+    kwargs get_base_compile_state was called with."""
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+
+    captured_kwargs = {}
+
+    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
+        captured_kwargs.update(kwargs)
+        return "STATE"
+
+    monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
+    monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
+    monkeypatch.setattr(
+        fpy_main, "analysis_to_fpybc_directives", lambda body, state: (["directive"], [])
+    )
+    monkeypatch.setattr(
+        fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
+    )
+
+    fpy_main.compile_main(argv)
+    return captured_kwargs
+
+
+def test_compile_main_include_dirs_after_input_parent(monkeypatch, tmp_path):
+    """-i/--include dirs are appended, resolved, after the input file's own dir,
+    which is always searched first."""
+    input_path = tmp_path / "sub" / "seq.fpy"
+    input_path.parent.mkdir()
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+    inc_a = tmp_path / "inc_a"
+    inc_b = tmp_path / "inc_b"
+    inc_a.mkdir()
+    inc_b.mkdir()
+
+    captured_kwargs = _run_compile_capturing_kwargs(
+        monkeypatch,
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "-i",
+            str(inc_a),
+            "--include",
+            str(inc_b),
+        ],
+    )
+
+    assert captured_kwargs["import_search_dirs"] == [
+        str(input_path.parent.resolve()),
+        str(inc_a.resolve()),
+        str(inc_b.resolve()),
+    ]
+
+
+def test_compile_main_include_defaults_to_input_parent_only(monkeypatch, tmp_path):
+    """With no -i flags, the search path is just the input file's own dir."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+
+    captured_kwargs = _run_compile_capturing_kwargs(
+        monkeypatch,
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+        ],
+    )
+
+    assert captured_kwargs["import_search_dirs"] == [str(input_path.parent.resolve())]
+
+
 def test_compile_main_missing_input(tmp_path, capsys):
     missing = tmp_path / "missing.fpy"
     dict_path = tmp_path / "dict.json"

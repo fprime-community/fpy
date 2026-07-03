@@ -170,10 +170,10 @@ class CompileState:
     error_warnings: set[WarningType] = field(default_factory=set)
     """warning types to promote to hard compile errors (`--error`)"""
 
-    import_dir: str | None = None
-    """root directory against which `import` statements resolve source files.
-    Defaults to the current working directory in the CLI. Distinct from
-    `ground_binary_dir`, which roots runtime sequence-binary (.bin) paths."""
+    import_search_dirs: list[str] = field(default_factory=list)
+    """ordered list of directories searched to resolve `import` statements to
+    source files (first match wins). Populated from `-i/--include` in the CLI (in addition to the
+    importing file's own directory)."""
 
     next_anon_var_id: int = 0
 
@@ -571,7 +571,7 @@ def get_base_compile_state(
     ground_binary_dir: str | None = None,
     ignored_warnings: set[WarningType] | None = None,
     error_warnings: set[WarningType] | None = None,
-    import_dir: str | None = None,
+    import_search_dirs: list[str] | None = None,
 ) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(
@@ -607,7 +607,7 @@ def get_base_compile_state(
         ),
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
-        import_dir=import_dir,
+        import_search_dirs=list(import_search_dirs) if import_search_dirs else [],
     )
 
     # Create the built-in 'flags' variable ($Flags struct).
