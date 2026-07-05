@@ -36,7 +36,7 @@ from fpy.compiler import (
 from fpy.codegen_llvm import backend_version_str
 from fpy.dictionary import load_dictionary
 from fpy.state import get_base_compile_state
-from fpy.warnings import parse_warning_set
+from fpy.error import parse_warning_set
 
 
 def human_readable_size(size_bytes):

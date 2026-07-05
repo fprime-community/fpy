@@ -51,7 +51,7 @@ from fpy.test_helpers import (
     assert_run_success,
     compile_seq,
 )
-from fpy.warnings import WarningType
+from fpy.error import WarningType
 
 # The whole module targets not-yet-implemented behavior.
 pytestmark = pytest.mark.xfail(

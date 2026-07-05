@@ -8,7 +8,7 @@ warning currently emitted by semantic analysis.
 import pytest
 
 from fpy.test_helpers import CompilationFailed, compile_seq
-from fpy.warnings import (
+from fpy.error import (
     WARNING_ALL,
     CompileWarning,
     WarningType,

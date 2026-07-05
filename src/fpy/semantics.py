@@ -49,7 +49,7 @@ from fpy.state import (
     CompileState,
     ForLoopAnalysis,
 )
-from fpy.warnings import WarningType
+from fpy.error import WarningType
 from fpy.symbols import (
     BuiltinFuncSymbol,
     CallableSymbol,

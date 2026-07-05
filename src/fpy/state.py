@@ -4,8 +4,7 @@ from typing import Union
 from dataclasses import dataclass, field
 
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
-from fpy.error import CompileError, DictionaryError
-from fpy.warnings import CompileWarning, WarningType
+from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
 from fpy.ir import Ir, IrLabel
 from fpy.macros import MACROS
 from fpy.symbols import CallableSymbol, CastSymbol, CommandSymbol, Symbol, SymbolTable, TypeCtorSymbol, VariableSymbol, create_symbol_table, merge_symbol_tables
