@@ -69,6 +69,7 @@ ine
 intrinsics
 ip
 itrunc
+keepends
 kinda
 lalr
 libcall
@@ -97,6 +98,7 @@ px
 py
 pytestmark
 Pythonically
+pytokens
 pyversions
 randf
 rb
@@ -131,6 +133,7 @@ urem
 usec
 useconds
 usize
+usr
 vararg
 vec
 verflow
