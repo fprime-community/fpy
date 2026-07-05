@@ -90,6 +90,7 @@ assert val == 123
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestReturns:
 
     def test_return_outside_func(self, fprime_test_api):
@@ -215,6 +216,7 @@ def test() -> U32:
 """
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestCalls:
 
     def test_wrong_arg_type(self, fprime_test_api):
@@ -288,6 +290,7 @@ def noop():
 val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestScoping:
 
@@ -388,9 +391,7 @@ assert i == 1
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_call_reads_global_transitively_before_definition(
-        self, fprime_test_api
-    ):
+    def test_call_reads_global_transitively_before_definition(self, fprime_test_api):
         """Calling a function that reads a global only through a function it
         calls is still an error if the global isn't defined yet."""
         seq = """
@@ -407,9 +408,7 @@ i: I64 = 5
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_call_reads_global_transitively_after_definition(
-        self, fprime_test_api
-    ):
+    def test_call_reads_global_transitively_after_definition(self, fprime_test_api):
         """The transitive case succeeds once the global is declared before the
         top-level call."""
         seq = """
@@ -425,9 +424,7 @@ caller()
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_recursive_func_reads_global_before_definition(
-        self, fprime_test_api
-    ):
+    def test_recursive_func_reads_global_before_definition(self, fprime_test_api):
         """A recursive function that reads a global, called before that global
         is declared, is an error."""
         seq = """
@@ -443,9 +440,7 @@ g: I64 = 1
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_recursive_func_reads_global_after_definition(
-        self, fprime_test_api
-    ):
+    def test_recursive_func_reads_global_after_definition(self, fprime_test_api):
         """The same recursive function succeeds when the global is declared
         before the call."""
         seq = """
@@ -525,6 +520,7 @@ test()
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestNestedFunctions:
 
     def test_func_in_func(self, fprime_test_api):
@@ -580,6 +576,7 @@ fun()
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestDefaultArguments:
 
@@ -740,9 +737,9 @@ def test(a: U64 = helper()) -> U64:
     def test_default_arg_forward_called_function(self, fprime_test_api):
         """Default arg const values are calculated even for forward-called functions.
 
-    This tests that when a function is called before it's defined in the source,
-    the default argument's const value is still properly available.
-    """
+        This tests that when a function is called before it's defined in the source,
+        the default argument's const value is still properly available.
+        """
         seq = """
 def caller() -> U64:
     # Call test() before it's defined, using default arg
@@ -789,6 +786,7 @@ def test(a: U64 = undefined_var) -> U64:
 
         # Should fail: "Unknown value"
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestNamedArguments:
 

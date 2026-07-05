@@ -35,4 +35,5 @@ class IrIf(Ir):
 @dataclass(frozen=True, unsafe_hash=True)
 class IrPushLabelOffset(Ir):
     """pushes the label's offset from the start of the file to the stack, as a StackSizeType"""
+
     label: IrLabel

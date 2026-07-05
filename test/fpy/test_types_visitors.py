@@ -76,6 +76,7 @@ def test_visitor_depth_first_traversal():
 
     assert visitor.visited == ["ident:x", "number:7", "assign"]
 
+
 def test_top_down_visitor_breadth_first_order():
     class RecordingTopDownVisitor(TopDownVisitor):
         def __init__(self):
@@ -159,6 +160,7 @@ def test_visitor_handler_exception_propagates():
 
     with pytest.raises(RuntimeError, match="should fail"):
         visitor.run(node, state)
+
 
 def test_transformer_replaces_child_nodes():
     class ZeroingTransformer(Transformer):

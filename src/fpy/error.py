@@ -68,6 +68,7 @@ COMPILER_ERROR_CONTEXT_LINE_COUNT = 1
 
 class SyntaxErrorDuringTransform(Exception):
     """Raised during AST transformation for user-facing syntax errors."""
+
     def __init__(self, msg: str, node=None):
         self.msg = msg
         self.node = node
@@ -97,9 +98,7 @@ def format_diagnostic(msg: str, node, stack_trace: str = "", color=Colors.red) -
     source_end_line = min(len(input_lines), source_end_line)
 
     # this is the list of all the src lines we will display
-    source_to_display: list[str] = input_lines[
-        source_start_line : source_end_line + 1
-    ]
+    source_to_display: list[str] = input_lines[source_start_line : source_end_line + 1]
 
     # reserve this much space for the line numbers
     # add two extra spaces for the caret to display multiline errors on lhs
@@ -134,7 +133,9 @@ def format_diagnostic(msg: str, node, stack_trace: str = "", color=Colors.red) -
     error_highlight = " " * (meta.column - 1 + line_number_space + 3) + color(caret_str)
     source_to_display.insert(node_start_line_in_ctx + 1, error_highlight)
     location = f"{file_name_str}:{meta.line}"
-    result = f"{stack_trace_optional}{Colors.cyan(location)} {Colors.bold(color(msg))}\n"
+    result = (
+        f"{stack_trace_optional}{Colors.cyan(location)} {Colors.bold(color(msg))}\n"
+    )
     result += "\n".join(source_to_display)
 
     return result
@@ -247,6 +248,7 @@ class CompileWarning:
 
 def handle_lark_error(err):
     import sys
+
     assert isinstance(err, LarkError), err
     if isinstance(err, UnexpectedToken):
         print(str(CompileError("Invalid syntax", err.token)), file=sys.stderr)

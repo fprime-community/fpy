@@ -5,6 +5,7 @@ that dependency discovery works even when the referenced .bin files do not exist
 yet — the whole point of the tool is to let build systems determine compile order
 before any binaries have been produced.
 """
+
 import tempfile
 from pathlib import Path
 

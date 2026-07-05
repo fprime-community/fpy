@@ -5,6 +5,7 @@ user can silence (`--ignore`) or promote to a hard error (`--error`).  These
 tests drive the machinery through the `empty-range` warning, which is the one
 warning currently emitted by semantic analysis.
 """
+
 import pytest
 
 from fpy.test_helpers import CompilationFailed, compile_seq
@@ -14,7 +15,6 @@ from fpy.error import (
     WarningType,
     parse_warning_set,
 )
-
 
 # A sequence whose for-loop range is statically empty (5 >= 3), which triggers
 # the EMPTY_RANGE warning during semantic analysis.
@@ -63,9 +63,9 @@ class TestWarningEmission:
 
     def test_empty_range_warns(self):
         state, _, _ = compile_seq(EMPTY_RANGE_SEQ)
-        assert any(w.type == WarningType.EMPTY_RANGE for w in state.warnings), (
-            f"expected an empty-range warning, got {state.warnings}"
-        )
+        assert any(
+            w.type == WarningType.EMPTY_RANGE for w in state.warnings
+        ), f"expected an empty-range warning, got {state.warnings}"
 
     def test_warning_does_not_fail_compile(self):
         # Should not raise -- warnings are non-fatal by default.
@@ -82,9 +82,7 @@ class TestIgnoreWarnings:
         assert state.warnings == []
 
     def test_ignore_all_suppresses_warning(self):
-        state, _, _ = compile_seq(
-            EMPTY_RANGE_SEQ, ignored_warnings=set(WarningType)
-        )
+        state, _, _ = compile_seq(EMPTY_RANGE_SEQ, ignored_warnings=set(WarningType))
         assert state.warnings == []
 
     def test_ignore_unrelated_type_keeps_warning(self):
@@ -99,15 +97,11 @@ class TestEscalateWarnings:
 
     def test_error_escalates_to_failure(self):
         with pytest.raises(CompilationFailed):
-            compile_seq(
-                EMPTY_RANGE_SEQ, error_warnings={WarningType.EMPTY_RANGE}
-            )
+            compile_seq(EMPTY_RANGE_SEQ, error_warnings={WarningType.EMPTY_RANGE})
 
     def test_escalated_message_mentions_type(self):
         with pytest.raises(CompilationFailed, match=r"empty-range"):
-            compile_seq(
-                EMPTY_RANGE_SEQ, error_warnings={WarningType.EMPTY_RANGE}
-            )
+            compile_seq(EMPTY_RANGE_SEQ, error_warnings={WarningType.EMPTY_RANGE})
 
     def test_unrelated_error_type_does_not_fail(self):
         # Escalating a different warning type must not affect the empty-range warning.

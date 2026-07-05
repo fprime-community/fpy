@@ -28,7 +28,6 @@ from fpy.model import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
 
-
 # Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
 # marker makes conftest build the spacewasm runner on demand, so these always
 # run on the wasm backend even when --wasm isn't passed.
@@ -72,7 +71,7 @@ class TestWasmAssert:
         "exit_code, expected",
         [
             (None, EXIT_WITH_ERROR),  # no code written -> default
-            (42, 42),                 # written code returned verbatim
+            (42, 42),  # written code returned verbatim
             (123, 123),
         ],
     )
@@ -120,39 +119,51 @@ class TestWasmVariables:
 
     def test_signed_widening(self):
         # I32 var read in a wider context -> sign-extend.
-        assert run_seq_wasm(
-            "x: I32 = 0 - 5\ny: I64 = x + 1\nassert y == 0 - 4\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm("x: I32 = 0 - 5\ny: I64 = x + 1\nassert y == 0 - 4\n")
+            == NO_ERROR
+        )
 
     def test_float_variable(self):
-        assert run_seq_wasm("a: F64 = 2.5\nb: F64 = a + 1.5\nassert b == 4.0\n") == NO_ERROR
+        assert (
+            run_seq_wasm("a: F64 = 2.5\nb: F64 = a + 1.5\nassert b == 4.0\n")
+            == NO_ERROR
+        )
 
     def test_bool_variable(self):
         assert run_seq_wasm("ok: bool = True\nassert ok\n") == NO_ERROR
         assert run_seq_wasm("ok: bool = False\nassert ok\n") == EXIT_WITH_ERROR
 
     def test_enum_variable(self):
-        assert run_seq_wasm(
-            "c: Ref.DpDemo.ColorEnum = Ref.DpDemo.ColorEnum.RED\nassert True\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm(
+                "c: Ref.DpDemo.ColorEnum = Ref.DpDemo.ColorEnum.RED\nassert True\n"
+            )
+            == NO_ERROR
+        )
 
     def test_struct_variable(self):
         # Aggregate alloca + store of a struct constant.
-        assert run_seq_wasm(
-            "p: Ref.SignalPair = Ref.SignalPair(3, 4)\nassert True\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm("p: Ref.SignalPair = Ref.SignalPair(3, 4)\nassert True\n")
+            == NO_ERROR
+        )
 
     def test_array_variable(self):
-        assert run_seq_wasm(
-            "a: Ref.DpDemo.U32Array = [1, 2, 3]\nassert True\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm("a: Ref.DpDemo.U32Array = [1, 2, 3]\nassert True\n")
+            == NO_ERROR
+        )
 
     def test_aggregate_copy(self):
         # Reading an aggregate variable (load of a struct) and storing it.
-        assert run_seq_wasm(
-            "p: Ref.SignalPair = Ref.SignalPair(3, 4)\n"
-            "q: Ref.SignalPair = p\nassert True\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm(
+                "p: Ref.SignalPair = Ref.SignalPair(3, 4)\n"
+                "q: Ref.SignalPair = p\nassert True\n"
+            )
+            == NO_ERROR
+        )
 
 
 class TestWasmArithmetic:
@@ -200,7 +211,10 @@ class TestWasmArithmetic:
     def test_floor_divide_float(self):
         assert run_seq_wasm("x: F64 = 7.5\nassert x // 2.0 == 3.0\n") == NO_ERROR
         # Floored, not truncated: -5.5 // 2.0 == -3.0.
-        assert run_seq_wasm("x: F64 = 0.0 - 5.5\nassert x // 2.0 == (0.0 - 3.0)\n") == NO_ERROR
+        assert (
+            run_seq_wasm("x: F64 = 0.0 - 5.5\nassert x // 2.0 == (0.0 - 3.0)\n")
+            == NO_ERROR
+        )
 
     def test_greater_than_unsigned(self):
         assert run_seq_wasm("x: U64 = 5\nassert x > 3\n") == NO_ERROR
@@ -347,7 +361,10 @@ class TestWasmIf:
         assert run_seq_wasm(seq) == NO_ERROR
 
     def test_assert_inside_if_body(self):
-        assert run_seq_wasm("x: U32 = 7\nif x == 7:\n    assert False\n") == EXIT_WITH_ERROR
+        assert (
+            run_seq_wasm("x: U32 = 7\nif x == 7:\n    assert False\n")
+            == EXIT_WITH_ERROR
+        )
 
     def test_variable_declared_in_if_block(self):
         # A var declared in a top-level if block is block-scoped (a local, not a
@@ -374,14 +391,20 @@ class TestWasmCast:
 
     def test_float_to_int_truncates_toward_zero(self):
         # 5.9 -> 5: float->int truncates toward zero (wasm trunc / C / the VM).
-        assert run_seq_wasm("x: F64 = 5.9\ny: I32 = I32(x)\nassert y == 5\n") == NO_ERROR
+        assert (
+            run_seq_wasm("x: F64 = 5.9\ny: I32 = I32(x)\nassert y == 5\n") == NO_ERROR
+        )
 
     def test_negative_float_to_int_truncates_toward_zero(self):
         # -5.9 -> -5 (toward zero), not -6 (toward -inf).
-        assert run_seq_wasm("x: F64 = -5.9\ny: I32 = I32(x)\nassert y == -5\n") == NO_ERROR
+        assert (
+            run_seq_wasm("x: F64 = -5.9\ny: I32 = I32(x)\nassert y == -5\n") == NO_ERROR
+        )
 
     def test_int_to_float(self):
-        assert run_seq_wasm("x: I32 = 7\ny: F64 = F64(x)\nassert y == 7.0\n") == NO_ERROR
+        assert (
+            run_seq_wasm("x: I32 = 7\ny: F64 = F64(x)\nassert y == 7.0\n") == NO_ERROR
+        )
 
     def test_int_narrowing_wraps(self):
         # Narrowing an int truncates the high bits: 300 & 0xff == 44.
@@ -403,11 +426,11 @@ class TestWasmFloatToIntSaturates:
     @pytest.mark.parametrize(
         "seq",
         [
-            "x: F64 = 1e20\nassert U8(x) == 255\n",       # above U8 max -> 255
-            "x: F64 = -5.0\nassert U8(x) == 0\n",         # below U8 min -> 0
-            "x: F64 = 1000.0\nassert I8(x) == 127\n",     # above I8 max -> 127
-            "x: F64 = -1000.0\nassert I8(x) == -128\n",   # below I8 min -> -128
-            "x: F64 = 1e20\nassert I32(x) == 2147483647\n",   # I32 max
+            "x: F64 = 1e20\nassert U8(x) == 255\n",  # above U8 max -> 255
+            "x: F64 = -5.0\nassert U8(x) == 0\n",  # below U8 min -> 0
+            "x: F64 = 1000.0\nassert I8(x) == 127\n",  # above I8 max -> 127
+            "x: F64 = -1000.0\nassert I8(x) == -128\n",  # below I8 min -> -128
+            "x: F64 = 1e20\nassert I32(x) == 2147483647\n",  # I32 max
             "x: F64 = -1e20\nassert I32(x) == -2147483648\n",  # I32 min
         ],
     )
@@ -416,13 +439,17 @@ class TestWasmFloatToIntSaturates:
 
     def test_nan_to_int_is_zero(self):
         # 0.0 / 0.0 is NaN; a NaN float->int cast saturates to 0.
-        assert run_seq_wasm("x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n") == NO_ERROR
+        assert (
+            run_seq_wasm("x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n")
+            == NO_ERROR
+        )
 
     def test_infinity_to_int_saturates(self):
         # +inf clamps to the target max rather than trapping or crashing.
-        assert run_seq_wasm(
-            "x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == 2147483647\n"
-        ) == NO_ERROR
+        assert (
+            run_seq_wasm("x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == 2147483647\n")
+            == NO_ERROR
+        )
 
     def test_out_of_range_does_not_trap(self):
         # Runs to completion (returns a code) rather than trapping; a wasm trap

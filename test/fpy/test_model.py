@@ -202,6 +202,7 @@ class TestStoreDirectives:
         result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
+
 class TestPushDirectives:
     """Tests for push directive error conditions."""
 
@@ -271,6 +272,7 @@ class TestPushDirectives:
         model.stack = bytearray(3)
         result = model.dispatch(SetSeedDirective())
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
 
 class TestWaitDirectives:
     """Tests for wait directive error conditions."""
@@ -622,7 +624,7 @@ class TestArithmeticDirectives:
         model.push(-1)
         result = model.dispatch(SignedIntDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR or result is None
-        ret = model.pop() 
+        ret = model.pop()
         assert ret == MIN_INT64
 
     def test_float_add_stack_underflow(self):
@@ -896,7 +898,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('-inf')
+        assert val == float("-inf")
 
     def test_fdiv_negative_by_neg_zero(self):
         """(-1.0) / (-0.0) should be +inf."""
@@ -906,7 +908,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_positive_by_pos_zero(self):
         """1.0 / 0.0 should be +inf."""
@@ -916,7 +918,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_zero_by_zero(self):
         """0.0 / 0.0 should be NaN."""
@@ -1038,7 +1040,9 @@ class TestArgPassing:
         """Size mismatch with multiple arg types should report correct totals."""
         model = FpySequencerModel()
         # U8(1) + U32(4) + F64(8) = 13 bytes expected
-        with pytest.raises(ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"):
+        with pytest.raises(
+            ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"
+        ):
             model.run(
                 [NoOpDirective()],
                 arg_types=[U8, U32, F64],

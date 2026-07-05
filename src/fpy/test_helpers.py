@@ -110,11 +110,13 @@ def run_seq_wasm(
     on-board target runtime) via the runner harness built by conftest."""
     import subprocess
 
-    assert SPACEWASM_RUNNER is not None, (
-        "SPACEWASM_RUNNER not set; run pytest with --wasm"
-    )
+    assert (
+        SPACEWASM_RUNNER is not None
+    ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
 
-    wasm = compile_seq_wasm(seq, ground_binary_dir, import_search_dirs=import_search_dirs)
+    wasm = compile_seq_wasm(
+        seq, ground_binary_dir, import_search_dirs=import_search_dirs
+    )
     wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     wasm_file.write(wasm)
     wasm_file.close()
@@ -228,9 +230,7 @@ def run_seq(
         old_cwd = os.getcwd()
         os.chdir(ground_binary_dir)
     try:
-        error_code, trap = model.run(
-            directives, tlm_db, args=args, arg_types=arg_types
-        )
+        error_code, trap = model.run(directives, tlm_db, args=args, arg_types=arg_types)
     finally:
         if old_cwd is not None:
             os.chdir(old_cwd)
@@ -263,7 +263,9 @@ def run_seq(
         raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
-def assert_compile_success(fprime_test_api, seq: str, import_search_dirs: list[str] | None = None):
+def assert_compile_success(
+    fprime_test_api, seq: str, import_search_dirs: list[str] | None = None
+):
     if USE_WASM:
         compile_seq_wasm(seq, import_search_dirs=import_search_dirs)
         return
@@ -286,7 +288,9 @@ def assert_run_success(
 ):
     if USE_WASM:
         code = run_seq_wasm(
-            seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
+            seq,
+            ground_binary_dir=ground_binary_dir,
+            import_search_dirs=import_search_dirs,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
@@ -380,7 +384,9 @@ def assert_run_failure(
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one whose entry point returns nonzero.
         code = run_seq_wasm(
-            seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
+            seq,
+            ground_binary_dir=ground_binary_dir,
+            import_search_dirs=import_search_dirs,
         )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
@@ -445,6 +451,7 @@ def assert_run_failure(
     except RuntimeError as e:
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
+
         # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
         # code int; the expected value may likewise be either. Compare by integer
         # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.

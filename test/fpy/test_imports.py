@@ -34,6 +34,13 @@ Design decisions encoded here:
     importing sequence).
   * Importing a file that declares sequence arguments (`sequence(x: U32)`) is a
     hard error.
+  * The module namespace obeys name groups: it exists only in the name groups
+    of the symbols the module defines.  So `import lib` of a functions-only
+    module collides with a local function `lib` (callable name group) but
+    coexists with a local variable `lib` (value name group).
+  * Importing the same module path more than once in one file is a hard
+    error.  The rule is per-file: a file and a module it imports may each
+    import the same module.
 
 Every sequence that is expected to compile is also *run* (via
 `assert_run_success`), so the asserts embedded in the sequences actually
@@ -42,6 +49,7 @@ execute.  Every sequence that is expected to fail compilation uses
 implemented; they define the target behavior.  Remove the `pytestmark` once
 `import` is implemented.
 """
+
 from pathlib import Path
 
 import pytest
@@ -239,7 +247,9 @@ import withargs
         main = """\
 import does_not_exist
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_no_arg_sequence_is_importable(self, fprime_test_api, tmp_path):
         """A bare `sequence()` with no arguments is importable -- only
@@ -280,7 +290,9 @@ def f( ->
         main = """\
 import broken
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_import_path_is_a_directory_fails(self, fprime_test_api, tmp_path):
         """If the resolved `<name>.fpy` is a directory, importing fails cleanly
@@ -289,7 +301,9 @@ import broken
         main = """\
 import adir
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_empty_module_compiles_without_warning(self, fprime_test_api, tmp_path):
         """An empty module has no definitions and no side effects."""
@@ -322,7 +336,9 @@ import lib
 
 y: U32 = add_one(1)
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_module_name_not_usable_as_value(self, fprime_test_api, tmp_path):
         """The module name is a namespace, not an expression."""
@@ -339,7 +355,9 @@ import lib
 
 y: U32 = lib
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_same_function_name_in_two_modules_no_collision(
         self, fprime_test_api, tmp_path
@@ -390,13 +408,19 @@ import iso
 main_global: U32 = 5
 x: U32 = iso.uses_outside()
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
 
 class TestImportNameCollisions:
-    """The module name must not clash with an existing top-level name."""
+    """The module namespace collides with existing top-level names per name
+    group: the namespace exists only in the name groups of the symbols the
+    module defines."""
 
     def test_import_collides_with_local_function(self, fprime_test_api, tmp_path):
+        """A functions-only module occupies the callable name group, so a
+        local function with the module's name collides."""
         _write_module(
             tmp_path,
             "dup",
@@ -411,9 +435,33 @@ import dup
 def dup() -> U32:
     return 2
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_import_collides_with_local_variable(self, fprime_test_api, tmp_path):
+        """A module with a top-level variable occupies the value name group,
+        so a local variable with the module's name collides."""
+        _write_module(
+            tmp_path,
+            "dup",
+            """\
+v: U32 = 1
+""",
+        )
+        main = """\
+import dup
+
+dup: U32 = 3
+"""
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
+
+    def test_import_coexists_with_local_variable(self, fprime_test_api, tmp_path):
+        """A functions-only module does NOT occupy the value name group, so a
+        local variable with the module's name is legal, and both remain
+        usable in their respective name groups."""
         _write_module(
             tmp_path,
             "dup",
@@ -426,14 +474,19 @@ def f() -> U32:
 import dup
 
 dup: U32 = 3
+x: U32 = dup.f()
+assert x == 1
+assert dup == 3
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
 class TestImportDuplicates:
-    """Importing the same module twice inlines it once."""
+    """Importing the same module path twice in one file is an error; the rule
+    is per-file, so a file and a module it imports may each import the same
+    module."""
 
-    def test_duplicate_import_is_idempotent(self, fprime_test_api, tmp_path):
+    def test_duplicate_import_is_error(self, fprime_test_api, tmp_path):
         _write_module(
             tmp_path,
             "lib",
@@ -445,11 +498,32 @@ def add_one(x: U32) -> U32:
         main = """\
 import lib
 import lib
-
-y: U32 = lib.add_one(41)
-assert y == 42
 """
-        # Must not raise a duplicate-definition error from inlining twice.
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
+
+    def test_duplicate_across_files_is_allowed(self, fprime_test_api, tmp_path):
+        """main imports both `a` and `c`; `a` also imports `c` internally.
+        Each file imports `c` only once, so no duplicate error."""
+        _write_module(tmp_path, "c", "def g() -> U32:\n    return 7\n")
+        _write_module(
+            tmp_path,
+            "a",
+            """\
+import c
+
+def f() -> U32:
+    return c.g()
+""",
+        )
+        main = """\
+import a
+import c
+
+x: U32 = a.f() + c.g()
+assert x == 14
+"""
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
@@ -471,7 +545,9 @@ def f() -> U32:
 if 1 == 1:
     import lib
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_import_inside_function_fails(self, fprime_test_api, tmp_path):
         _write_module(
@@ -487,7 +563,9 @@ def wrapper() -> U32:
     import lib
     return 1
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
 
 class TestImportTransitive:
@@ -546,7 +624,9 @@ import a
 
 x: U32 = b.g()
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
 
 class TestImportCycles:
@@ -567,7 +647,10 @@ def f() -> U32:
 import selfmod
 """
         assert_compile_failure(
-            fprime_test_api, main, match="(?i)(circular|cycle)", import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="(?i)(circular|cycle)",
+            import_search_dirs=[str(tmp_path)],
         )
 
     def test_mutual_import_is_cycle_error(self, fprime_test_api, tmp_path):
@@ -595,7 +678,10 @@ def b() -> U32:
 import mod_a
 """
         assert_compile_failure(
-            fprime_test_api, main, match="(?i)(circular|cycle)", import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="(?i)(circular|cycle)",
+            import_search_dirs=[str(tmp_path)],
         )
 
     def test_three_way_cycle_error(self, fprime_test_api, tmp_path):
@@ -606,7 +692,10 @@ import mod_a
 import c1
 """
         assert_compile_failure(
-            fprime_test_api, main, match="(?i)(circular|cycle)", import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="(?i)(circular|cycle)",
+            import_search_dirs=[str(tmp_path)],
         )
 
 
@@ -667,11 +756,11 @@ import pkg.mod
 
 y: U32 = mod.f()
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
-    def test_missing_leaf_in_existing_package_is_error(
-        self, fprime_test_api, tmp_path
-    ):
+    def test_missing_leaf_in_existing_package_is_error(self, fprime_test_api, tmp_path):
         """The package dir exists but the leaf module file does not."""
         _write_module(
             tmp_path,
@@ -684,11 +773,11 @@ def f() -> U32:
         main = """\
 import pkg.missing
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
-    def test_two_modules_in_same_package_no_collision(
-        self, fprime_test_api, tmp_path
-    ):
+    def test_two_modules_in_same_package_no_collision(self, fprime_test_api, tmp_path):
         """Sibling modules under one package are independently namespaced."""
         _write_module(tmp_path, "pkg.a", "def f() -> U32:\n    return 1\n")
         _write_module(tmp_path, "pkg.b", "def f() -> U32:\n    return 2\n")
@@ -745,7 +834,9 @@ assert x == 5
         main = """\
 import pkg
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
     def test_dotted_leaf_package_import_is_error(self, fprime_test_api, tmp_path):
         """`import a.b` where `a/b/` is a directory but `a/b.fpy` does not exist
@@ -754,7 +845,9 @@ import pkg
         main = """\
 import a.b
 """
-        assert_compile_failure(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_compile_failure(
+            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+        )
 
 
 class TestImportSearchDirs:
@@ -773,9 +866,7 @@ import lib
 x: U32 = lib.f()
 assert x == 9
 """
-        assert_run_success(
-            fprime_test_api, main, import_search_dirs=[str(d1), str(d2)]
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(d1), str(d2)])
 
     def test_first_search_dir_shadows_later(self, fprime_test_api, tmp_path):
         """When a module name exists in two search dirs, the earlier dir wins."""
@@ -791,9 +882,7 @@ import lib
 x: U32 = lib.f()
 assert x == 1
 """
-        assert_run_success(
-            fprime_test_api, main, import_search_dirs=[str(d1), str(d2)]
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(d1), str(d2)])
 
     def test_search_order_respects_dir_order(self, fprime_test_api, tmp_path):
         """Reversing the search-dir order flips which module wins."""
@@ -809,13 +898,9 @@ import lib
 x: U32 = lib.f()
 assert x == 2
 """
-        assert_run_success(
-            fprime_test_api, main, import_search_dirs=[str(d2), str(d1)]
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(d2), str(d1)])
 
-    def test_dotted_module_resolved_across_search_dirs(
-        self, fprime_test_api, tmp_path
-    ):
+    def test_dotted_module_resolved_across_search_dirs(self, fprime_test_api, tmp_path):
         """Dotted resolution honors the search path: `pkg/mod.fpy` lives only in
         the second dir."""
         d1 = tmp_path / "d1"
@@ -829,9 +914,7 @@ import pkg.mod
 x: U32 = pkg.mod.f()
 assert x == 5
 """
-        assert_run_success(
-            fprime_test_api, main, import_search_dirs=[str(d1), str(d2)]
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(d1), str(d2)])
 
     def test_no_search_dirs_cannot_resolve(self, fprime_test_api, tmp_path):
         """With an empty search path, no import can resolve."""

@@ -62,9 +62,7 @@ def get_version_str() -> str:
 
 def compile_main(args: list[str] = None):
     compiler_version = f"{get_version_str()}\nbackend:\n{backend_version_str()}"
-    arg_parser = argparse.ArgumentParser(
-        description=f"Fpy compiler {compiler_version}"
-    )
+    arg_parser = argparse.ArgumentParser(description=f"Fpy compiler {compiler_version}")
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {compiler_version}"
     )
@@ -198,10 +196,7 @@ def compile_main(args: list[str] = None):
 
     # semantics
     try:
-        state = analyze_ast(
-            body,
-            state
-        )
+        state = analyze_ast(body, state)
     except RecursionError:
         print("Recursion limit exceeded in semantics passes", file=sys.stderr)
         sys.exit(1)
@@ -257,7 +252,9 @@ def compile_main(args: list[str] = None):
         arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
         output_bytes, crc = serialize_directives(output, arg_specs)
         output_path.write_bytes(output_bytes)
-        print(f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
+        print(
+            f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}"
+        )
     else:
         assert False, parsed_args.emit
 

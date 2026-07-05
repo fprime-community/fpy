@@ -7,7 +7,17 @@ from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
 from fpy.ir import Ir, IrLabel
 from fpy.macros import MACROS
-from fpy.symbols import CallableSymbol, CastSymbol, CommandSymbol, Symbol, SymbolTable, TypeCtorSymbol, VariableSymbol, create_symbol_table, merge_symbol_tables
+from fpy.symbols import (
+    CallableSymbol,
+    CastSymbol,
+    CommandSymbol,
+    Symbol,
+    SymbolTable,
+    TypeCtorSymbol,
+    VariableSymbol,
+    create_symbol_table,
+    merge_symbol_tables,
+)
 from fpy.syntax import (
     Ast,
     AstBreak,
@@ -50,6 +60,7 @@ from fpy.bytecode.directives import Directive, update_configurable_types_from_di
 class ForLoopAnalysis:
     loop_var: VariableSymbol
     upper_bound_var: VariableSymbol
+
 
 @dataclass
 class CompileState:
@@ -115,7 +126,9 @@ class CompileState:
     in positional order. Default values are filled in for arguments not provided
     at the call site (or struct members / array elements with defaults)."""
 
-    function_global_uses: dict[AstDef, list[VariableSymbol]] = field(default_factory=dict)
+    function_global_uses: dict[AstDef, list[VariableSymbol]] = field(
+        default_factory=dict
+    )
     """function definition -> globals it reads. Populated with direct uses by
     CollectFunctionGlobalUses, then grown to the transitive closure (globals
     read through called functions too) by ResolveTransitiveGlobalUses."""

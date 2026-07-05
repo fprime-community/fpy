@@ -40,7 +40,9 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives", lambda body, state: (["directive"], [])
+        fpy_main,
+        "analysis_to_fpybc_directives",
+        lambda body, state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -59,7 +61,9 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
 
 
-def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tmp_path, capsys):
+def test_compile_main_ground_binary_dir_defaults_to_input_parent(
+    monkeypatch, tmp_path, capsys
+):
     """When --ground-binary-dir is not passed, it defaults to the input file's parent."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
@@ -77,7 +81,9 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(monkeypatch, tm
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives", lambda body, state: (["directive"], [])
+        fpy_main,
+        "analysis_to_fpybc_directives",
+        lambda body, state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -108,7 +114,9 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives", lambda body, state: (["directive"], [])
+        fpy_main,
+        "analysis_to_fpybc_directives",
+        lambda body, state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -196,7 +204,9 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_error, "debug", False, raising=False)
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -208,7 +218,9 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main, "analysis_to_fpybc_directives", fake_analysis_to_fpybc_directives
     )
-    monkeypatch.setattr(fpy_main, "fpybc_directives_to_fpyasm", lambda directives: "FPYASM")
+    monkeypatch.setattr(
+        fpy_main, "fpybc_directives_to_fpyasm", lambda directives: "FPYASM"
+    )
 
     def fail_serialize(*args):
         raise AssertionError("serialize_directives should not be called")
@@ -240,7 +252,9 @@ def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -273,7 +287,9 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -416,11 +432,13 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", fake_text_to_ast)
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xAB\xCD")
+    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xab\xcd")
 
     monkeypatch.setattr(
         fpy_main, "analysis_to_fpybc_directives", lambda body, state: ([directive], [])
@@ -435,14 +453,17 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "send_command_zmq", fake_send)
 
-    fpy_main.cmd_main([
-        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, 42)',
-        "-d", "dict.json",
-    ])
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, 42)',
+            "-d",
+            "dict.json",
+        ]
+    )
 
     assert captured_source["text"] == 'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, 42)\n'
     assert sent["cmd_opcode"] == 0x10006001
-    assert sent["args"] == b"\xAB\xCD"
+    assert sent["args"] == b"\xab\xcd"
     assert "Sending" in capsys.readouterr().out
 
 
@@ -450,7 +471,9 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     """Exit 1 when the compiler raises an error."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -460,10 +483,13 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "analysis_to_fpybc_directives", raise_compile_error)
 
     with pytest.raises(SystemExit) as exc:
-        fpy_main.cmd_main([
-            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, bad_value)',
-            "-d", "dict.json",
-        ])
+        fpy_main.cmd_main(
+            [
+                'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, bad_value)',
+                "-d",
+                "dict.json",
+            ]
+        )
 
     assert exc.value.code == 1
 
@@ -474,19 +500,25 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives",
+        fpy_main,
+        "analysis_to_fpybc_directives",
         lambda body, state: ([StackCmdDirective(args_size=10)], []),
     )
 
     with pytest.raises(SystemExit) as exc:
-        fpy_main.cmd_main([
-            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, some_tlm)',
-            "-d", "dict.json",
-        ])
+        fpy_main.cmd_main(
+            [
+                'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT, some_tlm)',
+                "-d",
+                "dict.json",
+            ]
+        )
 
     assert exc.value.code == 1
     assert "Command arguments must be constant expressions" in capsys.readouterr().err
@@ -496,13 +528,16 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     """Exit 1 when the ZMQ send raises an exception."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives",
+        fpy_main,
+        "analysis_to_fpybc_directives",
         lambda body, state: ([directive], []),
     )
 
@@ -512,10 +547,13 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(fpy_main, "send_command_zmq", fail_send)
 
     with pytest.raises(SystemExit) as exc:
-        fpy_main.cmd_main([
-            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
-            "-d", "dict.json",
-        ])
+        fpy_main.cmd_main(
+            [
+                'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+                "-d",
+                "dict.json",
+            ]
+        )
 
     assert exc.value.code == 1
     assert "Failed to send command" in capsys.readouterr().err
@@ -534,7 +572,8 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives",
+        fpy_main,
+        "analysis_to_fpybc_directives",
         lambda body, state: ([ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []),
     )
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
@@ -542,11 +581,15 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     bin_dir = tmp_path / "bins"
     bin_dir.mkdir()
 
-    fpy_main.cmd_main([
-        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
-        "-d", "dict.json",
-        "-g", str(bin_dir),
-    ])
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+            "-d",
+            "dict.json",
+            "-g",
+            str(bin_dir),
+        ]
+    )
 
     assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
 
@@ -555,24 +598,33 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     """--zmq-addr is passed through to send_command_zmq."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives",
+        fpy_main,
+        "analysis_to_fpybc_directives",
         lambda body, state: ([directive], []),
     )
 
     sent = {}
-    monkeypatch.setattr(fpy_main, "send_command_zmq", lambda o, a, addr: sent.update(addr=addr))
+    monkeypatch.setattr(
+        fpy_main, "send_command_zmq", lambda o, a, addr: sent.update(addr=addr)
+    )
 
-    fpy_main.cmd_main([
-        'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
-        "-d", "dict.json",
-        "--zmq-addr", "tcp://192.168.1.1:50050",
-    ])
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+            "-d",
+            "dict.json",
+            "--zmq-addr",
+            "tcp://192.168.1.1:50050",
+        ]
+    )
 
     assert sent["addr"] == "tcp://192.168.1.1:50050"
 
@@ -642,7 +694,9 @@ def test_depend_main_compile_error_exits(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
 
     def raise_compile_error(_body, _state):
@@ -664,7 +718,9 @@ def test_depend_main_outputs_deps(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
     monkeypatch.setattr(
-        fpy_main, "get_base_compile_state", lambda dictionary, ground_binary_dir=None, **kwargs: "STATE"
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(
         fpy_main,
@@ -689,4 +745,6 @@ def test_build_command_packet():
     expected_opcode = struct.pack(">I", 0x10006001)
     expected_args = b"\x01\x02\x03"
 
-    assert packet == expected_size + expected_descriptor + expected_opcode + expected_args
+    assert (
+        packet == expected_size + expected_descriptor + expected_opcode + expected_args
+    )
