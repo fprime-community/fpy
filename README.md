@@ -19,7 +19,7 @@ Fpy has a few principles:
 
 >*The art of making a good language is to restrict the user in a good way* 
 >
-> – Andrey Breslav, creator of Kotlin
+> -- Andrey Breslav, creator of Kotlin
 
 ## Overview
 
@@ -623,10 +623,21 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 
 ## Workflow
 
-1. Make a venv
-2. `pip install -e .`
+This project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
+
+1. `uv sync` (creates `.venv` and installs all dependencies, including dev tools)
+2. `uv run pre-commit install` (one-time: installs the git pre-commit hooks)
 3. Make changes to the source
-4. `pytest`
+4. `uv run pytest`
+
+### Pre-commit hooks
+
+The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git commit` once installed:
+
+* **black** formats the staged Python files.
+* **spec test links** runs `verify/spec_links.py`, which checks that every test link in `SPEC.md` (the `*Tests:*` lines) points at a test that exists, at its current line number. If this hook fails because tests moved or were renamed, run `uv run python verify/spec_links.py --fix` to update the line numbers and link labels, then re-stage `SPEC.md`. A missing or renamed test must be fixed by hand.
+
+You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 
 ## Running on a test F Prime deployment
 

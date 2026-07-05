@@ -22,6 +22,8 @@ In a syntactic rule:
 * A star suffix `*` means zero or more instances of its preceding rule
 * A question mark suffix `?` means zero or one instances of its preceding rule
 
+A line of the specification may be followed by an italicized *Tests:* line. Each bracketed number links to a test that verifies the behavior; hover over a number to see the test's full `file::class::name`. These links are checked and kept up to date by `verify/spec_links.py`.
+
 # Names and scopes
 
 ## Names
@@ -44,6 +46,7 @@ The list of reserved words is:
 * `def`
 * `for`
 * `if`
+* `import`
 * `not`
 * `pass`
 * `return`
@@ -137,6 +140,9 @@ A **fully-qualified name** is a qualified name which is not itself a qualifier.
 TODO names are semantic, ident is syntactic
 TODO you can't actually tell at syntax level what is a fqn
 If a fully-qualified name resolves to a namespace, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L343 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_module_name_not_usable_as_value")
+
 TODO you can think of the dict as "importing definitions"
 
 
@@ -621,6 +627,110 @@ If the check times out during execution:
 > The timeout defaults to never, and the frequency defaults to once per second.
 
 If at any point during execution, two times which are [incomparable](todo) are attempted to be compared, the check statement will halt the program as if by an [assertion](#assert-statement), and display an error code.
+
+# Imports
+
+> **Note:** The import statement is not yet implemented.
+
+An **import statement** compiles another Fpy source file, called a **module**, and makes the module's [definitions](#definitions) available in the importing file under a [namespace](#namespaces).
+
+## Syntax
+
+Rule:
+
+`import_stmt: "import" name ("." name)*`
+
+Name:
+
+`import_stmt: "import" module_path`
+
+The **module path** is the entire dotted sequence of names. The first name of a module path is its **root segment**, and the last is its **leaf segment**.
+
+An import statement is only valid outside an indentation block.
+
+*Tests:* [1](test/fpy/test_imports.py#L535 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L552 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
+
+## Module resolution
+
+The **import search path** is an ordered list of directories provided by the environment in which the compiler is invoked.
+
+> In the command-line compiler, the import search path is the directory containing the file being compiled, followed by each directory passed with `-i`/`--include`, in order.
+
+A module path `s_0.s_1. ... .s_n` **resolves** in a directory `dir` if the file `dir/s_0/s_1/.../s_n.fpy` exists.
+
+*Tests:* [1](test/fpy/test_imports.py#L705 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L725 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L801 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_module_file_beats_namespace_directory"), [4](test/fpy/test_imports.py#L815 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
+
+The module path of an import statement is resolved in each directory of the import search path, in order. The file from the first directory in which it resolves is the imported module.
+
+*Tests:* [1](test/fpy/test_imports.py#L856 "test/fpy/test_imports.py::TestImportSearchDirs::test_module_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L871 "test/fpy/test_imports.py::TestImportSearchDirs::test_first_search_dir_shadows_later"), [3](test/fpy/test_imports.py#L887 "test/fpy/test_imports.py::TestImportSearchDirs::test_search_order_respects_dir_order"), [4](test/fpy/test_imports.py#L903 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_module_resolved_across_search_dirs")
+
+If the module path resolves in no directory of the import search path, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L246 "test/fpy/test_imports.py::TestImportErrors::test_missing_module_is_an_error"), [2](test/fpy/test_imports.py#L919 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [3](test/fpy/test_imports.py#L763 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [4](test/fpy/test_imports.py#L828 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [5](test/fpy/test_imports.py#L841 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [6](test/fpy/test_imports.py#L297 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails")
+
+> Every segment except the leaf names a plain directory; no `__init__.fpy`-style marker file is required. Because only the leaf's `.fpy` file satisfies an import, a file `foo.fpy` always takes precedence over a sibling directory `foo/` for `import foo`, while `import foo.bar` descends into the directory `foo/` regardless of whether `foo.fpy` exists. Importing a name that resolves only to a directory is an error: a directory has no code to import.
+
+## Semantics
+
+If the imported module fails to parse or compile, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L279 "test/fpy/test_imports.py::TestImportFileErrors::test_parse_error_in_imported_file_fails")
+
+> The diagnostic should point into the imported file, not at the import statement.
+
+If the imported module declares one or more [sequence arguments](todo), an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L228 "test/fpy/test_imports.py::TestImportErrors::test_cannot_import_sequence_with_arguments")
+
+> A `sequence()` directive with no arguments does not prevent a file from being imported.
+
+*Tests:* [1](test/fpy/test_imports.py#L254 "test/fpy/test_imports.py::TestImportErrors::test_no_arg_sequence_is_importable")
+
+An imported module may itself contain import statements. The semantics of this section apply to them recursively, with the module in the role of the importing file. All import statements in a compilation resolve against the same import search path.
+
+*Tests:* [1](test/fpy/test_imports.py#L574 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works")
+
+If a module transitively imports itself, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L635 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L656 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L687 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
+
+The import statement introduces the module path as a chain of namespaces in the global scope. Each [definition](#definitions) at the top level of the module adds its symbol to the leaf namespace: a symbol `x` defined in module `a.b.c` is named `a.b.c.x` in the importing file, and is not accessible under any shorter name.
+
+*Tests:* [1](test/fpy/test_imports.py#L85 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L123 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L324 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L362 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L743 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
+
+Per the [name group](#name-groups) rules, these namespaces exist only in the name groups of the symbols they contain.
+
+*Tests:* [1](test/fpy/test_imports.py#L461 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable")
+
+If a name introduced by an import statement is already mapped, in the same name group and the same scope or namespace, to anything other than a namespace introduced by another import statement, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L421 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L442 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable")
+
+> Namespaces introduced by imports merge: after `import pkg.a` and `import pkg.b`, the namespace `pkg` contains both `a` and `b`. Because name groups do not intersect, an imported module conflicts only with names in the groups it occupies: a variable `lib` may coexist with an imported module `lib` that defines only functions.
+
+*Tests:* [1](test/fpy/test_imports.py#L780 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_modules_in_same_package_no_collision")
+
+Names within the module are resolved in the module's own global scope. Symbols of the importing file are not visible in the module, and modules imported by the module are not visible in the importing file.
+
+*Tests:* [1](test/fpy/test_imports.py#L392 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_function_cannot_see_importer_globals"), [2](test/fpy/test_imports.py#L602 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
+
+If the same module path is imported more than once in the same file, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L489 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_import_is_error")
+
+> This rule is per-file: a file and a module it imports may each import the same module.
+
+*Tests:* [1](test/fpy/test_imports.py#L506 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
+
+If the imported module contains top-level statements other than function definitions and import statements, the `import-side-effects` warning is emitted.
+
+*Tests:* [1](test/fpy/test_imports.py#L158 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_warns"), [2](test/fpy/test_imports.py#L172 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_ignored"), [3](test/fpy/test_imports.py#L187 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_escalated"), [4](test/fpy/test_imports.py#L202 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_module_does_not_warn"), [5](test/fpy/test_imports.py#L308 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_module_compiles_without_warning")
+
+At execution, the imported module's top-level statements execute as part of the importing sequence, at the position of the import statement, in order.
+
+*Tests:* [1](test/fpy/test_imports.py#L106 "test/fpy/test_imports.py::TestImportInlining::test_imported_function_runs"), [2](test/fpy/test_imports.py#L932 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_side_effect_and_namespaced")
+
+> Importing is compile-time source inlining: the imported module does not exist in the compiled output, and no files are resolved or loaded at run time. This is what motivates the `import-side-effects` warning: a file written to run as a standalone sequence typically has top-level commands, and importing it splices that code into the importing sequence, which is rarely intended. A file meant to be imported should contain only definitions. Note that a top-level variable definition is such a side effect (its initialization executes at the import site), while still defining a namespaced symbol: `counter: U32 = 5` in module `m` warns, and is thereafter accessible as `m.counter`.
 
 # Callables
 
@@ -1238,7 +1348,7 @@ In general, the rule of thumb is that coercion is allowed if the destination typ
     * Arbitrary-precision types (`Int`/`Float`) may coerce to any finite-width numeric type.
 If no rule matches, the compiler raises an error.
 
-Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination’s representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
+Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination's representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
 
 
 # Execution
