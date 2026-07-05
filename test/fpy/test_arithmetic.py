@@ -16,10 +16,10 @@ val1: U8 = 256  # Should fail: value too large for U8
     def test_const_fold_specific_float_binop(self, fprime_test_api):
         """Const folding binary ops on specific float types (F64, F32).
 
-    When both operands are cast to a specific float type (e.g. F64(1.5)),
-    their .val is a Python float, not Decimal. The const folder must handle
-    the bare `float` result from `float + float` etc.
-    """
+        When both operands are cast to a specific float type (e.g. F64(1.5)),
+        their .val is a Python float, not Decimal. The const folder must handle
+        the bare `float` result from `float + float` etc.
+        """
         seq = """
 if F64(1.5) + F64(2.5) == 4.0:
     exit(0)
@@ -73,6 +73,7 @@ x: F64 = 10.0 ** 100000000000
 """
 
         assert_compile_failure(fprime_test_api, seq, match="[Oo]verflow")
+
 
 class TestBasicArithmetic:
 
@@ -204,6 +205,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestArithmeticWithBuiltins:
 
     def test_arithmetic_arg_to_builtin_bad_type(self, fprime_test_api):
@@ -217,6 +219,7 @@ sleep(1 + 2 * 0, (0 + 1 / 2))
 sleep(1 + 2 * 0, (0 + 1 // 2))
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestChainedOperations:
 
@@ -263,6 +266,7 @@ if var1 / var3 / var2 == 3/2:
 exit(1)
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestPowerModLog:
 
@@ -370,7 +374,8 @@ assert result > 1.41 and result < 1.42
             ("F64", "U64", "9.0", "2", "F64", "4.0"),
         ],
     )
-    def test_floor_divide_64_bit_numeric_types(self, 
+    def test_floor_divide_64_bit_numeric_types(
+        self,
         fprime_test_api,
         lhs_type,
         rhs_type,
@@ -395,7 +400,8 @@ assert result == {expected_value}
             ("U64", "I64", "9", "2", "U64", "4"),
         ],
     )
-    def test_floor_divide_64_bit_bad_type_pairs(self, 
+    def test_floor_divide_64_bit_bad_type_pairs(
+        self,
         fprime_test_api,
         lhs_type,
         rhs_type,
@@ -432,20 +438,24 @@ assert result == 2333333333333333333
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestUnaryOperators:
 
-    @pytest.mark.parametrize("type_name,value", [
-        ("U8", "1"),
-        ("I8", "1"),
-        ("U16", "1"),
-        ("I16", "1"),
-        ("U32", "1"),
-        ("I32", "1"),
-        ("U64", "1"),
-        ("I64", "1"),
-        ("F32", "1.0"),
-        ("F64", "1.0"),
-    ])
+    @pytest.mark.parametrize(
+        "type_name,value",
+        [
+            ("U8", "1"),
+            ("I8", "1"),
+            ("U16", "1"),
+            ("I16", "1"),
+            ("U32", "1"),
+            ("I32", "1"),
+            ("U64", "1"),
+            ("I64", "1"),
+            ("F32", "1.0"),
+            ("F64", "1.0"),
+        ],
+    )
     def test_unary_plus(self, fprime_test_api, type_name, value):
         seq = f"""
 var: {type_name} = {value}
@@ -481,6 +491,7 @@ if -var == -1:
 exit(1)
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestAbs:
 
@@ -606,5 +617,3 @@ result: I64 = 7 // (-2)
 assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
-
-

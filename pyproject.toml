@@ -65,6 +65,12 @@ fprime-fpy-depend = "fpy.main:depend_main"
 ####
 [tool.setuptools_scm]
 
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "pre-commit>=4.6.0",
+]
+
 
 ####
 # Additional notes

@@ -7,6 +7,7 @@ All tests accept the ``fprime_test_api`` fixture so they can optionally run
 against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
 (the default) the Python sequencer model is used instead.
 """
+
 import json
 import tempfile
 from pathlib import Path
@@ -223,7 +224,12 @@ assert x == 999
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 1)
 """
-            assert_run_failure(fprime_test_api, parent_seq, error_code=DirectiveErrorCode.CMD_FAIL, ground_binary_dir=tmpdir)
+            assert_run_failure(
+                fprime_test_api,
+                parent_seq,
+                error_code=DirectiveErrorCode.CMD_FAIL,
+                ground_binary_dir=tmpdir,
+            )
 
 
 class TestSeqCallingErrors:
@@ -242,7 +248,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api,
+                parent_seq,
+                match="Missing required argument 'y'",
+                ground_binary_dir=tmpdir,
+            )
 
     def test_wrong_arg_type(self, fprime_test_api):
         """Providing incompatible vararg types should fail at compile time."""
@@ -257,7 +268,9 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, true)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api, parent_seq, ground_binary_dir=tmpdir
+            )
 
     def test_missing_bin_file(self, fprime_test_api):
         """Calling a nonexistent .bin file should fail at compile time."""
@@ -266,7 +279,9 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, true)
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{fake_path}", Svc.BlockState.BLOCK)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="not found", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api, parent_seq, match="not found", ground_binary_dir=tmpdir
+            )
 
     def test_no_binary_dir(self, fprime_test_api):
         """Calling without binary_dir should fail at compile time."""
@@ -281,7 +296,9 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 """
             # No binary_dir passed
-            assert_compile_failure(fprime_test_api, parent_seq, match="binary directory")
+            assert_compile_failure(
+                fprime_test_api, parent_seq, match="binary directory"
+            )
 
 
 class TestSeqCallingNested:
@@ -552,7 +569,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, z=42)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="Unknown argument 'z'", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api,
+                parent_seq,
+                match="Unknown argument 'z'",
+                ground_binary_dir=tmpdir,
+            )
 
     def test_duplicate_named_arg(self, fprime_test_api):
         """Same named arg specified twice should fail."""
@@ -569,7 +591,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=1, x=2)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="specified multiple times", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api,
+                parent_seq,
+                match="specified multiple times",
+                ground_binary_dir=tmpdir,
+            )
 
     def test_positional_and_named_conflict(self, fprime_test_api):
         """Same arg specified both by position and by name should fail."""
@@ -586,7 +613,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42, x=99)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="specified multiple times", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api,
+                parent_seq,
+                match="specified multiple times",
+                ground_binary_dir=tmpdir,
+            )
 
     def test_missing_named_arg(self, fprime_test_api):
         """Missing a required arg when using named args should fail."""
@@ -603,7 +635,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 """
-            assert_compile_failure(fprime_test_api, parent_seq, match="Missing required argument 'y'", ground_binary_dir=tmpdir)
+            assert_compile_failure(
+                fprime_test_api,
+                parent_seq,
+                match="Missing required argument 'y'",
+                ground_binary_dir=tmpdir,
+            )
 
 
 class TestSeqArgLimits:
@@ -625,7 +662,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
 sequence({name_255}: U32)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
-        compile_seq(fprime_test_api, seq)
+        compile_seq(seq)
 
 
 def _dict_with_seq_args_buffer_size(buffer_size: int, tmpdir: Path) -> str:
@@ -713,14 +750,15 @@ class TestSeqArgsBufferSizeFromDictionary:
             Path(child_path).write_bytes(data)
 
             args = ", ".join("0" for _ in range(10))
-            parent_seq = f'Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, {args})\n'
+            parent_seq = (
+                f'Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, {args})\n'
+            )
             state = get_base_compile_state(dict_path, tmpdir)
             body = text_to_ast(parent_seq)
             assert body is not None
             with pytest.raises(fpy.error.CompileError) as exc_info:
                 state = analyze_ast(body, state)
                 analysis_to_fpybc_directives(body, state)
-            assert "exceed" in str(exc_info.value) and "64 bytes" in str(exc_info.value), (
-                f"Diagnostic should mention the 64-byte capacity, got: {exc_info.value}"
-            )
-
+            assert "exceed" in str(exc_info.value) and "64 bytes" in str(
+                exc_info.value
+            ), f"Diagnostic should mention the 64-byte capacity, got: {exc_info.value}"

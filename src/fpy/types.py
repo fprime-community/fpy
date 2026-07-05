@@ -381,7 +381,7 @@ F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
 
-# distinct singleton so that the in-place update 
+# distinct singleton so that the in-place update
 # is visible everywhere the object is referenced.
 FwSizeStoreType = FpyType(TypeKind.U16, "U16")
 
@@ -576,9 +576,7 @@ class FpyValue:
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            size_val, offset = FpyValue.deserialize(
-                FwSizeStoreType, data, offset
-            )
+            size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len

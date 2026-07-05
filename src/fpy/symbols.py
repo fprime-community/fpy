@@ -111,7 +111,6 @@ class VariableSymbol:
     locals, a GlobalVariable for globals). Set during codegen."""
 
 
-
 next_symbol_table_id = 0
 
 
@@ -122,7 +121,7 @@ class NameGroup(str, Enum):
 
 
 class SymbolTable(dict):
-    def __init__(self, parent = None):
+    def __init__(self, parent=None):
         global next_symbol_table_id
         super().__init__()
         self.id = next_symbol_table_id

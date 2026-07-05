@@ -71,6 +71,7 @@ exit(0)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestComplexExpressions:
 
     def test_complex_and_or_not(self, fprime_test_api):
@@ -119,6 +120,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestShortCircuit:
 
     def test_and_short_circuit_skips_rhs(self, fprime_test_api):
@@ -146,6 +148,7 @@ exit(1)
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestNonBoolOperands:
 

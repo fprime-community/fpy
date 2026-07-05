@@ -3,9 +3,8 @@ from fpy.test_helpers import (
     assert_compile_failure,
 )
 
-
-
 # ── Anonymous struct tests ──────────────────────────────────────────────
+
 
 class TestAnonStructBasic:
     def test_anon_struct_all_members(self, fprime_test_api):
@@ -111,6 +110,7 @@ assert val.seconds == 42
 
 # ── Anonymous array tests ──────────────────────────────────────────────
 
+
 class TestAnonArrayBasic:
     def test_anon_array_simple(self, fprime_test_api):
         """Anonymous array with matching element count."""
@@ -208,6 +208,7 @@ assert val[1] == 88
 
 # ── Nested anonymous expressions ───────────────────────────────────────
 
+
 class TestAnonNested:
     def test_anon_array_of_anon_structs(self, fprime_test_api):
         """Array of anonymous structs: [{...}, {...}, ...]"""
@@ -231,6 +232,7 @@ assert val.history[3] == 4.0
 
 
 # ── Direct member/index access on anonymous literals ────────────────────
+
 
 class TestAnonDirectAccess:
     def test_anon_struct_member_access(self, fprime_test_api):
@@ -282,6 +284,7 @@ x: U32 = [10, 20, 30][i]
 
 
 # ── Anonymous expressions in check statements ───────────────────────────
+
 
 class TestAnonExprInCheck:
     """Check statements accept Fw.TimeIntervalValue for persist/period/timeout.
@@ -362,6 +365,7 @@ assert check_passed
 
 
 # ── Time arithmetic with anonymous structs ──────────────────────────────
+
 
 class TestTimeArithmeticWithAnonStruct:
     """The + operator should work between Fw.Time and anonymous structs

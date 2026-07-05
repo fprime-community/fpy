@@ -15,7 +15,7 @@ from fpy.compiler import (
     analysis_to_fpybc_directives,
     analysis_to_wasm,
 )
-from fpy.state import get_base_compile_state
+from fpy.state import CompileState, get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
 from fpy.types import FpyType, FpyValue
@@ -42,12 +42,26 @@ SPACEWASM_RUNNER: str | None = None
 
 
 def compile_seq(
-    fprime_test_api, seq: str, ground_binary_dir: str = None
-) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string to a list of directives and arg types."""
+    seq: str,
+    ground_binary_dir: str = None,
+    ignored_warnings=None,
+    error_warnings=None,
+    import_search_dirs: list[str] | None = None,
+) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
+    """Compile a sequence string and return (state, directives, arg_types).
+
+    Exposes the CompileState so tests can inspect collected warnings.
+    Raises CompilationFailed on a compile/backend error (which is also how an
+    `error_warnings`-escalated warning surfaces)."""
     fpy.error.file_name = "<test>"
 
-    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+    state = get_base_compile_state(
+        default_dictionary,
+        ground_binary_dir,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        import_search_dirs=import_search_dirs,
+    )
 
     try:
         body = text_to_ast(seq)
@@ -56,14 +70,26 @@ def compile_seq(
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
-    return directives, arg_types
+    return state, directives, arg_types
 
 
-def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
+def compile_seq_wasm(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_search_dirs: list[str] | None = None,
+    ignored_warnings=None,
+    error_warnings=None,
+) -> bytes:
     """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
     fpy.error.file_name = "<test>"
 
-    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+    state = get_base_compile_state(
+        default_dictionary,
+        ground_binary_dir,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        import_search_dirs=import_search_dirs,
+    )
 
     try:
         body = text_to_ast(seq)
@@ -75,18 +101,22 @@ def compile_seq_wasm(seq: str, ground_binary_dir: str = None) -> bytes:
     return wasm
 
 
-def run_seq_wasm(seq: str, ground_binary_dir: str = None) -> int:
+def run_seq_wasm(
+    seq: str, ground_binary_dir: str = None, import_search_dirs: list[str] | None = None
+) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
 
     Runs the compiled module through the NASA spacewasm interpreter (the
     on-board target runtime) via the runner harness built by conftest."""
     import subprocess
 
-    assert SPACEWASM_RUNNER is not None, (
-        "SPACEWASM_RUNNER not set; run pytest with --wasm"
-    )
+    assert (
+        SPACEWASM_RUNNER is not None
+    ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
 
-    wasm = compile_seq_wasm(seq, ground_binary_dir)
+    wasm = compile_seq_wasm(
+        seq, ground_binary_dir, import_search_dirs=import_search_dirs
+    )
     wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     wasm_file.write(wasm)
     wasm_file.close()
@@ -200,9 +230,7 @@ def run_seq(
         old_cwd = os.getcwd()
         os.chdir(ground_binary_dir)
     try:
-        error_code, trap = model.run(
-            directives, tlm_db, args=args, arg_types=arg_types
-        )
+        error_code, trap = model.run(directives, tlm_db, args=args, arg_types=arg_types)
     finally:
         if old_cwd is not None:
             os.chdir(old_cwd)
@@ -235,11 +263,13 @@ def run_seq(
         raise RuntimeError(f"Sequence leaked {len(model.stack) - expected_stack} bytes")
 
 
-def assert_compile_success(fprime_test_api, seq: str):
+def assert_compile_success(
+    fprime_test_api, seq: str, import_search_dirs: list[str] | None = None
+):
     if USE_WASM:
-        compile_seq_wasm(seq)
+        compile_seq_wasm(seq, import_search_dirs=import_search_dirs)
         return
-    compile_seq(fprime_test_api, seq)
+    compile_seq(seq, import_search_dirs=import_search_dirs)
 
 
 def assert_run_success(
@@ -254,14 +284,19 @@ def assert_run_success(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
+    import_search_dirs: list[str] | None = None,
 ):
     if USE_WASM:
-        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        code = run_seq_wasm(
+            seq,
+            ground_binary_dir=ground_binary_dir,
+            import_search_dirs=import_search_dirs,
+        )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return
-    directives, arg_name_types = compile_seq(
-        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    _, directives, arg_name_types = compile_seq(
+        seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -288,13 +323,31 @@ def assert_run_success(
 
 
 def assert_compile_failure(
-    fprime_test_api, seq: str, match: str = None, ground_binary_dir: str = None
+    fprime_test_api,
+    seq: str,
+    match: str = None,
+    ground_binary_dir: str = None,
+    import_search_dirs: list[str] | None = None,
+    ignored_warnings=None,
+    error_warnings=None,
 ):
     try:
         if USE_WASM:
-            compile_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+            compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_search_dirs=import_search_dirs,
+                ignored_warnings=ignored_warnings,
+                error_warnings=error_warnings,
+            )
         else:
-            compile_seq(fprime_test_api, seq, ground_binary_dir=ground_binary_dir)
+            compile_seq(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_search_dirs=import_search_dirs,
+                ignored_warnings=ignored_warnings,
+                error_warnings=error_warnings,
+            )
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
             import re
@@ -318,6 +371,7 @@ def assert_run_failure(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
+    import_search_dirs: list[str] | None = None,
 ):
     assert not (
         error_code is not None and validation_error
@@ -329,7 +383,11 @@ def assert_run_failure(
     if USE_WASM:
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one whose entry point returns nonzero.
-        code = run_seq_wasm(seq, ground_binary_dir=ground_binary_dir)
+        code = run_seq_wasm(
+            seq,
+            ground_binary_dir=ground_binary_dir,
+            import_search_dirs=import_search_dirs,
+        )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
         if error_code is not None:
@@ -341,8 +399,8 @@ def assert_run_failure(
                 )
         return
 
-    directives, arg_name_types = compile_seq(
-        fprime_test_api, seq, ground_binary_dir=ground_binary_dir
+    _, directives, arg_name_types = compile_seq(
+        seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -393,6 +451,7 @@ def assert_run_failure(
     except RuntimeError as e:
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
+
         # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
         # code int; the expected value may likewise be either. Compare by integer
         # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.

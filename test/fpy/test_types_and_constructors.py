@@ -32,6 +32,7 @@ var: Ref.Choice = Ref.Choice.ONE
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestStructs:
 
     def test_get_const_struct_member(self, fprime_test_api):
@@ -183,6 +184,7 @@ assert info.history[0] == 77.0
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestArrays:
 
     def test_array_ctor_var_arg(self, fprime_test_api):
@@ -266,10 +268,10 @@ exit(1)
 
     def test_const_array_oob(self, fprime_test_api):
         """Out-of-bounds on a const array expression (not a variable).
-    The parent is a type constructor call, so CalculateConstExprValues
-    has a non-None parent_value. Without the bounds guard there,
-    this would crash with a Python IndexError instead of a compile error.
-    """
+        The parent is a type constructor call, so CalculateConstExprValues
+        has a non-None parent_value. Without the bounds guard there,
+        this would crash with a Python IndexError instead of a compile error.
+        """
         seq = """
 val: U32 = Svc.ComQueueDepth(10, 20)[2]
 """
@@ -367,6 +369,7 @@ assert pairs[1].time == 3.0
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestConstFoldEquality:
 
     def test_const_fold_struct_eq(self, fprime_test_api):
@@ -457,6 +460,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestTypeErrors:
 
     def test_u8_too_large(self, fprime_test_api):
@@ -522,6 +526,7 @@ x()
 
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestStringTypes:
 
     def test_string_eq(self, fprime_test_api):
@@ -535,6 +540,7 @@ exit("asdf" == "asdf")
 var: string = "test"
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestConstCasts:
 
@@ -624,6 +630,7 @@ assert F64(U64(4294967295)) == 4294967295.0
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestRuntimeCasts:
 
@@ -931,6 +938,7 @@ assert test(c=x, a=y, b=z) == 5.5
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestNonConstSized:
 
     def test_non_const_sized_var_decl(self, fprime_test_api):
@@ -962,6 +970,7 @@ def foo() -> Ref.DpDemo.StringArray:
 Ref.DpDemo.StringArray("a", "b")
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestConstructorDefaults:
 
@@ -1020,8 +1029,7 @@ assert stat.BuffErr == 0
         assert_run_success(fprime_test_api, seq)
 
     def test_array_elem_non_first_struct_member(self, fprime_test_api):
-        """Accessing a non-first struct member on an array element must not crash.
-    """
+        """Accessing a non-first struct member on an array element must not crash."""
         seq = """
 val: Ref.SignalPairSet = Ref.SignalPairSet( \
     Ref.SignalPair(1.0, 2.0), \
