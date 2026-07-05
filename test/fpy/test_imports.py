@@ -156,11 +156,11 @@ def noop_wrapper():
 """
 
     def test_side_effecting_import_warns(self, fprime_test_api, tmp_path):
-        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        _write_module(tmp_path, "side_effects", self.SIDE_EFFECT_MODULE)
         main = """\
-import sfx
+import side_effects
 
-sfx.noop_wrapper()
+side_effects.noop_wrapper()
 """
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
         assert any(
@@ -170,11 +170,11 @@ sfx.noop_wrapper()
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_side_effect_warning_can_be_ignored(self, fprime_test_api, tmp_path):
-        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        _write_module(tmp_path, "side_effects", self.SIDE_EFFECT_MODULE)
         main = """\
-import sfx
+import side_effects
 
-sfx.noop_wrapper()
+side_effects.noop_wrapper()
 """
         state, _, _ = compile_seq(
             main,
@@ -185,11 +185,11 @@ sfx.noop_wrapper()
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_side_effect_warning_can_be_escalated(self, fprime_test_api, tmp_path):
-        _write_module(tmp_path, "sfx", self.SIDE_EFFECT_MODULE)
+        _write_module(tmp_path, "side_effects", self.SIDE_EFFECT_MODULE)
         main = """\
-import sfx
+import side_effects
 
-sfx.noop_wrapper()
+side_effects.noop_wrapper()
 """
         assert_compile_failure(
             fprime_test_api,
@@ -228,7 +228,7 @@ class TestImportErrors:
     def test_cannot_import_sequence_with_arguments(self, fprime_test_api, tmp_path):
         _write_module(
             tmp_path,
-            "withargs",
+            "with_arguments",
             """\
 sequence(x: U32)
 
@@ -237,7 +237,7 @@ def f() -> U32:
 """,
         )
         main = """\
-import withargs
+import with_arguments
 """
         assert_compile_failure(
             fprime_test_api, main, match="argument", import_search_dirs=[str(tmp_path)]
@@ -256,7 +256,7 @@ import does_not_exist
         sequences *with arguments* are rejected (per the feature's wording)."""
         _write_module(
             tmp_path,
-            "noargseq",
+            "no_argument_sequence",
             """\
 sequence()
 
@@ -265,9 +265,9 @@ def f() -> U32:
 """,
         )
         main = """\
-import noargseq
+import no_argument_sequence
 
-x: U32 = noargseq.f()
+x: U32 = no_argument_sequence.f()
 assert x == 1
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
@@ -297,9 +297,9 @@ import broken
     def test_import_path_is_a_directory_fails(self, fprime_test_api, tmp_path):
         """If the resolved `<name>.fpy` is a directory, importing fails cleanly
         rather than crashing with an IO error."""
-        (tmp_path / "adir.fpy").mkdir()
+        (tmp_path / "directory.fpy").mkdir()
         main = """\
-import adir
+import directory
 """
         assert_compile_failure(
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
@@ -635,16 +635,16 @@ class TestImportCycles:
     def test_self_import_is_cycle_error(self, fprime_test_api, tmp_path):
         _write_module(
             tmp_path,
-            "selfmod",
+            "self_import",
             """\
-import selfmod
+import self_import
 
 def f() -> U32:
     return 1
 """,
         )
         main = """\
-import selfmod
+import self_import
 """
         assert_compile_failure(
             fprime_test_api,
@@ -934,7 +934,7 @@ class TestImportVariables:
     ):
         _write_module(
             tmp_path,
-            "withvar",
+            "with_variable",
             """\
 counter: U32 = 5
 
@@ -943,15 +943,15 @@ def get() -> U32:
 """,
         )
         main = """\
-import withvar
+import with_variable
 
-x: U32 = withvar.counter
+x: U32 = with_variable.counter
 assert x == 5
-assert withvar.counter == 5
-assert withvar.get() == 5
+assert with_variable.counter == 5
+assert with_variable.get() == 5
 """
         # The top-level assignment runs at sequence start -> side effect warning,
-        # but `withvar.counter` still resolves as a namespaced symbol.
+        # but `with_variable.counter` still resolves as a namespaced symbol.
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
         assert any(
             w.type == WarningType.IMPORT_SIDE_EFFECTS for w in state.warnings
