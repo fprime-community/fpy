@@ -185,7 +185,7 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
         .map_err(|e| format!("store: {e:?}"))?;
     let mut code_builder = CodeBuilder::<256>::default();
 
-    let mut stream = ByteStream::new(&wasm);
+    let mut stream: ByteStream = ByteStream::new(&wasm);
     let module = Module::new::<256>(
         "seq",
         &mut stream,
@@ -253,7 +253,7 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
 
     match result {
         InterpreterResult::Instruction(InterpreterBreak::Finished) => {
-            let raw = state.result.ok_or("entry returned no value")?;
+            let raw: spacewasm::RawValue = state.result.ok_or("entry returned no value")?;
             match raw.to_value(spacewasm::ValType::I32) {
                 Value::I32(code) => Ok(code),
                 other => Err(format!("entry returned non-i32: {other:?}")),

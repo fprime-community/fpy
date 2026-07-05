@@ -13,7 +13,6 @@ from fpy.types import UNION_TYPES
 from fpy.bytecode.directives import Directive
 from fpy.ir import Ir
 
-
 # Cache for visitor method mappings, keyed by visitor class
 _visitor_cache: dict[type, dict[type, str]] = {}
 
@@ -21,9 +20,12 @@ _visitor_cache: dict[type, dict[type, str]] = {}
 class _StopDescent:
     """Sentinel returned by a visit_* method to prevent the framework from
     descending into the visited node's children."""
+
     __slots__ = ()
+
     def __repr__(self):
         return "STOP_DESCENT"
+
 
 STOP_DESCENT = _StopDescent()
 

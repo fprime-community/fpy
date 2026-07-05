@@ -36,6 +36,7 @@ from fpy.compiler import (
 from fpy.codegen_llvm import backend_version_str
 from fpy.dictionary import load_dictionary
 from fpy.state import get_base_compile_state
+from fpy.error import parse_warning_set
 
 
 def human_readable_size(size_bytes):
@@ -61,9 +62,7 @@ def get_version_str() -> str:
 
 def compile_main(args: list[str] = None):
     compiler_version = f"{get_version_str()}\nbackend:\n{backend_version_str()}"
-    arg_parser = argparse.ArgumentParser(
-        description=f"Fpy compiler {compiler_version}"
-    )
+    arg_parser = argparse.ArgumentParser(description=f"Fpy compiler {compiler_version}")
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {compiler_version}"
     )
@@ -108,6 +107,32 @@ def compile_main(args: list[str] = None):
         default=None,
         help="Local directory to resolve Fpy binary file paths. Needed for sequence argument type checking when calling sequences (default: input file directory)",
     )
+    arg_parser.add_argument(
+        "-i",
+        "--include",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="DIR",
+        dest="include",
+        help=(
+            "Directory to search when resolving `import` statements (repeatable). "
+            "The importing file's own directory is always searched first; each "
+            "--include directory is searched afterwards, in the order given"
+        ),
+    )
+    arg_parser.add_argument(
+        "--ignore",
+        type=str,
+        default="",
+        help="Comma-separated warning types to silence (e.g. 'import-side-effects,empty-range'), or 'all'",
+    )
+    arg_parser.add_argument(
+        "--error",
+        type=str,
+        default="",
+        help="Comma-separated warning types to promote to hard errors, or 'all'",
+    )
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
     else:
@@ -115,6 +140,21 @@ def compile_main(args: list[str] = None):
 
     if parsed_args.debug:
         fpy.error.debug = True
+
+    try:
+        ignored_warnings = parse_warning_set(parsed_args.ignore)
+        error_warnings = parse_warning_set(parsed_args.error)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+    overlap = ignored_warnings & error_warnings
+    if overlap:
+        names = ", ".join(sorted(w.value for w in overlap))
+        print(
+            f"Warning type(s) cannot be both ignored and promoted to errors: {names}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if not parsed_args.input.exists():
         print(f"Input file {parsed_args.input} does not exist")
@@ -124,12 +164,21 @@ def compile_main(args: list[str] = None):
     ground_binary_dir = parsed_args.ground_binary_dir
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
-    
+
+    # imports resolve against the importing file's own directory first, then
+    # each -i/--include directory in the order given
+    import_search_dirs = [str(parsed_args.input.parent.resolve())] + [
+        str(d.resolve()) for d in parsed_args.include
+    ]
+
     # reading dictionary
     try:
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
             str(ground_binary_dir.resolve()),
+            ignored_warnings=ignored_warnings,
+            error_warnings=error_warnings,
+            import_search_dirs=import_search_dirs,
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
@@ -147,10 +196,7 @@ def compile_main(args: list[str] = None):
 
     # semantics
     try:
-        state = analyze_ast(
-            body,
-            state
-        )
+        state = analyze_ast(body, state)
     except RecursionError:
         print("Recursion limit exceeded in semantics passes", file=sys.stderr)
         sys.exit(1)
@@ -206,7 +252,9 @@ def compile_main(args: list[str] = None):
         arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
         output_bytes, crc = serialize_directives(output, arg_specs)
         output_path.write_bytes(output_bytes)
-        print(f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
+        print(
+            f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}"
+        )
     else:
         assert False, parsed_args.emit
 

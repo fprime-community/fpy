@@ -213,7 +213,7 @@ exit(0)
             fprime_test_api,
             seq,
             {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
-            timeout_s=20
+            timeout_s=20,
         )
 
     def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
@@ -223,5 +223,7 @@ Ref.cmdSeq0.RUN("", Svc.BlockState.NO_BLOCK)
 # sequence exits with an error
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.CMD_FAIL,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.CMD_FAIL,
         )

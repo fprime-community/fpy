@@ -49,6 +49,7 @@ from fpy.state import (
     CompileState,
     ForLoopAnalysis,
 )
+from fpy.error import WarningType
 from fpy.symbols import (
     BuiltinFuncSymbol,
     CallableSymbol,
@@ -455,7 +456,7 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
     def may_contain_sub_definitions(self, sym: Symbol) -> bool:
         """return True if a symbol definition may contain other definitions.
         The only definitions in Fpy which may contain other definitions are
-        modules (whose only purpose is to contain other definitions) and 
+        modules (whose only purpose is to contain other definitions) and
         enum types (who contain definitions of enum consts)"""
         return is_instance_compat(sym, ModuleSymbol) or (
             is_instance_compat(sym, FpyType) and sym.kind == TypeKind.ENUM
@@ -739,6 +740,7 @@ class CheckAllTypesAndCallablesResolved(Visitor):
         if not self.check_resolved(node.func, NameGroup.CALLABLE, state):
             return
 
+
 class CheckForConstantSizeTypes(Visitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -762,7 +764,6 @@ class CheckForConstantSizeTypes(Visitor):
                         arg_type_name,
                     )
                     return
-
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is None:
@@ -789,6 +790,7 @@ class CheckForConstantSizeTypes(Visitor):
                     arg_type_name,
                 )
                 return
+
 
 class UpdateStateWithTypes(Visitor):
 
@@ -1033,7 +1035,8 @@ class CheckGlobalsInitializedBeforeCall(Visitor):
         if not is_instance_compat(sym, FunctionSymbol):
             return
         missing = [
-            g for g in state.function_global_uses[sym.definition]
+            g
+            for g in state.function_global_uses[sym.definition]
             if g not in self.defined
         ]
         if not missing:
@@ -2934,7 +2937,7 @@ class WarnRangesAreNotEmpty(Visitor):
             return
 
         if lower_value.val >= upper_value.val:
-            state.warn("Range is empty", node)
+            state.warn(WarningType.EMPTY_RANGE, "Range is empty", node)
 
 
 class CheckSequenceArgs(Visitor):

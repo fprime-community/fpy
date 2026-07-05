@@ -71,7 +71,8 @@ def _build_spacewasm_runner():
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "wasm: end-to-end LLVM/wasm tests; only run when --wasm is passed",
+        "wasm: end-to-end LLVM/wasm tests; always run on the wasm backend, "
+        "even without --wasm (requires the spacewasm submodule and Rust)",
     )
 
     # Flip the test helpers over to the LLVM/wasm backend for the whole run.

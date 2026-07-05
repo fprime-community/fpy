@@ -22,6 +22,7 @@ exit(123)
 """
         assert_run_failure(fprime_test_api, seq, 123)
 
+
 class TestIf:
 
     def test_simple_if(self, fprime_test_api):
@@ -104,6 +105,7 @@ else:
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestBreakContinueErrors:
 
     def test_break_outside_loop(self, fprime_test_api):
@@ -130,6 +132,7 @@ continue
         # Purposefully triggers RecursionError inside the compiler's parse transform.
 
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestForLoops:
 
@@ -269,6 +272,7 @@ for i in 7..0:
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestLoopVariableScoping:
 
     def test_loop_var_outside_loop_after(self, fprime_test_api):
@@ -361,6 +365,7 @@ for i in i .. 8:
 
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestWhileLoops:
 
     def test_while_break_in_if(self, fprime_test_api):
@@ -388,6 +393,7 @@ assert i == 5
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestNonBoolConditions:
 

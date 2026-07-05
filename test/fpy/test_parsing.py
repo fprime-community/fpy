@@ -69,6 +69,7 @@ if True:
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestLiterals:
 
     def test_int_literal(self, fprime_test_api):
@@ -132,6 +133,7 @@ assert var == 1122867
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestExpressionStatements:
 

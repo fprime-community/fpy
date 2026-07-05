@@ -219,7 +219,11 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         generate_llvm=generate_exit_llvm,
     ),
     "ln": BuiltinFuncSymbol(
-        "ln", F64, [("operand", F64, None)], lambda n, c: [FloatLogDirective()], generate_log_llvm
+        "ln",
+        F64,
+        [("operand", F64, None)],
+        lambda n, c: [FloatLogDirective()],
+        generate_log_llvm,
     ),
     "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
     "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),

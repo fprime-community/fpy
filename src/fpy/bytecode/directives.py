@@ -52,14 +52,13 @@ ErrorCodeType = I32
 def _update_configurable_type(
     target: FpyType, type_defs: dict[str, FpyType], name: str
 ) -> None:
-    """Update *target* in place to match the dictionary's definition of *name*.
-    """
+    """Update *target* in place to match the dictionary's definition of *name*."""
     if name not in type_defs:
         return
     resolved = type_defs[name]
-    assert resolved.is_primitive, (
-        f"Configurable type {name} must resolve to a primitive, got {resolved}"
-    )
+    assert (
+        resolved.is_primitive
+    ), f"Configurable type {name} must resolve to a primitive, got {resolved}"
     target.kind = resolved.kind
     target.name = resolved.name
 
@@ -75,6 +74,7 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # DirectiveId enum
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class DirectiveId(Enum):
     INVALID = 0
@@ -212,9 +212,9 @@ class Directive:
 
             # Look up the FpyType for this field and serialize
             fpy_type = self._FIELD_TYPES.get(f.name)
-            assert fpy_type is not None, (
-                f"No type mapping for field {f.name} in {type(self).__name__}"
-            )
+            assert (
+                fpy_type is not None
+            ), f"No type mapping for field {f.name} in {type(self).__name__}"
             output += FpyValue(fpy_type, value).serialize()
 
         return output
@@ -270,6 +270,7 @@ class Directive:
 @dataclass
 class StackOpDirective(Directive):
     """Base for directives that operate on the expression stack."""
+
     pass
 
 
@@ -654,6 +655,7 @@ class FloatExtendDirective(StackOpDirective):
 @dataclass
 class FloatFloorDirective(StackOpDirective):
     """Floor a float toward -inf (used to lower float `//`)."""
+
     opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
 
 
@@ -661,12 +663,14 @@ class FloatFloorDirective(StackOpDirective):
 class IntAbsDirective(StackOpDirective):
     """Absolute value of a signed I64. abs(I64 min) wraps to I64 min, matching
     libm's llabs and LLVM's llvm.abs (no overflow trap)."""
+
     opcode: ClassVar[DirectiveId] = DirectiveId.IABS
 
 
 @dataclass
 class FloatAbsDirective(StackOpDirective):
     """Absolute value of an F64 (matching llvm.fabs)."""
+
     opcode: ClassVar[DirectiveId] = DirectiveId.FABS
 
 
@@ -729,6 +733,7 @@ class PushRandDirective(Directive):
 @dataclass
 class SetSeedDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.SET_SEED
+
 
 @dataclass
 class CallDirective(Directive):

@@ -148,9 +148,7 @@ def text_to_ast(text: str):
         elif isinstance(e.orig_exc, fpy.error.SyntaxErrorDuringTransform):
             raise fpy.error.CompileError(e.orig_exc.msg, e.orig_exc.node)
         else:
-            raise fpy.error.CompileError(
-                f"Internal error during parsing: {e.orig_exc}"
-            )
+            raise fpy.error.CompileError(f"Internal error during parsing: {e.orig_exc}")
     return transformed
 
 
@@ -295,8 +293,7 @@ def analysis_to_fpybc_directives(
 
 
 def analysis_to_llvm_module(
-    body: AstBlock,
-    state: CompileState
+    body: AstBlock, state: CompileState
 ) -> tuple[ir.Module, list[FpyType]]:
     """Runs LLVM codegen passes on analysis results, returning an llvmlite ir.Module (the LLVM backend).
 
@@ -338,10 +335,7 @@ def analysis_to_wat(
     return llvm_module_to_wasm_text(module), seq_arg_types
 
 
-def ast_to_dependencies(
-    body: AstBlock,
-    state: CompileState
-) -> list[str]:
+def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
     """Return the list of .bin paths that a sequence source file depends on.
 
     Runs only the passes needed to resolve command symbols — does not attempt
@@ -380,5 +374,7 @@ def ast_to_dependencies(
         raise state.errors[0]
 
     if state.ground_binary_dir is not None:
-        return [str(Path(state.ground_binary_dir) / name) for name in discover.bin_names]
+        return [
+            str(Path(state.ground_binary_dir) / name) for name in discover.bin_names
+        ]
     return discover.bin_names

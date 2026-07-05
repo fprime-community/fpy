@@ -244,7 +244,9 @@ class AstAnonArray(Ast):
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
 AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
-AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray]
+AstExpr = Union[
+    AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray
+]
 
 
 @dataclass
@@ -286,7 +288,7 @@ class AstCheck(Ast):
     condition: AstExpr
     timeout: Union[AstExpr, None]  # Default: no timeout
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    period: Union[AstExpr, None]    # Default: 1 second interval
+    period: Union[AstExpr, None]  # Default: 1 second interval
     body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
 
@@ -321,6 +323,7 @@ class AstDef(Ast):
     return_type: Union[AstExpr, None]
     body: AstBlock
 
+
 @dataclass
 class AstSequenceMetadata(Ast):
     parameters: Union[list[tuple[AstIdent, AstExpr]], None]
@@ -340,10 +343,19 @@ AstStmt = Union[
     AstAssert,
     AstDef,
     AstSequenceMetadata,
-    AstReturn
+    AstReturn,
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
+    AstExpr,
+    AstAssign,
+    AstIf,
+    AstElif,
+    AstFor,
+    AstWhile,
+    AstCheck,
+    AstAssert,
+    AstDef,
+    AstReturn,
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
@@ -357,7 +369,7 @@ AstNodeWithSideEffects = Union[
     AstBreak,
     AstContinue,
     AstDef,
-    AstReturn
+    AstReturn,
 ]
 
 
@@ -410,21 +422,23 @@ def handle_str(meta, s: str):
 # which optional clauses were provided, regardless of how many are present.
 def handle_check_clause(tag):
     """Create a handler that tags an expression with the given clause name."""
+
     @v_args(meta=True, inline=True)
     def wrapper(self, meta, expr):
         return (tag, expr)
+
     return wrapper
 
 
 def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
-    
+
     Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
     (clause_type, expr) tuples and body_stmts is an AstBlock or None (body-less).
     """
     clauses = []
     stmts = []
-    
+
     for child in children:
         if isinstance(child, tuple) and len(child) == 2:
             # This is a clause: (clause_type, expr)
@@ -432,7 +446,7 @@ def handle_check_clauses(meta, children):
         else:
             # This is a statement AST node
             stmts.append(child)
-    
+
     # Return as a special tuple that handle_check_stmt can recognize
     body = AstBlock(meta, stmts) if stmts else None
     return ("check_clauses_result", clauses, body)
@@ -441,7 +455,7 @@ def handle_check_clauses(meta, children):
 def handle_check_stmt(meta, children):
     """Parse check statement with optional timeout/persist/period clauses."""
     from fpy.error import SyntaxErrorDuringTransform
-    
+
     condition = children[0]
     timeout = None
     persist = None
@@ -449,25 +463,35 @@ def handle_check_stmt(meta, children):
     body = None
     timeout_body = None
     body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
-    
+
     def set_clause(clause_type, expr):
         nonlocal timeout, persist, period
         if clause_type == "timeout":
             if timeout is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'timeout' clause in check statement", expr
+                )
             timeout = expr
         elif clause_type == "persist":
             if persist is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'persist' clause in check statement", expr
+                )
             persist = expr
         elif clause_type == "period":
             if period is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'period' clause in check statement", expr)
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'period' clause in check statement", expr
+                )
             period = expr
-    
+
     for child in children[1:]:
         # Handle check_clauses which returns ("check_clauses_result", clauses, body)
-        if isinstance(child, tuple) and len(child) == 3 and child[0] == "check_clauses_result":
+        if (
+            isinstance(child, tuple)
+            and len(child) == 3
+            and child[0] == "check_clauses_result"
+        ):
             _, clauses, stmts = child
             for clause_type, expr in clauses:
                 set_clause(clause_type, expr)
@@ -482,7 +506,7 @@ def handle_check_stmt(meta, children):
                 body_set = True
             else:
                 timeout_body = child
-    
+
     return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
 
 
@@ -492,6 +516,7 @@ def handle_parameter(meta, args):
     name, type_expr = args[0], args[1]
     default_value = args[2] if len(args) == 3 else None
     return (name, type_expr, default_value)
+
 
 def handle_sequence_argument(meta, args):
     """Parse a sequence argument: (name, type)"""
@@ -571,7 +596,7 @@ class FpyTransformer(Transformer):
     sequence_stmt_parameters = no_inline_or_meta(list)
     sequence_stmt_parameter = no_inline(handle_sequence_argument)
 
-    NAME = lambda self, token: token[1:] if token.startswith('$') else token
+    NAME = lambda self, token: token[1:] if token.startswith("$") else token
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
     HEX_NUMBER = lambda self, token: int(token, 16)

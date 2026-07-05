@@ -147,8 +147,12 @@ class FpySequencerModel:
     CMD_RESPONSE_EXECUTION_ERROR = 4
 
     def __init__(
-        self, stack_size=4096, cmd_dict: dict[int, CmdDef] = None,
-        time_base: int = 0, time_context: int = 0, initial_time_us: int = 0,
+        self,
+        stack_size=4096,
+        cmd_dict: dict[int, CmdDef] = None,
+        time_base: int = 0,
+        time_context: int = 0,
+        initial_time_us: int = 0,
         failing_opcodes: set[int] = None,
         seq_run_opcodes: set[int] = None,
         arg_type_defs: dict[str, FpyType] = None,
@@ -595,7 +599,9 @@ class FpySequencerModel:
         # Deserialize SeqArgs: { $size: U64, buffer: [N] U8 }
         seq_args_type = cmd.arguments[2][2]
         # $size is FwSizeType (U64)
-        size_val, offset = FpyValue.deserialize(seq_args_type.members[0].type, args, offset)
+        size_val, offset = FpyValue.deserialize(
+            seq_args_type.members[0].type, args, offset
+        )
         actual_size = size_val.val
         # Extract actual arg bytes from the buffer
         child_args = bytes(args[offset : offset + actual_size])
@@ -611,7 +617,9 @@ class FpySequencerModel:
         # Resolve child arg types
         child_arg_types = []
         if child_arg_specs:
-            child_arg_types = [t for _, t in resolve_arg_specs(child_arg_specs, self.arg_type_defs)]
+            child_arg_types = [
+                t for _, t in resolve_arg_specs(child_arg_specs, self.arg_type_defs)
+            ]
 
         # Create and run a child model
         child_model = FpySequencerModel(
@@ -1096,10 +1104,10 @@ class FpySequencerModel:
             # IEEE 754: division by zero produces inf, -inf, or nan.
             # The sign of the result depends on the signs of BOTH operands.
             if lhs == 0.0:
-                self.push(float('nan'))
+                self.push(float("nan"))
             else:
                 result_sign = math.copysign(1.0, lhs) * math.copysign(1.0, rhs)
-                self.push(math.copysign(float('inf'), result_sign))
+                self.push(math.copysign(float("inf"), result_sign))
             return None
         self.push(lhs / rhs)
         return None
@@ -1153,11 +1161,11 @@ class FpySequencerModel:
             return None
         except (ValueError, OverflowError):
             # C++ pow() returns NaN for domain errors
-            self.push(float('nan'))
+            self.push(float("nan"))
             return None
         # Python can return complex for e.g. (-1.0)**0.5; C++ pow() returns NaN
         if isinstance(result, complex):
-            self.push(float('nan'))
+            self.push(float("nan"))
             return None
         self.push(result)
         return None
@@ -1236,12 +1244,15 @@ class FpySequencerModel:
         # Convert simulated time to seconds and microseconds
         seconds = self.simulated_time_us // 1000000
         useconds = self.simulated_time_us % 1000000
-        time_val = FpyValue(TIME, {
-            "timeBase": self.time_base,
-            "timeContext": self.time_context,
-            "seconds": seconds,
-            "useconds": useconds,
-        })
+        time_val = FpyValue(
+            TIME,
+            {
+                "timeBase": self.time_base,
+                "timeContext": self.time_context,
+                "seconds": seconds,
+                "useconds": useconds,
+            },
+        )
         self.push(time_val.serialize())
         return None
 
@@ -1273,7 +1284,10 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
 
         # Check for stack overflow before pushing header (8 bytes net: pop 4, push 8)
-        if len(self.stack) + STACK_FRAME_HEADER_SIZE - StackSizeType.max_size > self.max_stack_size:
+        if (
+            len(self.stack) + STACK_FRAME_HEADER_SIZE - StackSizeType.max_size
+            > self.max_stack_size
+        ):
             return DirectiveErrorCode.STACK_OVERFLOW
 
         offset = self.pop(size=StackSizeType.max_size, signed=False)
@@ -1330,7 +1344,9 @@ class FpySequencerModel:
         message_size = self.pop(type=int, signed=False, size=StackSizeType.max_size)
         if len(self.stack) < message_size + 1:
             return DirectiveErrorCode.STACK_UNDERFLOW
-        message = bytes(self.pop(type=bytes, size=message_size)) if message_size > 0 else b""
+        message = (
+            bytes(self.pop(type=bytes, size=message_size)) if message_size > 0 else b""
+        )
         severity = self.pop(type=int, signed=False, size=1)
         severity_names = {v: k for k, v in LOG_SEVERITY.enum_dict.items()}
         severity_name = severity_names.get(severity, f"UNKNOWN({severity})")

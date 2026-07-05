@@ -101,7 +101,8 @@ def no_meta(type):
 def handle_str(meta, s: str):
     return s.strip("'").strip('"')
 
-def handle_bytes(meta, value: list[int|str]|None):
+
+def handle_bytes(meta, value: list[int | str] | None):
     if value is None:
         return bytes()
 
@@ -231,6 +232,7 @@ def fpybc_directives_to_fpyasm(dirs: list[Directive]) -> str:
 def _get_version_tuple() -> tuple[int, int, int]:
     try:
         import re
+
         v = version("fprime-fpy")
         # Handle versions like "0.0.1a3.dev103+g244fdeadc"
         # Extract just the major.minor.patch part
@@ -273,7 +275,9 @@ class Header:
 
     @staticmethod
     def unpack(data: bytes) -> Header:
-        (major, minor, patch, schema, arg_count, stmt_count, body_size) = struct.unpack_from(HEADER_FORMAT, data)
+        major, minor, patch, schema, arg_count, stmt_count, body_size = (
+            struct.unpack_from(HEADER_FORMAT, data)
+        )
         return Header(major, minor, patch, schema, arg_count, stmt_count, body_size)
 
 
@@ -302,7 +306,9 @@ def _serialize_arg_specs(arg_specs: list[tuple[str, str, int]]) -> bytes:
     return result
 
 
-def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, list[tuple[str, str, int]]]:
+def _deserialize_arg_specs(
+    data: bytes, offset: int, count: int
+) -> tuple[int, list[tuple[str, str, int]]]:
     """Deserialize arg specs from (arg_name, type_name, size) triples.
     Returns (new_offset, list_of_(arg_name, type_name, size)_tuples)."""
     specs = []
@@ -314,7 +320,9 @@ def _deserialize_arg_specs(data: bytes, offset: int, count: int) -> tuple[int, l
     return offset, specs
 
 
-def deserialize_directives(data: bytes) -> tuple[list[Directive], list[tuple[str, str, int]]]:
+def deserialize_directives(
+    data: bytes,
+) -> tuple[list[Directive], list[tuple[str, str, int]]]:
     header = _unpack_and_check_header(data)
 
     # Deserialize arg specs section (immediately after fixed header)
@@ -403,7 +411,9 @@ def serialize_directives(
     if arg_specs is None:
         arg_specs = []
 
-    assert len(arg_specs) <= 255, f"Too many sequence arguments ({len(arg_specs)}); should have been caught by CheckSeqRunArgs"
+    assert (
+        len(arg_specs) <= 255
+    ), f"Too many sequence arguments ({len(arg_specs)}); should have been caught by CheckSeqRunArgs"
 
     body_bytes = bytes()
 

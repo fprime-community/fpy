@@ -33,7 +33,6 @@ from fpy.bytecode.directives import ErrorCodeType
 from fpy.types import FpyValue, is_instance_compat
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
-
 LLVM_TRIPLE = "wasm32-unknown-unknown"
 
 # Target the original WebAssembly 1.0 MVP (the W3C Core Spec 1.0)
@@ -44,7 +43,7 @@ WASM_VERSION = "1.0 (MVP)"
 
 # TODO strip custom sections from WASM--wasm opt crate, optimize for size?
 
-# TODO with wasm mvp llvm will provide pow/fmod?? 
+# TODO with wasm mvp llvm will provide pow/fmod??
 
 # TODO could just start with a .a and a header??
 
@@ -155,8 +154,11 @@ class EmitLlvmExpr(Emitter):
         # Enums and bools lower to integers too, so any integer-typed value
         # (not just numeric types) compares with icmp; aggregates don't.
         if isinstance(lhs.type, ir.IntType):
-            return b.icmp_signed(op, lhs, rhs) if is_signed \
+            return (
+                b.icmp_signed(op, lhs, rhs)
+                if is_signed
                 else b.icmp_unsigned(op, lhs, rhs)
+            )
         raise BackendError(
             f"LLVM backend can't compare values of type "
             f"'{intermediate_type.display_name}' yet"
@@ -178,9 +180,7 @@ class EmitLlvmExpr(Emitter):
             # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
             # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0.
             quotient = b.fdiv(lhs, rhs)
-            floor_fn = b.module.declare_intrinsic(
-                "llvm.floor", [quotient.type]
-            )
+            floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
@@ -241,9 +241,7 @@ class EmitLlvmExpr(Emitter):
             corrected = b.add(rem, rhs)
         return b.select(b.and_(nonzero, signs_differ), corrected, rem)
 
-    def _emit_short_circuit(
-        self, node: AstBinaryOp, state: CompileState
-    ) -> ir.Value:
+    def _emit_short_circuit(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
         """Lower ``and``/``or`` with short-circuit evaluation."""
         b = self.builder
         bool_type = ir.IntType(1)
@@ -300,10 +298,12 @@ class EmitLlvmExpr(Emitter):
         # synthesized type; emit() handles any widening to the contextual type.
         return self.builder.load(sym.llvm_ptr, name=str(node.name))
 
-    def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState) -> ir.Value | None:
+    def emit_AstFuncCall(
+        self, node: AstFuncCall, state: CompileState
+    ) -> ir.Value | None:
         func = state.resolved_symbols[node.func]
         if isinstance(func, CastSymbol):
-            # the actual conversion happens already as part of the 
+            # the actual conversion happens already as part of the
             # synthesized -> contextual conversion
             return self.emit(node.args[0], state)
         if not isinstance(func, BuiltinFuncSymbol):
@@ -336,7 +336,9 @@ class EmitLlvmExpr(Emitter):
             # Same width: signedness isn't part of an LLVM integer type.
             return value
         if from_type.is_integer:  # int -> float
-            to_float = self.builder.sitofp if from_type.is_signed else self.builder.uitofp
+            to_float = (
+                self.builder.sitofp if from_type.is_signed else self.builder.uitofp
+            )
             return to_float(value, target)
         if to_type.is_integer:  # float -> int
             return self._emit_fp_to_int_saturating(value, to_type)
@@ -353,7 +355,9 @@ class EmitLlvmExpr(Emitter):
         0, rather than producing a poison value"""
         base = "llvm.fptosi.sat" if to_type.is_signed else "llvm.fptoui.sat"
         result_type = to_type.llvm_type
-        fn = self.builder.module.declare_intrinsic(base, (result_type, value.type), ir.FunctionType(result_type, [value.type]))
+        fn = self.builder.module.declare_intrinsic(
+            base, (result_type, value.type), ir.FunctionType(result_type, [value.type])
+        )
         return self.builder.call(fn, [value])
 
 
@@ -379,8 +383,7 @@ class CollectFrameVariables(TopDownVisitor):
 
 
 class EmitLlvmStmt(Emitter):
-    """Lowers Fpy statements into LLVM IR via a shared builder.
-    """
+    """Lowers Fpy statements into LLVM IR via a shared builder."""
 
     def __init__(self, builder: ir.IRBuilder):
         super().__init__()
@@ -391,8 +394,7 @@ class EmitLlvmStmt(Emitter):
         emitter = self.emitters.get(type(node))
         if emitter is None:
             raise BackendError(
-                f"LLVM backend doesn't handle statement "
-                f"{type(node).__name__} yet"
+                f"LLVM backend doesn't handle statement " f"{type(node).__name__} yet"
             )
         return emitter(node, state)
 
@@ -604,9 +606,7 @@ def _wasm_ld_version_str() -> str:
     is independent of the LLVM that compiled the IR. Returns "unavailable" if
     wasm-ld can't be run rather than failing -- this is only for --version."""
     try:
-        result = subprocess.run(
-            _wasm_ld_command() + ["--version"], capture_output=True
-        )
+        result = subprocess.run(_wasm_ld_command() + ["--version"], capture_output=True)
     except (BackendError, OSError):
         return "unavailable"
     if result.returncode != 0:
@@ -659,9 +659,7 @@ def _link_wasm_object(obj: bytes) -> bytes:
 
 def _run_wasm_ld(args: list[str], stdin: bytes | None = None) -> bytes:
     """Run wasm-ld with *args*; return its stdout. Raises on link failure."""
-    result = subprocess.run(
-        _wasm_ld_command() + args, input=stdin, capture_output=True
-    )
+    result = subprocess.run(_wasm_ld_command() + args, input=stdin, capture_output=True)
     if result.returncode != 0:
         raise BackendError(
             f"wasm-ld failed to link the sequence:\n{result.stderr.decode()}"
