@@ -1,0 +1,149 @@
+== Types
+
+A *type* is a set of *values*.
+
+The values of a type are unique to that type.
+
+> In other words, there are no union types and there is no type inheritance.
+
+New types cannot be defined by the program.
+
+A *serializable type* is a type whose values can be expressed in a binary format.
+
+A *constant-sized type* is a serializable type whose binary form always has the same length in bytes.
+
+A *numeric type* is a <<primitive-numeric-types,primitive numeric type>>, or the <<internal-types,internal Int or Float>> types.
+
+> Right now, the only serializable but non-constant-sized type are the <<dictionary-strings,dictionary string>> types.
+
+Types can be divided into three categories:
+
+* Primitive types
+* Internal types
+* Dictionary types
+
+=== Primitive types
+
+*Primitive types* are types which are always present in the global scope.
+
+> That is, they do not have to be in the F-Prime dictionary to be referenced by name in the program.
+> Because they are present in the global scope, we will use their associated name in the global scope to refer to them throughout this specification. For instance, when we say type `U16`, we are talking about the type in the global scope with name `U16`.
+
+All primitive types are serializable, constant-sized types.
+
+The list of primitive types is:
+
+* All <<primitive-numeric-types,primitive numeric types>>
+* The <<boolean-type,Boolean type>>
+
+==== Primitive numeric types
+`U8`, `U16`, `U32`, and `U64` are the primitive unsigned integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard binary representation of unsigned integers.
+
+`I8`, `I16`, `I32`, and `I64` are the primitive signed integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard two's complement representation of signed integers.
+
+`F32`, and `F64` are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.
+
+> There are other numerical types such as <<internal-types,Int or Float>> which are not primitive.
+
+==== Boolean type
+`bool` is a primitive type whose only values may be the link:todo[Boolean literals] `True` and `False`.
+
+TODO make sure that Fw.Time is counted as a dictionary type, but one which is required to be in the dict?
+
+=== Type aliases
+*Loop var type* is an alias for `I64`.
+*Array index type* is an alias for `I64`.
+
+=== Internal types
+
+*Internal types* are types which are never present in the global scope.
+
+> That is, they cannot be referenced by name in the program.
+
+No internal types are serializable types.
+
+*Int* is an internal type whose values are integers of arbitrary precision.
+
+*Float* is an internal type whose values are decimals per the Python link:https://docs.python.org/3/library/decimal.html#module-decimal[decimal] implementation.
+
+The precision of Float is 30 decimal places.
+
+*String* is an internal type whose values are strings of arbitrary length.
+
+*Range* is an internal type whose values are pairs of an lower and upper bound of loop var type.
+
+*Nothing* is an internal type which has no values.
+
+=== Dictionary types
+*Dictionary types* are types defined in the F-Prime dictionary.
+
+> Because the semantics of these types is defined in the FPP specification, there is some overlap here. This specification just addresses the semantics of these types as relevant to Fpy.
+
+All dictionary types are serializable types.
+
+Dictionary types can be divided into three categories:
+
+* <<structs,Structs>>
+* <<arrays,Arrays>>
+* <<enums,Enums>>
+* <<dictionary-strings,Strings>>
+
+==== Structs
+A *struct* is a category of dictionary type defined by an ordered list of members.
+
+A *member* is a pair of a name and a serializable type.
+
+A struct may not have two members with the same name.
+TODO is this rule necessary? This is enforced upstream by FPP
+
+The binary form of a struct value is the concatenated binary forms of its member values, in order.
+
+> If any of a struct's members are non-constant-sized types, the struct is a non-constant-sized type.
+
+==== Arrays
+
+An *array* is a category of dictionary type defined by a non-negative integer length, and an element type.
+
+The *element type* of an array type is the type of its elements.
+
+An *element* is a value of element type at an index in an array.
+
+The binary form of an array value is the concatenated binary form of its elements, in order.
+
+> If the element type is a non-constant-sized type, the array is a non-constant-sized type.
+
+==== Enums
+
+An *enum* is a category of dictionary type whose values are a finite set of enum constants.
+
+An *enum constant* is a pair of a name and a value of the enum's representation type.
+
+An *enum representation type* is the <<primitive-numeric-types,primitive integer type>> associated with the enum constants' values.
+
+The binary form of an enum constant is the binary form of its integer value.
+
+==== Dictionary strings
+
+A *dictionary string* is a category of dictionary type whose values are strings.
+
+Dictionary strings are non-constant-sized types.
+
+=== Fields
+
+A *field-based type* is a type defined by its fields.
+
+A *field* of a type is a name-and-type pair 
+
+An *array* is a category of type with 
+
+A *struct* is a category of type 
+
+is an <<arrays,array element>> or a <<structs,struct member>>.
+
+The *field base* of a field is the first non-field parent of a field.
+
+> For instance, the field base of `a.b.c`, if `a` were a variable and `b` and `c` were fields, would be `a`.
+
+=== Populating dictionary types
+
+For each type `T` with fully-qualified name `F.Q.N` encountered in the F-Prime dictionary, that type will be present in the global scope with the same fully-qualified name.

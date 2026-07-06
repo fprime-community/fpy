@@ -635,7 +635,7 @@ This project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
 The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git commit` once installed:
 
 * **black** formats the staged Python files.
-* **spec test links** runs `verify/spec_links.py`, which checks that every test link in `SPEC.md` (the `*Tests:*` lines) points at a test that exists, at its current line number. If this hook fails because tests moved or were renamed, run `uv run python verify/spec_links.py --fix` to update the line numbers and link labels, then re-stage `SPEC.md`. A missing or renamed test must be fixed by hand.
+* **spec test links** runs `verify/spec_links.py`, which checks that every test link in the spec sources under `docs/spec/` (the `_Tests:_` lines) points at a test that exists, at its current line number. If this hook fails because tests moved or were renamed, run `uv run python verify/spec_links.py --fix` to update the line numbers and link labels, then re-stage the changed `docs/spec/*.adoc` files. A missing or renamed test must be fixed by hand.
 
 You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 

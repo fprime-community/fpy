@@ -46,6 +46,7 @@ from z3 import (
     Solver,
     ULE,
     ZeroExt,
+    substitute,
     fpGEQ,
     fpIsNaN,
     fpLEQ,
@@ -169,7 +170,11 @@ def float_to_int(x, frm: Ty, to: Ty):
             If(
                 fpLT(x, lo_f),
                 BitVecVal(to.min, n),
-                If(fpGEQ(x, hi_f), BitVecVal(to.max, n), fpToSBV(RTZ(), x, BitVecSort(n))),
+                If(
+                    fpGEQ(x, hi_f),
+                    BitVecVal(to.max, n),
+                    fpToSBV(RTZ(), x, BitVecSort(n)),
+                ),
             ),
         )
     hi_f = FPVal(2.0**n, frm.sort)
@@ -231,7 +236,9 @@ def find(name, condition, witness_vars, timeout_ms=120_000):
     dt = time.time() - t0
     if r == sat:
         m = s.model()
-        vals = ", ".join(f"{v} = {m.eval(v, model_completion=True)}" for v in witness_vars)
+        vals = ", ".join(
+            f"{v} = {m.eval(v, model_completion=True)}" for v in witness_vars
+        )
         record(PASS, name, f"witness found ({dt:.1f}s): {vals}")
     elif r == unsat:
         record(FAIL, name, "expected a witness but none exists")
@@ -246,9 +253,90 @@ def check_totality_note():
     record(
         PASS,
         "T1 totality+determinism (all 100 pairs)",
-        "by construction: each cast is a quantifier-free term of total ops; "
-        "SMT FP sorts have one NaN = canonical-NaN policy",
+        "per-model: by construction (quantifier-free terms of total ops; SMT FP "
+        "sorts have one NaN = canonical-NaN policy). Across models: mechanized "
+        "below (well-formedness, guard sufficiency, model-independence)",
     )
+
+
+def check_well_formed():
+    """T1 mechanized, part 1: every pair constructs a closed function of x.
+
+    For all 100 (S, T) pairs, cast(x, S, T) must (a) build without error --
+    the case table is exhaustive, (b) have sort [[T]], and (c) mention no
+    free variable other than x. (c) rules out the builder accidentally
+    capturing a constant from another scope, which would make the "function"
+    depend on a hidden second input.
+    """
+    from z3.z3util import get_vars
+
+    bad = []
+    for frm in TYPES.values():
+        for to in TYPES.values():
+            x = Const(f"wf_{frm.name}_{to.name}", frm.sort)
+            term = cast(x, frm, to)
+            if term.sort() != to.sort:
+                bad.append(f"{frm.name}->{to.name}: sort {term.sort()}")
+                continue
+            fv = get_vars(term)
+            if not (len(fv) == 1 and fv[0].eq(x)):
+                bad.append(f"{frm.name}->{to.name}: free vars {fv}")
+    if bad:
+        record(FAIL, "T1 well-formed terms (all 100 pairs)", "; ".join(bad))
+    else:
+        record(
+            PASS,
+            "T1 well-formed terms (all 100 pairs)",
+            "each term built, sorted [[T]], free vars exactly {x}",
+        )
+
+
+def check_model_independence():
+    """T1 mechanized, part 2: the spec is ONE function, not one per Z3 model.
+
+    fp.to_sbv/fp.to_ubv are total in every model but SMT-LIB only pins their
+    value where the RTZ-rounded input is representable; elsewhere each model
+    may answer differently. Determinism of the spec therefore means: the value
+    of the cast term never depends on that unpinned region.
+
+    Proof, direct form: take the actual float->int term and substitute the
+    fp.to_sbv(x) occurrence with two distinct fresh constants g1, g2 standing
+    for the answers of two arbitrary models, constrained to agree with
+    fp.to_sbv only on the pinned (representable) region. If the two resulting
+    terms are provably equal, every model computes the same function.
+    """
+    for f in FLOAT_TYPES:
+        for t in INT_TYPES:
+            x = Const(f"mi_{f.name}_{t.name}", f.sort)
+            n = t.bits
+            term = cast(x, f, t)
+            conv = fpToSBV if t.signed else fpToUBV
+            app = conv(RTZ(), x, BitVecSort(n))
+            g1 = Const(f"mi_g1_{f.name}_{t.name}", BitVecSort(n))
+            g2 = Const(f"mi_g2_{f.name}_{t.name}", BitVecSort(n))
+            t1 = substitute(term, (app, g1))
+            t2 = substitute(term, (app, g2))
+            assert not t1.eq(t2), "substitution did not fire; wrong app term?"
+
+            # SMT-LIB pins fp.to_sbv/to_ubv exactly when the value obtained by
+            # rounding toward zero is representable in the target type.
+            rounded = fpRoundToIntegral(RTZ(), x)
+            if t.signed:
+                lo_f = FPVal(-(2.0 ** (n - 1)), f.sort)
+                hi_f = FPVal(2.0 ** (n - 1), f.sort)
+                pinned_region = And(
+                    Not(fpIsNaN(x)), fpGEQ(rounded, lo_f), fpLT(rounded, hi_f)
+                )
+            else:
+                pinned_region = And(
+                    Not(fpIsNaN(x)),
+                    fpGEQ(rounded, FPVal(0.0, f.sort)),
+                    fpLT(rounded, FPVal(2.0**n, f.sort)),
+                )
+            pinned = Implies(pinned_region, And(g1 == app, g2 == app))
+            prove(
+                f"T1 model-independence {f.name}->{t.name}", Implies(pinned, t1 == t2)
+            )
 
 
 def check_tosbv_guards_sufficient():
@@ -267,17 +355,26 @@ def check_tosbv_guards_sufficient():
             else:
                 hi_f = FPVal(2.0**n, f.sort)
                 guards = And(
-                    Not(fpIsNaN(x)), Not(fpLT(x, FPVal(0.0, f.sort))), Not(fpGEQ(x, hi_f))
+                    Not(fpIsNaN(x)),
+                    Not(fpLT(x, FPVal(0.0, f.sort))),
+                    Not(fpGEQ(x, hi_f)),
                 )
                 in_range = And(fpGEQ(rounded, FPVal(0.0, f.sort)), fpLT(rounded, hi_f))
-            prove(f"T1 to_sbv/to_ubv guard sufficient {f.name}->{t.name}", Implies(guards, in_range))
+            prove(
+                f"T1 to_sbv/to_ubv guard sufficient {f.name}->{t.name}",
+                Implies(guards, in_range),
+            )
 
 
 # --- T2: identity is by construction (cast returns x for S == T) --------------
 
 
 def check_identity_note():
-    record(PASS, "T2 identity casts (all 10 types)", "by construction: cast(x, T, T) is literally x")
+    record(
+        PASS,
+        "T2 identity casts (all 10 types)",
+        "by construction: cast(x, T, T) is literally x",
+    )
 
 
 # --- T4: saturation boundaries -----------------------------------------------
@@ -298,18 +395,44 @@ def check_saturation_boundaries():
     f64, f32 = TYPES["F64"], TYPES["F32"]
     spot = [
         # the LLVM-vs-bytecode divergence example from MATH_TODO.txt:
-        (cast(FPVal(300.0, F64S), f64, TYPES["I8"]) == BitVecVal(127, 8), "I8(300.0) == 127"),
-        (cast(FPVal(-300.0, F64S), f64, TYPES["I8"]) == BitVecVal(-128, 8), "I8(-300.0) == -128"),
-        (cast(FPVal(300.0, F64S), f64, TYPES["U8"]) == BitVecVal(255, 8), "U8(300.0) == 255"),
+        (
+            cast(FPVal(300.0, F64S), f64, TYPES["I8"]) == BitVecVal(127, 8),
+            "I8(300.0) == 127",
+        ),
+        (
+            cast(FPVal(-300.0, F64S), f64, TYPES["I8"]) == BitVecVal(-128, 8),
+            "I8(-300.0) == -128",
+        ),
+        (
+            cast(FPVal(300.0, F64S), f64, TYPES["U8"]) == BitVecVal(255, 8),
+            "U8(300.0) == 255",
+        ),
         (cast(FPVal(-3.0, F64S), f64, TYPES["U8"]) == BitVecVal(0, 8), "U8(-3.0) == 0"),
         (cast(FPVal(-0.5, F64S), f64, TYPES["U8"]) == BitVecVal(0, 8), "U8(-0.5) == 0"),
         (cast(FPVal(-1.0, F64S), f64, TYPES["U8"]) == BitVecVal(0, 8), "U8(-1.0) == 0"),
-        (cast(FPVal(126.7, F64S), f64, TYPES["I8"]) == BitVecVal(126, 8), "I8(126.7) == 126 (trunc)"),
-        (cast(FPVal(-126.7, F64S), f64, TYPES["I8"]) == BitVecVal(-126, 8), "I8(-126.7) == -126 (trunc toward 0)"),
+        (
+            cast(FPVal(126.7, F64S), f64, TYPES["I8"]) == BitVecVal(126, 8),
+            "I8(126.7) == 126 (trunc)",
+        ),
+        (
+            cast(FPVal(-126.7, F64S), f64, TYPES["I8"]) == BitVecVal(-126, 8),
+            "I8(-126.7) == -126 (trunc toward 0)",
+        ),
         # 2^63 is exactly representable in F64 but out of I64 range -> saturate:
-        (cast(FPVal(2.0**63, F64S), f64, TYPES["I64"]) == BitVecVal((1 << 63) - 1, 64), "I64(2^63) == I64_MAX"),
-        (cast(FPVal(2.0**63, F32S), f32, TYPES["I64"]) == BitVecVal((1 << 63) - 1, 64), "I64(F32 2^63) == I64_MAX"),
-        (cast(FPVal(1e300, F64S), f64, TYPES["U64"]) == BitVecVal((1 << 64) - 1, 64), "U64(1e300) == U64_MAX"),
+        (
+            cast(FPVal(2.0**63, F64S), f64, TYPES["I64"])
+            == BitVecVal((1 << 63) - 1, 64),
+            "I64(2^63) == I64_MAX",
+        ),
+        (
+            cast(FPVal(2.0**63, F32S), f32, TYPES["I64"])
+            == BitVecVal((1 << 63) - 1, 64),
+            "I64(F32 2^63) == I64_MAX",
+        ),
+        (
+            cast(FPVal(1e300, F64S), f64, TYPES["U64"]) == BitVecVal((1 << 64) - 1, 64),
+            "U64(1e300) == U64_MAX",
+        ),
     ]
     for claim, label in spot:
         prove(f"T4 spot {label}", claim)
@@ -319,8 +442,15 @@ def check_saturation_boundaries():
 
 
 def check_monotonicity():
-    mono_pairs = [("F32", "I8"), ("F32", "U8"), ("F32", "I32"), ("F32", "U32"),
-                  ("F64", "I16"), ("F64", "I64"), ("F64", "U64")]
+    mono_pairs = [
+        ("F32", "I8"),
+        ("F32", "U8"),
+        ("F32", "I32"),
+        ("F32", "U32"),
+        ("F64", "I16"),
+        ("F64", "I64"),
+        ("F64", "U64"),
+    ]
     for fn, tn in mono_pairs:
         f, t = TYPES[fn], TYPES[tn]
         x = Const(f"mx_{fn}_{tn}", f.sort)
@@ -346,8 +476,13 @@ def check_monotonicity():
 
 def check_round_trips():
     # S -> F -> S must be the identity when S's values all fit in F's mantissa
-    for sn, fn in [("I8", "F32"), ("I16", "F32"), ("U16", "F32"),
-                   ("I32", "F64"), ("U32", "F64")]:
+    for sn, fn in [
+        ("I8", "F32"),
+        ("I16", "F32"),
+        ("U16", "F32"),
+        ("I32", "F64"),
+        ("U32", "F64"),
+    ]:
         s, f = TYPES[sn], TYPES[fn]
         v = Const(f"rt_{sn}_{fn}", s.sort)
         prove(f"T6 round trip {sn}->{fn}->{sn} == id", cast(cast(v, s, f), f, s) == v)
@@ -367,21 +502,35 @@ def check_round_trips():
     # so this also proves the sign-of-zero clause for widening)
     f32, f64 = TYPES["F32"], TYPES["F64"]
     x = Const("wide_x", F32S)
-    prove("T3 F32->F64->F32 == id (incl NaN, +-0)", cast(cast(x, f32, f64), f64, f32) == x)
+    prove(
+        "T3 F32->F64->F32 == id (incl NaN, +-0)", cast(cast(x, f32, f64), f64, f32) == x
+    )
 
 
 def check_sign_of_zero_narrowing():
     f64, f32 = TYPES["F64"], TYPES["F32"]
     claims = [
-        (cast(fpMinusZero(F64S), f64, f32) == fpMinusZero(F32S), "F32(-0.0 F64) == -0.0"),
+        (
+            cast(fpMinusZero(F64S), f64, f32) == fpMinusZero(F32S),
+            "F32(-0.0 F64) == -0.0",
+        ),
         (cast(fpPlusZero(F64S), f64, f32) == fpPlusZero(F32S), "F32(+0.0 F64) == +0.0"),
         # narrowing underflow keeps the sign: -1e-300 is far below F32's
         # smallest subnormal, RNE rounds it to zero -- must be MINUS zero
-        (cast(FPVal(-1e-300, F64S), f64, f32) == fpMinusZero(F32S), "F32(-1e-300) == -0.0"),
+        (
+            cast(FPVal(-1e-300, F64S), f64, f32) == fpMinusZero(F32S),
+            "F32(-1e-300) == -0.0",
+        ),
         # narrowing overflow goes to infinity, NOT max-finite (resolves the
         # question mark in the old MATH.md draft)
-        (cast(FPVal(1e300, F64S), f64, f32) == fpPlusInfinity(F32S), "F32(1e300) == +inf"),
-        (cast(FPVal(-1e300, F64S), f64, f32) == fpMinusInfinity(F32S), "F32(-1e300) == -inf"),
+        (
+            cast(FPVal(1e300, F64S), f64, f32) == fpPlusInfinity(F32S),
+            "F32(1e300) == +inf",
+        ),
+        (
+            cast(FPVal(-1e300, F64S), f64, f32) == fpMinusInfinity(F32S),
+            "F32(-1e300) == -inf",
+        ),
     ]
     for claim, label in claims:
         prove(f"T4/T3 narrowing {label}", claim)
@@ -390,9 +539,18 @@ def check_sign_of_zero_narrowing():
 # --- wrap == mod definition -----------------------------------------------------
 
 
-WRAP_PAIRS = [("I8", "U8"), ("U8", "I8"), ("I64", "U8"), ("I8", "I64"),
-              ("U8", "I64"), ("I32", "I64"), ("U32", "U16"), ("I64", "U64"),
-              ("U64", "I8"), ("I16", "U32")]
+WRAP_PAIRS = [
+    ("I8", "U8"),
+    ("U8", "I8"),
+    ("I64", "U8"),
+    ("I8", "I64"),
+    ("U8", "I64"),
+    ("I32", "I64"),
+    ("U32", "U16"),
+    ("I64", "U64"),
+    ("U64", "I8"),
+    ("I16", "U32"),
+]
 
 
 def check_wrap_matches_mod():
@@ -414,7 +572,10 @@ def check_wrap_matches_mod():
         ext = SignExt if f.signed else ZeroExt
         embedded = ext(128 - f.bits, x)  # two's complement value of x, mod 2^128
         mathematical = Extract(t.bits - 1, 0, embedded)  # ... mod 2^n
-        prove(f"wrap == mod 2^n in BV ring {fn}->{tn}", wrap_int_to_int(x, f, t) == mathematical)
+        prove(
+            f"wrap == mod 2^n in BV ring {fn}->{tn}",
+            wrap_int_to_int(x, f, t) == mathematical,
+        )
 
 
 def py_wrap(z: int, to: Ty) -> int:
@@ -450,8 +611,11 @@ def check_wrap_matches_mod_concrete():
         if bad is None:
             record(PASS, f"wrap == mod 2^n concrete {fn}->{tn}", how)
         else:
-            record(FAIL, f"wrap == mod 2^n concrete {fn}->{tn}",
-                   f"z={bad[0]}: term gives {bad[1]}, spec says {bad[2]}")
+            record(
+                FAIL,
+                f"wrap == mod 2^n concrete {fn}->{tn}",
+                f"z={bad[0]}: term gives {bad[1]}, spec says {bad[2]}",
+            )
 
 
 # --- T7: double rounding ---------------------------------------------------------
@@ -465,7 +629,9 @@ def check_double_rounding():
     v = Const("dr_v", u64.sort)
     direct = int_to_float(v, u64, f32)
     via_f64 = float_to_float(int_to_float(v, u64, f64), f64, f32)
-    find("T7 direct U64->F32 != U64->F64->F32 (expected witness)", direct != via_f64, [v])
+    find(
+        "T7 direct U64->F32 != U64->F64->F32 (expected witness)", direct != via_f64, [v]
+    )
 
     # ... but for I32 sources the two coincide (I32 -> F64 is exact,
     # so only one true rounding happens)
@@ -480,7 +646,9 @@ def main():
     print("fpy cast specification checks (see MATH_CASTS_DRAFT.md)\n")
     check_totality_note()
     check_identity_note()
+    check_well_formed()
     check_tosbv_guards_sufficient()
+    check_model_independence()
     check_saturation_boundaries()
     check_sign_of_zero_narrowing()
     check_round_trips()

@@ -115,6 +115,18 @@ def encode_fpext(v, to_sort):
 encode_fptrunc = encode_fpext
 
 
+# for all F32s, we want to show that we produce a value I32 and that value is the
+# largest I32 with magnitude less than the F32
+# -- what if val is > I32_MAX?
+# -- what if val is NaN?
+# -- what if val < I32_MIN?
+
+# val: F32 = x
+# I32(val)
+
+#
+
+
 def encode_fptosi_sat(v, to_sort):
     """alive2 FpConversionOp::toSMT, FPToSInt_Sat.
 
@@ -126,9 +138,9 @@ def encode_fptosi_sat(v, to_sort):
     """
     bits = to_sort.size()
     rm = RTZ()
-    bv = fpToSBV(rm, v, to_sort)                    # val.fp2sint(bits, rm)
-    fp2 = fpSignedToFP(rm, bv, v.sort())            # bv.sint2fp(val, rm)
-    val_rounded = fpRoundToIntegral(rm, v)          # val.round(rm)
+    bv = fpToSBV(rm, v, to_sort)  # val.fp2sint(bits, rm)
+    fp2 = fpSignedToFP(rm, bv, v.sort())  # bv.sint2fp(val, rm)
+    val_rounded = fpRoundToIntegral(rm, v)  # val.round(rm)
     # "-0.xx is converted to 0 and then to 0.0, though -0.xx is ok to convert"
     # (fp2 is +0 while val_rounded is -0, and SMT `=` distinguishes them)
     no_overflow = Or(fpIsZero(val_rounded), fp2 == val_rounded)
@@ -151,9 +163,9 @@ def encode_fptoui_sat(v, to_sort):
     """alive2 FpConversionOp::toSMT, FPToUInt_Sat."""
     bits = to_sort.size()
     rm = RTZ()
-    bv = fpToUBV(rm, v, to_sort)                    # val.fp2uint(bits, rm)
-    fp2 = fpUnsignedToFP(rm, bv, v.sort())          # bv.uint2fp(val, rm)
-    val_rounded = fpRoundToIntegral(rm, v)          # val.round(rm)
+    bv = fpToUBV(rm, v, to_sort)  # val.fp2uint(bits, rm)
+    fp2 = fpUnsignedToFP(rm, bv, v.sort())  # bv.uint2fp(val, rm)
+    val_rounded = fpRoundToIntegral(rm, v)  # val.round(rm)
     # "-0.xx must be converted to 0, not poison."
     no_overflow = Or(fpIsZero(val_rounded), fp2 == val_rounded)
     return If(
@@ -207,9 +219,9 @@ def denote_function(fn):
 
     def resolve(operand):
         if operand.name:
-            assert operand.name in env, (
-                f"@{fn.name}: operand %{operand.name} used before definition"
-            )
+            assert (
+                operand.name in env
+            ), f"@{fn.name}: operand %{operand.name} used before definition"
             return env[operand.name]
         return _constant_expr(operand)
 
@@ -238,7 +250,9 @@ def denote_function(fn):
                 resolve(operands[0]), sort_of(str(inst.type))
             )
         else:
-            assert opcode in _OPCODE_ENCODERS, f"@{fn.name}: unsupported opcode {opcode}"
+            assert (
+                opcode in _OPCODE_ENCODERS
+            ), f"@{fn.name}: unsupported opcode {opcode}"
             assert len(operands) == 1
             assert inst.name, f"@{fn.name}: unnamed instruction result"
             env[inst.name] = _OPCODE_ENCODERS[opcode](

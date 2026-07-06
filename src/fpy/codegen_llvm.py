@@ -51,22 +51,28 @@ WASM_VERSION = "1.0 (MVP)"
 
 ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 
-# Host import that ends the whole sequence
+# Host imports that end the whole sequence. They are two deliberately
+# separate channels (mirroring the C++ sequencer's SequenceExitedWithError
+# event vs DirectiveError): fpy_exit carries a *user-chosen* code (exit(),
+# assert), fpy_fault carries a DirectiveErrorCode raised by a runtime check
+# (division by zero, arithmetic overflow). Keeping them apart means a
+# sequence calling exit(10) can never impersonate a DOMAIN_ERROR fault.
 HOST_EXIT_FUNC_NAME = "fpy_exit"
+HOST_FAULT_FUNC_NAME = "fpy_fault"
 
 
 # TODO this adhoc emit and declare stuff is not super nice. should probably
 # clean it up, have a list of the expected host module signature funcs, declare them
 # all at the start.
-def _declare_host_exit(module: ir.Module) -> ir.Function:
-    """Get-or-declare the fpy_exit host import on *module*."""
-    existing = module.globals.get(HOST_EXIT_FUNC_NAME)
+def _declare_host_noreturn(module: ir.Module, name: str) -> ir.Function:
+    """Get-or-declare a void(i32) noreturn host import on *module*."""
+    existing = module.globals.get(name)
     if existing is not None:
         return existing
     fn = ir.Function(
         module,
         ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-        name=HOST_EXIT_FUNC_NAME,
+        name=name,
     )
     # It never returns to wasm: the host unwinds the interpreter.
     fn.attributes.add("noreturn")
@@ -74,8 +80,16 @@ def _declare_host_exit(module: ir.Module) -> ir.Function:
 
 
 def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to fpy_exit(code) and terminate the current block."""
-    builder.call(_declare_host_exit(builder.module), [code])
+    """Emit a call to fpy_exit(code) -- the user-exit channel -- and
+    terminate the current block."""
+    builder.call(_declare_host_noreturn(builder.module, HOST_EXIT_FUNC_NAME), [code])
+    builder.unreachable()
+
+
+def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
+    """Emit a call to fpy_fault(code) -- the runtime-fault channel -- and
+    terminate the current block."""
+    builder.call(_declare_host_noreturn(builder.module, HOST_FAULT_FUNC_NAME), [code])
     builder.unreachable()
 
 
@@ -150,6 +164,11 @@ class EmitLlvmExpr(Emitter):
 
         assert op in COMPARISON_OPS, op
         if is_float:
+            if op == BinaryStackOp.NOT_EQUAL:
+                # IEEE 754 defines != as the negation of ==, so it is true
+                # when either operand is NaN: that's fcmp une (unordered);
+                # fcmp_ordered would emit `one`, which is false on NaN.
+                return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
         # Enums and bools lower to integers too, so any integer-typed value
         # (not just numeric types) compares with icmp; aggregates don't.
@@ -163,6 +182,18 @@ class EmitLlvmExpr(Emitter):
             f"LLVM backend can't compare values of type "
             f"'{intermediate_type.display_name}' yet"
         )
+
+    def _emit_halt_if(self, cond: ir.Value, code: DirectiveErrorCode) -> None:
+        """Guard an operation: end the whole sequence with the runtime fault
+        *code* when cond holds, otherwise fall through and continue lowering.
+        Faults go through fpy_fault, not fpy_exit: they are not user exits."""
+        b = self.builder
+        fail_block = b.append_basic_block("arith_fail")
+        ok_block = b.append_basic_block("arith_ok")
+        b.cbranch(cond, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        emit_host_fault(b, ir.Constant(ERROR_CODE_TYPE, code.value))
+        b.position_at_end(ok_block)
 
     def _emit_floor_divide(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
@@ -182,11 +213,28 @@ class EmitLlvmExpr(Emitter):
             quotient = b.fdiv(lhs, rhs)
             floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
+
+        zero = ir.Constant(lhs.type, 0)
+        # udiv/sdiv are immediate UB on a zero divisor in LLVM; the sequence
+        # must instead end with the same error the VM's handle_udiv/handle_sdiv
+        # return.
+        self._emit_halt_if(
+            b.icmp_unsigned("==", rhs, zero), DirectiveErrorCode.DOMAIN_ERROR
+        )
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
             # there's nothing below zero to floor toward, so udiv (which
             # truncates) already gives the floored result.
             return b.udiv(lhs, rhs)
+
+        # sdiv MIN,-1 is UB as well: the mathematical quotient 2^(n-1) is not
+        # representable, so the sequence ends with an overflow error.
+        int_min = ir.Constant(lhs.type, -(1 << (lhs.type.width - 1)))
+        minus_one = ir.Constant(lhs.type, -1)
+        overflow = b.and_(
+            b.icmp_signed("==", lhs, int_min), b.icmp_signed("==", rhs, minus_one)
+        )
+        self._emit_halt_if(overflow, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
         # Signed integers have no floor instruction: sdiv truncates toward zero.
         # Truncation and floor agree except when the exact quotient is negative
@@ -221,11 +269,18 @@ class EmitLlvmExpr(Emitter):
         lowers to an fmod libcall on wasm, hence the imported env.fmod.)
         """
         b = self.builder
+        zero = ir.Constant(lhs.type, 0)
+        if not is_float:
+            # urem/srem are immediate UB on a zero divisor in LLVM; the
+            # sequence must instead end with the same error the VM's
+            # handle_umod/handle_smod return.
+            self._emit_halt_if(
+                b.icmp_unsigned("==", rhs, zero), DirectiveErrorCode.DOMAIN_ERROR
+            )
         if not is_float and not is_signed:
             # Unsigned operands are non-negative, so floored == truncated.
             return b.urem(lhs, rhs)
 
-        zero = ir.Constant(lhs.type, 0)
         if is_float:
             rem = b.frem(lhs, rhs)
             nonzero = b.fcmp_ordered("!=", rem, zero)
@@ -234,6 +289,16 @@ class EmitLlvmExpr(Emitter):
             )
             corrected = b.fadd(rem, rhs)
         else:
+            # srem MIN,-1 is UB (and errors in the VM and in Rust) even
+            # though the remainder itself would be 0: it halts exactly like
+            # MIN // -1 does.
+            int_min = ir.Constant(lhs.type, -(1 << (lhs.type.width - 1)))
+            minus_one = ir.Constant(lhs.type, -1)
+            overflow = b.and_(
+                b.icmp_signed("==", lhs, int_min),
+                b.icmp_signed("==", rhs, minus_one),
+            )
+            self._emit_halt_if(overflow, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
             rem = b.srem(lhs, rhs)
             nonzero = b.icmp_signed("!=", rem, zero)
             # rem and rhs have differing signs iff their xor is negative.

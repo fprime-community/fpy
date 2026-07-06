@@ -1648,6 +1648,18 @@ class PickTypesAndResolveFields(Visitor):
         if not all(t.is_numerical for t in arg_types):
             return None
 
+        # negation is undefined for unsigned integers (as in Rust): the result
+        # is negative for every nonzero operand, which no unsigned type can
+        # represent. NOTE: the arity check is what distinguishes negation from
+        # subtraction -- ops are str-valued and both are "-" (and the AST
+        # carries plain strings, so an enum identity check won't work either)
+        if (
+            len(arg_types) == 1
+            and op == UnaryStackOp.NEGATE
+            and arg_types[0] in UNSIGNED_INTEGER_TYPES
+        ):
+            return None
+
         # division and exponentiation always operate over floats
         if op in (BinaryStackOp.DIVIDE, BinaryStackOp.EXPONENT):
             if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):

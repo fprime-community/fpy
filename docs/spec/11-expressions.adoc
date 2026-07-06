@@ -1,0 +1,130 @@
+== Expressions
+
+An *expression* can be evaluated to produce a value of a type.
+
+A *constant expression* is an expression which can be evaluated without running the program.
+
+=== Literals
+
+A *literal* is an expression whose value is explicit in the source code.
+
+All literal expressions are constant expressions.
+
+==== Integer literals
+
+===== Decimal literal syntax
+
+Rule:
+
+[listing]
+----
+DEC_LITERAL:   "1".."9" ("_"?  "0".."9")*
+           |   "0"      ("_"?  "0")* /(?![1-9xX])/
+----
+
+===== Hexadecimal literal syntax
+
+Rule:
+
+`HEX_LITERAL: ("0x" | "0X") ("_"? /[0-9a-fA-F]/)+`
+
+===== Semantics
+
+Integer literals have type <<internal-types,Int>>.
+
+==== Float literals
+
+===== Syntax
+[listing]
+----
+_SPECIAL_DEC: "0".."9" ("_"?  "0".."9")*
+
+DECIMAL: "." _SPECIAL_DEC | _SPECIAL_DEC "." _SPECIAL_DEC
+_EXP: ("e"|"E") ["+" | "-"] _SPECIAL_DEC
+FLOAT_LITERAL: _SPECIAL_DEC _EXP | DECIMAL _EXP?
+----
+
+Float literals have type <<internal-types,Float>>.
+
+A float literal is rounded to the nearest value of type Float.
+
+==== String literals
+===== Syntax
+
+Rule:
+
+`STRING_LITERAL: /("(?!"").*?(?<!\\)(\\\\)*?"|'(?!'').*?(?<!\\)(\\\\)*?')/i`
+
+===== Semantics
+
+String literals have type <<internal-types,String>>.
+
+==== Boolean literals
+===== Syntax
+`BOOLEAN_LITERAL: "True" | "False"`
+===== Semantics
+
+Boolean literals have type <<boolean-type,`bool`>>
+
+=== Member access expression
+==== Syntax
+
+Rule:
+
+`member_access_expr: expr "." name`
+
+Name:
+
+`member_access_expr: parent "." member`
+
+==== Semantics
+
+If `parent` is not an expression, an error is raised.
+
+> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
+
+If the type of `parent` is not a <<structs,struct>>, an error is raised.
+
+If the type of `parent` is not <<types,constant-sized>>, an error is raised.
+
+If `member` is not a member of the type of `parent`, an error is raised.
+
+The type of a member access is the type of the `member` in the type of `parent`.
+
+At evaluation:
+
+. The `parent` is evaluated.
+. The member access expression evaluates to the value of the `member` in the `parent` value.
+
+=== Function call expression
+==== Syntax
+
+Rule:
+
+[listing]
+----
+func_call: expr "(" [arguments] ")"`
+arguments: argument ("," argument)*
+argument: NAME "=" expr -> named_argument
+        | expr -> positional_argument
+----
+
+Name:
+
+`func_call: func "(" arguments ")"`
+
+`func` is resolved in the callable name group.
+
+All argument expressions are resolved in the value name group.
+
+==== Semantics
+
+At evaluation:
+
+. Each argument is evaluated from left to right.
+. The behavior defined in the semantics for the <<callables,callable>> referenced by `func` is 
+
+===== Range semantics
+The range operator is `..`.
+
+If `lhs` or `rhs` cannot be coerced to <<type-aliases,loop var type>>, an error is raised.

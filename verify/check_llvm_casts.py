@@ -68,7 +68,9 @@ def main():
         assert impl.sort() == to.sort, (impl.sort(), to.sort)
         # SMT `=`: on bitvectors exact, on floats it distinguishes +0/-0 and
         # is true on NaN==NaN, i.e. equality of spec values.
-        spec.prove(f"codegen == spec {from_name}->{to_name}", impl == spec.cast(x, frm, to))
+        spec.prove(
+            f"codegen == spec {from_name}->{to_name}", impl == spec.cast(x, frm, to)
+        )
 
     n_pass = sum(1 for s, _, _ in spec.results if s == spec.PASS)
     n_fail = sum(1 for s, _, _ in spec.results if s == spec.FAIL)

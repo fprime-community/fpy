@@ -618,14 +618,16 @@ class TestArithmeticDirectives:
         assert result == DirectiveErrorCode.DOMAIN_ERROR
 
     def test_signed_div_min_by_neg_one(self):
-        """Test sdiv MIN_INT64 / -1 special case (overflow to MIN_INT64)."""
+        """sdiv MIN_INT64 / -1: the mathematical quotient 2^63 is not
+        representable in I64, so the directive errors out instead of
+        silently wrapping. (The C++ op_sdiv computes `lhs / rhs`, which is
+        undefined behavior for exactly this input and needs the same
+        guard.)"""
         model = FpySequencerModel()
         model.push(MIN_INT64)
         model.push(-1)
         result = model.dispatch(SignedIntDivideDirective())
-        assert result == DirectiveErrorCode.NO_ERROR or result is None
-        ret = model.pop()
-        assert ret == MIN_INT64
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
 
     def test_float_add_stack_underflow(self):
         """Test fadd with insufficient stack."""
@@ -675,6 +677,34 @@ class TestArithmeticDirectives:
         model.stack = bytearray(8)
         result = model.dispatch(FloatModuloDirective())
         assert result == DirectiveErrorCode.STACK_UNDERFLOW
+
+    def test_float_mod_by_zero_is_nan(self):
+        """fmod never errors (IEEE, matching Rust/C# and the LLVM backend):
+        x % 0.0 is NaN, not a DOMAIN_ERROR."""
+        model = FpySequencerModel()
+        model.push(1.0)
+        model.push(0.0)
+        result = model.dispatch(FloatModuloDirective())
+        assert result is None or result == DirectiveErrorCode.NO_ERROR
+        assert math.isnan(model.pop(type=float))
+
+    def test_float_mod_inf_dividend_is_nan(self):
+        """inf % y is NaN per IEEE."""
+        model = FpySequencerModel()
+        model.push(float("inf"))
+        model.push(2.0)
+        result = model.dispatch(FloatModuloDirective())
+        assert result is None or result == DirectiveErrorCode.NO_ERROR
+        assert math.isnan(model.pop(type=float))
+
+    def test_float_mod_is_floored(self):
+        """The result takes the divisor's sign (Python-style floored mod)."""
+        model = FpySequencerModel()
+        model.push(-7.5)
+        model.push(2.0)
+        result = model.dispatch(FloatModuloDirective())
+        assert result is None or result == DirectiveErrorCode.NO_ERROR
+        assert model.pop(type=float) == 0.5
 
     def test_float_pow_stack_underflow(self):
         """Test fpow with insufficient stack."""

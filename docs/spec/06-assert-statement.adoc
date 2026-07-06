@@ -1,0 +1,26 @@
+== Assert statement
+
+An *assert statement* evaluates a Boolean expression and halts the program if the expression evaluates to `False`.
+
+=== Syntax
+Rule:
+
+`assert_stmt: "assert" expr ["," expr]`
+
+Name:
+
+`assert_stmt: "assert" condition "," exit_code`
+
+`condition` and `exit_code` are resolved in the value name group.
+
+=== Semantics
+
+If `condition` cannot be coerced to <<boolean-type,`bool`>>, an error is raised.
+
+If `exit_code` is provided, and cannot be coerced to <<primitive-numeric-types,`U8`>>, an error is raised.
+
+At execution, if `condition` evaluates to `False`:
+
+. If `exit_code` is provided, evaluate it and display its value to the user.
+. If `exit_code` is not provided, display a generic error code to the user.
+. Halt the program.

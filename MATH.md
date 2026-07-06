@@ -25,14 +25,7 @@ A cast is an expression which converts a value `V` of numerical type `S` to a va
 
 Casts are guaranteed not to end the program, and have no undefined behavior.
 
-```
-cast(x, F64, F64) = x
-cast(x, F64, F32) = round(x)
-cast(x, F32, F64) = x
-cast(x, F32, F32) = x
-```
 
-## 
 
 If T is a float type, then R is the nearest representable
 
@@ -49,6 +42,8 @@ These operations on F64s are fully defined in all cases by IEEE 754 and produce 
 
 Arithmetic on I64, U64
 If the operation is division and the denominator is zero, the program ends with an error.
+
+See https://github.com/rust-lang/rfcs/blob/master/text/0560-integer-overflow.md
 
 Otherwise, let R be the mathematical result of the operation given the two operands.
 
@@ -98,10 +93,11 @@ Intermediate types are picked via the following rules:
 1. The intermediate type of Boolean operators is always `bool`.
 2. The intermediate type of `==` and `!=` may be any type, so long as the left and right hand sides are the same type. If both are numeric then continue.
 3. If either argument is non-numeric, raise an error.
-4. If the operator is `/` or `**`, the intermediate type is always `F64`.
-5. If either argument is a float, the intermediate type is `F64`.
-6. If either argument is an unsigned integer, the intermediate type is `U64`.
-7. Otherwise, the intermediate type is `I64`.
+4. If the operator is unary `-` and the argument is an unsigned integer, raise an error: negation is undefined for unsigned types (the result would be negative for every nonzero operand).
+5. If the operator is `/` or `**`, the intermediate type is always `F64`.
+6. If either argument is a float, the intermediate type is `F64`.
+7. If either argument is an unsigned integer, the intermediate type is `U64`.
+8. Otherwise, the intermediate type is `I64`.
 
 If the expressions given to the operator are not of the intermediate type, type coercion rules are applied.
 

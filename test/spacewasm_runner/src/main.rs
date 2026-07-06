@@ -3,17 +3,21 @@
 //!
 //! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]`
 //!
-//! On success it prints the sequence's i32 error code as a single decimal line
-//! to stdout and exits 0. The code comes from `env.fpy_exit` when the sequence
-//! calls exit() or fails an assert, or from `fpy_main`'s return value when the
-//! sequence falls off its end (0 == success). The caller reads the printed
-//! code; the process exit status only distinguishes "ran cleanly" (0) from
-//! "harness/runtime fault" (2), so a nonzero error code is not conflated with a
-//! trap.
+//! On success it prints one line to stdout, `<channel> <code>`, and exits 0:
+//!
+//!   * `exit <code>`  -- the user-exit channel: `env.fpy_exit` (exit() or a
+//!     failing assert), or `fpy_main` returning normally (code 0).
+//!   * `fault <code>` -- the runtime-fault channel: `env.fpy_fault`, raised
+//!     by compiler-emitted guards (division by zero, arithmetic overflow)
+//!     with a DirectiveErrorCode. Kept separate so a sequence calling
+//!     exit(10) can never impersonate a DOMAIN_ERROR fault.
+//!
+//! The process exit status only distinguishes "ran cleanly" (0) from
+//! "harness/runtime fault" (2), so error codes are not conflated with traps.
 //!
 //! The `env.{pow,fmod,log}` host imports the fpy LLVM backend may emit are
 //! provided here, backed by libm so they match the C/IEEE semantics the LLVM
-//! intrinsics lower to. `env.fpy_exit` is provided to terminate the sequence.
+//! intrinsics lower to.
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -129,12 +133,16 @@ fn wasm_alloc() -> spacewasm::Rc<dyn WasmMemoryAllocator> {
 /// `pow`/`fmod`/`log` are backed by libm so edge cases (e.g. `pow(0, -1)` ->
 /// +inf, domain errors -> NaN) match what the LLVM intrinsics produce.
 ///
-/// `fpy_exit(code)` ends the whole sequence: it records the code into
-/// *exit_code* and unwinds the interpreter with a host trap, so exit() and a
-/// failing assert terminate the program from any call depth (a `ret` would only
-/// unwind the current function). The recorded code -- not the trap -- carries
-/// the result; code 0 is a normal exit, nonzero a fault.
-fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
+/// `fpy_exit(code)` and `fpy_fault(code)` both end the whole sequence: they
+/// record the code into their channel's cell and unwind the interpreter with
+/// a host trap, so they terminate the program from any call depth (a `ret`
+/// would only unwind the current function). The recorded code -- not the
+/// trap -- carries the result. The two cells keep the user-exit and
+/// runtime-fault channels distinguishable.
+fn fpy_host_module(
+    exit_code: Rc<Cell<Option<i32>>>,
+    fault_code: Rc<Cell<Option<i32>>>,
+) -> HostModule {
     fn arg_f64(args: &[Value], i: usize) -> f64 {
         match args[i] {
             Value::F64(v) => v,
@@ -169,20 +177,43 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
                 // Unwind the whole interpreter; run() reads the code back.
                 ControlFlow::Break(HostFunctionBreak::Trap)
             }),
+            HostFunction::new("fpy_fault", "i".into(), "".into(), move |_, args| {
+                let code = match args[0] {
+                    Value::I32(v) => v,
+                    other => panic!("expected i32 fault code, got {other:?}"),
+                };
+                fault_code.set(Some(code));
+                // Unwind the whole interpreter; run() reads the code back.
+                ControlFlow::Break(HostFunctionBreak::Trap)
+            }),
         ],
         memory: spacewasm::vec![],
         table: spacewasm::vec![],
     }
 }
 
-fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
+/// A finished sequence's outcome: which channel ended it, and its code.
+enum Outcome {
+    /// User-exit channel: exit(), assert, or fpy_main returning normally.
+    Exit(i32),
+    /// Runtime-fault channel: a compiler-emitted guard raised a
+    /// DirectiveErrorCode (division by zero, arithmetic overflow, ...).
+    Fault(i32),
+}
+
+fn run(wasm_path: &str, entry: &str) -> Result<Outcome, String> {
     let wasm = std::fs::read(wasm_path).map_err(|e| format!("read {wasm_path}: {e}"))?;
 
-    // fpy_exit writes the sequence's exit code here and unwinds the interpreter.
+    // fpy_exit / fpy_fault write the sequence's code into their channel's
+    // cell and unwind the interpreter.
     let exit_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
+    let fault_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
-    let mut store = spacewasm::Store::new(256, [fpy_host_module(exit_code.clone())])
-        .map_err(|e| format!("store: {e:?}"))?;
+    let mut store = spacewasm::Store::new(
+        256,
+        [fpy_host_module(exit_code.clone(), fault_code.clone())],
+    )
+    .map_err(|e| format!("store: {e:?}"))?;
     let mut code_builder = CodeBuilder::<256>::default();
 
     let mut stream: ByteStream = ByteStream::new(&wasm);
@@ -243,19 +274,22 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     let interpreter = spacewasm::Interpreter::default();
     let result = interpreter.run(&text, &mut state, 10_000_000);
 
-    // If fpy_exit ran, its recorded code is authoritative -- it unwinds via a
-    // host trap, so the interpreter result is a trap we must not treat as a
-    // fault. exit()/assert take this path; falling off the end of fpy_main does
-    // not (it returns normally below).
+    // If fpy_exit or fpy_fault ran, the recorded code is authoritative -- they
+    // unwind via a host trap, so the interpreter result is a trap we must not
+    // treat as a harness fault. Falling off the end of fpy_main takes neither
+    // path (it returns normally below).
+    if let Some(code) = fault_code.get() {
+        return Ok(Outcome::Fault(code));
+    }
     if let Some(code) = exit_code.get() {
-        return Ok(code);
+        return Ok(Outcome::Exit(code));
     }
 
     match result {
         InterpreterResult::Instruction(InterpreterBreak::Finished) => {
             let raw: spacewasm::RawValue = state.result.ok_or("entry returned no value")?;
             match raw.to_value(spacewasm::ValType::I32) {
-                Value::I32(code) => Ok(code),
+                Value::I32(code) => Ok(Outcome::Exit(code)),
                 other => Err(format!("entry returned non-i32: {other:?}")),
             }
         }
@@ -274,8 +308,12 @@ fn main() -> ExitCode {
     let entry = args.next().unwrap_or_else(|| "fpy_main".to_string());
 
     match run(&wasm_path, &entry) {
-        Ok(code) => {
-            println!("{code}");
+        Ok(Outcome::Exit(code)) => {
+            println!("exit {code}");
+            ExitCode::SUCCESS
+        }
+        Ok(Outcome::Fault(code)) => {
+            println!("fault {code}");
             ExitCode::SUCCESS
         }
         Err(msg) => {

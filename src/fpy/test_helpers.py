@@ -101,13 +101,16 @@ def compile_seq_wasm(
     return wasm
 
 
-def run_seq_wasm(
+def run_seq_wasm_outcome(
     seq: str, ground_binary_dir: str = None, import_search_dirs: list[str] | None = None
-) -> int:
-    """Compile *seq* to wasm and run it, returning fpy_main's error code.
+) -> tuple[str, int]:
+    """Compile *seq* to wasm and run it, returning (channel, code).
 
-    Runs the compiled module through the NASA spacewasm interpreter (the
-    on-board target runtime) via the runner harness built by conftest."""
+    channel is "exit" (user-exit: exit(), assert, or fpy_main returning
+    normally) or "fault" (a runtime fault raised by a compiler-emitted guard,
+    carrying a DirectiveErrorCode). Runs the compiled module through the NASA
+    spacewasm interpreter (the on-board target runtime) via the runner harness
+    built by conftest."""
     import subprocess
 
     assert (
@@ -131,7 +134,27 @@ def run_seq_wasm(
             f"spacewasm runner faulted (exit {result.returncode}): "
             f"{result.stderr.strip()}"
         )
-    return int(result.stdout.strip())
+    channel, code = result.stdout.strip().split()
+    assert channel in ("exit", "fault"), result.stdout
+    return channel, int(code)
+
+
+def run_seq_wasm(
+    seq: str, ground_binary_dir: str = None, import_search_dirs: list[str] | None = None
+) -> int:
+    """Compile *seq* to wasm and run it, returning the user-exit code.
+
+    Raises if the sequence ends with a runtime *fault* instead (division by
+    zero, arithmetic overflow, ...): callers of this helper expect user-exit
+    semantics; fault-expecting tests go through assert_run_failure."""
+    channel, code = run_seq_wasm_outcome(
+        seq, ground_binary_dir, import_search_dirs=import_search_dirs
+    )
+    if channel != "exit":
+        raise RuntimeError(
+            f"wasm sequence ended with runtime fault {DirectiveErrorCode(code)}"
+        )
+    return code
 
 
 def lookup_type(fprime_test_api, type_name: str):
@@ -380,22 +403,46 @@ def assert_run_failure(
         error_code is not None or validation_error
     ), "Must specify either error_code or validation_error"
 
+    # The expected failure's channel: a DirectiveErrorCode other than
+    # EXIT_WITH_ERROR is a runtime fault (guards); EXIT_WITH_ERROR (a bare
+    # assert) and raw ints (exit(n)) come through the user-exit channel.
+    # The channels must not cross-match: exit(10) does not satisfy an
+    # expected DOMAIN_ERROR even though DOMAIN_ERROR's value is 10.
+    expect_fault = (
+        isinstance(error_code, DirectiveErrorCode)
+        and error_code != DirectiveErrorCode.EXIT_WITH_ERROR
+    )
+    # ...except that the bytecode ISA has no fault-raising directive, so the
+    # compiler lowers ITS OWN runtime checks (array bounds, assert_cmd_success)
+    # to `PushVal(code); Exit` -- on the VM these semantically-fault codes ride
+    # the exit channel by construction. TODO(upstream): give the FpySequencer
+    # ISA a fault directive so these stop being spoofable via exit().
+    COMPILED_IN_CHECK_CODES = {
+        DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS,
+        DirectiveErrorCode.CMD_FAIL,
+    }
+
     if USE_WASM:
-        # The wasm backend has no separate validation step or VM-internal
-        # faults: a failed sequence is one whose entry point returns nonzero.
-        code = run_seq_wasm(
+        # The wasm backend has no separate validation step; a failed sequence
+        # either exits nonzero (user channel) or raises a runtime fault.
+        channel, code = run_seq_wasm_outcome(
             seq,
             ground_binary_dir=ground_binary_dir,
             import_search_dirs=import_search_dirs,
         )
-        if code == DirectiveErrorCode.NO_ERROR.value:
+        if (channel, code) == ("exit", DirectiveErrorCode.NO_ERROR.value):
             raise RuntimeError("wasm sequence succeeded")
         if error_code is not None:
-            if (
-                isinstance(error_code, DirectiveErrorCode) and code != error_code.value
-            ) or (isinstance(error_code, int) and code != error_code):
+            want_channel = "fault" if expect_fault else "exit"
+            want_code = (
+                error_code.value
+                if isinstance(error_code, DirectiveErrorCode)
+                else error_code
+            )
+            if (channel, code) != (want_channel, want_code):
                 raise RuntimeError(
-                    f"wasm sequence returned {code}, expected {error_code}"
+                    f"wasm sequence ended with {channel} {code}, "
+                    f"expected {want_channel} {want_code} ({error_code})"
                 )
         return
 
@@ -452,16 +499,28 @@ def assert_run_failure(
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
 
-        # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
-        # code int; the expected value may likewise be either. Compare by integer
-        # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.
-        def _as_int(v):
-            return v.value if isinstance(v, DirectiveErrorCode) else v
-
-        if len(e.args) == 1 and _as_int(e.args[0]) != _as_int(error_code):
-            raise RuntimeError(
-                "run_seq failed with error", e.args[0], "expected", error_code
-            )
+        # The failure's channel is encoded in the arg type: a runtime fault
+        # surfaces as a DirectiveErrorCode trap, a user exit as a raw int.
+        # The channels must not cross-match (see expect_fault above), except
+        # for the compiled-in checks that the bytecode ISA forces through the
+        # exit channel.
+        if len(e.args) == 1:
+            got = e.args[0]
+            if expect_fault:
+                ok = isinstance(got, DirectiveErrorCode) and got == error_code
+                if error_code in COMPILED_IN_CHECK_CODES:
+                    ok = ok or got == error_code.value
+            else:
+                want = (
+                    error_code.value
+                    if isinstance(error_code, DirectiveErrorCode)
+                    else error_code
+                )
+                ok = not isinstance(got, DirectiveErrorCode) and got == want
+            if not ok:
+                raise RuntimeError(
+                    "run_seq failed with error", got, "expected", error_code
+                )
         print(e)
         return
 
