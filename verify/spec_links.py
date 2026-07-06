@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Verify spec-to-test links in markdown files.
+"""Verify spec-to-test links in the AsciiDoc spec sources.
 
 The spec references the tests that pin down a statement with compact numbered
-markdown links. The link title (shown on hover) names the test, and the URL
+AsciiDoc links. The link's title (shown on hover) names the test, and the URL
 points at its line:
 
-    *Tests:* [1](test/fpy/test_imports.py#L123 "test/fpy/test_imports.py::TestFoo::test_bar"), [2](...)
+    _Tests:_ link:test/fpy/test_imports.py#L123[1,title="test/fpy/test_imports.py::TestFoo::test_bar"], link:...[2,title="..."]
 
-Any markdown link whose title contains `.py::` is treated as a test link.
+Any link macro whose title contains `.py::` is treated as a test link.
 The title must be `<path>::<Class>::<function>` (or `<path>::<function>` for
-a module-level test), with <path> relative to the markdown file's directory.
-The URL must be `<path>#L<line>` where <line> is the line of the test's
-`def`. The link label must be the link's 1-based position among the test
-links on its markdown line.
+a module-level test), with <path> relative to the repo root. The URL must be
+`<path>#L<line>` where <line> is the line of the test's `def`. The link text
+must be the link's 1-based position among the test links on its line.
 
 Usage:
 
-    python3 verify/spec_links.py [--fix] [FILE.md ...]
+    python3 verify/spec_links.py [--fix] [FILE.adoc ...]
 
 Without --fix, exits nonzero if any link names a missing file or test, has a
 stale line number, or is mislabeled. With --fix, stale line numbers and
@@ -29,8 +28,10 @@ import re
 import sys
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parent.parent
+
 TEST_LINK_RE = re.compile(
-    r'\[(?P<label>[^\]]*)\]\((?P<url>[^)\s]+)\s+"(?P<text>[^"\s]+\.py::[^"\s]+)"\)'
+    r'link:(?P<url>[^\[\s]+)\[(?P<label>[^\],]*),title="(?P<text>[^"\s]+\.py::[^"\s]+)"\]'
 )
 
 
@@ -69,7 +70,7 @@ def process(md_path: Path, fix: bool) -> tuple[int, int, list[str]]:
             label, url, text = match["label"], match["url"], match["text"]
             where = f"{md_path}:{lineno}"
             path_str, _, qualname = text.partition("::")
-            py_path = md_path.parent / path_str
+            py_path = REPO / path_str
             if not py_path.is_file():
                 errors.append(f"{where}: no such file: {path_str}")
                 return match[0]
@@ -79,7 +80,7 @@ def process(md_path: Path, fix: bool) -> tuple[int, int, list[str]]:
             if def_line is None:
                 errors.append(f"{where}: no test '{qualname}' in {path_str}")
                 return match[0]
-            expected = f'[{position}]({path_str}#L{def_line} "{text}")'
+            expected = f'link:{path_str}#L{def_line}[{position},title="{text}"]'
             if match[0] != expected:
                 if fix:
                     fixed += 1
@@ -104,8 +105,8 @@ def main() -> int:
         "files",
         nargs="*",
         type=Path,
-        default=[Path(__file__).resolve().parent.parent / "SPEC.md"],
-        help="markdown files to check (default: the repo's SPEC.md)",
+        default=sorted((REPO / "docs" / "spec").glob("*.adoc")),
+        help="AsciiDoc files to check (default: docs/spec/*.adoc)",
     )
     parser.add_argument(
         "--fix",

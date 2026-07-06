@@ -1,8 +1,13 @@
 import pytest
 
+from fpy.model import DirectiveErrorCode
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_failure,
+    assert_run_success,
+)
 
 
 class TestConstantFolding:
@@ -615,5 +620,161 @@ assert result == 3
         seq = """
 result: I64 = 7 // (-2)
 assert result == -4
+"""
+        assert_run_success(fprime_test_api, seq)
+
+
+class TestIntDivisionGuards:
+    """Runtime integer division/modulo must end the sequence instead of
+    hitting undefined behavior: zero divisors are a DOMAIN_ERROR (matching
+    the VM's handle_udiv/sdiv/umod/smod), and I64_MIN // -1 is an
+    ARITHMETIC_OVERFLOW (its quotient 2^63 is unrepresentable). Operands are
+    variables so the const folder can't resolve them at compile time."""
+
+    def test_signed_floor_div_by_zero_halts(self, fprime_test_api):
+        seq = """
+a: I64 = 1
+b: I64 = 0
+result: I64 = a // b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_unsigned_floor_div_by_zero_halts(self, fprime_test_api):
+        seq = """
+a: U64 = 1
+b: U64 = 0
+result: U64 = a // b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_signed_mod_by_zero_halts(self, fprime_test_api):
+        seq = """
+a: I64 = 1
+b: I64 = 0
+result: I64 = a % b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_unsigned_mod_by_zero_halts(self, fprime_test_api):
+        seq = """
+a: U64 = 1
+b: U64 = 0
+result: U64 = a % b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_int_min_floor_div_minus_one_halts(self, fprime_test_api):
+        seq = """
+a: I64 = -9223372036854775808
+b: I64 = -1
+result: I64 = a // b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_min_mod_minus_one_halts(self, fprime_test_api):
+        """I64_MIN % -1 halts like I64_MIN // -1 (Rust's rule): the
+        mathematical remainder would be 0, but the operation is UB in
+        C++/LLVM and // and % halt on exactly the same inputs."""
+        seq = """
+a: I64 = -9223372036854775808
+b: I64 = -1
+result: I64 = a % b
+"""
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+
+class TestUnaryMinusUnsigned:
+    """Unary minus is undefined for unsigned integer types (compile error,
+    as in Rust): the result is negative for every nonzero operand, which no
+    unsigned type can represent."""
+
+    def test_negate_unsigned_var_is_compile_error(self, fprime_test_api):
+        seq = """
+a: U32 = 5
+b: I64 = -a
+"""
+        assert_compile_failure(fprime_test_api, seq, match="undefined")
+
+    def test_negate_unsigned_const_is_compile_error(self, fprime_test_api):
+        seq = """
+a: I64 = -U8(5)
+"""
+        assert_compile_failure(fprime_test_api, seq, match="undefined")
+
+    def test_negate_signed_and_float_still_work(self, fprime_test_api):
+        seq = """
+a: I32 = 5
+b: F64 = 2.5
+assert -a == -5
+assert -b == -2.5
+"""
+        assert_run_success(fprime_test_api, seq)
+
+
+class TestNaNComparisons:
+    """IEEE 754 comparisons with NaN: every comparison is false, except !=
+    which is the negation of == and hence true. The NaN is produced at
+    runtime (0.0/0.0 of variables) so nothing is const-folded."""
+
+    def test_nan_neq_nan_is_true(self, fprime_test_api):
+        seq = """
+zero: F64 = 0.0
+nan: F64 = zero / zero
+assert nan != nan
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_nan_eq_nan_is_false(self, fprime_test_api):
+        seq = """
+zero: F64 = 0.0
+nan: F64 = zero / zero
+assert not (nan == nan)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_nan_ordered_comparisons_are_false(self, fprime_test_api):
+        seq = """
+zero: F64 = 0.0
+nan: F64 = zero / zero
+assert not (nan < 1.0)
+assert not (nan <= 1.0)
+assert not (nan > 1.0)
+assert not (nan >= 1.0)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+
+class TestFloatModIEEE:
+    """Float % follows IEEE (and Rust/C#): it never halts. x % 0.0 and
+    inf % y are NaN. (CPython raises ZeroDivisionError instead; fpy
+    deliberately follows IEEE -- see MATH_COMPARISON.md.) Operands are
+    variables so nothing is const-folded."""
+
+    def test_float_mod_by_zero_is_nan(self, fprime_test_api):
+        seq = """
+a: F64 = 1.0
+b: F64 = 0.0
+c: F64 = a % b
+assert c != c
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_inf_mod_is_nan(self, fprime_test_api):
+        seq = """
+one: F64 = 1.0
+zero: F64 = 0.0
+inf: F64 = one / zero
+c: F64 = inf % 2.0
+assert c != c
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_finite_mod_inf_is_identity(self, fprime_test_api):
+        seq = """
+one: F64 = 1.0
+zero: F64 = 0.0
+inf: F64 = one / zero
+c: F64 = -5.0 % inf
+assert c == inf
 """
         assert_run_success(fprime_test_api, seq)

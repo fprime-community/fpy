@@ -1,0 +1,106 @@
+== Callables
+
+A *callable* is a symbol with parameters and a return <<types,type>> which can be evaluated by being called.
+
+> Evaluation of a callable always refers to evaluation of a <<function-call-expression,function call expression>>, where the function is that callable.
+> Because callable evaluation is always via a function call expression, when talking about the evaluation of a callable, it is assumed that the evaluation semantics of the function call expression have already occurred. Specifically, the arguments have already been evaluated from left to right.
+
+Callables can be divided into four categories:
+
+* <<commands,Commands>>
+* <<functions,Functions>>
+* <<builtin-functions,Builtin functions>>
+* link:todo[Constructors]
+
+=== Commands
+A *command* is a callable with an associated F-Prime command.
+
+All F-Prime commands in the dictionary have a corresponding Fpy command.
+
+All Fpy commands are <<scopes,globally-scoped>>.
+
+The fully-qualified name of an Fpy command is the same as the corresponding F-Prime command.
+
+The parameter names and types of an Fpy command are the same as the corresponding F-Prime command.
+
+> The F-Prime specification requires that all command parameter types be <<types,serializable>>.
+
+The return type of all commands is link:todo[`Fw.CmdResponse`].
+
+> Throughout the specification, a "command" means an Fpy command.
+
+==== Command evaluation
+
+Command evaluation is performed as follows:
+
+. The argument values are serialized and arranged into the F-Prime command binary format.
+. The binary command is dispatched to the F-Prime system.
+. Execution blocks until the link:todo[command response] comes back from the F-Prime system.
+. The expression evaluates to a value of `Fw.CmdResponse` corresponding to that command response.
+
+==== Command responses
+
+A *command response* is a value of type `Fw.CmdResponse`.
+
+`Fw.CmdResponse` must be defined in the dictionary, otherwise, an error is raised.
+TODO gracefully handle when it's missing.
+
+=== Builtin functions
+A *builtin function* is a callable whose behavior is explicit in the specification.
+
+==== `exit`
+===== Signature:
+
+`exit(exit_code: I32)`
+
+===== Semantics
+At evaluation:
+
+. If `exit_code` evaluates to a non-zero value, the sequence ends with an error.
+. Otherwise, the sequence ends without error.
+
+==== `sleep`
+===== Signature
+
+`sleep(seconds: U32 = 0, useconds: U32 = 0)`
+
+===== Semantics
+
+At evaluation, the program <<sleeping,sleeps>> for a duration of `seconds` seconds and `useconds` microseconds.
+
+==== `sleep_until`
+===== Signature
+
+`sleep_until(wakeup_time: Fw.Time)`
+
+===== Semantics
+
+At evaluation, the program <<sleeping,sleeps>> until the given `wakeup_time`.
+
+==== `now`
+===== Signature
+`now() -> Fw.Time`
+===== Semantics
+
+At evaluation, the function call evaluates to a `Fw.Time` value representing the current time.
+TODO this really should be linked to the FpySequencer spec to say exactly where it gets this, etc. we also need engineering details
+
+
+=== Builtin libraries
+
+
+=== Time functions
+TODO Fpy provides builtin functions for comparing and manipulating time values:
+
+* `time_cmp(lhs: Fw.Time, rhs: Fw.Time) -> I8`: compares two absolute times. Returns `-1` if `lhs` occurs before `rhs`, `0` if they are the same moment, `1` if `lhs` occurs after `rhs`, or `2` if the time bases differ (incomparable).
+* `time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) -> I8`: compares two time intervals. Returns `-1` if `lhs` is a shorter duration than `rhs`, `0` if they are the same duration, or `1` if `lhs` is a longer duration than `rhs`.
+* `time_sub(lhs: Fw.Time, rhs: Fw.Time) -> Fw.TimeIntervalValue`: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that `lhs` occurs after `rhs` (no negative intervals).
+* `time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) -> Fw.Time`: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.
+
+These functions are implemented in Fpy itself (see `src/fpy/builtin/time.fpy`) and are automatically available in all sequences.
+
+=== Constructors
+TODO Structs, arrays, and `Fw.Time` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.Time` with `time_base`, `time_context`, `seconds`, `useconds`). A constructor call serializes the provided values into a new instance of that type.
+
+=== Numeric casts
+TODO Each concrete numeric type provides a callable whose name matches the type (for example `U16(value)` or `F64(value)`). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See <<casting,Casting>> for details.

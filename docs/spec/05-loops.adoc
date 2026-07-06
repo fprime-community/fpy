@@ -1,0 +1,119 @@
+== Loops
+
+A *loop* executes a block of code zero or more times.
+
+Each loop has a *loop condition*, which is a Boolean expression which, when `True`, allows the loop body to execute.
+
+The *enclosing loop* is the loop whose body some source code is in.
+
+The list of loops is:
+
+* <<while-loop-statement,While loops>>
+* <<for-loops,For loops>>
+
+=== While loop statement
+
+A *while statement* executes a block of code in a loop while a condition holds `True`.
+
+==== Syntax
+
+Rule:
+
+`while_stmt: "while" expr ":" stmt_list`
+
+Name:
+
+`while_stmt: "while" condition ":" body`
+
+`condition` is resolved in the value name group.
+
+==== Semantics
+
+If `condition` cannot be <<type-coercion,coerced>> to <<boolean-type,`bool`>>, an error is raised.
+
+The loop condition of a while loop is the provided `condition`.
+
+At execution:
+
+. The loop condition is evaluated.
+. If the loop condition is `True`, execute the body, and return to step 1.
+. Otherwise, execution continues after the while loop statement.
+
+=== For loop statement
+
+A *for loop statement* executes a block of code until a counter reaches an upper bound.
+
+==== Syntax
+Rule:
+
+`for_stmt: "for" name "in" expr ":" stmt_list`
+
+Name:
+
+`for_stmt: "for" loop_var "in" range ":" body`
+
+`loop_var` and `range` are resolved in the value name group.
+
+==== Semantics
+
+The *loop variable* of a for loop is the variable named by `loop_var`.
+
+If `loop_var` resolves to a previously-defined variable:
+
+. If the type of that variable is not <<type-aliases,loop var type>>, an error is raised.
+. Otherwise, that variable becomes the loop variable of this for loop.
+
+> This allows reusing the same loop variable name across multiple for loops.
+
+If `loop_var` does not resolve to a previously-defined variable, a new variable with name `loop_var` and <<type-aliases,loop var type>> is added to the <<scopes,resolving scope>>, and it becomes the loop variable of this for loop.
+
+> Nothing prevents you from modifying the loop variable in the loop body. However, this may cause infinite loops, so do this with caution.
+
+If `range` cannot be <<type-coercion,coerced>> to <<internal-types,Range type>>, an error is raised.
+
+The loop condition of a for loop is `loop_var < upper_bound`, where `upper_bound` is the upper bound of the `range` expression.
+
+At execution:
+
+. `range` is evaluated.
+. The loop variable is set to the lower bound of `range`.
+. The loop condition is evaluated.
+. If the loop condition is `True`, execute the body, increment the value of the `loop_var` by 1, and return to step 1.
+. Otherwise, execution continues after the for loop statement.
+
+> The only possible step size is 1.
+
+=== Break statement
+
+A *break statement* stops execution of a loop.
+
+==== Syntax
+Rule:
+
+`break_stmt: "break"`
+
+==== Semantics
+
+If the break statement is outside of a loop body, an error is raised.
+
+At execution, the enclosing loop body stops executing, and execution is continued after the enclosing loop.
+
+=== Continue statement
+
+A *continue statement* immediately skips the rest of the loop body, continuing on to the next iteration or ending the loop.
+
+==== Syntax
+Rule:
+
+`continue_stmt: "continue"`
+
+==== Semantics
+
+If the continue statement is outside of a loop body, an error is raised.
+
+At execution:
+
+. The enclosing loop body stops executing.
+. If the loop is a <<for-loop-statement,for loop>>, the loop variable is incremented.
+. The loop condition is re-evaluated.
+. The loop continues as specified based on the result of the loop condition, either running the body or ending the loop.

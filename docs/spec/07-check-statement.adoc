@@ -1,0 +1,46 @@
+== Check statement
+The *check statement* executes a block of code if a Boolean expression evaluates to `True` for a duration of time, checking with a configurable frequency and timing out at a configurable time.
+
+=== Syntax
+Rule:
+
+`check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]`
+
+`check_clause: "timeout" expr | "persist" expr | "period" expr`
+
+The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause).
+
+Name:
+
+`check_stmt: "check" condition "timeout" timeout "persist" persist "period" period ":" body "timeout" ":" timeout_body`
+
+`condition`, `timeout`, `persist`, and `period` are resolved in the value name group.
+
+=== Semantics
+
+If `condition` cannot be <<type-coercion,coerced>> to <<boolean-type,`bool`>>, an error is raised.
+
+If `timeout` is provided, and cannot be coerced to link:todo[`Fw.TimeIntervalValue`], an error is raised.
+
+If `persist` or `period` is provided, and they cannot be coerced to link:todo[`Fw.TimeIntervalValue`], an error is raised.
+
+At execution:
+
+. If provided, `timeout`, `persist` and `period` are evaluated and stored. `timeout`'s stored value is the current time plus the evaluated interval.
+. If `persist` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
+. If `period` is not provided, its stored value is a one-second `Fw.TimeIntervalValue`.
+. If `timeout` was provided and the current time is link:todo[greater] than `timeout`'s stored value, the check times out.
+. Evaluate `condition`.
+. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.
+. Otherwise, link:todo[sleep] for `period`'s stored duration.
+. Go to step 4.
+
+If the check times out during execution:
+
+. If `timeout_body` is provided, execute it.
+. Execution continues after the check statement.
+
+> Not providing `persist`, or providing a zero-duration `persist`, means the `condition` only needs to evaluate to `True` once.
+> The timeout defaults to never, and the frequency defaults to once per second.
+
+If at any point during execution, two times which are link:todo[incomparable] are attempted to be compared, the check statement will halt the program as if by an <<assert-statement,assertion>>, and display an error code.

@@ -1,0 +1,2854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Asciidoctor 3.0.0.dev">
+<title>Fpy Specification</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CNoto+Sans+Mono:400,700">
+<style>
+/*! Asciidoctor default stylesheet | MIT License | https://asciidoctor.org */
+/* Uncomment the following line when using as a custom stylesheet */
+/* @import "https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700"; */
+html{font-family:sans-serif;-webkit-text-size-adjust:100%}
+a{background:none}
+a:focus{outline:thin dotted}
+a:active,a:hover{outline:0}
+h1{font-size:2em;margin:.67em 0}
+b,strong{font-weight:bold}
+abbr{font-size:.9em}
+abbr[title]{cursor:help;border-bottom:1px dotted #dddddf;text-decoration:none}
+dfn{font-style:italic}
+hr{height:0}
+mark{background:#ff0;color:#000}
+code,kbd,pre,samp{font-family:monospace;font-size:1em}
+pre{white-space:pre-wrap}
+q{quotes:"\201C" "\201D" "\2018" "\2019"}
+small{font-size:80%}
+sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}
+sup{top:-.5em}
+sub{bottom:-.25em}
+img{border:0}
+svg:not(:root){overflow:hidden}
+figure{margin:0}
+audio,video{display:inline-block}
+audio:not([controls]){display:none;height:0}
+fieldset{border:1px solid silver;margin:0 2px;padding:.35em .625em .75em}
+legend{border:0;padding:0}
+button,input,select,textarea{font-family:inherit;font-size:100%;margin:0}
+button,input{line-height:normal}
+button,select{text-transform:none}
+button,html input[type=button],input[type=reset],input[type=submit]{-webkit-appearance:button;cursor:pointer}
+button[disabled],html input[disabled]{cursor:default}
+input[type=checkbox],input[type=radio]{padding:0}
+button::-moz-focus-inner,input::-moz-focus-inner{border:0;padding:0}
+textarea{overflow:auto;vertical-align:top}
+table{border-collapse:collapse;border-spacing:0}
+*,::before,::after{box-sizing:border-box}
+html,body{font-size:100%}
+body{background:#fff;color:rgba(0,0,0,.8);padding:0;margin:0;font-family:"Noto Serif","DejaVu Serif",serif;line-height:1;position:relative;cursor:auto;-moz-tab-size:4;-o-tab-size:4;tab-size:4;word-wrap:anywhere;-moz-osx-font-smoothing:grayscale;-webkit-font-smoothing:antialiased}
+a:hover{cursor:pointer}
+img,object,embed{max-width:100%;height:auto}
+object,embed{height:100%}
+img{-ms-interpolation-mode:bicubic}
+.left{float:left!important}
+.right{float:right!important}
+.text-left{text-align:left!important}
+.text-right{text-align:right!important}
+.text-center{text-align:center!important}
+.text-justify{text-align:justify!important}
+.hide{display:none}
+img,object,svg{display:inline-block;vertical-align:middle}
+textarea{height:auto;min-height:50px}
+select{width:100%}
+.subheader,.admonitionblock td.content>.title,.audioblock>.title,.exampleblock>.title,.imageblock>.title,.listingblock>.title,.literalblock>.title,.stemblock>.title,.openblock>.title,.paragraph>.title,.quoteblock>.title,table.tableblock>.title,.verseblock>.title,.videoblock>.title,.dlist>.title,.olist>.title,.ulist>.title,.qlist>.title,.hdlist>.title{line-height:1.45;color:#7a2518;font-weight:400;margin-top:0;margin-bottom:.25em}
+div,dl,dt,dd,ul,ol,li,h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6,pre,form,p,blockquote,th,td{margin:0;padding:0}
+a{color:#2156a5;text-decoration:underline;line-height:inherit}
+a:hover,a:focus{color:#1d4b8f}
+a img{border:0}
+p{line-height:1.6;margin-bottom:1.25em;text-rendering:optimizeLegibility}
+p aside{font-size:.875em;line-height:1.35;font-style:italic}
+h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{font-family:"Open Sans","DejaVu Sans",sans-serif;font-weight:300;font-style:normal;color:#ba3925;text-rendering:optimizeLegibility;margin-top:1em;margin-bottom:.5em;line-height:1.0125em}
+h1 small,h2 small,h3 small,#toctitle small,.sidebarblock>.content>.title small,h4 small,h5 small,h6 small{font-size:60%;color:#e99b8f;line-height:0}
+h1{font-size:2.125em}
+h2{font-size:1.6875em}
+h3,#toctitle,.sidebarblock>.content>.title{font-size:1.375em}
+h4,h5{font-size:1.125em}
+h6{font-size:1em}
+hr{border:solid #dddddf;border-width:1px 0 0;clear:both;margin:1.25em 0 1.1875em}
+em,i{font-style:italic;line-height:inherit}
+strong,b{font-weight:bold;line-height:inherit}
+small{font-size:60%;line-height:inherit}
+code{font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;font-weight:400;color:rgba(0,0,0,.9)}
+ul,ol,dl{line-height:1.6;margin-bottom:1.25em;list-style-position:outside;font-family:inherit}
+ul,ol{margin-left:1.5em}
+ul li ul,ul li ol{margin-left:1.25em;margin-bottom:0}
+ul.circle{list-style-type:circle}
+ul.disc{list-style-type:disc}
+ul.square{list-style-type:square}
+ul.circle ul:not([class]),ul.disc ul:not([class]),ul.square ul:not([class]){list-style:inherit}
+ol li ul,ol li ol{margin-left:1.25em;margin-bottom:0}
+dl dt{margin-bottom:.3125em;font-weight:bold}
+dl dd{margin-bottom:1.25em}
+blockquote{margin:0 0 1.25em;padding:.5625em 1.25em 0 1.1875em;border-left:1px solid #ddd}
+blockquote,blockquote p{line-height:1.6;color:rgba(0,0,0,.85)}
+@media screen and (min-width:768px){h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{line-height:1.2}
+  h1{font-size:2.75em}
+  h2{font-size:2.3125em}
+  h3,#toctitle,.sidebarblock>.content>.title{font-size:1.6875em}
+  h4{font-size:1.4375em}}
+table{background:#fff;margin-bottom:1.25em;border:1px solid #dedede;word-wrap:normal}
+table thead,table tfoot{background:#f7f8f7}
+table thead tr th,table thead tr td,table tfoot tr th,table tfoot tr td{padding:.5em .625em .625em;font-size:inherit;color:rgba(0,0,0,.8);text-align:left}
+table tr th,table tr td{padding:.5625em .625em;font-size:inherit;color:rgba(0,0,0,.8)}
+table tr.even,table tr.alt{background:#f8f8f7}
+table thead tr th,table tfoot tr th,table tbody tr td,table tr td,table tfoot tr td{line-height:1.6}
+h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{line-height:1.2;word-spacing:-.05em}
+h1 strong,h2 strong,h3 strong,#toctitle strong,.sidebarblock>.content>.title strong,h4 strong,h5 strong,h6 strong{font-weight:400}
+.center{margin-left:auto;margin-right:auto}
+.stretch{width:100%}
+.clearfix::before,.clearfix::after,.float-group::before,.float-group::after{content:" ";display:table}
+.clearfix::after,.float-group::after{clear:both}
+:not(pre).nobreak{word-wrap:normal}
+:not(pre).nowrap{white-space:nowrap}
+:not(pre).pre-wrap{white-space:pre-wrap}
+:not(pre):not([class^=L])>code{font-size:.9375em;font-style:normal!important;letter-spacing:0;padding:.1em .5ex;word-spacing:-.15em;background:#f7f7f8;border-radius:4px;line-height:1.45;text-rendering:optimizeSpeed}
+pre{color:rgba(0,0,0,.9);font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;line-height:1.45;text-rendering:optimizeSpeed}
+pre code,pre pre{color:inherit;font-size:inherit;line-height:inherit}
+pre.nowrap,pre.nowrap pre{white-space:pre;word-wrap:normal}
+em em{font-style:normal}
+strong strong{font-weight:400}
+.keyseq{color:rgba(51,51,51,.8)}
+kbd{font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;display:inline-block;color:rgba(0,0,0,.8);font-size:.65em;line-height:1.45;background:#f7f7f7;border:1px solid #ccc;border-radius:3px;box-shadow:0 1px 0 rgba(0,0,0,.2),inset 0 0 0 .1em #fff;margin:0 .15em;padding:.2em .5em;vertical-align:middle;position:relative;top:-.1em;white-space:nowrap}
+.keyseq kbd:first-child{margin-left:0}
+.keyseq kbd:last-child{margin-right:0}
+.menuseq,.menuref{color:#000}
+.menuseq b:not(.caret),.menuref{font-weight:inherit}
+.menuseq{word-spacing:-.02em}
+.menuseq b.caret{font-size:1.25em;line-height:.8}
+.menuseq i.caret{font-weight:bold;text-align:center;width:.45em}
+b.button::before,b.button::after{position:relative;top:-1px;font-weight:400}
+b.button::before{content:"[";padding:0 3px 0 2px}
+b.button::after{content:"]";padding:0 2px 0 3px}
+p a>code:hover{color:rgba(0,0,0,.9)}
+#header,#content,#footnotes,#footer{width:100%;margin:0 auto;max-width:62.5em;*zoom:1;position:relative;padding-left:.9375em;padding-right:.9375em}
+#header::before,#header::after,#content::before,#content::after,#footnotes::before,#footnotes::after,#footer::before,#footer::after{content:" ";display:table}
+#header::after,#content::after,#footnotes::after,#footer::after{clear:both}
+#content{margin-top:1.25em}
+#content::before{content:none}
+#header>h1:first-child{color:rgba(0,0,0,.85);margin-top:2.25rem;margin-bottom:0}
+#header>h1:first-child+#toc{margin-top:8px;border-top:1px solid #dddddf}
+#header>h1:only-child{border-bottom:1px solid #dddddf;padding-bottom:8px}
+#header .details{border-bottom:1px solid #dddddf;line-height:1.45;padding-top:.25em;padding-bottom:.25em;padding-left:.25em;color:rgba(0,0,0,.6);display:flex;flex-flow:row wrap}
+#header .details span:first-child{margin-left:-.125em}
+#header .details span.email a{color:rgba(0,0,0,.85)}
+#header .details br{display:none}
+#header .details br+span::before{content:"\00a0\2013\00a0"}
+#header .details br+span.author::before{content:"\00a0\22c5\00a0";color:rgba(0,0,0,.85)}
+#header .details br+span#revremark::before{content:"\00a0|\00a0"}
+#header #revnumber{text-transform:capitalize}
+#header #revnumber::after{content:"\00a0"}
+#content>h1:first-child:not([class]){color:rgba(0,0,0,.85);border-bottom:1px solid #dddddf;padding-bottom:8px;margin-top:0;padding-top:1rem;margin-bottom:1.25rem}
+#toc{border-bottom:1px solid #e7e7e9;padding-bottom:.5em}
+#toc>ul{margin-left:.125em}
+#toc ul.sectlevel0>li>a{font-style:italic}
+#toc ul.sectlevel0 ul.sectlevel1{margin:.5em 0}
+#toc ul{font-family:"Open Sans","DejaVu Sans",sans-serif;list-style-type:none}
+#toc li{line-height:1.3334;margin-top:.3334em}
+#toc a{text-decoration:none}
+#toc a:active{text-decoration:underline}
+#toctitle{color:#7a2518;font-size:1.2em}
+@media screen and (min-width:768px){#toctitle{font-size:1.375em}
+  body.toc2{padding-left:15em;padding-right:0}
+  body.toc2 #header>h1:nth-last-child(2){border-bottom:1px solid #dddddf;padding-bottom:8px}
+  #toc.toc2{margin-top:0!important;background:#f8f8f7;position:fixed;width:15em;left:0;top:0;border-right:1px solid #e7e7e9;border-top-width:0!important;border-bottom-width:0!important;z-index:1000;padding:1.25em 1em;height:100%;overflow:auto}
+  #toc.toc2 #toctitle{margin-top:0;margin-bottom:.8rem;font-size:1.2em}
+  #toc.toc2>ul{font-size:.9em;margin-bottom:0}
+  #toc.toc2 ul ul{margin-left:0;padding-left:1em}
+  #toc.toc2 ul.sectlevel0 ul.sectlevel1{padding-left:0;margin-top:.5em;margin-bottom:.5em}
+  body.toc2.toc-right{padding-left:0;padding-right:15em}
+  body.toc2.toc-right #toc.toc2{border-right-width:0;border-left:1px solid #e7e7e9;left:auto;right:0}}
+@media screen and (min-width:1280px){body.toc2{padding-left:20em;padding-right:0}
+  #toc.toc2{width:20em}
+  #toc.toc2 #toctitle{font-size:1.375em}
+  #toc.toc2>ul{font-size:.95em}
+  #toc.toc2 ul ul{padding-left:1.25em}
+  body.toc2.toc-right{padding-left:0;padding-right:20em}}
+#content #toc{border:1px solid #e0e0dc;margin-bottom:1.25em;padding:1.25em;background:#f8f8f7;border-radius:4px}
+#content #toc>:first-child{margin-top:0}
+#content #toc>:last-child{margin-bottom:0}
+#footer{max-width:none;background:rgba(0,0,0,.8);padding:1.25em}
+#footer-text{color:hsla(0,0%,100%,.8);line-height:1.44}
+#content{margin-bottom:.625em}
+.sect1{padding-bottom:.625em}
+@media screen and (min-width:768px){#content{margin-bottom:1.25em}
+  .sect1{padding-bottom:1.25em}}
+.sect1:last-child{padding-bottom:0}
+.sect1+.sect1{border-top:1px solid #e7e7e9}
+#content h1>a.anchor,h2>a.anchor,h3>a.anchor,#toctitle>a.anchor,.sidebarblock>.content>.title>a.anchor,h4>a.anchor,h5>a.anchor,h6>a.anchor{position:absolute;z-index:1001;width:1.5ex;margin-left:-1.5ex;display:block;text-decoration:none!important;visibility:hidden;text-align:center;font-weight:400}
+#content h1>a.anchor::before,h2>a.anchor::before,h3>a.anchor::before,#toctitle>a.anchor::before,.sidebarblock>.content>.title>a.anchor::before,h4>a.anchor::before,h5>a.anchor::before,h6>a.anchor::before{content:"\00A7";font-size:.85em;display:block;padding-top:.1em}
+#content h1:hover>a.anchor,#content h1>a.anchor:hover,h2:hover>a.anchor,h2>a.anchor:hover,h3:hover>a.anchor,#toctitle:hover>a.anchor,.sidebarblock>.content>.title:hover>a.anchor,h3>a.anchor:hover,#toctitle>a.anchor:hover,.sidebarblock>.content>.title>a.anchor:hover,h4:hover>a.anchor,h4>a.anchor:hover,h5:hover>a.anchor,h5>a.anchor:hover,h6:hover>a.anchor,h6>a.anchor:hover{visibility:visible}
+#content h1>a.link,h2>a.link,h3>a.link,#toctitle>a.link,.sidebarblock>.content>.title>a.link,h4>a.link,h5>a.link,h6>a.link{color:#ba3925;text-decoration:none}
+#content h1>a.link:hover,h2>a.link:hover,h3>a.link:hover,#toctitle>a.link:hover,.sidebarblock>.content>.title>a.link:hover,h4>a.link:hover,h5>a.link:hover,h6>a.link:hover{color:#a53221}
+details,.audioblock,.imageblock,.literalblock,.listingblock,.stemblock,.videoblock{margin-bottom:1.25em}
+details{margin-left:1.25rem}
+details>summary{cursor:pointer;display:block;position:relative;line-height:1.6;margin-bottom:.625rem;outline:none;-webkit-tap-highlight-color:transparent}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"";border:solid transparent;border-left:solid;border-width:.3em 0 .3em .5em;position:absolute;top:.5em;left:-1.25rem;transform:translateX(15%)}
+details[open]>summary::before{border:solid transparent;border-top:solid;border-width:.5em .3em 0;transform:translateY(15%)}
+details>summary::after{content:"";width:1.25rem;height:1em;position:absolute;top:.3em;left:-1.25rem}
+.admonitionblock td.content>.title,.audioblock>.title,.exampleblock>.title,.imageblock>.title,.listingblock>.title,.literalblock>.title,.stemblock>.title,.openblock>.title,.paragraph>.title,.quoteblock>.title,table.tableblock>.title,.verseblock>.title,.videoblock>.title,.dlist>.title,.olist>.title,.ulist>.title,.qlist>.title,.hdlist>.title{text-rendering:optimizeLegibility;text-align:left;font-family:"Noto Serif","DejaVu Serif",serif;font-size:1rem;font-style:italic}
+table.tableblock.fit-content>caption.title{white-space:nowrap;width:0}
+.paragraph.lead>p,#preamble>.sectionbody>[class=paragraph]:first-of-type p{font-size:1.21875em;line-height:1.6;color:rgba(0,0,0,.85)}
+.admonitionblock>table{border-collapse:separate;border:0;background:none;width:100%}
+.admonitionblock>table td.icon{text-align:center;width:80px}
+.admonitionblock>table td.icon img{max-width:none}
+.admonitionblock>table td.icon .title{font-weight:bold;font-family:"Open Sans","DejaVu Sans",sans-serif;text-transform:uppercase}
+.admonitionblock>table td.content{padding-left:1.125em;padding-right:1.25em;border-left:1px solid #dddddf;color:rgba(0,0,0,.6);word-wrap:anywhere}
+.admonitionblock>table td.content>:last-child>:last-child{margin-bottom:0}
+.exampleblock>.content{border:1px solid #e6e6e6;margin-bottom:1.25em;padding:1.25em;background:#fff;border-radius:4px}
+.sidebarblock{border:1px solid #dbdbd6;margin-bottom:1.25em;padding:1.25em;background:#f3f3f2;border-radius:4px}
+.sidebarblock>.content>.title{color:#7a2518;margin-top:0;text-align:center}
+.exampleblock>.content>:first-child,.sidebarblock>.content>:first-child{margin-top:0}
+.exampleblock>.content>:last-child,.exampleblock>.content>:last-child>:last-child,.exampleblock>.content .olist>ol>li:last-child>:last-child,.exampleblock>.content .ulist>ul>li:last-child>:last-child,.exampleblock>.content .qlist>ol>li:last-child>:last-child,.sidebarblock>.content>:last-child,.sidebarblock>.content>:last-child>:last-child,.sidebarblock>.content .olist>ol>li:last-child>:last-child,.sidebarblock>.content .ulist>ul>li:last-child>:last-child,.sidebarblock>.content .qlist>ol>li:last-child>:last-child{margin-bottom:0}
+.literalblock pre,.listingblock>.content>pre{border-radius:4px;overflow-x:auto;padding:1em;font-size:.8125em}
+@media screen and (min-width:768px){.literalblock pre,.listingblock>.content>pre{font-size:.90625em}}
+@media screen and (min-width:1280px){.literalblock pre,.listingblock>.content>pre{font-size:1em}}
+.literalblock pre,.listingblock>.content>pre:not(.highlight),.listingblock>.content>pre[class=highlight],.listingblock>.content>pre[class^="highlight "]{background:#f7f7f8}
+.literalblock.output pre{color:#f7f7f8;background:rgba(0,0,0,.9)}
+.listingblock>.content{position:relative}
+.listingblock pre>code{display:block}
+.listingblock code[data-lang]::before{display:none;content:attr(data-lang);position:absolute;font-size:.75em;top:.425rem;right:.5rem;line-height:1;text-transform:uppercase;color:inherit;opacity:.5}
+.listingblock:hover code[data-lang]::before{display:block}
+.listingblock.terminal pre .command::before{content:attr(data-prompt);padding-right:.5em;color:inherit;opacity:.5}
+.listingblock.terminal pre .command:not([data-prompt])::before{content:"$"}
+.listingblock pre.highlightjs{padding:0}
+.listingblock pre.highlightjs>code{padding:1em;border-radius:4px}
+.listingblock pre.prettyprint{border-width:0}
+.prettyprint{background:#f7f7f8}
+pre.prettyprint .linenums{line-height:1.45;margin-left:2em}
+pre.prettyprint li{background:none;list-style-type:inherit;padding-left:0}
+pre.prettyprint li code[data-lang]::before{opacity:1}
+pre.prettyprint li:not(:first-child) code[data-lang]::before{display:none}
+table.linenotable{border-collapse:separate;border:0;margin-bottom:0;background:none}
+table.linenotable td[class]{color:inherit;vertical-align:top;padding:0;line-height:inherit;white-space:normal}
+table.linenotable td.code{padding-left:.75em}
+table.linenotable td.linenos,pre.pygments .linenos{border-right:1px solid;opacity:.35;padding-right:.5em;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}
+pre.pygments span.linenos{display:inline-block;margin-right:.75em}
+.quoteblock{margin:0 1em 1.25em 1.5em;display:table}
+.quoteblock:not(.excerpt)>.title{margin-left:-1.5em;margin-bottom:.75em}
+.quoteblock blockquote,.quoteblock p{color:rgba(0,0,0,.85);font-size:1.15rem;line-height:1.75;word-spacing:.1em;letter-spacing:0;font-style:italic;text-align:justify}
+.quoteblock blockquote{margin:0;padding:0;border:0}
+.quoteblock blockquote::before{content:"\201c";float:left;font-size:2.75em;font-weight:bold;line-height:.6em;margin-left:-.6em;color:#7a2518;text-shadow:0 1px 2px rgba(0,0,0,.1)}
+.quoteblock blockquote>.paragraph:last-child p{margin-bottom:0}
+.quoteblock .attribution{margin-top:.75em;margin-right:.5ex;text-align:right}
+.verseblock{margin:0 1em 1.25em}
+.verseblock pre{font-family:"Open Sans","DejaVu Sans",sans-serif;font-size:1.15rem;color:rgba(0,0,0,.85);font-weight:300;text-rendering:optimizeLegibility}
+.verseblock pre strong{font-weight:400}
+.verseblock .attribution{margin-top:1.25rem;margin-left:.5ex}
+.quoteblock .attribution,.verseblock .attribution{font-size:.9375em;line-height:1.45;font-style:italic}
+.quoteblock .attribution br,.verseblock .attribution br{display:none}
+.quoteblock .attribution cite,.verseblock .attribution cite{display:block;letter-spacing:-.025em;color:rgba(0,0,0,.6)}
+.quoteblock.abstract blockquote::before,.quoteblock.excerpt blockquote::before,.quoteblock .quoteblock blockquote::before{display:none}
+.quoteblock.abstract blockquote,.quoteblock.abstract p,.quoteblock.excerpt blockquote,.quoteblock.excerpt p,.quoteblock .quoteblock blockquote,.quoteblock .quoteblock p{line-height:1.6;word-spacing:0}
+.quoteblock.abstract{margin:0 1em 1.25em;display:block}
+.quoteblock.abstract>.title{margin:0 0 .375em;font-size:1.15em;text-align:center}
+.quoteblock.excerpt>blockquote,.quoteblock .quoteblock{padding:0 0 .25em 1em;border-left:.25em solid #dddddf}
+.quoteblock.excerpt,.quoteblock .quoteblock{margin-left:0}
+.quoteblock.excerpt blockquote,.quoteblock.excerpt p,.quoteblock .quoteblock blockquote,.quoteblock .quoteblock p{color:inherit;font-size:1.0625rem}
+.quoteblock.excerpt .attribution,.quoteblock .quoteblock .attribution{color:inherit;font-size:.85rem;text-align:left;margin-right:0}
+p.tableblock:last-child{margin-bottom:0}
+td.tableblock>.content{margin-bottom:1.25em;word-wrap:anywhere}
+td.tableblock>.content>:last-child{margin-bottom:-1.25em}
+table.tableblock,th.tableblock,td.tableblock{border:0 solid #dedede}
+table.grid-all>*>tr>*{border-width:1px}
+table.grid-cols>*>tr>*{border-width:0 1px}
+table.grid-rows>*>tr>*{border-width:1px 0}
+table.frame-all{border-width:1px}
+table.frame-ends{border-width:1px 0}
+table.frame-sides{border-width:0 1px}
+table.frame-none>colgroup+*>:first-child>*,table.frame-sides>colgroup+*>:first-child>*{border-top-width:0}
+table.frame-none>:last-child>:last-child>*,table.frame-sides>:last-child>:last-child>*{border-bottom-width:0}
+table.frame-none>*>tr>:first-child,table.frame-ends>*>tr>:first-child{border-left-width:0}
+table.frame-none>*>tr>:last-child,table.frame-ends>*>tr>:last-child{border-right-width:0}
+table.stripes-all>*>tr,table.stripes-odd>*>tr:nth-of-type(odd),table.stripes-even>*>tr:nth-of-type(even),table.stripes-hover>*>tr:hover{background:#f8f8f7}
+th.halign-left,td.halign-left{text-align:left}
+th.halign-right,td.halign-right{text-align:right}
+th.halign-center,td.halign-center{text-align:center}
+th.valign-top,td.valign-top{vertical-align:top}
+th.valign-bottom,td.valign-bottom{vertical-align:bottom}
+th.valign-middle,td.valign-middle{vertical-align:middle}
+table thead th,table tfoot th{font-weight:bold}
+tbody tr th{background:#f7f8f7}
+tbody tr th,tbody tr th p,tfoot tr th,tfoot tr th p{color:rgba(0,0,0,.8);font-weight:bold}
+p.tableblock>code:only-child{background:none;padding:0}
+p.tableblock{font-size:1em}
+ol{margin-left:1.75em}
+ul li ol{margin-left:1.5em}
+dl dd{margin-left:1.125em}
+dl dd:last-child,dl dd:last-child>:last-child{margin-bottom:0}
+li p,ul dd,ol dd,.olist .olist,.ulist .ulist,.ulist .olist,.olist .ulist{margin-bottom:.625em}
+ul.checklist,ul.none,ol.none,ul.no-bullet,ol.no-bullet,ol.unnumbered,ul.unstyled,ol.unstyled{list-style-type:none}
+ul.no-bullet,ol.no-bullet,ol.unnumbered{margin-left:.625em}
+ul.unstyled,ol.unstyled{margin-left:0}
+li>p:empty:only-child::before{content:"";display:inline-block}
+ul.checklist>li>p:first-child{margin-left:-1em}
+ul.checklist>li>p:first-child>.fa-square-o:first-child,ul.checklist>li>p:first-child>.fa-check-square-o:first-child{width:1.25em;font-size:.8em;position:relative;bottom:.125em}
+ul.checklist>li>p:first-child>input[type=checkbox]:first-child{margin-right:.25em}
+ul.inline{display:flex;flex-flow:row wrap;list-style:none;margin:0 0 .625em -1.25em}
+ul.inline>li{margin-left:1.25em}
+.unstyled dl dt{font-weight:400;font-style:normal}
+ol.arabic{list-style-type:decimal}
+ol.decimal{list-style-type:decimal-leading-zero}
+ol.loweralpha{list-style-type:lower-alpha}
+ol.upperalpha{list-style-type:upper-alpha}
+ol.lowerroman{list-style-type:lower-roman}
+ol.upperroman{list-style-type:upper-roman}
+ol.lowergreek{list-style-type:lower-greek}
+.hdlist>table,.colist>table{border:0;background:none}
+.hdlist>table>tbody>tr,.colist>table>tbody>tr{background:none}
+td.hdlist1,td.hdlist2{vertical-align:top;padding:0 .625em}
+td.hdlist1{font-weight:bold;padding-bottom:1.25em}
+td.hdlist2{word-wrap:anywhere}
+.literalblock+.colist,.listingblock+.colist{margin-top:-.5em}
+.colist td:not([class]):first-child{padding:.4em .75em 0;line-height:1;vertical-align:top}
+.colist td:not([class]):first-child img{max-width:none}
+.colist td:not([class]):last-child{padding:.25em 0}
+.thumb,.th{line-height:0;display:inline-block;border:4px solid #fff;box-shadow:0 0 0 1px #ddd}
+.imageblock.left{margin:.25em .625em 1.25em 0}
+.imageblock.right{margin:.25em 0 1.25em .625em}
+.imageblock>.title{margin-bottom:0}
+.imageblock.thumb,.imageblock.th{border-width:6px}
+.imageblock.thumb>.title,.imageblock.th>.title{padding:0 .125em}
+.image.left,.image.right{margin-top:.25em;margin-bottom:.25em;display:inline-block;line-height:0}
+.image.left{margin-right:.625em}
+.image.right{margin-left:.625em}
+a.image{text-decoration:none;display:inline-block}
+a.image object{pointer-events:none}
+sup.footnote,sup.footnoteref{font-size:.875em;position:static;vertical-align:super}
+sup.footnote a,sup.footnoteref a{text-decoration:none}
+sup.footnote a:active,sup.footnoteref a:active,#footnotes .footnote a:first-of-type:active{text-decoration:underline}
+#footnotes{padding-top:.75em;padding-bottom:.75em;margin-bottom:.625em}
+#footnotes hr{width:20%;min-width:6.25em;margin:-.25em 0 .75em;border-width:1px 0 0}
+#footnotes .footnote{padding:0 .375em 0 .225em;line-height:1.3334;font-size:.875em;margin-left:1.2em;margin-bottom:.2em}
+#footnotes .footnote a:first-of-type{font-weight:bold;text-decoration:none;margin-left:-1.05em}
+#footnotes .footnote:last-of-type{margin-bottom:0}
+#content #footnotes{margin-top:-.625em;margin-bottom:0;padding:.75em 0}
+div.unbreakable{page-break-inside:avoid}
+.big{font-size:larger}
+.small{font-size:smaller}
+.underline{text-decoration:underline}
+.overline{text-decoration:overline}
+.line-through{text-decoration:line-through}
+.aqua{color:#00bfbf}
+.aqua-background{background:#00fafa}
+.black{color:#000}
+.black-background{background:#000}
+.blue{color:#0000bf}
+.blue-background{background:#0000fa}
+.fuchsia{color:#bf00bf}
+.fuchsia-background{background:#fa00fa}
+.gray{color:#606060}
+.gray-background{background:#7d7d7d}
+.green{color:#006000}
+.green-background{background:#007d00}
+.lime{color:#00bf00}
+.lime-background{background:#00fa00}
+.maroon{color:#600000}
+.maroon-background{background:#7d0000}
+.navy{color:#000060}
+.navy-background{background:#00007d}
+.olive{color:#606000}
+.olive-background{background:#7d7d00}
+.purple{color:#600060}
+.purple-background{background:#7d007d}
+.red{color:#bf0000}
+.red-background{background:#fa0000}
+.silver{color:#909090}
+.silver-background{background:#bcbcbc}
+.teal{color:#006060}
+.teal-background{background:#007d7d}
+.white{color:#bfbfbf}
+.white-background{background:#fafafa}
+.yellow{color:#bfbf00}
+.yellow-background{background:#fafa00}
+span.icon>.fa{cursor:default}
+a span.icon>.fa{cursor:inherit}
+.admonitionblock td.icon [class^="fa icon-"]{font-size:2.5em;text-shadow:1px 1px 2px rgba(0,0,0,.5);cursor:default}
+.admonitionblock td.icon .icon-note::before{content:"\f05a";color:#19407c}
+.admonitionblock td.icon .icon-tip::before{content:"\f0eb";text-shadow:1px 1px 2px rgba(155,155,0,.8);color:#111}
+.admonitionblock td.icon .icon-warning::before{content:"\f071";color:#bf6900}
+.admonitionblock td.icon .icon-caution::before{content:"\f06d";color:#bf3400}
+.admonitionblock td.icon .icon-important::before{content:"\f06a";color:#bf0000}
+.conum[data-value]{display:inline-block;color:#fff!important;background:rgba(0,0,0,.8);border-radius:50%;text-align:center;font-size:.75em;width:1.67em;height:1.67em;line-height:1.67em;font-family:"Open Sans","DejaVu Sans",sans-serif;font-style:normal;font-weight:bold}
+.conum[data-value] *{color:#fff!important}
+.conum[data-value]+b{display:none}
+.conum[data-value]::after{content:attr(data-value)}
+pre .conum[data-value]{position:relative;top:-.125em}
+b.conum *{color:inherit!important}
+.conum:not([data-value]):empty{display:none}
+dt,th.tableblock,td.content,div.footnote{text-rendering:optimizeLegibility}
+h1,h2,p,td.content,span.alt,summary{letter-spacing:-.01em}
+p strong,td.content strong,div.footnote strong{letter-spacing:-.005em}
+p,blockquote,dt,td.content,td.hdlist1,span.alt,summary{font-size:1.0625rem}
+p{margin-bottom:1.25rem}
+.sidebarblock p,.sidebarblock dt,.sidebarblock td.content,p.tableblock{font-size:1em}
+.exampleblock>.content{background:#fffef7;border-color:#e0e0dc;box-shadow:0 1px 4px #e0e0dc}
+.print-only{display:none!important}
+@page{margin:1.25cm .75cm}
+@media print{*{box-shadow:none!important;text-shadow:none!important}
+  html{font-size:80%}
+  a{color:inherit!important;text-decoration:underline!important}
+  a.bare,a[href^="#"],a[href^="mailto:"]{text-decoration:none!important}
+  a[href^="http:"]:not(.bare)::after,a[href^="https:"]:not(.bare)::after{content:"(" attr(href) ")";display:inline-block;font-size:.875em;padding-left:.25em}
+  abbr[title]{border-bottom:1px dotted}
+  abbr[title]::after{content:" (" attr(title) ")"}
+  pre,blockquote,tr,img,object,svg{page-break-inside:avoid}
+  thead{display:table-header-group}
+  svg{max-width:100%}
+  p,blockquote,dt,td.content{font-size:1em;orphans:3;widows:3}
+  h2,h3,#toctitle,.sidebarblock>.content>.title{page-break-after:avoid}
+  #header,#content,#footnotes,#footer{max-width:none}
+  #toc,.sidebarblock,.exampleblock>.content{background:none!important}
+  #toc{border-bottom:1px solid #dddddf!important;padding-bottom:0!important}
+  body.book #header{text-align:center}
+  body.book #header>h1:first-child{border:0!important;margin:2.5em 0 1em}
+  body.book #header .details{border:0!important;display:block;padding:0!important}
+  body.book #header .details span:first-child{margin-left:0!important}
+  body.book #header .details br{display:block}
+  body.book #header .details br+span::before{content:none!important}
+  body.book #toc{border:0!important;text-align:left!important;padding:0!important;margin:0!important}
+  body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-break-before:always}
+  .listingblock code[data-lang]::before{display:block}
+  #footer{padding:0 .9375em}
+  .hide-on-print{display:none!important}
+  .print-only{display:block!important}
+  .hide-for-print{display:none!important}
+  .show-for-print{display:inherit!important}}
+@media amzn-kf8,print{#header>h1:first-child{margin-top:1.25rem}
+  .sect1{padding:0!important}
+  .sect1+.sect1{border:0}
+  #footer{background:none}
+  #footer-text{color:rgba(0,0,0,.6);font-size:.9em}}
+@media amzn-kf8{#header,#content,#footnotes,#footer{padding:0}}
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.3/styles/github.min.css">
+</head>
+<body class="article toc2 toc-left">
+<div id="header">
+<h1>Fpy Specification</h1>
+<div id="toc" class="toc2">
+<div id="toctitle">Table of Contents</div>
+<ul class="sectlevel1">
+<li><a href="#names-and-scopes">1. Names and scopes</a>
+<ul class="sectlevel2">
+<li><a href="#names">1.1. Names</a></li>
+<li><a href="#reserved-words">1.2. Reserved words</a></li>
+<li><a href="#symbols">1.3. Symbols</a></li>
+<li><a href="#scopes">1.4. Scopes</a></li>
+<li><a href="#name-groups">1.5. Name groups</a></li>
+<li><a href="#namespaces">1.6. Namespaces</a></li>
+<li><a href="#qualified-names">1.7. Qualified names</a></li>
+<li><a href="#definitions">1.8. Definitions</a></li>
+</ul>
+</li>
+<li><a href="#variables">2. Variables</a>
+<ul class="sectlevel2">
+<li><a href="#variable-definition">2.1. Variable definition</a>
+<ul class="sectlevel3">
+<li><a href="#syntax">2.1.1. Syntax</a></li>
+<li><a href="#semantics">2.1.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#variable-assignment">2.2. Variable assignment</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-2">2.2.1. Syntax</a></li>
+<li><a href="#semantics-2">2.2.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#member-assignment">2.3. Member assignment</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-3">2.3.1. Syntax</a></li>
+<li><a href="#semantics-3">2.3.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#element-assignment">2.4. Element assignment</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-4">2.4.1. Syntax</a></li>
+<li><a href="#semantics-4">2.4.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#variable-evaluation">2.5. Variable evaluation</a></li>
+</ul>
+</li>
+<li><a href="#functions">3. Functions</a>
+<ul class="sectlevel2">
+<li><a href="#function-parameters">3.1. Function parameters</a></li>
+<li><a href="#return-types">3.2. Return types</a></li>
+<li><a href="#returns">3.3. Returns</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-5">3.3.1. Syntax</a></li>
+<li><a href="#semantics-5">3.3.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#function-definition">3.4. Function definition</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-6">3.4.1. Syntax</a></li>
+<li><a href="#semantics-6">3.4.2. Semantics</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#ifs">4. Ifs</a>
+<ul class="sectlevel2">
+<li><a href="#syntax-7">4.1. Syntax</a></li>
+<li><a href="#semantics-7">4.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#loops">5. Loops</a>
+<ul class="sectlevel2">
+<li><a href="#while-loop-statement">5.1. While loop statement</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-8">5.1.1. Syntax</a></li>
+<li><a href="#semantics-8">5.1.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#for-loop-statement">5.2. For loop statement</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-9">5.2.1. Syntax</a></li>
+<li><a href="#semantics-9">5.2.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#break-statement">5.3. Break statement</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-10">5.3.1. Syntax</a></li>
+<li><a href="#semantics-10">5.3.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#continue-statement">5.4. Continue statement</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-11">5.4.1. Syntax</a></li>
+<li><a href="#semantics-11">5.4.2. Semantics</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#assert-statement">6. Assert statement</a>
+<ul class="sectlevel2">
+<li><a href="#syntax-12">6.1. Syntax</a></li>
+<li><a href="#semantics-12">6.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#check-statement">7. Check statement</a>
+<ul class="sectlevel2">
+<li><a href="#syntax-13">7.1. Syntax</a></li>
+<li><a href="#semantics-13">7.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#imports">8. Imports</a>
+<ul class="sectlevel2">
+<li><a href="#syntax-14">8.1. Syntax</a></li>
+<li><a href="#module-resolution">8.2. Module resolution</a></li>
+<li><a href="#semantics-14">8.3. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#callables">9. Callables</a>
+<ul class="sectlevel2">
+<li><a href="#commands">9.1. Commands</a>
+<ul class="sectlevel3">
+<li><a href="#command-evaluation">9.1.1. Command evaluation</a></li>
+<li><a href="#command-responses">9.1.2. Command responses</a></li>
+</ul>
+</li>
+<li><a href="#builtin-functions">9.2. Builtin functions</a>
+<ul class="sectlevel3">
+<li><a href="#exit">9.2.1. <code>exit</code></a></li>
+<li><a href="#sleep">9.2.2. <code>sleep</code></a></li>
+<li><a href="#sleep_until">9.2.3. <code>sleep_until</code></a></li>
+<li><a href="#now">9.2.4. <code>now</code></a></li>
+</ul>
+</li>
+<li><a href="#builtin-libraries">9.3. Builtin libraries</a></li>
+<li><a href="#time-functions">9.4. Time functions</a></li>
+<li><a href="#constructors">9.5. Constructors</a></li>
+<li><a href="#numeric-casts">9.6. Numeric casts</a></li>
+</ul>
+</li>
+<li><a href="#types">10. Types</a>
+<ul class="sectlevel2">
+<li><a href="#primitive-types">10.1. Primitive types</a>
+<ul class="sectlevel3">
+<li><a href="#primitive-numeric-types">10.1.1. Primitive numeric types</a></li>
+<li><a href="#boolean-type">10.1.2. Boolean type</a></li>
+</ul>
+</li>
+<li><a href="#type-aliases">10.2. Type aliases</a></li>
+<li><a href="#internal-types">10.3. Internal types</a></li>
+<li><a href="#dictionary-types">10.4. Dictionary types</a>
+<ul class="sectlevel3">
+<li><a href="#structs">10.4.1. Structs</a></li>
+<li><a href="#arrays">10.4.2. Arrays</a></li>
+<li><a href="#enums">10.4.3. Enums</a></li>
+<li><a href="#dictionary-strings">10.4.4. Dictionary strings</a></li>
+</ul>
+</li>
+<li><a href="#fields">10.5. Fields</a></li>
+<li><a href="#populating-dictionary-types">10.6. Populating dictionary types</a></li>
+</ul>
+</li>
+<li><a href="#expressions">11. Expressions</a>
+<ul class="sectlevel2">
+<li><a href="#literals">11.1. Literals</a>
+<ul class="sectlevel3">
+<li><a href="#integer-literals">11.1.1. Integer literals</a></li>
+<li><a href="#float-literals">11.1.2. Float literals</a></li>
+<li><a href="#string-literals">11.1.3. String literals</a></li>
+<li><a href="#boolean-literals">11.1.4. Boolean literals</a></li>
+</ul>
+</li>
+<li><a href="#member-access-expression">11.2. Member access expression</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-18">11.2.1. Syntax</a></li>
+<li><a href="#semantics-20">11.2.2. Semantics</a></li>
+</ul>
+</li>
+<li><a href="#function-call-expression">11.3. Function call expression</a>
+<ul class="sectlevel3">
+<li><a href="#syntax-19">11.3.1. Syntax</a></li>
+<li><a href="#semantics-21">11.3.2. Semantics</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a href="#execution">12. Execution</a>
+<ul class="sectlevel2">
+<li><a href="#control-flow">12.1. Control flow</a></li>
+<li><a href="#sleeping">12.2. Sleeping</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div id="content">
+<div id="preamble">
+<div class="sectionbody">
+<div class="paragraph">
+<p>Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with domain-specific features for spacecraft operation.</p>
+</div>
+<div class="paragraph">
+<p>This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified.</p>
+</div>
+<div class="paragraph">
+<p>It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Informal notes and explanations are quoted like this.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>Terms are <strong>bolded</strong> in the location they are primarily defined.</p>
+</div>
+<div class="paragraph">
+<p><code>Monospaced</code> text refer to syntactic rules, type names or example Fpy code.</p>
+</div>
+<div class="paragraph">
+<p>In a syntactic rule:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Text in between forward slashes <code>/</code> is regex</p>
+</li>
+<li>
+<p>Text in between square brackets <code>[]</code> is optional</p>
+</li>
+<li>
+<p>Text in between parentheses <code>()</code> is handled as a group</p>
+</li>
+<li>
+<p>A plus suffix <code>+</code> means one or more instances of its preceding rule</p>
+</li>
+<li>
+<p>A star suffix <code>*</code> means zero or more instances of its preceding rule</p>
+</li>
+<li>
+<p>A question mark suffix <code>?</code> means zero or one instances of its preceding rule</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>A line of the specification may be followed by an italicized <em>Tests:</em> line. Each bracketed number links to a test that verifies the behavior; hover over a number to see the test&#8217;s full <code>file::class::name</code>. These links are checked and kept up to date by <code>verify/spec_links.py</code>.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="names-and-scopes"><a class="anchor" href="#names-and-scopes"></a><a class="link" href="#names-and-scopes">1. Names and scopes</a></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="names"><a class="anchor" href="#names"></a><a class="link" href="#names">1.1. Names</a></h3>
+<div class="paragraph">
+<p><code>name: /\$?[^\W\d]\w*/</code></p>
+</div>
+<div class="paragraph">
+<p>A <strong>name</strong> is a string consisting of letters, underscores or digits. The first character may not be a digit.</p>
+</div>
+<div class="paragraph">
+<p>The first character may optionally be <code>$</code>, in which case the name is considered <strong>escaped</strong>. An escaped name is the same as an unescaped name, except in that it always lexes as a name, even if it is a <a href="#reserved-words">reserved word</a>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="reserved-words"><a class="anchor" href="#reserved-words"></a><a class="link" href="#reserved-words">1.2. Reserved words</a></h3>
+<div class="paragraph">
+<p>A <strong>reserved word</strong> is a word which cannot be used as an <a href="#names">unescaped name</a>.</p>
+</div>
+<div class="paragraph">
+<p>The list of reserved words is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>assert</code></p>
+</li>
+<li>
+<p><code>break</code></p>
+</li>
+<li>
+<p><code>check</code></p>
+</li>
+<li>
+<p><code>continue</code></p>
+</li>
+<li>
+<p><code>def</code></p>
+</li>
+<li>
+<p><code>for</code></p>
+</li>
+<li>
+<p><code>if</code></p>
+</li>
+<li>
+<p><code>import</code></p>
+</li>
+<li>
+<p><code>not</code></p>
+</li>
+<li>
+<p><code>pass</code></p>
+</li>
+<li>
+<p><code>return</code></p>
+</li>
+<li>
+<p><code>while</code></p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="symbols"><a class="anchor" href="#symbols"></a><a class="link" href="#symbols">1.3. Symbols</a></h3>
+<div class="paragraph">
+<p>A <strong>symbol</strong> is a language construct that can be referred to by a name in the program.</p>
+</div>
+<div class="paragraph">
+<p>The following language constructs may be symbols:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="#namespaces">namespaces</a></p>
+</li>
+<li>
+<p><a href="#variables">variables</a></p>
+</li>
+<li>
+<p><a href="#callables">callables</a></p>
+</li>
+<li>
+<p><a href="#types">types</a></p>
+</li>
+<li>
+<p>telemetry channels</p>
+</li>
+<li>
+<p>parameters</p>
+</li>
+<li>
+<p>enum constants
+TODO members?
+TODO you&#8217;re selecting a member of a value&#8212;&#8203;not referring to a static member. when you say a.b you&#8217;re asking for a comp to be performed</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="scopes"><a class="anchor" href="#scopes"></a><a class="link" href="#scopes">1.4. Scopes</a></h3>
+<div class="paragraph">
+<p>A <strong>scope</strong> is a mapping of names to symbols, accessed via some region of the source code.
+TODO a scope IS a REGION</p>
+</div>
+<div class="paragraph">
+<p>The <strong>global scope</strong> is the scope accessible throughout the entire source code.</p>
+</div>
+<div class="paragraph">
+<p>Each <a href="#functions">function</a> has a <strong>function scope</strong>, accessible in its body.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>resolving scope</strong> is the most specific scope that some part of the source code has access to.</p>
+</div>
+<div class="paragraph">
+<p>Scopes may have a <strong>parent scope</strong>:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The parent scope of a function scope is the global scope.</p>
+</li>
+<li>
+<p>The global scope does not have a parent scope.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="name-groups"><a class="anchor" href="#name-groups"></a><a class="link" href="#name-groups">1.5. Name groups</a></h3>
+<div class="paragraph">
+<p>Scopes are divided into <strong>name groups</strong>.</p>
+</div>
+<div class="paragraph">
+<p>The list of name groups is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <strong><a href="#values">value</a> name group</strong></p>
+</li>
+<li>
+<p>The <strong><a href="#types">type</a> name group</strong></p>
+</li>
+<li>
+<p>The <strong><a href="#callables">callable</a> name group</strong></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+TODO Maybe could remove this line</p>
+</div>
+<div class="paragraph">
+<p>TODO explain why we need this
+Name groups do not intersect.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This means that the names of callables, types and values never conflict.  WITH EACH OTHER</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>Name groups are accessed via syntactic context.
+TODO this is really just an explanation</p>
+</div>
+<div class="paragraph">
+<p>TODO type names should NOT be expressions</p>
+</div>
+<div class="paragraph">
+<p>TODO A.b is an expr, A is an expr, b is not an expression. A.b is a dot expression. b is not an expression, it&#8217;s part of a
+TODO Does it refer to something that has a scope, or does it refer to something that has members.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>For instance, the type name group is accessible anywhere in the source code where a type name is expected, such as a <a href="#variable-definition">variable definition</a> type annotation, or a <a href="#function-definition">function definition</a> return type.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>The <strong>resolving name group</strong> is the name group that a name should be resolved in, based on its syntactic context.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="namespaces"><a class="anchor" href="#namespaces"></a><a class="link" href="#namespaces">1.6. Namespaces</a></h3>
+<div class="paragraph">
+<p>A <strong>namespace</strong> is a mapping of names to symbols, associated with a name.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="qualified-names"><a class="anchor" href="#qualified-names"></a><a class="link" href="#qualified-names">1.7. Qualified names</a></h3>
+<div class="paragraph">
+<p>A <strong>qualified name</strong> is one of:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>A name</p>
+</li>
+<li>
+<p>A qualified name, followed by a <code>.</code>, followed by a name</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>The <strong>qualifier</strong> is the qualified name to the left of the <code>.</code>.</p>
+</div>
+<div class="paragraph">
+<p>To resolve a qualified name in a name group:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If there is no qualifier:</p>
+<div class="olist loweralpha">
+<ol class="loweralpha" type="a">
+<li>
+<p>Resolve the name in the resolving scope.</p>
+</li>
+<li>
+<p>If the name fails to be resolved, resolve the name in the parent scope of the resolving scope.</p>
+</li>
+</ol>
+</div>
+</li>
+<li>
+<p>Otherwise:</p>
+<div class="olist loweralpha">
+<ol class="loweralpha" type="a">
+<li>
+<p>Resolve the qualifier.</p>
+</li>
+<li>
+<p>If the qualifier is an expression, resolution is handled by the rules of <a href="#member-access-expression">member access</a>.</p>
+</li>
+<li>
+<p>If the qualifier is not a namespace, an error is raised.</p>
+</li>
+<li>
+<p>Resolve the name in the qualifier namespace.</p>
+</li>
+</ol>
+</div>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>If at any point a name fails to be resolved, an error is raised, unless otherwise specified.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>fully-qualified name</strong> is a qualified name which is not itself a qualifier.
+TODO names are semantic, ident is syntactic
+TODO you can&#8217;t actually tell at syntax level what is a fqn
+If a fully-qualified name resolves to a namespace, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L343" title="test/fpy/test_imports.py::TestImportNamespaceIsolation::test_module_name_not_usable_as_value">1</a></p>
+</div>
+<div class="paragraph">
+<p>TODO you can think of the dict as "importing definitions"</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>TODO I&#8217;m not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING&#8212;&#8203;cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="definitions"><a class="anchor" href="#definitions"></a><a class="link" href="#definitions">1.8. Definitions</a></h3>
+<div class="paragraph">
+<p>A <strong>definition</strong> is a language construct that introduces a name-to-<a href="#symbols">symbol</a> mapping as apart of a <a href="#scopes">scope</a> and <a href="#name-groups">name group</a>.</p>
+</div>
+<div class="paragraph">
+<p>The list of definitions is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="#variable-definition">Variable definitions</a></p>
+</li>
+<li>
+<p><a href="#function-definition">Function definitions</a></p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="variables"><a class="anchor" href="#variables"></a><a class="link" href="#variables">2. Variables</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A <strong>variable</strong> is a symbol with a static <a href="#types">type</a> and a dynamic, mutable <a href="#values">value</a>.
+todo maybe call it dynamic?</p>
+</div>
+<div class="paragraph">
+<p>TODO: give a list of statements</p>
+</div>
+<div class="sect2">
+<h3 id="variable-definition"><a class="anchor" href="#variable-definition"></a><a class="link" href="#variable-definition">2.1. Variable definition</a></h3>
+<div class="paragraph">
+<p>A <strong>variable definition statement</strong> introduces a name-to-variable mapping in its resolving scope.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax"><a class="anchor" href="#syntax"></a><a class="link" href="#syntax">2.1.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_declare_stmt: name ":" qualified_name "=" expr</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_declare_stmt: lhs ":" type_ann "=" rhs</code></p>
+</div>
+<div class="paragraph">
+<p><code>lhs</code> and <code>rhs</code> are resolved in the value name group.</p>
+</div>
+<div class="paragraph">
+<p><code>type_ann</code> is resolved in the type name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics"><a class="anchor" href="#semantics"></a><a class="link" href="#semantics">2.1.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>lhs</code> resolves to a previously-defined symbol, an error is raised.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This prevents redefining a variable.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If <code>rhs</code> cannot be coerced to type <code>type_ann</code>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>The new variable has type <code>type_ann</code>. It is added to the resolving scope under name <code>lhs</code>.</p>
+</div>
+<div class="paragraph">
+<p>At execution, <code>rhs</code> is <a href="#evaluation">evaluated</a> and <a href="#type-coercion">coerced</a> to type <code>type_ann</code>. This becomes the variable&#8217;s initial value.</p>
+</div>
+<div class="paragraph">
+<p>For statements following this, the variable <code>lhs</code> is considered defined.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="variable-assignment"><a class="anchor" href="#variable-assignment"></a><a class="link" href="#variable-assignment">2.2. Variable assignment</a></h3>
+<div class="paragraph">
+<p>A <strong>variable assignment statement</strong> mutates the value of a variable.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-2"><a class="anchor" href="#syntax-2"></a><a class="link" href="#syntax-2">2.2.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_stmt: name "=" expr</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_stmt: lhs "=" rhs</code></p>
+</div>
+<div class="paragraph">
+<p><code>lhs</code> and <code>rhs</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-2"><a class="anchor" href="#semantics-2"></a><a class="link" href="#semantics-2">2.2.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>lhs</code> does not resolve to a variable, an error is raised.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Hereafter, <code>lhs</code> refers to the variable named <code>lhs</code>.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If <code>lhs</code> has not been defined yet, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>rhs</code> cannot be coerced to `lhs&#8217;s type, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution, <code>rhs</code> is <a href="#evaluation">evaluated</a> and <a href="#type-coercion">coerced</a> to `lhs&#8217;s type. This becomes the `lhs&#8217;s new value.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="member-assignment"><a class="anchor" href="#member-assignment"></a><a class="link" href="#member-assignment">2.3. Member assignment</a></h3>
+<div class="paragraph">
+<p>A <strong>member assignment statement</strong> mutates the value of a <a href="#structs">member</a> in a variable.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-3"><a class="anchor" href="#syntax-3"></a><a class="link" href="#syntax-3">2.3.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_member_stmt: expr "." name "=" expr</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_member_stmt: parent "." member "=" rhs</code></p>
+</div>
+<div class="paragraph">
+<p><code>parent</code>, and <code>rhs</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-3"><a class="anchor" href="#semantics-3"></a><a class="link" href="#semantics-3">2.3.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>parent</code> is not a variable or a <a href="#fields">field</a> with a <a href="#fields">field base</a> that is a variable, an error is raised.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you&#8217;re modifying is a variable.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If `parent&#8217;s type is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>not <a href="#types">constant-sized</a>, or</p>
+</li>
+<li>
+<p>not a <a href="#structs">struct</a> type, or</p>
+</li>
+<li>
+<p><code>member</code> is not a member of `parent&#8217;s type</p>
+<div class="olist lowerroman">
+<ol class="lowerroman" type="i">
+<li>
+<p>an error is raised.</p>
+</li>
+</ol>
+</div>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>If the variable has not been defined yet, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>rhs</code> cannot be coerced to the member&#8217;s type, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution, <code>rhs</code> is <a href="#evaluation">evaluated</a> and <a href="#type-coercion">coerced</a> to the member&#8217;s type. This becomes the member&#8217;s new value.</p>
+</div>
+<div class="paragraph">
+<p>The value of the variable is unchanged except for the member.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="element-assignment"><a class="anchor" href="#element-assignment"></a><a class="link" href="#element-assignment">2.4. Element assignment</a></h3>
+<div class="paragraph">
+<p>An <strong>element assignment statement</strong> mutates the value of an <a href="todo">element</a> in a variable.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-4"><a class="anchor" href="#syntax-4"></a><a class="link" href="#syntax-4">2.4.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_element_stmt: expr "[" expr "]" "=" expr</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>variable_assign_element_stmt: parent "[" item "]" "=" rhs</code></p>
+</div>
+<div class="paragraph">
+<p><code>parent</code>, <code>item</code> and <code>rhs</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-4"><a class="anchor" href="#semantics-4"></a><a class="link" href="#semantics-4">2.4.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>parent</code> is not a variable or a <a href="#fields">field</a> with a <a href="todo">field base</a> that is a variable, an error is raised.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you&#8217;re modifying is a variable.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If the variable has not been defined yet, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>item</code> cannot be <a href="#type-coercion">coerced</a> to <a href="#type-aliases">array index type</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If `parent&#8217;s type is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>not <a href="#types">constant-sized</a>, or</p>
+</li>
+<li>
+<p>not an <a href="#arrays">array</a> type, or</p>
+</li>
+<li>
+<p><code>item</code> is a <a href="todo">constant</a> with a value less than 0 or greater than the `parent&#8217;s type length,</p>
+<div class="olist lowerroman">
+<ol class="lowerroman" type="i">
+<li>
+<p>an error is raised.</p>
+</li>
+</ol>
+</div>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>If <code>rhs</code> cannot be coerced to the element&#8217;s type, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><code>rhs</code> is evaluated and coerced to the element&#8217;s type</p>
+</li>
+<li>
+<p><code>item</code> is <a href="#evaluation">evaluated</a> and coerced to <a href="#type-aliases">array index type</a></p>
+</li>
+<li>
+<p>If <code>item</code> is less than zero or greater than the `parent&#8217;s type length, a runtime error is raised</p>
+</li>
+<li>
+<p>The element in the <code>parent</code> array at the index <code>item</code> is set to the result of step 1</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>The value of the variable is unchanged except for the element.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="variable-evaluation"><a class="anchor" href="#variable-evaluation"></a><a class="link" href="#variable-evaluation">2.5. Variable evaluation</a></h3>
+<div class="paragraph">
+<p>The value produced by <a href="#expressions">evaluating</a> a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.</p>
+</div>
+<div class="paragraph">
+<p>If a variable is evaluated before it has been defined, an error is raised.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="functions"><a class="anchor" href="#functions"></a><a class="link" href="#functions">3. Functions</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A <strong>function</strong> is a <a href="#callables">callable</a> <a href="#symbols">symbol</a> with an inner scope, parameters, code and a return <a href="#types">type</a>.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>call site</strong> is the location in the source code at which a function is called.</p>
+</div>
+<div class="sect2">
+<h3 id="function-parameters"><a class="anchor" href="#function-parameters"></a><a class="link" href="#function-parameters">3.1. Function parameters</a></h3>
+<div class="paragraph">
+<p>A <strong>function parameter</strong> is a <a href="#variables">variable</a> implicitly defined by a function in that function&#8217;s scope.</p>
+</div>
+<div class="paragraph">
+<p>When a function is <a href="todo">called</a>, each parameter is set to an initial value.</p>
+</div>
+<div class="paragraph">
+<p>The initial value may either be from a passed <a href="todo">argument</a>, or a default value, if one is specified in the function definition.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>In all other respects, parameters are like normal variables, meaning you can modify them in the function body.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect2">
+<h3 id="return-types"><a class="anchor" href="#return-types"></a><a class="link" href="#return-types">3.2. Return types</a></h3>
+<div class="paragraph">
+<p>The <strong>return type</strong> of a function is the <a href="#types">type</a> of the value returned by that function. If the return type is <a href="#internal-types">Nothing</a>, the function does not return a value.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="returns"><a class="anchor" href="#returns"></a><a class="link" href="#returns">3.3. Returns</a></h3>
+<div class="paragraph">
+<p>A <strong>return statement</strong> ends the currently executing function, resumes execution at the call site, and optionally returns a value.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-5"><a class="anchor" href="#syntax-5"></a><a class="link" href="#syntax-5">3.3.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>return_stmt: "return" [expr]</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>return_stmt: "return" value</code></p>
+</div>
+<div class="paragraph">
+<p><code>value</code> is resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-5"><a class="anchor" href="#semantics-5"></a><a class="link" href="#semantics-5">3.3.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If the return statement is outside of a function body, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>enclosing function</strong> of a return statement is the function whose body that return is in.</p>
+</div>
+<div class="paragraph">
+<p>If <code>value</code> is not provided and the enclosing function&#8217;s return type is not Nothing, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>value</code> is provided and cannot be <a href="#type-coercion">coerced</a> to the return type of the enclosing function, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If provided, <code>value</code> is <a href="todo">evaluated</a> and <a href="#type-coercion">coerced</a> to the return type of the enclosing function.</p>
+</li>
+<li>
+<p>The execution of the function body is stopped, and execution after the function call site resumes.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="function-definition"><a class="anchor" href="#function-definition"></a><a class="link" href="#function-definition">3.4. Function definition</a></h3>
+<div class="paragraph">
+<p>A <strong>function definition statement</strong> introduces a name-to-<a href="#function">function</a> mapping in the global scope.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-6"><a class="anchor" href="#syntax-6"></a><a class="link" href="#syntax-6">3.4.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>function_def_stmt: "def" name "(" [parameters] ")" ["-&gt;" qualified_name] ":" block
+parameters: parameter ("," parameter)*
+parameter: name ":" qualified_name ["=" expr]</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>function_def_stmt: "def" name "(" parameters ")" "-&gt;" return_type ":" body
+parameters: parameter_0 "," parameter_1 ... "," parameter_n
+parameter: parameter_name ":" parameter_type "=" parameter_default_value</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>A function definition statement is only valid outside an indentation block.</p>
+</div>
+<div class="paragraph">
+<p>The parameter `name`s are resolved in the value name group.</p>
+</div>
+<div class="paragraph">
+<p><code>name</code> is resolved in the callable name group.</p>
+</div>
+<div class="paragraph">
+<p><code>return_type</code> and each of the parameter types are resolved in the type name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-6"><a class="anchor" href="#semantics-6"></a><a class="link" href="#semantics-6">3.4.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>name</code> resolves to a previously-defined callable, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>A new function <a href="#scopes">scope</a> is created, accessible to the <code>body</code> and the parameter `name`s.</p>
+</div>
+<div class="paragraph">
+<p>Each parameter is a variable in this new scope.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This implies that no two parameters may have the same name, otherwise they would be conflicting variables.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If the default value of a parameter is not a <a href="todo">constant</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If the default value of a parameter cannot be <a href="#type-coercion">coerced</a> to the type of the parameter, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If a parameter without a default value follows a parameter with a default value, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>return_type</code> is provided, and any <a href="todo">branch</a> of the function does not return a value, an error is raised.
+TODO need a section on control flow?</p>
+</div>
+<div class="paragraph">
+<p>The new function with name <code>name</code> is added to the global scope. If <code>return_type</code> is not provided, the <a href="#return-types">return type</a> is <a href="#internal-types">Nothing</a>, otherwise the return type is type <code>return_type</code>.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Because functions can only be defined in the global scope, you cannot declare a function in a function.</p>
+</div>
+</blockquote>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Functions can be used before they are defined.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="ifs"><a class="anchor" href="#ifs"></a><a class="link" href="#ifs">4. Ifs</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>An <strong>if statement</strong> conditionally executes blocks of code.</p>
+</div>
+<div class="sect2">
+<h3 id="syntax-7"><a class="anchor" href="#syntax-7"></a><a class="link" href="#syntax-7">4.1. Syntax</a></h3>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]</code></p>
+</div>
+<div class="paragraph">
+<p><code>elifs: elif_*</code></p>
+</div>
+<div class="paragraph">
+<p><code>elif_: "elif" expr ":" stmt_list</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>if_stmt: "if" if_condition ":" body elifs "else" ":" else_body</code></p>
+</div>
+<div class="paragraph">
+<p><code>elif_: "elif" elif_condition ":" elif_body</code></p>
+</div>
+<div class="paragraph">
+<p><code>if_condition</code> and all `elif_condition`s are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="semantics-7"><a class="anchor" href="#semantics-7"></a><a class="link" href="#semantics-7">4.2. Semantics</a></h3>
+<div class="paragraph">
+<p>If <code>if_condition</code> or any <code>elif_condition</code> cannot be <a href="#type-coercion">coerced</a> to <a href="#boolean-type"><code>bool</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution, the conditions will be evaluated one at a time until one evaluates to <code>True</code>, starting from <code>if_condition</code> and going in order through the <code>elif_conditions</code>.</p>
+</div>
+<div class="paragraph">
+<p>The body of the first condition to evaluate to <code>True</code> is executed, and then execution continues after the if statement.</p>
+</div>
+<div class="paragraph">
+<p>If no condition evaluates to <code>True</code>, and an <code>else_body</code> was provided, that body is executed, and then execution continues after the if statement.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="loops"><a class="anchor" href="#loops"></a><a class="link" href="#loops">5. Loops</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A <strong>loop</strong> executes a block of code zero or more times.</p>
+</div>
+<div class="paragraph">
+<p>Each loop has a <strong>loop condition</strong>, which is a Boolean expression which, when <code>True</code>, allows the loop body to execute.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>enclosing loop</strong> is the loop whose body some source code is in.</p>
+</div>
+<div class="paragraph">
+<p>The list of loops is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="#while-loop-statement">While loops</a></p>
+</li>
+<li>
+<p><a href="#for-loops">For loops</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="while-loop-statement"><a class="anchor" href="#while-loop-statement"></a><a class="link" href="#while-loop-statement">5.1. While loop statement</a></h3>
+<div class="paragraph">
+<p>A <strong>while statement</strong> executes a block of code in a loop while a condition holds <code>True</code>.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-8"><a class="anchor" href="#syntax-8"></a><a class="link" href="#syntax-8">5.1.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>while_stmt: "while" expr ":" stmt_list</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>while_stmt: "while" condition ":" body</code></p>
+</div>
+<div class="paragraph">
+<p><code>condition</code> is resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-8"><a class="anchor" href="#semantics-8"></a><a class="link" href="#semantics-8">5.1.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>condition</code> cannot be <a href="#type-coercion">coerced</a> to <a href="#boolean-type"><code>bool</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>The loop condition of a while loop is the provided <code>condition</code>.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The loop condition is evaluated.</p>
+</li>
+<li>
+<p>If the loop condition is <code>True</code>, execute the body, and return to step 1.</p>
+</li>
+<li>
+<p>Otherwise, execution continues after the while loop statement.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="for-loop-statement"><a class="anchor" href="#for-loop-statement"></a><a class="link" href="#for-loop-statement">5.2. For loop statement</a></h3>
+<div class="paragraph">
+<p>A <strong>for loop statement</strong> executes a block of code until a counter reaches an upper bound.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-9"><a class="anchor" href="#syntax-9"></a><a class="link" href="#syntax-9">5.2.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>for_stmt: "for" name "in" expr ":" stmt_list</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>for_stmt: "for" loop_var "in" range ":" body</code></p>
+</div>
+<div class="paragraph">
+<p><code>loop_var</code> and <code>range</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-9"><a class="anchor" href="#semantics-9"></a><a class="link" href="#semantics-9">5.2.2. Semantics</a></h4>
+<div class="paragraph">
+<p>The <strong>loop variable</strong> of a for loop is the variable named by <code>loop_var</code>.</p>
+</div>
+<div class="paragraph">
+<p>If <code>loop_var</code> resolves to a previously-defined variable:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If the type of that variable is not <a href="#type-aliases">loop var type</a>, an error is raised.</p>
+</li>
+<li>
+<p>Otherwise, that variable becomes the loop variable of this for loop.</p>
+</li>
+</ol>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This allows reusing the same loop variable name across multiple for loops.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If <code>loop_var</code> does not resolve to a previously-defined variable, a new variable with name <code>loop_var</code> and <a href="#type-aliases">loop var type</a> is added to the <a href="#scopes">resolving scope</a>, and it becomes the loop variable of this for loop.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Nothing prevents you from modifying the loop variable in the loop body. However, this may cause infinite loops, so do this with caution.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If <code>range</code> cannot be <a href="#type-coercion">coerced</a> to <a href="#internal-types">Range type</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>The loop condition of a for loop is <code>loop_var &lt; upper_bound</code>, where <code>upper_bound</code> is the upper bound of the <code>range</code> expression.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p><code>range</code> is evaluated.</p>
+</li>
+<li>
+<p>The loop variable is set to the lower bound of <code>range</code>.</p>
+</li>
+<li>
+<p>The loop condition is evaluated.</p>
+</li>
+<li>
+<p>If the loop condition is <code>True</code>, execute the body, increment the value of the <code>loop_var</code> by 1, and return to step 1.</p>
+</li>
+<li>
+<p>Otherwise, execution continues after the for loop statement.</p>
+</li>
+</ol>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>The only possible step size is 1.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="break-statement"><a class="anchor" href="#break-statement"></a><a class="link" href="#break-statement">5.3. Break statement</a></h3>
+<div class="paragraph">
+<p>A <strong>break statement</strong> stops execution of a loop.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-10"><a class="anchor" href="#syntax-10"></a><a class="link" href="#syntax-10">5.3.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>break_stmt: "break"</code></p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-10"><a class="anchor" href="#semantics-10"></a><a class="link" href="#semantics-10">5.3.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If the break statement is outside of a loop body, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution, the enclosing loop body stops executing, and execution is continued after the enclosing loop.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="continue-statement"><a class="anchor" href="#continue-statement"></a><a class="link" href="#continue-statement">5.4. Continue statement</a></h3>
+<div class="paragraph">
+<p>A <strong>continue statement</strong> immediately skips the rest of the loop body, continuing on to the next iteration or ending the loop.</p>
+</div>
+<div class="sect3">
+<h4 id="syntax-11"><a class="anchor" href="#syntax-11"></a><a class="link" href="#syntax-11">5.4.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>continue_stmt: "continue"</code></p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-11"><a class="anchor" href="#semantics-11"></a><a class="link" href="#semantics-11">5.4.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If the continue statement is outside of a loop body, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The enclosing loop body stops executing.</p>
+</li>
+<li>
+<p>If the loop is a <a href="#for-loop-statement">for loop</a>, the loop variable is incremented.</p>
+</li>
+<li>
+<p>The loop condition is re-evaluated.</p>
+</li>
+<li>
+<p>The loop continues as specified based on the result of the loop condition, either running the body or ending the loop.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="assert-statement"><a class="anchor" href="#assert-statement"></a><a class="link" href="#assert-statement">6. Assert statement</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>An <strong>assert statement</strong> evaluates a Boolean expression and halts the program if the expression evaluates to <code>False</code>.</p>
+</div>
+<div class="sect2">
+<h3 id="syntax-12"><a class="anchor" href="#syntax-12"></a><a class="link" href="#syntax-12">6.1. Syntax</a></h3>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>assert_stmt: "assert" expr ["," expr]</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>assert_stmt: "assert" condition "," exit_code</code></p>
+</div>
+<div class="paragraph">
+<p><code>condition</code> and <code>exit_code</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="semantics-12"><a class="anchor" href="#semantics-12"></a><a class="link" href="#semantics-12">6.2. Semantics</a></h3>
+<div class="paragraph">
+<p>If <code>condition</code> cannot be coerced to <a href="#boolean-type"><code>bool</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>exit_code</code> is provided, and cannot be coerced to <a href="#primitive-numeric-types"><code>U8</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution, if <code>condition</code> evaluates to <code>False</code>:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If <code>exit_code</code> is provided, evaluate it and display its value to the user.</p>
+</li>
+<li>
+<p>If <code>exit_code</code> is not provided, display a generic error code to the user.</p>
+</li>
+<li>
+<p>Halt the program.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="check-statement"><a class="anchor" href="#check-statement"></a><a class="link" href="#check-statement">7. Check statement</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>The <strong>check statement</strong> executes a block of code if a Boolean expression evaluates to <code>True</code> for a duration of time, checking with a configurable frequency and timing out at a configurable time.</p>
+</div>
+<div class="sect2">
+<h3 id="syntax-13"><a class="anchor" href="#syntax-13"></a><a class="link" href="#syntax-13">7.1. Syntax</a></h3>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]</code></p>
+</div>
+<div class="paragraph">
+<p><code>check_clause: "timeout" expr | "persist" expr | "period" expr</code></p>
+</div>
+<div class="paragraph">
+<p>The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause).</p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>check_stmt: "check" condition "timeout" timeout "persist" persist "period" period ":" body "timeout" ":" timeout_body</code></p>
+</div>
+<div class="paragraph">
+<p><code>condition</code>, <code>timeout</code>, <code>persist</code>, and <code>period</code> are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="semantics-13"><a class="anchor" href="#semantics-13"></a><a class="link" href="#semantics-13">7.2. Semantics</a></h3>
+<div class="paragraph">
+<p>If <code>condition</code> cannot be <a href="#type-coercion">coerced</a> to <a href="#boolean-type"><code>bool</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>timeout</code> is provided, and cannot be coerced to <a href="todo"><code>Fw.TimeIntervalValue</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>persist</code> or <code>period</code> is provided, and they cannot be coerced to <a href="todo"><code>Fw.TimeIntervalValue</code></a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>At execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If provided, <code>timeout</code>, <code>persist</code> and <code>period</code> are evaluated and stored. `timeout&#8217;s stored value is the current time plus the evaluated interval.</p>
+</li>
+<li>
+<p>If <code>persist</code> is not provided, its stored value is a zero-duration <code>Fw.TimeIntervalValue</code>.</p>
+</li>
+<li>
+<p>If <code>period</code> is not provided, its stored value is a one-second <code>Fw.TimeIntervalValue</code>.</p>
+</li>
+<li>
+<p>If <code>timeout</code> was provided and the current time is <a href="todo">greater</a> than `timeout&#8217;s stored value, the check times out.</p>
+</li>
+<li>
+<p>Evaluate <code>condition</code>.</p>
+</li>
+<li>
+<p>If <code>condition</code> has evaluated to <code>True</code> for duration greater than or equal to <code>persist&#8217;s stored value, execute `body</code>, then continue execution after the check statement.</p>
+</li>
+<li>
+<p>Otherwise, <a href="todo">sleep</a> for `period&#8217;s stored duration.</p>
+</li>
+<li>
+<p>Go to step 4.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>If the check times out during execution:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If <code>timeout_body</code> is provided, execute it.</p>
+</li>
+<li>
+<p>Execution continues after the check statement.</p>
+</li>
+</ol>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Not providing <code>persist</code>, or providing a zero-duration <code>persist</code>, means the <code>condition</code> only needs to evaluate to <code>True</code> once.
+The timeout defaults to never, and the frequency defaults to once per second.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If at any point during execution, two times which are <a href="todo">incomparable</a> are attempted to be compared, the check statement will halt the program as if by an <a href="#assert-statement">assertion</a>, and display an error code.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="imports"><a class="anchor" href="#imports"></a><a class="link" href="#imports">8. Imports</a></h2>
+<div class="sectionbody">
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p><strong>Note:</strong> The import statement is not yet implemented.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>An <strong>import statement</strong> compiles another Fpy source file, called a <strong>module</strong>, and makes the module&#8217;s <a href="#definitions">definitions</a> available in the importing file under a <a href="#namespaces">namespace</a>.</p>
+</div>
+<div class="sect2">
+<h3 id="syntax-14"><a class="anchor" href="#syntax-14"></a><a class="link" href="#syntax-14">8.1. Syntax</a></h3>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>import_stmt: "import" name ("." name)*</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>import_stmt: "import" module_path</code></p>
+</div>
+<div class="paragraph">
+<p>The <strong>module path</strong> is the entire dotted sequence of names. The first name of a module path is its <strong>root segment</strong>, and the last is its <strong>leaf segment</strong>.</p>
+</div>
+<div class="paragraph">
+<p>An import statement is only valid outside an indentation block.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L535" title="test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails">1</a>, <a href="test/fpy/test_imports.py#L552" title="test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails">2</a></p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="module-resolution"><a class="anchor" href="#module-resolution"></a><a class="link" href="#module-resolution">8.2. Module resolution</a></h3>
+<div class="paragraph">
+<p>The <strong>import search path</strong> is an ordered list of directories provided by the environment in which the compiler is invoked.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>In the command-line compiler, the import search path is the directory containing the file being compiled, followed by each directory passed with <code>-i</code>/<code>--include</code>, in order.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>A module path <code>s_0.s_1. &#8230;&#8203; .s_n</code> <strong>resolves</strong> in a directory <code>dir</code> if the file <code>dir/s_0/s_1/&#8230;&#8203;/s_n.fpy</code> exists.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L705" title="test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import">1</a>, <a href="test/fpy/test_imports.py#L725" title="test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import">2</a>, <a href="test/fpy/test_imports.py#L801" title="test/fpy/test_imports.py::TestImportPackagePrecedence::test_module_file_beats_namespace_directory">3</a>, <a href="test/fpy/test_imports.py#L815" title="test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent">4</a></p>
+</div>
+<div class="paragraph">
+<p>The module path of an import statement is resolved in each directory of the import search path, in order. The file from the first directory in which it resolves is the imported module.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L856" title="test/fpy/test_imports.py::TestImportSearchDirs::test_module_found_in_later_search_dir">1</a>, <a href="test/fpy/test_imports.py#L871" title="test/fpy/test_imports.py::TestImportSearchDirs::test_first_search_dir_shadows_later">2</a>, <a href="test/fpy/test_imports.py#L887" title="test/fpy/test_imports.py::TestImportSearchDirs::test_search_order_respects_dir_order">3</a>, <a href="test/fpy/test_imports.py#L903" title="test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_module_resolved_across_search_dirs">4</a></p>
+</div>
+<div class="paragraph">
+<p>If the module path resolves in no directory of the import search path, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L246" title="test/fpy/test_imports.py::TestImportErrors::test_missing_module_is_an_error">1</a>, <a href="test/fpy/test_imports.py#L919" title="test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve">2</a>, <a href="test/fpy/test_imports.py#L763" title="test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error">3</a>, <a href="test/fpy/test_imports.py#L828" title="test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error">4</a>, <a href="test/fpy/test_imports.py#L841" title="test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error">5</a>, <a href="test/fpy/test_imports.py#L297" title="test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails">6</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Every segment except the leaf names a plain directory; no <code><em>init</em>.fpy</code>-style marker file is required. Because only the leaf&#8217;s <code>.fpy</code> file satisfies an import, a file <code>foo.fpy</code> always takes precedence over a sibling directory <code>foo/</code> for <code>import foo</code>, while <code>import foo.bar</code> descends into the directory <code>foo/</code> regardless of whether <code>foo.fpy</code> exists. Importing a name that resolves only to a directory is an error: a directory has no code to import.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect2">
+<h3 id="semantics-14"><a class="anchor" href="#semantics-14"></a><a class="link" href="#semantics-14">8.3. Semantics</a></h3>
+<div class="paragraph">
+<p>If the imported module fails to parse or compile, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L279" title="test/fpy/test_imports.py::TestImportFileErrors::test_parse_error_in_imported_file_fails">1</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>The diagnostic should point into the imported file, not at the import statement.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If the imported module declares one or more <a href="todo">sequence arguments</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L228" title="test/fpy/test_imports.py::TestImportErrors::test_cannot_import_sequence_with_arguments">1</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>A <code>sequence()</code> directive with no arguments does not prevent a file from being imported.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L254" title="test/fpy/test_imports.py::TestImportErrors::test_no_arg_sequence_is_importable">1</a></p>
+</div>
+<div class="paragraph">
+<p>An imported module may itself contain import statements. The semantics of this section apply to them recursively, with the module in the role of the importing file. All import statements in a compilation resolve against the same import search path.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L574" title="test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works">1</a></p>
+</div>
+<div class="paragraph">
+<p>If a module transitively imports itself, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L635" title="test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error">1</a>, <a href="test/fpy/test_imports.py#L656" title="test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error">2</a>, <a href="test/fpy/test_imports.py#L687" title="test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error">3</a></p>
+</div>
+<div class="paragraph">
+<p>The import statement introduces the module path as a chain of namespaces in the global scope. Each <a href="#definitions">definition</a> at the top level of the module adds its symbol to the leaf namespace: a symbol <code>x</code> defined in module <code>a.b.c</code> is named <code>a.b.c.x</code> in the importing file, and is not accessible under any shorter name.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L85" title="test/fpy/test_imports.py::TestImportInlining::test_call_imported_function">1</a>, <a href="test/fpy/test_imports.py#L123" title="test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist">2</a>, <a href="test/fpy/test_imports.py#L324" title="test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_symbol_requires_module_prefix">3</a>, <a href="test/fpy/test_imports.py#L362" title="test/fpy/test_imports.py::TestImportNamespaceIsolation::test_same_function_name_in_two_modules_no_collision">4</a>, <a href="test/fpy/test_imports.py#L743" title="test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path">5</a></p>
+</div>
+<div class="paragraph">
+<p>Per the <a href="#name-groups">name group</a> rules, these namespaces exist only in the name groups of the symbols they contain.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L461" title="test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable">1</a></p>
+</div>
+<div class="paragraph">
+<p>If a name introduced by an import statement is already mapped, in the same name group and the same scope or namespace, to anything other than a namespace introduced by another import statement, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L421" title="test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function">1</a>, <a href="test/fpy/test_imports.py#L442" title="test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable">2</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Namespaces introduced by imports merge: after <code>import pkg.a</code> and <code>import pkg.b</code>, the namespace <code>pkg</code> contains both <code>a</code> and <code>b</code>. Because name groups do not intersect, an imported module conflicts only with names in the groups it occupies: a variable <code>lib</code> may coexist with an imported module <code>lib</code> that defines only functions.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L780" title="test/fpy/test_imports.py::TestImportDottedPaths::test_two_modules_in_same_package_no_collision">1</a></p>
+</div>
+<div class="paragraph">
+<p>Names within the module are resolved in the module&#8217;s own global scope. Symbols of the importing file are not visible in the module, and modules imported by the module are not visible in the importing file.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L392" title="test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_function_cannot_see_importer_globals">1</a>, <a href="test/fpy/test_imports.py#L602" title="test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private">2</a></p>
+</div>
+<div class="paragraph">
+<p>If the same module path is imported more than once in the same file, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L489" title="test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_import_is_error">1</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>This rule is per-file: a file and a module it imports may each import the same module.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L506" title="test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed">1</a></p>
+</div>
+<div class="paragraph">
+<p>If the imported module contains top-level statements other than function definitions and import statements, the <code>import-side-effects</code> warning is emitted.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L158" title="test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_warns">1</a>, <a href="test/fpy/test_imports.py#L172" title="test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_ignored">2</a>, <a href="test/fpy/test_imports.py#L187" title="test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_escalated">3</a>, <a href="test/fpy/test_imports.py#L202" title="test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_module_does_not_warn">4</a>, <a href="test/fpy/test_imports.py#L308" title="test/fpy/test_imports.py::TestImportFileErrors::test_empty_module_compiles_without_warning">5</a></p>
+</div>
+<div class="paragraph">
+<p>At execution, the imported module&#8217;s top-level statements execute as part of the importing sequence, at the position of the import statement, in order.</p>
+</div>
+<div class="paragraph">
+<p><em>Tests:</em> <a href="test/fpy/test_imports.py#L106" title="test/fpy/test_imports.py::TestImportInlining::test_imported_function_runs">1</a>, <a href="test/fpy/test_imports.py#L932" title="test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_side_effect_and_namespaced">2</a></p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Importing is compile-time source inlining: the imported module does not exist in the compiled output, and no files are resolved or loaded at run time. This is what motivates the <code>import-side-effects</code> warning: a file written to run as a standalone sequence typically has top-level commands, and importing it splices that code into the importing sequence, which is rarely intended. A file meant to be imported should contain only definitions. Note that a top-level variable definition is such a side effect (its initialization executes at the import site), while still defining a namespaced symbol: <code>counter: U32 = 5</code> in module <code>m</code> warns, and is thereafter accessible as <code>m.counter</code>.</p>
+</div>
+</blockquote>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="callables"><a class="anchor" href="#callables"></a><a class="link" href="#callables">9. Callables</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A <strong>callable</strong> is a symbol with parameters and a return <a href="#types">type</a> which can be evaluated by being called.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Evaluation of a callable always refers to evaluation of a <a href="#function-call-expression">function call expression</a>, where the function is that callable.
+Because callable evaluation is always via a function call expression, when talking about the evaluation of a callable, it is assumed that the evaluation semantics of the function call expression have already occurred. Specifically, the arguments have already been evaluated from left to right.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>Callables can be divided into four categories:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="#commands">Commands</a></p>
+</li>
+<li>
+<p><a href="#functions">Functions</a></p>
+</li>
+<li>
+<p><a href="#builtin-functions">Builtin functions</a></p>
+</li>
+<li>
+<p><a href="todo">Constructors</a></p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="commands"><a class="anchor" href="#commands"></a><a class="link" href="#commands">9.1. Commands</a></h3>
+<div class="paragraph">
+<p>A <strong>command</strong> is a callable with an associated F-Prime command.</p>
+</div>
+<div class="paragraph">
+<p>All F-Prime commands in the dictionary have a corresponding Fpy command.</p>
+</div>
+<div class="paragraph">
+<p>All Fpy commands are <a href="#scopes">globally-scoped</a>.</p>
+</div>
+<div class="paragraph">
+<p>The fully-qualified name of an Fpy command is the same as the corresponding F-Prime command.</p>
+</div>
+<div class="paragraph">
+<p>The parameter names and types of an Fpy command are the same as the corresponding F-Prime command.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>The F-Prime specification requires that all command parameter types be <a href="#types">serializable</a>.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>The return type of all commands is <a href="todo"><code>Fw.CmdResponse</code></a>.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Throughout the specification, a "command" means an Fpy command.</p>
+</div>
+</blockquote>
+</div>
+<div class="sect3">
+<h4 id="command-evaluation"><a class="anchor" href="#command-evaluation"></a><a class="link" href="#command-evaluation">9.1.1. Command evaluation</a></h4>
+<div class="paragraph">
+<p>Command evaluation is performed as follows:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The argument values are serialized and arranged into the F-Prime command binary format.</p>
+</li>
+<li>
+<p>The binary command is dispatched to the F-Prime system.</p>
+</li>
+<li>
+<p>Execution blocks until the <a href="todo">command response</a> comes back from the F-Prime system.</p>
+</li>
+<li>
+<p>The expression evaluates to a value of <code>Fw.CmdResponse</code> corresponding to that command response.</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="sect3">
+<h4 id="command-responses"><a class="anchor" href="#command-responses"></a><a class="link" href="#command-responses">9.1.2. Command responses</a></h4>
+<div class="paragraph">
+<p>A <strong>command response</strong> is a value of type <code>Fw.CmdResponse</code>.</p>
+</div>
+<div class="paragraph">
+<p><code>Fw.CmdResponse</code> must be defined in the dictionary, otherwise, an error is raised.
+TODO gracefully handle when it&#8217;s missing.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="builtin-functions"><a class="anchor" href="#builtin-functions"></a><a class="link" href="#builtin-functions">9.2. Builtin functions</a></h3>
+<div class="paragraph">
+<p>A <strong>builtin function</strong> is a callable whose behavior is explicit in the specification.</p>
+</div>
+<div class="sect3">
+<h4 id="exit"><a class="anchor" href="#exit"></a><a class="link" href="#exit">9.2.1. <code>exit</code></a></h4>
+<div class="sect4">
+<h5 id="signature"><a class="anchor" href="#signature"></a><a class="link" href="#signature">Signature:</a></h5>
+<div class="paragraph">
+<p><code>exit(exit_code: I32)</code></p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="semantics-15"><a class="anchor" href="#semantics-15"></a><a class="link" href="#semantics-15">Semantics</a></h5>
+<div class="paragraph">
+<p>At evaluation:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>If <code>exit_code</code> evaluates to a non-zero value, the sequence ends with an error.</p>
+</li>
+<li>
+<p>Otherwise, the sequence ends without error.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="sleep"><a class="anchor" href="#sleep"></a><a class="link" href="#sleep">9.2.2. <code>sleep</code></a></h4>
+<div class="sect4">
+<h5 id="signature-2"><a class="anchor" href="#signature-2"></a><a class="link" href="#signature-2">Signature</a></h5>
+<div class="paragraph">
+<p><code>sleep(seconds: U32 = 0, useconds: U32 = 0)</code></p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="semantics-16"><a class="anchor" href="#semantics-16"></a><a class="link" href="#semantics-16">Semantics</a></h5>
+<div class="paragraph">
+<p>At evaluation, the program <a href="#sleeping">sleeps</a> for a duration of <code>seconds</code> seconds and <code>useconds</code> microseconds.</p>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="sleep_until"><a class="anchor" href="#sleep_until"></a><a class="link" href="#sleep_until">9.2.3. <code>sleep_until</code></a></h4>
+<div class="sect4">
+<h5 id="signature-3"><a class="anchor" href="#signature-3"></a><a class="link" href="#signature-3">Signature</a></h5>
+<div class="paragraph">
+<p><code>sleep_until(wakeup_time: Fw.Time)</code></p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="semantics-17"><a class="anchor" href="#semantics-17"></a><a class="link" href="#semantics-17">Semantics</a></h5>
+<div class="paragraph">
+<p>At evaluation, the program <a href="#sleeping">sleeps</a> until the given <code>wakeup_time</code>.</p>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="now"><a class="anchor" href="#now"></a><a class="link" href="#now">9.2.4. <code>now</code></a></h4>
+<div class="sect4">
+<h5 id="signature-4"><a class="anchor" href="#signature-4"></a><a class="link" href="#signature-4">Signature</a></h5>
+<div class="paragraph">
+<p><code>now() &#8594; Fw.Time</code>
+===== Semantics</p>
+</div>
+<div class="paragraph">
+<p>At evaluation, the function call evaluates to a <code>Fw.Time</code> value representing the current time.
+TODO this really should be linked to the FpySequencer spec to say exactly where it gets this, etc. we also need engineering details</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="builtin-libraries"><a class="anchor" href="#builtin-libraries"></a><a class="link" href="#builtin-libraries">9.3. Builtin libraries</a></h3>
+
+</div>
+<div class="sect2">
+<h3 id="time-functions"><a class="anchor" href="#time-functions"></a><a class="link" href="#time-functions">9.4. Time functions</a></h3>
+<div class="paragraph">
+<p>TODO Fpy provides builtin functions for comparing and manipulating time values:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>time_cmp(lhs: Fw.Time, rhs: Fw.Time) &#8594; I8</code>: compares two absolute times. Returns <code>-1</code> if <code>lhs</code> occurs before <code>rhs</code>, <code>0</code> if they are the same moment, <code>1</code> if <code>lhs</code> occurs after <code>rhs</code>, or <code>2</code> if the time bases differ (incomparable).</p>
+</li>
+<li>
+<p><code>time_interval_cmp(lhs: Fw.TimeIntervalValue, rhs: Fw.TimeIntervalValue) &#8594; I8</code>: compares two time intervals. Returns <code>-1</code> if <code>lhs</code> is a shorter duration than <code>rhs</code>, <code>0</code> if they are the same duration, or <code>1</code> if <code>lhs</code> is a longer duration than <code>rhs</code>.</p>
+</li>
+<li>
+<p><code>time_sub(lhs: Fw.Time, rhs: Fw.Time) &#8594; Fw.TimeIntervalValue</code>: subtracts two absolute times, producing a time interval. Asserts that both times have the same time base and that <code>lhs</code> occurs after <code>rhs</code> (no negative intervals).</p>
+</li>
+<li>
+<p><code>time_add(lhs: Fw.Time, rhs: Fw.TimeIntervalValue) &#8594; Fw.Time</code>: adds a time interval to an absolute time, producing a new absolute time. Asserts that the result does not overflow.</p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>These functions are implemented in Fpy itself (see <code>src/fpy/builtin/time.fpy</code>) and are automatically available in all sequences.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="constructors"><a class="anchor" href="#constructors"></a><a class="link" href="#constructors">9.5. Constructors</a></h3>
+<div class="paragraph">
+<p>TODO Structs, arrays, and <code>Fw.Time</code> expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in definition order (struct fields by name, array elements as <code>e0</code>, <code>e1</code>, &#8230;&#8203;, and <code>Fw.Time</code> with <code>time_base</code>, <code>time_context</code>, <code>seconds</code>, <code>useconds</code>). A constructor call serializes the provided values into a new instance of that type.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="numeric-casts"><a class="anchor" href="#numeric-casts"></a><a class="link" href="#numeric-casts">9.6. Numeric casts</a></h3>
+<div class="paragraph">
+<p>TODO Each concrete numeric type provides a callable whose name matches the type (for example <code>U16(value)</code> or <code>F64(value)</code>). Casts accept exactly one numeric argument. Unlike implicit coercion, casts always force the operand into the target type even when this requires narrowing; range checks are suppressed and the value is truncated or rounded if necessary. See <a href="#casting">Casting</a> for details.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="types"><a class="anchor" href="#types"></a><a class="link" href="#types">10. Types</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>A <strong>type</strong> is a set of <strong>values</strong>.</p>
+</div>
+<div class="paragraph">
+<p>The values of a type are unique to that type.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>In other words, there are no union types and there is no type inheritance.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>New types cannot be defined by the program.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>serializable type</strong> is a type whose values can be expressed in a binary format.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>constant-sized type</strong> is a serializable type whose binary form always has the same length in bytes.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>numeric type</strong> is a <a href="#primitive-numeric-types">primitive numeric type</a>, or the <a href="#internal-types">internal Int or Float</a> types.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Right now, the only serializable but non-constant-sized type are the <a href="#dictionary-strings">dictionary string</a> types.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>Types can be divided into three categories:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>Primitive types</p>
+</li>
+<li>
+<p>Internal types</p>
+</li>
+<li>
+<p>Dictionary types</p>
+</li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="primitive-types"><a class="anchor" href="#primitive-types"></a><a class="link" href="#primitive-types">10.1. Primitive types</a></h3>
+<div class="paragraph">
+<p><strong>Primitive types</strong> are types which are always present in the global scope.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>That is, they do not have to be in the F-Prime dictionary to be referenced by name in the program.
+Because they are present in the global scope, we will use their associated name in the global scope to refer to them throughout this specification. For instance, when we say type <code>U16</code>, we are talking about the type in the global scope with name <code>U16</code>.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>All primitive types are serializable, constant-sized types.</p>
+</div>
+<div class="paragraph">
+<p>The list of primitive types is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>All <a href="#primitive-numeric-types">primitive numeric types</a></p>
+</li>
+<li>
+<p>The <a href="#boolean-type">Boolean type</a></p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="primitive-numeric-types"><a class="anchor" href="#primitive-numeric-types"></a><a class="link" href="#primitive-numeric-types">10.1.1. Primitive numeric types</a></h4>
+<div class="paragraph">
+<p><code>U8</code>, <code>U16</code>, <code>U32</code>, and <code>U64</code> are the primitive unsigned integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard binary representation of unsigned integers.</p>
+</div>
+<div class="paragraph">
+<p><code>I8</code>, <code>I16</code>, <code>I32</code>, and <code>I64</code> are the primitive signed integer types with bitwidths 8, 16, 32 and 64, respectively. They use the standard two&#8217;s complement representation of signed integers.</p>
+</div>
+<div class="paragraph">
+<p><code>F32</code>, and <code>F64</code> are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>There are other numerical types such as <a href="#internal-types">Int or Float</a> which are not primitive.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect3">
+<h4 id="boolean-type"><a class="anchor" href="#boolean-type"></a><a class="link" href="#boolean-type">10.1.2. Boolean type</a></h4>
+<div class="paragraph">
+<p><code>bool</code> is a primitive type whose only values may be the <a href="todo">Boolean literals</a> <code>True</code> and <code>False</code>.</p>
+</div>
+<div class="paragraph">
+<p>TODO make sure that Fw.Time is counted as a dictionary type, but one which is required to be in the dict?</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="type-aliases"><a class="anchor" href="#type-aliases"></a><a class="link" href="#type-aliases">10.2. Type aliases</a></h3>
+<div class="paragraph">
+<p><strong>Loop var type</strong> is an alias for <code>I64</code>.
+<strong>Array index type</strong> is an alias for <code>I64</code>.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="internal-types"><a class="anchor" href="#internal-types"></a><a class="link" href="#internal-types">10.3. Internal types</a></h3>
+<div class="paragraph">
+<p><strong>Internal types</strong> are types which are never present in the global scope.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>That is, they cannot be referenced by name in the program.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>No internal types are serializable types.</p>
+</div>
+<div class="paragraph">
+<p><strong>Int</strong> is an internal type whose values are integers of arbitrary precision.</p>
+</div>
+<div class="paragraph">
+<p><strong>Float</strong> is an internal type whose values are decimals per the Python <a href="https://docs.python.org/3/library/decimal.html#module-decimal">decimal</a> implementation.</p>
+</div>
+<div class="paragraph">
+<p>The precision of Float is 30 decimal places.</p>
+</div>
+<div class="paragraph">
+<p><strong>String</strong> is an internal type whose values are strings of arbitrary length.</p>
+</div>
+<div class="paragraph">
+<p><strong>Range</strong> is an internal type whose values are pairs of an lower and upper bound of loop var type.</p>
+</div>
+<div class="paragraph">
+<p><strong>Nothing</strong> is an internal type which has no values.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="dictionary-types"><a class="anchor" href="#dictionary-types"></a><a class="link" href="#dictionary-types">10.4. Dictionary types</a></h3>
+<div class="paragraph">
+<p><strong>Dictionary types</strong> are types defined in the F-Prime dictionary.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Because the semantics of these types is defined in the FPP specification, there is some overlap here. This specification just addresses the semantics of these types as relevant to Fpy.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>All dictionary types are serializable types.</p>
+</div>
+<div class="paragraph">
+<p>Dictionary types can be divided into three categories:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><a href="#structs">Structs</a></p>
+</li>
+<li>
+<p><a href="#arrays">Arrays</a></p>
+</li>
+<li>
+<p><a href="#enums">Enums</a></p>
+</li>
+<li>
+<p><a href="#dictionary-strings">Strings</a></p>
+</li>
+</ul>
+</div>
+<div class="sect3">
+<h4 id="structs"><a class="anchor" href="#structs"></a><a class="link" href="#structs">10.4.1. Structs</a></h4>
+<div class="paragraph">
+<p>A <strong>struct</strong> is a category of dictionary type defined by an ordered list of members.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>member</strong> is a pair of a name and a serializable type.</p>
+</div>
+<div class="paragraph">
+<p>A struct may not have two members with the same name.
+TODO is this rule necessary? This is enforced upstream by FPP</p>
+</div>
+<div class="paragraph">
+<p>The binary form of a struct value is the concatenated binary forms of its member values, in order.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>If any of a struct&#8217;s members are non-constant-sized types, the struct is a non-constant-sized type.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect3">
+<h4 id="arrays"><a class="anchor" href="#arrays"></a><a class="link" href="#arrays">10.4.2. Arrays</a></h4>
+<div class="paragraph">
+<p>An <strong>array</strong> is a category of dictionary type defined by a non-negative integer length, and an element type.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>element type</strong> of an array type is the type of its elements.</p>
+</div>
+<div class="paragraph">
+<p>An <strong>element</strong> is a value of element type at an index in an array.</p>
+</div>
+<div class="paragraph">
+<p>The binary form of an array value is the concatenated binary form of its elements, in order.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>If the element type is a non-constant-sized type, the array is a non-constant-sized type.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect3">
+<h4 id="enums"><a class="anchor" href="#enums"></a><a class="link" href="#enums">10.4.3. Enums</a></h4>
+<div class="paragraph">
+<p>An <strong>enum</strong> is a category of dictionary type whose values are a finite set of enum constants.</p>
+</div>
+<div class="paragraph">
+<p>An <strong>enum constant</strong> is a pair of a name and a value of the enum&#8217;s representation type.</p>
+</div>
+<div class="paragraph">
+<p>An <strong>enum representation type</strong> is the <a href="#primitive-numeric-types">primitive integer type</a> associated with the enum constants' values.</p>
+</div>
+<div class="paragraph">
+<p>The binary form of an enum constant is the binary form of its integer value.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="dictionary-strings"><a class="anchor" href="#dictionary-strings"></a><a class="link" href="#dictionary-strings">10.4.4. Dictionary strings</a></h4>
+<div class="paragraph">
+<p>A <strong>dictionary string</strong> is a category of dictionary type whose values are strings.</p>
+</div>
+<div class="paragraph">
+<p>Dictionary strings are non-constant-sized types.</p>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="fields"><a class="anchor" href="#fields"></a><a class="link" href="#fields">10.5. Fields</a></h3>
+<div class="paragraph">
+<p>A <strong>field-based type</strong> is a type defined by its fields.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>field</strong> of a type is a name-and-type pair</p>
+</div>
+<div class="paragraph">
+<p>An <strong>array</strong> is a category of type with</p>
+</div>
+<div class="paragraph">
+<p>A <strong>struct</strong> is a category of type</p>
+</div>
+<div class="paragraph">
+<p>is an <a href="#arrays">array element</a> or a <a href="#structs">struct member</a>.</p>
+</div>
+<div class="paragraph">
+<p>The <strong>field base</strong> of a field is the first non-field parent of a field.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>For instance, the field base of <code>a.b.c</code>, if <code>a</code> were a variable and <code>b</code> and <code>c</code> were fields, would be <code>a</code>.</p>
+</div>
+</blockquote>
+</div>
+</div>
+<div class="sect2">
+<h3 id="populating-dictionary-types"><a class="anchor" href="#populating-dictionary-types"></a><a class="link" href="#populating-dictionary-types">10.6. Populating dictionary types</a></h3>
+<div class="paragraph">
+<p>For each type <code>T</code> with fully-qualified name <code>F.Q.N</code> encountered in the F-Prime dictionary, that type will be present in the global scope with the same fully-qualified name.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="expressions"><a class="anchor" href="#expressions"></a><a class="link" href="#expressions">11. Expressions</a></h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>An <strong>expression</strong> can be evaluated to produce a value of a type.</p>
+</div>
+<div class="paragraph">
+<p>A <strong>constant expression</strong> is an expression which can be evaluated without running the program.</p>
+</div>
+<div class="sect2">
+<h3 id="literals"><a class="anchor" href="#literals"></a><a class="link" href="#literals">11.1. Literals</a></h3>
+<div class="paragraph">
+<p>A <strong>literal</strong> is an expression whose value is explicit in the source code.</p>
+</div>
+<div class="paragraph">
+<p>All literal expressions are constant expressions.</p>
+</div>
+<div class="sect3">
+<h4 id="integer-literals"><a class="anchor" href="#integer-literals"></a><a class="link" href="#integer-literals">11.1.1. Integer literals</a></h4>
+<div class="sect4">
+<h5 id="decimal-literal-syntax"><a class="anchor" href="#decimal-literal-syntax"></a><a class="link" href="#decimal-literal-syntax">Decimal literal syntax</a></h5>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>DEC_LITERAL:   "1".."9" ("_"?  "0".."9")*
+           |   "0"      ("_"?  "0")* /(?![1-9xX])/</pre>
+</div>
+</div>
+</div>
+<div class="sect4">
+<h5 id="hexadecimal-literal-syntax"><a class="anchor" href="#hexadecimal-literal-syntax"></a><a class="link" href="#hexadecimal-literal-syntax">Hexadecimal literal syntax</a></h5>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>HEX_LITERAL: ("0x" | "0X") ("_"? /[0-9a-fA-F]/)+</code></p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="semantics-18"><a class="anchor" href="#semantics-18"></a><a class="link" href="#semantics-18">Semantics</a></h5>
+<div class="paragraph">
+<p>Integer literals have type <a href="#internal-types">Int</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="float-literals"><a class="anchor" href="#float-literals"></a><a class="link" href="#float-literals">11.1.2. Float literals</a></h4>
+<div class="sect4">
+<h5 id="syntax-15"><a class="anchor" href="#syntax-15"></a><a class="link" href="#syntax-15">Syntax</a></h5>
+<div class="listingblock">
+<div class="content">
+<pre>_SPECIAL_DEC: "0".."9" ("_"?  "0".."9")*
+
+DECIMAL: "." _SPECIAL_DEC | _SPECIAL_DEC "." _SPECIAL_DEC
+_EXP: ("e"|"E") ["+" | "-"] _SPECIAL_DEC
+FLOAT_LITERAL: _SPECIAL_DEC _EXP | DECIMAL _EXP?</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Float literals have type <a href="#internal-types">Float</a>.</p>
+</div>
+<div class="paragraph">
+<p>A float literal is rounded to the nearest value of type Float.</p>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="string-literals"><a class="anchor" href="#string-literals"></a><a class="link" href="#string-literals">11.1.3. String literals</a></h4>
+<div class="sect4">
+<h5 id="syntax-16"><a class="anchor" href="#syntax-16"></a><a class="link" href="#syntax-16">Syntax</a></h5>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>STRING_LITERAL: /("(?!"").<strong>?(?&lt;!\\)(\\\\)</strong>?"|'(?!'').<strong>?(?&lt;!\\)(\\\\)</strong>?')/i</code></p>
+</div>
+</div>
+<div class="sect4">
+<h5 id="semantics-19"><a class="anchor" href="#semantics-19"></a><a class="link" href="#semantics-19">Semantics</a></h5>
+<div class="paragraph">
+<p>String literals have type <a href="#internal-types">String</a>.</p>
+</div>
+</div>
+</div>
+<div class="sect3">
+<h4 id="boolean-literals"><a class="anchor" href="#boolean-literals"></a><a class="link" href="#boolean-literals">11.1.4. Boolean literals</a></h4>
+<div class="sect4">
+<h5 id="syntax-17"><a class="anchor" href="#syntax-17"></a><a class="link" href="#syntax-17">Syntax</a></h5>
+<div class="paragraph">
+<p><code>BOOLEAN_LITERAL: "True" | "False"</code>
+===== Semantics</p>
+</div>
+<div class="paragraph">
+<p>Boolean literals have type <a href="#boolean-type"><code>bool</code></a></p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="member-access-expression"><a class="anchor" href="#member-access-expression"></a><a class="link" href="#member-access-expression">11.2. Member access expression</a></h3>
+<div class="sect3">
+<h4 id="syntax-18"><a class="anchor" href="#syntax-18"></a><a class="link" href="#syntax-18">11.2.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="paragraph">
+<p><code>member_access_expr: expr "." name</code></p>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>member_access_expr: parent "." member</code></p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-20"><a class="anchor" href="#semantics-20"></a><a class="link" href="#semantics-20">11.2.2. Semantics</a></h4>
+<div class="paragraph">
+<p>If <code>parent</code> is not an expression, an error is raised.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>If the type of <code>parent</code> is not a <a href="#structs">struct</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If the type of <code>parent</code> is not <a href="#types">constant-sized</a>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>If <code>member</code> is not a member of the type of <code>parent</code>, an error is raised.</p>
+</div>
+<div class="paragraph">
+<p>The type of a member access is the type of the <code>member</code> in the type of <code>parent</code>.</p>
+</div>
+<div class="paragraph">
+<p>At evaluation:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>The <code>parent</code> is evaluated.</p>
+</li>
+<li>
+<p>The member access expression evaluates to the value of the <code>member</code> in the <code>parent</code> value.</p>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="function-call-expression"><a class="anchor" href="#function-call-expression"></a><a class="link" href="#function-call-expression">11.3. Function call expression</a></h3>
+<div class="sect3">
+<h4 id="syntax-19"><a class="anchor" href="#syntax-19"></a><a class="link" href="#syntax-19">11.3.1. Syntax</a></h4>
+<div class="paragraph">
+<p>Rule:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre>func_call: expr "(" [arguments] ")"`
+arguments: argument ("," argument)*
+argument: NAME "=" expr -&gt; named_argument
+        | expr -&gt; positional_argument</pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Name:</p>
+</div>
+<div class="paragraph">
+<p><code>func_call: func "(" arguments ")"</code></p>
+</div>
+<div class="paragraph">
+<p><code>func</code> is resolved in the callable name group.</p>
+</div>
+<div class="paragraph">
+<p>All argument expressions are resolved in the value name group.</p>
+</div>
+</div>
+<div class="sect3">
+<h4 id="semantics-21"><a class="anchor" href="#semantics-21"></a><a class="link" href="#semantics-21">11.3.2. Semantics</a></h4>
+<div class="paragraph">
+<p>At evaluation:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Each argument is evaluated from left to right.</p>
+</li>
+<li>
+<p>The behavior defined in the semantics for the <a href="#callables">callable</a> referenced by <code>func</code> is</p>
+</li>
+</ol>
+</div>
+<div class="sect4">
+<h5 id="range-semantics"><a class="anchor" href="#range-semantics"></a><a class="link" href="#range-semantics">Range semantics</a></h5>
+<div class="paragraph">
+<p>The range operator is <code>..</code>.</p>
+</div>
+<div class="paragraph">
+<p>If <code>lhs</code> or <code>rhs</code> cannot be coerced to <a href="#type-aliases">loop var type</a>, an error is raised.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="execution"><a class="anchor" href="#execution"></a><a class="link" href="#execution">12. Execution</a></h2>
+<div class="sectionbody">
+<div class="sect2">
+<h3 id="control-flow"><a class="anchor" href="#control-flow"></a><a class="link" href="#control-flow">12.1. Control flow</a></h3>
+<div class="paragraph">
+<p>A <strong>branch</strong> is a block of code which conditionally executes.</p>
+</div>
+<div class="quoteblock">
+<blockquote>
+<div class="paragraph">
+<p>That is, whether or not that code executes depends on some expression.</p>
+</div>
+</blockquote>
+</div>
+<div class="paragraph">
+<p>The list of statements which have branches is:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The <a href="#ifs">if statement</a></p>
+</li>
+<li>
+<p>The <a href="#while-loop-statement">while loop statement</a></p>
+</li>
+<li>
+<p>The <a href="#for-loop-statement">for loop statement</a></p>
+</li>
+<li>
+<p>The <a href="#check-statement">check statement</a>
+TODO how does this definition handle assert/exit?</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="sleeping"><a class="anchor" href="#sleeping"></a><a class="link" href="#sleeping">12.2. Sleeping</a></h3>
+<div class="paragraph">
+<p>The program may <strong>sleep</strong> until an absolute time called the <strong>wakeup time</strong>.</p>
+</div>
+<div class="paragraph">
+<p>While the current time is before the wakeup time, no statements may execute</p>
+</div>
+<div class="paragraph">
+<p>The program may also sleep for a time duration. This is the same as sleeping with a wakeup time of now, plus the specified duration.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="footer">
+<div id="footer-text">
+Last updated 2026-07-05 19:10:44 -0400
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.18.3/highlight.min.js"></script>
+<script>
+if (!hljs.initHighlighting.called) {
+  hljs.initHighlighting.called = true
+  ;[].slice.call(document.querySelectorAll('pre.highlight > code[data-lang]')).forEach(function (el) { hljs.highlightBlock(el) })
+}
+</script>
+</body>
+</html>

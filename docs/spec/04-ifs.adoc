@@ -1,0 +1,29 @@
+== Ifs
+An *if statement* conditionally executes blocks of code.
+
+=== Syntax
+Rule:
+
+`if_stmt: "if" expr ":" stmt_list elifs ["else" ":" stmt_list]`
+
+`elifs: elif_*`
+
+`elif_: "elif" expr ":" stmt_list`
+
+Name:
+
+`if_stmt: "if" if_condition ":" body elifs "else" ":" else_body`
+
+`elif_: "elif" elif_condition ":" elif_body`
+
+`if_condition` and all `elif_condition`s are resolved in the value name group.
+
+=== Semantics
+
+If `if_condition` or any `elif_condition` cannot be <<type-coercion,coerced>> to <<boolean-type,`bool`>>, an error is raised.
+
+At execution, the conditions will be evaluated one at a time until one evaluates to `True`, starting from `if_condition` and going in order through the `elif_conditions`.
+
+The body of the first condition to evaluate to `True` is executed, and then execution continues after the if statement.
+
+If no condition evaluates to `True`, and an `else_body` was provided, that body is executed, and then execution continues after the if statement.

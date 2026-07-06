@@ -1,0 +1,106 @@
+== Functions
+
+A *function* is a <<callables,callable>> <<symbols,symbol>> with an inner scope, parameters, code and a return <<types,type>>.
+
+The *call site* is the location in the source code at which a function is called.
+
+=== Function parameters
+
+A *function parameter* is a <<variables,variable>> implicitly defined by a function in that function's scope.
+
+When a function is link:todo[called], each parameter is set to an initial value.
+
+The initial value may either be from a passed link:todo[argument], or a default value, if one is specified in the function definition.
+
+> In all other respects, parameters are like normal variables, meaning you can modify them in the function body.
+
+=== Return types
+
+The *return type* of a function is the <<types,type>> of the value returned by that function. If the return type is <<internal-types,Nothing>>, the function does not return a value.
+
+=== Returns
+
+A *return statement* ends the currently executing function, resumes execution at the call site, and optionally returns a value.
+
+==== Syntax
+Rule:
+
+`return_stmt: "return" [expr]`
+
+Name:
+
+`return_stmt: "return" value`
+
+`value` is resolved in the value name group.
+
+==== Semantics
+
+If the return statement is outside of a function body, an error is raised.
+
+The *enclosing function* of a return statement is the function whose body that return is in.
+
+If `value` is not provided and the enclosing function's return type is not Nothing, an error is raised.
+
+If `value` is provided and cannot be <<type-coercion,coerced>> to the return type of the enclosing function, an error is raised.
+
+At execution:
+
+. If provided, `value` is link:todo[evaluated] and <<type-coercion,coerced>> to the return type of the enclosing function.
+. The execution of the function body is stopped, and execution after the function call site resumes.
+
+=== Function definition
+
+A *function definition statement* introduces a name-to-<<function,function>> mapping in the global scope.
+
+==== Syntax
+
+Rule:
+
+[listing]
+----
+function_def_stmt: "def" name "(" [parameters] ")" ["->" qualified_name] ":" block
+parameters: parameter ("," parameter)*
+parameter: name ":" qualified_name ["=" expr]
+----
+
+Name:
+
+[listing]
+----
+function_def_stmt: "def" name "(" parameters ")" "->" return_type ":" body
+parameters: parameter_0 "," parameter_1 ... "," parameter_n
+parameter: parameter_name ":" parameter_type "=" parameter_default_value
+----
+
+A function definition statement is only valid outside an indentation block.
+
+The parameter `name`s are resolved in the value name group.
+
+`name` is resolved in the callable name group.
+
+`return_type` and each of the parameter types are resolved in the type name group.
+
+==== Semantics
+
+If `name` resolves to a previously-defined callable, an error is raised.
+
+A new function <<scopes,scope>> is created, accessible to the `body` and the parameter `name`s.
+
+Each parameter is a variable in this new scope.
+
+> This implies that no two parameters may have the same name, otherwise they would be conflicting variables.
+
+If the default value of a parameter is not a link:todo[constant], an error is raised.
+
+If the default value of a parameter cannot be <<type-coercion,coerced>> to the type of the parameter, an error is raised.
+
+If a parameter without a default value follows a parameter with a default value, an error is raised.
+
+If `return_type` is provided, and any link:todo[branch] of the function does not return a value, an error is raised.
+TODO need a section on control flow?
+
+The new function with name `name` is added to the global scope. If `return_type` is not provided, the <<return-types,return type>> is <<internal-types,Nothing>>, otherwise the return type is type `return_type`.
+
+> Because functions can only be defined in the global scope, you cannot declare a function in a function.
+
+> Functions can be used before they are defined.

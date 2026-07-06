@@ -1,0 +1,152 @@
+== Variables
+
+A *variable* is a symbol with a static <<types,type>> and a dynamic, mutable <<values,value>>.
+todo maybe call it dynamic?
+
+TODO: give a list of statements
+
+=== Variable definition
+
+A *variable definition statement* introduces a name-to-variable mapping in its resolving scope.
+
+==== Syntax
+
+Rule:
+
+`variable_declare_stmt: name ":" qualified_name "=" expr`
+
+Name:
+
+`variable_declare_stmt: lhs ":" type_ann "=" rhs`
+
+`lhs` and `rhs` are resolved in the value name group.
+
+`type_ann` is resolved in the type name group.
+
+==== Semantics
+
+If `lhs` resolves to a previously-defined symbol, an error is raised.
+
+> This prevents redefining a variable.
+
+If `rhs` cannot be coerced to type `type_ann`, an error is raised.
+
+The new variable has type `type_ann`. It is added to the resolving scope under name `lhs`.
+
+At execution, `rhs` is <<evaluation,evaluated>> and <<type-coercion,coerced>> to type `type_ann`. This becomes the variable's initial value.
+
+For statements following this, the variable `lhs` is considered defined.
+
+=== Variable assignment
+
+A *variable assignment statement* mutates the value of a variable.
+
+==== Syntax
+Rule:
+
+`variable_assign_stmt: name "=" expr`
+
+Name:
+
+`variable_assign_stmt: lhs "=" rhs`
+
+`lhs` and `rhs` are resolved in the value name group.
+
+==== Semantics
+
+If `lhs` does not resolve to a variable, an error is raised.
+
+> Hereafter, `lhs` refers to the variable named `lhs`.
+
+If `lhs` has not been defined yet, an error is raised.
+
+If `rhs` cannot be coerced to `lhs`'s type, an error is raised.
+
+At execution, `rhs` is <<evaluation,evaluated>> and <<type-coercion,coerced>> to `lhs`'s type. This becomes the `lhs`'s new value.
+
+=== Member assignment
+
+A *member assignment statement* mutates the value of a <<structs,member>> in a variable.
+
+==== Syntax
+Rule:
+
+`variable_assign_member_stmt: expr "." name "=" expr`
+
+Name:
+
+`variable_assign_member_stmt: parent "." member "=" rhs`
+
+`parent`, and `rhs` are resolved in the value name group.
+
+==== Semantics
+
+If `parent` is not a variable or a <<fields,field>> with a <<fields,field base>> that is a variable, an error is raised.
+
+> This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
+
+If `parent`'s type is:
+
+* not <<types,constant-sized>>, or
+* not a <<structs,struct>> type, or
+* `member` is not a member of `parent`'s type
+
+... an error is raised.
+
+If the variable has not been defined yet, an error is raised.
+
+If `rhs` cannot be coerced to the member's type, an error is raised.
+
+At execution, `rhs` is <<evaluation,evaluated>> and <<type-coercion,coerced>> to the member's type. This becomes the member's new value.
+
+The value of the variable is unchanged except for the member.
+
+=== Element assignment
+
+An *element assignment statement* mutates the value of an link:todo[element] in a variable.
+
+==== Syntax
+Rule:
+
+`variable_assign_element_stmt: expr "[" expr "]" "=" expr`
+
+Name:
+
+`variable_assign_element_stmt: parent "[" item "]" "=" rhs`
+
+`parent`, `item` and `rhs` are resolved in the value name group.
+
+==== Semantics
+
+If `parent` is not a variable or a <<fields,field>> with a link:todo[field base] that is a variable, an error is raised.
+
+> This allows for setting a field of a field to arbitrary depth, as long as the underlying thing you're modifying is a variable.
+
+If the variable has not been defined yet, an error is raised.
+
+If `item` cannot be <<type-coercion,coerced>> to <<type-aliases,array index type>>, an error is raised.
+
+If `parent`'s type is:
+
+* not <<types,constant-sized>>, or
+* not an <<arrays,array>> type, or
+* `item` is a link:todo[constant] with a value less than 0 or greater than the `parent`'s type length, 
+
+... an error is raised.
+
+If `rhs` cannot be coerced to the element's type, an error is raised.
+
+At execution:
+
+. `rhs` is evaluated and coerced to the element's type
+. `item` is <<evaluation,evaluated>> and coerced to <<type-aliases,array index type>>
+. If `item` is less than zero or greater than the `parent`'s type length, a runtime error is raised
+. The element in the `parent` array at the index `item` is set to the result of step 1
+
+The value of the variable is unchanged except for the element.
+
+=== Variable evaluation
+
+The value produced by <<expressions,evaluating>> a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
+
+If a variable is evaluated before it has been defined, an error is raised.

@@ -1066,6 +1066,11 @@ class FpySequencerModel:
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
 
+        if lhs == MIN_INT64 and rhs == -1:
+            # the mathematical quotient 2^63 is not representable; without
+            # this check push() would silently truncate it back to MIN_INT64
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
         result = lhs // rhs
 
         self.push(result)
@@ -1119,6 +1124,10 @@ class FpySequencerModel:
         lhs = self.pop(signed=True)
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
+        if lhs == MIN_INT64 and rhs == -1:
+            # matches sdiv (and Rust): the remainder itself (0) is fine, but
+            # the operation is UB in C++/LLVM, so it errors like MIN // -1
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
         self.push(lhs % rhs, signed=True)
         return None
 
@@ -1137,9 +1146,19 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
-        if rhs == 0.0:
-            return DirectiveErrorCode.DOMAIN_ERROR
-        self.push(lhs % rhs)
+        # IEEE semantics (and Rust's/C#'s): float % never errors. x % 0.0,
+        # inf % y, and NaN operands give NaN. Otherwise the result is floored
+        # fmod (sign of the divisor), computed exactly like the spec and the
+        # LLVM backend (fmod, then one addition of the divisor on sign
+        # mismatch). CPython raises on % 0.0 instead; fpy deliberately follows
+        # IEEE (see MATH_COMPARISON.md).
+        if rhs == 0.0 or math.isnan(lhs) or math.isnan(rhs) or math.isinf(lhs):
+            self.push(float("nan"))
+            return None
+        result = math.fmod(lhs, rhs)
+        if result != 0.0 and (result < 0.0) != (rhs < 0.0):
+            result += rhs
+        self.push(result)
         return None
 
     def handle_fpow(self, dir: FloatExponentDirective):

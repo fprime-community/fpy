@@ -1,0 +1,59 @@
+= Fpy Specification
+:toc: left
+:toclevels: 3
+:sectnums:
+:sectlinks:
+:sectanchors:
+:idprefix:
+:idseparator: -
+:source-highlighter: highlight.js
+
+
+Fpy is a sequencing language for the F-Prime flight software framework. It combines Python-like syntax with the FPP model, with domain-specific features for spacecraft operation.
+
+This document specifies the syntax and semantics of the Fpy sequencing language. In other words, it specifies which programs the compiler should accept, and how the output should behave when run. The intent is to leave the implementation of the compiler, the bytecode it generates, and the virtual machine it runs on, unspecified. 
+
+It is assumed the reader is familiar with the FPP model, including commands, telemetry, parameters, structs, arrays and enums.
+
+> Informal notes and explanations are quoted like this.
+
+Terms are *bolded* in the location they are primarily defined.
+
+`Monospaced` text refer to syntactic rules, type names or example Fpy code.
+
+In a syntactic rule:
+
+* Text in between forward slashes `/` is regex
+* Text in between square brackets `[]` is optional
+* Text in between parentheses `()` is handled as a group
+* A plus suffix `+` means one or more instances of its preceding rule
+* A star suffix `*` means zero or more instances of its preceding rule
+* A question mark suffix `?` means zero or one instances of its preceding rule
+
+A line of the specification may be followed by an italicized _Tests:_ line. Each bracketed number links to a test that verifies the behavior; hover over a number to see the test's full `file::class::name`. These links are checked and kept up to date by `verify/spec_links.py`.
+
+
+
+include::spec/01-names-and-scopes.adoc[]
+
+include::spec/02-variables.adoc[]
+
+include::spec/03-functions.adoc[]
+
+include::spec/04-ifs.adoc[]
+
+include::spec/05-loops.adoc[]
+
+include::spec/06-assert-statement.adoc[]
+
+include::spec/07-check-statement.adoc[]
+
+include::spec/08-imports.adoc[]
+
+include::spec/09-callables.adoc[]
+
+include::spec/10-types.adoc[]
+
+include::spec/11-expressions.adoc[]
+
+include::spec/12-execution.adoc[]
