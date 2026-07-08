@@ -1,5 +1,3 @@
-import pytest
-
 from fpy.test_helpers import (
     CompilationFailed,
     assert_compile_failure,
