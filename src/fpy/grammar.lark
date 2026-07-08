@@ -66,14 +66,17 @@ while_stmt: "while" expr ":" block
 # The clauses can appear on the same line as the condition, on separate indented lines, or mixed.
 # A body-less check (no ":" and no body) waits until the condition is satisfied, then continues.
 check_timeout: "timeout" expr
+# "timeout never" opts the check out of ever timing out (no expression)
+check_timeout_never: "timeout" "never"
 check_persist: "persist" expr
 check_period: "period" expr
 # For multi-line format: the last clause can have the colon attached
 check_timeout_final: "timeout" expr ":"
+check_timeout_never_final: "timeout" "never" ":"
 check_persist_final: "persist" expr ":"
 check_period_final: "period" expr ":"
-check_clause: check_timeout | check_persist | check_period
-check_clause_final: check_timeout_final | check_persist_final | check_period_final
+check_clause: check_timeout | check_timeout_never | check_persist | check_period
+check_clause_final: check_timeout_final | check_timeout_never_final | check_persist_final | check_period_final
 # Multi-line clauses: zero or more non-final clauses (each followed by newline),
 # followed by one final clause with colon, then statements at same indentation
 # Body-less variant: one or more clauses without a final colon, no body statements

@@ -1,4 +1,10 @@
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.test_helpers import (
+    CompilationFailed,
+    assert_compile_failure,
+    assert_run_success,
+    compile_seq,
+)
+from fpy.error import WarningType
 
 
 class TestCheckBehavior:
@@ -125,21 +131,6 @@ assert timeout_body_ran
 
 class TestCheckClauses:
 
-    def test_check_no_timeout_clause(self, fprime_test_api):
-        """Test check without timeout clause (runs indefinitely until success)."""
-        seq = """
-# Without timeout, check runs until condition succeeds
-call_count: I64 = 0
-
-def eventually_true() -> bool:
-    call_count = call_count + 1
-    return call_count >= 3
-
-check eventually_true():
-    exit(0)
-"""
-        assert_run_success(fprime_test_api, seq, timeout_s=10)
-
     def test_check_only_timeout_specified(self, fprime_test_api):
         """Test check with only timeout specified (uses default persist=0 and period=1s)."""
         seq = """
@@ -165,6 +156,167 @@ timeout:
 assert result
 """
         assert_run_success(fprime_test_api, seq)
+
+
+class TestCheckTimeoutRequired:
+    """A timeout clause is required on every check statement."""
+
+    def test_check_missing_timeout_is_error(self, fprime_test_api):
+        """Test that a check with no timeout clause is a compile error."""
+        seq = """
+check True:
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_missing_timeout_with_other_clauses_is_error(self, fprime_test_api):
+        """Test that a check with persist and period but no timeout is a compile error."""
+        seq = """
+check True persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_missing_timeout_multiline_is_error(self, fprime_test_api):
+        """Test that a multi-line check with no timeout clause is a compile error."""
+        seq = """
+check True
+    persist Fw.TimeIntervalValue(0, 0)
+    period Fw.TimeIntervalValue(0, 10000):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_check_missing_timeout_bodyless_is_error(self, fprime_test_api):
+        """Test that a body-less check with no timeout clause is a compile error."""
+        seq = """
+check True
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+
+class TestCheckTimeoutNever:
+    """The `never` keyword opts a check out of ever timing out."""
+
+    def test_check_timeout_never_runs_until_success(self, fprime_test_api):
+        """Test check with `timeout never` runs indefinitely until the condition succeeds."""
+        seq = """
+# With `timeout never`, check runs until condition succeeds
+call_count: I64 = 0
+
+def eventually_true() -> bool:
+    call_count = call_count + 1
+    return call_count >= 3
+
+check eventually_true() timeout never:
+    exit(0)
+"""
+        assert_run_success(fprime_test_api, seq, timeout_s=10)
+
+    def test_check_timeout_never_passes_immediately(self, fprime_test_api):
+        """Test that `timeout never` still runs the body once the condition holds."""
+        seq = """
+body_ran: bool = False
+check True timeout never:
+    body_ran = True
+assert body_ran
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_timeout_never_with_persist_and_period(self, fprime_test_api):
+        """Test `timeout never` combined with persist and period clauses."""
+        seq = """
+check_passed: bool = False
+check True timeout never persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_timeout_never_clause_order(self, fprime_test_api):
+        """Test `timeout never` appearing after other clauses."""
+        seq = """
+check_passed: bool = False
+check True period Fw.TimeIntervalValue(0, 100000) timeout never:
+    check_passed = True
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_timeout_never_multiline(self, fprime_test_api):
+        """Test `timeout never` spread across indented lines."""
+        seq = """
+check_passed: bool = False
+check True
+    timeout never
+    period Fw.TimeIntervalValue(0, 100000):
+    check_passed = True
+assert check_passed
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_timeout_never_bodyless(self, fprime_test_api):
+        """Test a body-less check with `timeout never` waits for the condition."""
+        seq = """
+counter: I64 = 0
+def counting_condition() -> bool:
+    counter = counter + 1
+    return counter >= 3
+
+check counting_condition() timeout never period Fw.TimeIntervalValue(0, 10000)
+assert counter >= 3
+"""
+        assert_run_success(fprime_test_api, seq, timeout_s=10)
+
+    def test_check_duplicate_timeout_never(self, fprime_test_api):
+        """Test that duplicate timeout clauses are an error even when one is `never`."""
+        seq = """
+check True timeout never timeout Fw.TimeIntervalValue(1, 0):
+    pass
+"""
+        assert_compile_failure(fprime_test_api, seq)
+
+
+class TestCheckUnreachableTimeoutBody:
+    """`timeout never` together with a timeout body emits the
+    `unreachable-timeout-body` warning: the body can never run, but the check
+    still compiles (the warning is non-fatal)."""
+
+    # `timeout never` can never time out, so this timeout body is dead code.
+    NEVER_WITH_TIMEOUT_BODY_SEQ = """\
+check True timeout never:
+    pass
+timeout:
+    pass
+"""
+
+    def test_never_with_timeout_body_warns(self):
+        state, _, _ = compile_seq(self.NEVER_WITH_TIMEOUT_BODY_SEQ)
+        assert any(
+            w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
+        ), f"expected an unreachable-timeout-body warning, got {state.warnings}"
+
+    def test_never_with_timeout_body_still_compiles(self):
+        # The warning is non-fatal: compilation succeeds.
+        compile_seq(self.NEVER_WITH_TIMEOUT_BODY_SEQ)
+
+    def test_never_without_timeout_body_does_not_warn(self):
+        state, _, _ = compile_seq("check True timeout never:\n    pass\n")
+        assert not any(
+            w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
+        )
+
+    def test_finite_timeout_with_timeout_body_does_not_warn(self):
+        # A real timeout with a timeout body is the normal, reachable case.
+        state, _, _ = compile_seq(
+            "check True timeout Fw.TimeIntervalValue(1, 0):\n"
+            "    pass\n"
+            "timeout:\n"
+            "    pass\n"
+        )
+        assert not any(
+            w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
+        )
 
 
 class TestCheckNesting:
@@ -332,7 +484,7 @@ check True timeout Fw.TimeIntervalValue(1, 0) timeout Fw.TimeIntervalValue(2, 0)
     def test_check_duplicate_persist(self, fprime_test_api):
         """Test that duplicate persist clauses cause a compile error."""
         seq = """
-check True persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0):
+check True timeout never persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0):
     pass
 """
         assert_compile_failure(fprime_test_api, seq)
@@ -340,7 +492,7 @@ check True persist Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(2, 0)
     def test_check_duplicate_freq(self, fprime_test_api):
         """Test that duplicate period clauses cause a compile error."""
         seq = """
-check True period Fw.TimeIntervalValue(1, 0) period Fw.TimeIntervalValue(2, 0):
+check True timeout never period Fw.TimeIntervalValue(1, 0) period Fw.TimeIntervalValue(2, 0):
     pass
 """
         assert_compile_failure(fprime_test_api, seq)
@@ -429,21 +581,21 @@ assert check_passed
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_singleline_only_persist(self, fprime_test_api):
-        """Test single-line check with only persist clause."""
+    def test_check_singleline_never_and_persist(self, fprime_test_api):
+        """Test single-line check with `timeout never` and a persist clause."""
         seq = """
 check_passed: bool = False
-check True persist Fw.TimeIntervalValue(0, 0):
+check True timeout never persist Fw.TimeIntervalValue(0, 0):
     check_passed = True
 assert check_passed
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_singleline_only_freq(self, fprime_test_api):
-        """Test single-line check with only period clause."""
+    def test_check_singleline_never_and_period(self, fprime_test_api):
+        """Test single-line check with `timeout never` and a period clause."""
         seq = """
 check_passed: bool = False
-check True period Fw.TimeIntervalValue(0, 100000):
+check True timeout never period Fw.TimeIntervalValue(0, 100000):
     check_passed = True
 assert check_passed
 """
@@ -584,13 +736,13 @@ def check_needs_return() -> I64:
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_check_no_timeout_clause_still_needs_return(self, fprime_test_api):
-        """Test that a check with no timeout clause still needs a trailing return
+    def test_check_timeout_never_still_needs_return(self, fprime_test_api):
+        """Test that a check with `timeout never` still needs a trailing return
         because the desugared if/else has an implicit else branch that doesn't return.
         """
         seq = """
-def check_no_timeout() -> I64:
-    check True:
+def check_never() -> I64:
+    check True timeout never:
         return 42
 """
         # The check desugars to: while True:...; if result: <body> else: <implicit>
@@ -617,11 +769,11 @@ check False timeout Fw.TimeIntervalValue(0, 50000) period Fw.TimeIntervalValue(0
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_bodyless_check_inline_no_clauses(self, fprime_test_api):
-        """Body-less check with no clauses uses defaults (True passes immediately)."""
+    def test_bodyless_check_inline_never(self, fprime_test_api):
+        """Body-less check with `timeout never` (True passes immediately)."""
         seq = """
 done: bool = False
-check True
+check True timeout never
 done = True
 assert done
 """
@@ -637,11 +789,11 @@ assert done
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_bodyless_check_inline_only_period(self, fprime_test_api):
-        """Body-less check with only a period clause."""
+    def test_bodyless_check_inline_never_and_period(self, fprime_test_api):
+        """Body-less check with `timeout never` and a period clause."""
         seq = """
 done: bool = False
-check True period Fw.TimeIntervalValue(0, 100000)
+check True timeout never period Fw.TimeIntervalValue(0, 100000)
 done = True
 assert done
 """

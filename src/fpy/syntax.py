@@ -286,11 +286,12 @@ class AstWhile(Ast):
 @dataclass
 class AstCheck(Ast):
     condition: AstExpr
-    timeout: Union[AstExpr, None]  # Default: no timeout
+    timeout: Union[AstExpr, None]  # The timeout interval, or None if `never`/absent
     persist: Union[AstExpr, None]  # Default: 0 second interval
     period: Union[AstExpr, None]  # Default: 1 second interval
     body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
+    timeout_never: bool = False  # True if the timeout clause is `never`
 
 
 @dataclass
@@ -430,6 +431,16 @@ def handle_check_clause(tag):
     return wrapper
 
 
+def handle_check_never_clause():
+    """Create a handler for the `timeout never` clause, which has no expression."""
+
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta):
+        return ("timeout_never", None)
+
+    return wrapper
+
+
 def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
 
@@ -458,6 +469,7 @@ def handle_check_stmt(meta, children):
 
     condition = children[0]
     timeout = None
+    timeout_never = False
     persist = None
     period = None
     body = None
@@ -465,13 +477,19 @@ def handle_check_stmt(meta, children):
     body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
 
     def set_clause(clause_type, expr):
-        nonlocal timeout, persist, period
+        nonlocal timeout, timeout_never, persist, period
         if clause_type == "timeout":
-            if timeout is not None:
+            if timeout is not None or timeout_never:
                 raise SyntaxErrorDuringTransform(
                     f"Duplicate 'timeout' clause in check statement", expr
                 )
             timeout = expr
+        elif clause_type == "timeout_never":
+            if timeout is not None or timeout_never:
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'timeout' clause in check statement", condition
+                )
+            timeout_never = True
         elif clause_type == "persist":
             if persist is not None:
                 raise SyntaxErrorDuringTransform(
@@ -507,7 +525,23 @@ def handle_check_stmt(meta, children):
             else:
                 timeout_body = child
 
-    return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
+    if timeout is None and not timeout_never:
+        raise SyntaxErrorDuringTransform(
+            "check statement requires a 'timeout' clause "
+            "(use 'timeout never' to never time out)",
+            condition,
+        )
+
+    return AstCheck(
+        meta,
+        condition,
+        timeout,
+        persist,
+        period,
+        body,
+        timeout_body,
+        timeout_never=timeout_never,
+    )
 
 
 def handle_parameter(meta, args):
@@ -543,9 +577,11 @@ class FpyTransformer(Transformer):
     if_stmt = AstIf
 
     check_timeout = handle_check_clause("timeout")
+    check_timeout_never = handle_check_never_clause()
     check_persist = handle_check_clause("persist")
     check_period = handle_check_clause("period")
     check_timeout_final = handle_check_clause("timeout")
+    check_timeout_never_final = handle_check_never_clause()
     check_persist_final = handle_check_clause("persist")
     check_period_final = handle_check_clause("period")
 

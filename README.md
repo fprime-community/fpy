@@ -286,14 +286,16 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
 ## Check statement
 
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
+
+Every `check` must have a `timeout` clause saying how long it is willing to wait. Use `timeout never` to wait forever:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never persist {seconds: 15}:
     log("more than 30 commands for 15 seconds!")
 ```
 
 If you don't specify a value for `persist`, the condition only has to be true once.
 
-You can specify a `timeout`: a `Fw.TimeInterval` duration, measured from when the `check` is entered, after which the `check` gives up:
+Instead of `never`, you can give `timeout` a `Fw.TimeInterval` duration, measured from when the `check` is entered, after which the `check` gives up:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout {seconds: 60} persist {seconds: 2}:
     log("more than 30 commands for 2 seconds!")
@@ -309,7 +311,7 @@ timeout:
 
 Finally, you can specify a `period` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 period {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never period {seconds: 1}: # check every 1 second
     log("more than 30 commands!")
 ```
 
