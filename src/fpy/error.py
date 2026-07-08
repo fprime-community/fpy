@@ -197,6 +197,7 @@ class WarningType(str, Enum):
 
     EMPTY_RANGE = "empty-range"
     IMPORT_SIDE_EFFECTS = "import-side-effects"
+    UNREACHABLE_TIMEOUT_BODY = "unreachable-timeout-body"
 
     @classmethod
     def from_value(cls, value: str) -> "WarningType":
