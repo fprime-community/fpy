@@ -57,7 +57,7 @@ The list of reserved words is:
 A **symbol** is a language construct that can be referred to by a name in the program. 
 
 The following language constructs may be symbols:
-* [namespaces](#namespaces)
+* [modules](#modules)
 * [variables](#variables)
 * [callables](#callables)
 * [types](#types)
@@ -91,7 +91,7 @@ The list of name groups is:
 * The **[type](#types) name group**
 * The **[callable](#callables) name group**
 
-Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+Each name group only contains names which map to their particular language construct, or modules with the same property, recursively.
 TODO Maybe could remove this line
 
 TODO explain why we need this
@@ -112,9 +112,9 @@ TODO Does it refer to something that has a scope, or does it refer to something 
 
 The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
 
-## Namespaces
+## Modules
 
-A **namespace** is a mapping of names to symbols, associated with a name.
+A **module** is a mapping of names to symbols, associated with a name.
 
 ## Qualified names
 
@@ -131,22 +131,22 @@ To resolve a qualified name in a name group:
 2. Otherwise:
     1. Resolve the qualifier.
     2. If the qualifier is an expression, resolution is handled by the rules of [member access](#member-access-expression).
-    3. If the qualifier is not a namespace, an error is raised.
-    4. Resolve the name in the qualifier namespace.
+    3. If the qualifier is not a module, an error is raised.
+    4. Resolve the name in the qualifier module.
 
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
 A **fully-qualified name** is a qualified name which is not itself a qualifier.
 TODO names are semantic, ident is syntactic
 TODO you can't actually tell at syntax level what is a fqn
-If a fully-qualified name resolves to a namespace, an error is raised.
+If a fully-qualified name resolves to a module, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L343 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_module_name_not_usable_as_value")
+*Tests:* [1](test/fpy/test_imports.py#L350 "test/fpy/test_imports.py::TestImportModuleIsolation::test_module_name_not_usable_as_value")
 
 TODO you can think of the dict as "importing definitions"
 
 
-> Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"
+> Module symbols cannot be used anywhere, so this forces names to resolve to something "useful"
 
 TODO I'm not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING--cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.
 
@@ -632,105 +632,150 @@ If at any point during execution, two times which are [incomparable](todo) are a
 
 > **Note:** The import statement is not yet implemented.
 
-An **import statement** compiles another Fpy source file, called a **module**, and makes the module's [definitions](#definitions) available in the importing file under a [namespace](#namespaces).
+An **import statement** compiles another Fpy sequence, and makes the sequence's [definitions](#definitions) available in the importing sequence.
 
 ## Syntax
 
 Rule:
 
-`import_stmt: "import" name ("." name)*`
+`import_stmt: import_seq | import_from`
+`import_seq: "import" name ("." name)* ["as" name]`
+`import_from: "from" name ("." name)* "import" ("*" | import_members | "(" import_members [","] ")")`
+`import_members: name ["as" name] ("," name ["as" name])*`
 
 Name:
 
-`import_stmt: "import" module_path`
+`import_seq: "import" import_path ["as" alias]`
+`import_from: "from" sequence_path "import" ("*" | members | "(" members [","] ")")`
+`members: member ["as" alias] ("," member ["as" alias])*`
 
-The **module path** is the entire dotted sequence of names. The first name of a module path is its **root segment**, and the last is its **leaf segment**.
+The **import path** is the entire dotted chain of names. Its first name is its **root segment**, and its last is its **leaf segment**. The **alias** is the name introduced by an `as` clause.
+
+In the parenthesized form, the member list may span multiple lines.
 
 An import statement is only valid outside an indentation block.
 
-*Tests:* [1](test/fpy/test_imports.py#L535 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L552 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
-
-## Module resolution
-
-The **import search path** is an ordered list of directories provided by the environment in which the compiler is invoked.
-
-> In the command-line compiler, the import search path is the directory containing the file being compiled, followed by each directory passed with `-i`/`--include`, in order.
-
-A module path `s_0.s_1. ... .s_n` **resolves** in a directory `dir` if the file `dir/s_0/s_1/.../s_n.fpy` exists.
-
-*Tests:* [1](test/fpy/test_imports.py#L705 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L725 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L801 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_module_file_beats_namespace_directory"), [4](test/fpy/test_imports.py#L815 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
-
-The module path of an import statement is resolved in each directory of the import search path, in order. The file from the first directory in which it resolves is the imported module.
-
-*Tests:* [1](test/fpy/test_imports.py#L856 "test/fpy/test_imports.py::TestImportSearchDirs::test_module_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L871 "test/fpy/test_imports.py::TestImportSearchDirs::test_first_search_dir_shadows_later"), [3](test/fpy/test_imports.py#L887 "test/fpy/test_imports.py::TestImportSearchDirs::test_search_order_respects_dir_order"), [4](test/fpy/test_imports.py#L903 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_module_resolved_across_search_dirs")
-
-If the module path resolves in no directory of the import search path, an error is raised.
-
-*Tests:* [1](test/fpy/test_imports.py#L246 "test/fpy/test_imports.py::TestImportErrors::test_missing_module_is_an_error"), [2](test/fpy/test_imports.py#L919 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [3](test/fpy/test_imports.py#L763 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [4](test/fpy/test_imports.py#L828 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [5](test/fpy/test_imports.py#L841 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [6](test/fpy/test_imports.py#L297 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails")
-
-> Every segment except the leaf names a plain directory; no `__init__.fpy`-style marker file is required. Because only the leaf's `.fpy` file satisfies an import, a file `foo.fpy` always takes precedence over a sibling directory `foo/` for `import foo`, while `import foo.bar` descends into the directory `foo/` regardless of whether `foo.fpy` exists. Importing a name that resolves only to a directory is an error: a directory has no code to import.
+*Tests:* [1](test/fpy/test_imports.py#L542 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L559 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
 
 ## Semantics
 
-If the imported module fails to parse or compile, an error is raised.
+### Sequence resolution
 
-*Tests:* [1](test/fpy/test_imports.py#L279 "test/fpy/test_imports.py::TestImportFileErrors::test_parse_error_in_imported_file_fails")
+The **base import search path** is an ordered list of directories provided by the environment in which the compiler is invoked. It is the same for every sequence in a compilation.
+
+> In the command-line compiler, the base import search path is each directory passed with `-i`/`--include`, in order.
+
+The **import search path** of a sequence is the directory containing that sequence, followed by the base import search path. An import statement is resolved against the import search path of the sequence in which it appears, so that sequence's own directory is searched first.
+
+*Tests:* [1](test/fpy/test_imports.py#L1559 "test/fpy/test_imports.py::TestImportSearchRelativeToFile::test_import_resolves_relative_to_importing_sequence"), [2](test/fpy/test_imports.py#L1584 "test/fpy/test_imports.py::TestImportSearchRelativeToFile::test_importer_directory_shadows_base_search_path")
+
+A sequence path `s_0.s_1. ... .s_n` **resolves** in a directory `dir` if the file `dir/s_0/s_1/.../s_n.fpy` exists.
+
+*Tests:* [1](test/fpy/test_imports.py#L712 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L732 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L810 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_sequence_file_beats_directory"), [4](test/fpy/test_imports.py#L824 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
+
+An import statement names its imported sequence and an optional member as follows. Let its import path be `s_0. ... .s_n`.
+1. For each directory of the import search path, in order (so the sequence's own directory is tried first):
+    1. If `s_0. ... .s_n` resolves in the directory, that file is the imported sequence, the whole path is the **sequence path**, and there is no member. Resolution stops.
+    2. Otherwise, if `n > 0` and `s_0. ... .s_{n-1}` resolves in the directory, that file is the imported sequence, `s_0. ... .s_{n-1}` is the sequence path, and the final name `s_n` is the **member**. Resolution stops.
+2. If neither resolves in any directory, an error is raised.
+
+A `from` statement resolves only its whole path (step 1.1); it takes no member from the path. Each name in its import list is a member.
+
+*Tests:* [1](test/fpy/test_imports.py#L865 "test/fpy/test_imports.py::TestImportSearchDirs::test_sequence_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L880 "test/fpy/test_imports.py::TestImportSearchDirs::test_first_search_dir_shadows_later"), [3](test/fpy/test_imports.py#L896 "test/fpy/test_imports.py::TestImportSearchDirs::test_search_order_respects_dir_order"), [4](test/fpy/test_imports.py#L912 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_sequence_resolved_across_search_dirs"), [5](test/fpy/test_imports.py#L253 "test/fpy/test_imports.py::TestImportErrors::test_missing_sequence_is_an_error"), [6](test/fpy/test_imports.py#L930 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [7](test/fpy/test_imports.py#L770 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [8](test/fpy/test_imports.py#L837 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [9](test/fpy/test_imports.py#L850 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [10](test/fpy/test_imports.py#L304 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails")
+
+> A file `foo.fpy` always takes precedence over a sibling directory `foo/` for `import foo`, while `import foo.bar` descends into the directory `foo/` regardless of whether `foo.fpy` exists.
+
+> Splitting `import a.b.c` against a directory:
+> * `a/b/c.fpy` exists: sequence path `a.b.c`, no member -- the whole sequence is imported.
+> * `a/b/c.fpy` is missing but `a/b.fpy` exists: sequence path `a.b`, member `c`.
+> * neither exists: the next directory is tried.
+>
+> The whole path is preferred over a member: if both `a/b/c.fpy` and `a/b.fpy` exist in a directory, `import a.b.c` imports `a/b/c.fpy` whole. A directory earlier in the search path is preferred over a later one.
+
+### Importing a sequence
+
+If the imported sequence fails to parse or compile, an error is raised.
+
+*Tests:* [1](test/fpy/test_imports.py#L286 "test/fpy/test_imports.py::TestImportFileErrors::test_parse_error_in_imported_file_fails")
 
 > The diagnostic should point into the imported file, not at the import statement.
 
-If the imported module declares one or more [sequence arguments](todo), an error is raised.
+If the imported sequence declares one or more [sequence arguments](todo), an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L228 "test/fpy/test_imports.py::TestImportErrors::test_cannot_import_sequence_with_arguments")
+*Tests:* [1](test/fpy/test_imports.py#L235 "test/fpy/test_imports.py::TestImportErrors::test_cannot_import_sequence_with_arguments")
 
 > A `sequence()` directive with no arguments does not prevent a file from being imported.
 
-*Tests:* [1](test/fpy/test_imports.py#L254 "test/fpy/test_imports.py::TestImportErrors::test_no_arg_sequence_is_importable")
+*Tests:* [1](test/fpy/test_imports.py#L261 "test/fpy/test_imports.py::TestImportErrors::test_no_arg_sequence_is_importable")
 
-An imported module may itself contain import statements. The semantics of this section apply to them recursively, with the module in the role of the importing file. All import statements in a compilation resolve against the same import search path.
+An imported sequence may itself contain import statements. The semantics of this section apply to them recursively, with the imported sequence in the role of the importing sequence.
 
-*Tests:* [1](test/fpy/test_imports.py#L574 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works")
+*Tests:* [1](test/fpy/test_imports.py#L581 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works")
 
-If a module transitively imports itself, an error is raised.
+If a sequence transitively imports itself, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L635 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L656 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L687 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
+*Tests:* [1](test/fpy/test_imports.py#L642 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L663 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L694 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
 
-The import statement introduces the module path as a chain of namespaces in the global scope. Each [definition](#definitions) at the top level of the module adds its symbol to the leaf namespace: a symbol `x` defined in module `a.b.c` is named `a.b.c.x` in the importing file, and is not accessible under any shorter name.
+To introduce a sequence path `s_0. ... .s_k` as a **module chain** is to add `s_0` as a [module](#modules) to the importing sequence's global scope, and each following `s_i` as a module to `s_{i-1}`; the last module, `s_k`, is the **leaf module**.
 
-*Tests:* [1](test/fpy/test_imports.py#L85 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L123 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L324 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L362 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L743 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
+An import statement with no member and no alias introduces its sequence path as a module chain, and adds each [definition](#definitions) in the imported sequence's global scope to the leaf module, under its own name.
 
-Per the [name group](#name-groups) rules, these namespaces exist only in the name groups of the symbols they contain.
+*Tests:* [1](test/fpy/test_imports.py#L92 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L130 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L331 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L369 "test/fpy/test_imports.py::TestImportModuleIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L750 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
 
-*Tests:* [1](test/fpy/test_imports.py#L461 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable")
+> After `import a.b.c` of a sequence that defines `x`, the symbol is named `a.b.c.x`, and is available under no shorter name.
 
-If a name introduced by an import statement is already mapped, in the same name group and the same scope or namespace, to anything other than a namespace introduced by another import statement, an error is raised.
+Two symbols mapped to the same name, in the same [name group](#name-groups) and the same scope or [module](#modules), collide, and an error is raised, unless both are modules.
 
-*Tests:* [1](test/fpy/test_imports.py#L421 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L442 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable")
+*Tests:* [1](test/fpy/test_imports.py#L428 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L449 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable"), [3](test/fpy/test_imports.py#L468 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable"), [4](test/fpy/test_imports.py#L1158 "test/fpy/test_imports.py::TestImportAlias::test_alias_collides_with_local"), [5](test/fpy/test_imports.py#L1408 "test/fpy/test_imports.py::TestImportFrom::test_from_import_collides_with_local"), [6](test/fpy/test_imports.py#L1429 "test/fpy/test_imports.py::TestImportFrom::test_from_star_collides_across_sequences"), [7](test/fpy/test_imports.py#L1352 "test/fpy/test_imports.py::TestImportFrom::test_from_import_duplicate_member_is_error")
 
-> Namespaces introduced by imports merge: after `import pkg.a` and `import pkg.b`, the namespace `pkg` contains both `a` and `b`. Because name groups do not intersect, an imported module conflicts only with names in the groups it occupies: a variable `lib` may coexist with an imported module `lib` that defines only functions.
+Two modules mapped to the same name in the same name group and the same scope or module merge into one module whose members are those of both.
 
-*Tests:* [1](test/fpy/test_imports.py#L780 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_modules_in_same_package_no_collision")
+*Tests:* [1](test/fpy/test_imports.py#L787 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_sequences_in_same_package_no_collision")
 
-Names within the module are resolved in the module's own global scope. Symbols of the importing file are not visible in the module, and modules imported by the module are not visible in the importing file.
+> So after `import pkg.a` and `import pkg.b`, module `pkg` contains both `a` and `b`. And a variable `lib` coexists with an imported module `lib` that defines only functions, because a value and a callable never share a name group.
 
-*Tests:* [1](test/fpy/test_imports.py#L392 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_function_cannot_see_importer_globals"), [2](test/fpy/test_imports.py#L602 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
+An import statement with a member and no alias introduces its sequence path as a module chain, and adds the [definition](#definitions) named by the member in the imported sequence's global scope to the leaf module, under the member's name. If the imported sequence's global scope has no such definition, an error is raised.
 
-If the same module path is imported more than once in the same file, an error is raised.
+*Tests:* [1](test/fpy/test_imports.py#L979 "test/fpy/test_imports.py::TestImportMember::test_import_member_function"), [2](test/fpy/test_imports.py#L998 "test/fpy/test_imports.py::TestImportMember::test_import_member_of_dotted_sequence"), [3](test/fpy/test_imports.py#L1017 "test/fpy/test_imports.py::TestImportMember::test_member_requires_full_path"), [4](test/fpy/test_imports.py#L1037 "test/fpy/test_imports.py::TestImportMember::test_member_import_hides_other_symbols"), [5](test/fpy/test_imports.py#L1060 "test/fpy/test_imports.py::TestImportMember::test_missing_member_is_error")
 
-*Tests:* [1](test/fpy/test_imports.py#L489 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_import_is_error")
+> `import a.b.c.foo` adds only `foo`, named `a.b.c.foo`.
 
-> This rule is per-file: a file and a module it imports may each import the same module.
+An import statement with an alias introduces no module chain. It binds the alias, in the importing sequence's global scope, to the imported symbol if the import has a member, or otherwise to a [module](#modules) holding each [definition](#definitions) in the imported sequence's global scope. The alias occupies the [name groups](#name-groups) of what it is bound to.
 
-*Tests:* [1](test/fpy/test_imports.py#L506 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
+*Tests:* [1](test/fpy/test_imports.py#L1083 "test/fpy/test_imports.py::TestImportAlias::test_import_sequence_as_alias"), [2](test/fpy/test_imports.py#L1102 "test/fpy/test_imports.py::TestImportAlias::test_dotted_import_as_alias"), [3](test/fpy/test_imports.py#L1120 "test/fpy/test_imports.py::TestImportAlias::test_import_member_as_alias"), [4](test/fpy/test_imports.py#L1138 "test/fpy/test_imports.py::TestImportAlias::test_alias_hides_chain")
 
-If the imported module contains top-level statements other than function definitions and import statements, the `import-side-effects` warning is emitted.
+> `import a.b.c as x` binds `x` to a module of `a.b.c`'s definitions; `import a.b.c.foo as x` binds `x` to the symbol `foo`.
 
-*Tests:* [1](test/fpy/test_imports.py#L158 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_warns"), [2](test/fpy/test_imports.py#L172 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_ignored"), [3](test/fpy/test_imports.py#L187 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_escalated"), [4](test/fpy/test_imports.py#L202 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_module_does_not_warn"), [5](test/fpy/test_imports.py#L308 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_module_compiles_without_warning")
+A `from` statement introduces no module chain. It binds, in the importing sequence's global scope, the [definition](#definitions) named by each member in the imported sequence's global scope, under the member's name or its alias if one is given. `from p import *` binds every definition in the imported sequence's global scope, each under its own name. If a member names no definition in the imported sequence's global scope, an error is raised.
 
-At execution, the imported module's top-level statements execute as part of the importing sequence, at the position of the import statement, in order.
+*Tests:* [1](test/fpy/test_imports.py#L1184 "test/fpy/test_imports.py::TestImportFrom::test_from_import_function"), [2](test/fpy/test_imports.py#L1202 "test/fpy/test_imports.py::TestImportFrom::test_from_dotted_sequence"), [3](test/fpy/test_imports.py#L1220 "test/fpy/test_imports.py::TestImportFrom::test_from_import_as_alias"), [4](test/fpy/test_imports.py#L1238 "test/fpy/test_imports.py::TestImportFrom::test_from_import_star"), [5](test/fpy/test_imports.py#L1369 "test/fpy/test_imports.py::TestImportFrom::test_from_import_does_not_introduce_sequence_name"), [6](test/fpy/test_imports.py#L1391 "test/fpy/test_imports.py::TestImportFrom::test_from_import_missing_member_is_error"), [7](test/fpy/test_imports.py#L1442 "test/fpy/test_imports.py::TestImportFrom::test_from_import_still_warns_on_side_effects"), [8](test/fpy/test_imports.py#L1260 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_members"), [9](test/fpy/test_imports.py#L1281 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_with_aliases"), [10](test/fpy/test_imports.py#L1302 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_single_line"), [11](test/fpy/test_imports.py#L1323 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_multiline")
 
-*Tests:* [1](test/fpy/test_imports.py#L106 "test/fpy/test_imports.py::TestImportInlining::test_imported_function_runs"), [2](test/fpy/test_imports.py#L932 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_side_effect_and_namespaced")
+Names within the imported sequence are resolved in its own global scope. Symbols of the importing sequence are not visible in the imported sequence, and sequences imported by the imported sequence are not visible in the importing sequence. TODO I would like this to be clear by construction
 
-> Importing is compile-time source inlining: the imported module does not exist in the compiled output, and no files are resolved or loaded at run time. This is what motivates the `import-side-effects` warning: a file written to run as a standalone sequence typically has top-level commands, and importing it splices that code into the importing sequence, which is rarely intended. A file meant to be imported should contain only definitions. Note that a top-level variable definition is such a side effect (its initialization executes at the import site), while still defining a namespaced symbol: `counter: U32 = 5` in module `m` warns, and is thereafter accessible as `m.counter`.
+*Tests:* [1](test/fpy/test_imports.py#L399 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_function_cannot_see_importer_globals"), [2](test/fpy/test_imports.py#L609 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
+
+If an importing sequence contains more than one import statement whose sequence path resolves to the same imported sequence, an error is raised.
+
+> This holds across all forms: `import seq`, `import seq.foo`, and `from seq import bar` all import sequence `seq`, so at most one of them may appear. Importing is inlining: a second import of the same sequence would re-execute its top-level statements and redefine its symbols. To use several of a sequence's symbols, import it whole and qualify them, or use `from seq import *`.
+
+*Tests:* [1](test/fpy/test_imports.py#L496 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_import_is_error"), [2](test/fpy/test_imports.py#L1472 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_import_and_from_same_sequence_is_error"), [3](test/fpy/test_imports.py#L1493 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_members_same_sequence_is_error"), [4](test/fpy/test_imports.py#L1514 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_whole_and_member_same_sequence_is_error"), [5](test/fpy/test_imports.py#L1532 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_from_same_sequence_is_error")
+
+> This rule is per-sequence: a sequence and a sequence it imports may each import the same sequence.
+
+*Tests:* [1](test/fpy/test_imports.py#L513 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
+
+If the imported sequence contains top-level statements other than function definitions and import statements, the `import-side-effects` warning is emitted.
+
+*Tests:* [1](test/fpy/test_imports.py#L165 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_warns"), [2](test/fpy/test_imports.py#L179 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_ignored"), [3](test/fpy/test_imports.py#L194 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_escalated"), [4](test/fpy/test_imports.py#L209 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_sequence_does_not_warn"), [5](test/fpy/test_imports.py#L315 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_sequence_compiles_without_warning")
+
+At execution, the imported sequence's top-level statements execute as part of the importing sequence, at the position of the import statement, in order. This holds for every form: a `from` or member import inlines the whole imported sequence, not only the named symbols.
+
+*Tests:* [1](test/fpy/test_imports.py#L113 "test/fpy/test_imports.py::TestImportInlining::test_imported_function_runs"), [2](test/fpy/test_imports.py#L943 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_side_effect_and_module_member")
+
+
+warn if use an imported underscore suffixed function
+check should always have timeout
+
 
 # Callables
 
@@ -1119,7 +1164,7 @@ Name:
 
 If `parent` is not an expression, an error is raised.
 
-> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
+> Modules, type names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
 
 If the type of `parent` is not a [struct](#structs), an error is raised.
 
