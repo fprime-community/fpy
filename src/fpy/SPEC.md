@@ -129,6 +129,7 @@ Available macros:
 * `iabs(value: I64) -> I64`: returns the absolute value of a signed 64-bit integer.
 * `fabs(value: F64) -> F64`: returns the absolute value of a 64-bit float.
 * `log(message: String, severity: Fw.LogSeverity = Fw.LogSeverity.ACTIVITY_HI)`: pushes the severity, message, and message size onto the stack, then emits a `PopEventDirective`. Both arguments must be compile-time constants.
+* `pop(port, value)`: pushes `value` onto the stack and emits a `PopSerializableDirective` that pops those bytes and sends them out the sequencer's `serialOut[port]` port. `port` must be a compile-time constant (typically a `Svc.Fpy.SerialPortIndex` enum constant) validated at compile time to be in `[0, MAX_SERIAL_PORTS)`; `value` may be any constant-size expression and its serialized size becomes the directive's `size` field.
 
 ## Type constructors
 Structs, arrays, and `Fw.TimeValue` expose constructors whose callable name is the fully qualified type name. Their arguments correspond to the members in declaration order (struct fields by name, array elements as `e0`, `e1`, ..., and `Fw.TimeValue` with `timeBase: TimeBase`, `timeContext: U8`, `seconds: U32`, `useconds: U32`). A constructor call serializes the provided values into a new instance of that type. `Fw.Time` is an alias for `Fw.TimeValue`, and `Fw.TimeInterval` is an alias for `Fw.TimeIntervalValue`.

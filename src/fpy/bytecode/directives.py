@@ -38,6 +38,7 @@ from fpy.syntax import (
 FwChanIdType = FpyType(TypeKind.U32, "U32")
 FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
+FwIndexType = FpyType(TypeKind.I16, "I16")
 
 
 ArrayIndexType = I64
@@ -66,6 +67,7 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
     _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
+    _update_configurable_type(FwIndexType, type_defs, "FwIndexType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
 
 
@@ -172,6 +174,7 @@ class DirectiveId(Enum):
     POP_EVENT = 75
     SET_SEED = 76
     PUSH_RAND = 77
+    POP_SERIALIZABLE = 78
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -401,6 +404,17 @@ class ConstCmdDirective(Directive):
 class PopEventDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.POP_EVENT
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
+
+
+@dataclass
+class PopSerializableDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.POP_SERIALIZABLE
+    portIndex: int
+    size: int
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {
+        "portIndex": FwIndexType,
+        "size": StackSizeType,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

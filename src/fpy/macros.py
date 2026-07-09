@@ -4,6 +4,7 @@ from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
     PopEventDirective,
+    PopSerializableDirective,
     PushTimeDirective,
     SetSeedDirective,
     PushValDirective,
@@ -210,5 +211,15 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             PopEventDirective(),
         ],
         const_arg_indices=frozenset({0, 1}),
+    ),
+    # Serial pop builtin — compile-time port index, any constant-size value
+    # The generate function is a placeholder; codegen.py handles this specially
+    "pop": BuiltinFuncSymbol(
+        "pop", NOTHING, [
+            ("port", None, None),  # None means "any constant-size type"
+            ("value", None, None),  # None means "any constant-size type"
+        ],
+        lambda n, c: [],  # Placeholder; codegen.py emits the directive
+        const_arg_indices=frozenset({0}),  # port must be compile-time constant
     ),
 }

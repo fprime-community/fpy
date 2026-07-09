@@ -1,0 +1,20 @@
+push_val 255
+allocate 21
+push_val 0 0 0 42
+store_rel_const_offset 1 4
+load_rel 1 4
+pop_serializable 0 4
+push_val 100
+store_rel_const_offset 5 1
+load_rel 5 1
+pop_serializable 1 1
+push_val 64 9 33 249 240 27 134 110
+store_rel_const_offset 6 8
+load_rel 6 8
+pop_serializable 2 8
+push_val 63 128 0 0 64 0 0 0
+store_rel_const_offset 14 8
+load_rel 14 8
+pop_serializable 3 8
+push_val 0 0 1 44
+pop_serializable 4 4

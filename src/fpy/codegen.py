@@ -81,6 +81,7 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend8To64Directive,
     OrDirective,
     PeekDirective,
+    PopSerializableDirective,
     FloatMultiplyDirective,
     GetFieldDirective,
     IntAddDirective,
@@ -1060,12 +1061,36 @@ class GenerateFunctionBody(Emitter):
                 assert const_val is not None, f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
-            # put non-const arg values on stack
-            for i, arg_node in enumerate(node_args):
-                if i not in func.const_arg_indices:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
+            # Special case for pop: push value arg, then emit directive
+            if func.name == "pop":
+                value_arg = node_args[1]
+                dirs.extend(self._emit_func_arg(value_arg, state))
+                value_type = state.contextual_types[value_arg]
 
-            dirs.extend(func.generate(node, const_arg_values))
+                # Get the port index from const args
+                # Semantics has already validated this is int or enum
+                port_val = const_arg_values[0]
+                if isinstance(port_val.val, int):
+                    port_int = port_val.val
+                elif isinstance(port_val.val, str) and port_val.type.kind == TypeKind.ENUM:
+                    # Enum constant: look up the integer value
+                    port_int = port_val.type.enum_dict[port_val.val]
+                else:
+                    # This should never happen - semantics validates port type
+                    assert False, f"Invariant violation: port should be int or enum after semantics validation, got {port_val}"
+
+                # Get size from the value's type
+                # Semantics has validated this is a concrete type with computable max_size
+                size = value_type.max_size
+
+                dirs.append(PopSerializableDirective(portIndex=port_int, size=size))
+            else:
+                # put non-const arg values on stack
+                for i, arg_node in enumerate(node_args):
+                    if i not in func.const_arg_indices:
+                        dirs.extend(self._emit_func_arg(arg_node, state))
+
+                dirs.extend(func.generate(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:

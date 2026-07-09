@@ -1,0 +1,20 @@
+# Test pop feature with various types and port indices
+
+# Basic U32 pop to port 0
+value1: U32 = 42
+pop(0, value1)
+
+# U8 pop to port 1
+value2: U8 = 100
+pop(1, value2)
+
+# F64 pop to port 2 using enum constant
+value3: F64 = 3.14159
+pop(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, value3)
+
+# Struct pop to port 3
+signal_pair: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
+pop(3, signal_pair)
+
+# Expression value to port 4 (must be wrapped in concrete type)
+pop(4, U32(100 + 200))

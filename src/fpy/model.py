@@ -13,6 +13,7 @@ from fpy.bytecode.directives import (
     ConstCmdDirective,
     Directive,
     PopEventDirective,
+    PopSerializableDirective,
     FwOpcodeType,
     PeekDirective,
     ExitDirective,
@@ -136,6 +137,8 @@ class DirectiveErrorCode(Enum):
     STACK_UNDERFLOW = 15
     INVALID_ARG = 16
     CMD_FAIL = 17
+    SERIAL_PORT_NOT_CONNECTED = 18
+    SERIAL_PORT_INVALID_INDEX = 19
 
 
 class FpySequencerModel:
@@ -488,7 +491,7 @@ class FpySequencerModel:
         return None
 
     def handle_push_val(self, dir: PushValDirective):
-        if len(self.stack) + 8 > self.max_stack_size:
+        if len(self.stack) + len(dir.val) > self.max_stack_size:
             return DirectiveErrorCode.STACK_OVERFLOW
         self.push(dir.val)
         return None
@@ -1304,4 +1307,15 @@ class FpySequencerModel:
         severity_name = severity_names.get(severity, f"UNKNOWN({severity})")
         if debug:
             print(f"POP_EVENT [{severity_name}]: {message.decode('utf-8')}")
+        return None
+
+    def handle_pop_serializable(self, dir: PopSerializableDirective):
+        # Check stack has enough bytes
+        if len(self.stack) < dir.size:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        # Pop the bytes (in model, we just discard them like pop_event does)
+        popped_bytes = self.pop(type=bytes, size=dir.size)
+        if debug:
+            print(f"POP_SERIALIZABLE port={dir.portIndex} size={dir.size} bytes={popped_bytes.hex()}")
+        # In the model we don't have actual serial ports, so we just discard the data
         return None
