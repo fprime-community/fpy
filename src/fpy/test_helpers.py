@@ -64,7 +64,7 @@ def compile_seq(
     try:
         body = text_to_ast(seq)
         state = analyze_ast(body, state)
-        directives, arg_types = analysis_to_fpybc_directives(body, state)
+        directives, arg_types = analysis_to_fpybc_directives(state)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
@@ -94,7 +94,7 @@ def compile_seq_wasm(
     try:
         body = text_to_ast(seq)
         state = analyze_ast(body, state)
-        wasm, _ = analysis_to_wasm(body, state)
+        wasm, _ = analysis_to_wasm(state)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 

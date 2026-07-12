@@ -130,51 +130,46 @@ def _get_builtin_library_ast():
     return _builtin_library_ast
 
 
-def _build_compilation_unit(body: AstBlock, state: CompileState):
-    """Turn `body` into the outermost *library block* wrapping the whole program.
+def _build_compilation_unit(program: AstBlock, state: CompileState):
+    """Assemble the compilation unit: a fresh *library root* block wrapping the
+    whole program, and store it as state.root.
 
-    On entry `body` holds the main program's statements; InlineImports has
+    On entry `program` holds the main program's statements; InlineImports has
     already removed each import and collected its target as a sibling block in
-    state.imported_blocks. This makes `body` the library block -- the top of the
-    tree, owning the base/universe callable scope -- and moves the program's own
-    statements into a new *program block* nested inside it. Its children are:
+    state.imported_blocks. We build:
 
-        library block (body)          callable scope = base (universe)
+        library root (state.root)     scope = base
         |- builtin library defs       (time_add, time_cmp, ...; registered in base)
-        |- program block              callable scope = global (child of base)
-        |- imported sequence block    callable scope = child of base
+        |- main block (state.main_block)   scope = main (child of base)
+        |- imported sequence block         scope = child of base
         |- ...
 
-    Every sequence block (the program and each import) is thus a direct child of
-    the library block, so its scope is a child of base by lexical nesting: syntax
-    and scope agree, imported sequences are siblings of the program (isolated from
-    it and each other), and the builtin library functions resolve up the parent
-    chain for all of them. Only the program block executes; the library and
+    Every sequence block (the main block and each import) is a direct child of
+    the library root, so its scope is a child of base by lexical nesting: syntax
+    and scope agree, imported sequences are siblings of the main block (isolated
+    from it and each other), and the builtin library functions resolve up the
+    parent chain for all of them. Only the main block executes; the library and
     imported blocks hold definitions, emitted once each by the dead-function pass.
 
-    `body` keeps its object identity (it stays state.root), so a caller that
-    passes the same AST to codegen still hands it the root."""
+    The main program's statements are moved into `state.main_block`; `program`
+    itself is not reused (state.root is a brand-new block)."""
     library_ast = _get_builtin_library_ast()
 
-    program_block = AstBlock(body.meta, body.stmts)
-    state.program_block = program_block
-    state.container_sequence[id(program_block)] = state.main_sequence
+    # FIXME why do we make a new block here instead of just setting state.main_block?
+    main_block = AstBlock(program.meta, program.stmts)
+    state.main_block = main_block
+    state.container_sequence[id(main_block)] = state.main_sequence
 
-    library_ctx = SequenceContext(
+    library_root = AstBlock(
+        program.meta,
+        copy.deepcopy(library_ast.stmts) + [main_block] + state.imported_blocks,
+    )
+    state.root = library_root
+    # FIXME i'm wondering how close we can get to removing the need for container sequence entirely
+    state.container_sequence[id(library_root)] = SequenceContext(
         scope=state.base_scope,
         file_path=None,
         dir_path=None,
-    )
-    state.container_sequence[id(body)] = library_ctx
-
-    # FIXME ideally we wouldn't have to do this switcheroo. that just
-    # obfuscates what's really going on here. please consider a different
-    # code flow where we can be explicit about what's going on, in
-    # the compiler_main func and analyze_ast funcs esp. also, body is not a good name for this
-    # variable any more, because we don't know which body we're talking about.
-    # i think we should call this main_block or something
-    body.stmts = (
-        copy.deepcopy(library_ast.stmts) + [program_block] + state.imported_blocks
     )
 
 
@@ -212,41 +207,25 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     Returns the populated CompileState. Raises the first CompileError encountered.
     """
-    # FIXME is state.root actually always the real root? don't be misleading!
-    state.root = body
-
-    # Resolve and inline every import first, on the raw AST: this splices each
-    # imported sequence's top-level statements into `body` and records the
-    # bindings for BindImports. It runs before everything else so later passes
-    # see one combined tree.
-    # FIXME why do we start by splicing statements into body??
-    # shouldn't we first resolve import statements, then parse them, then
-    # include their bodies under the dict/library block?
+    # Resolve and inline every import first, on the raw program AST: this removes
+    # each import statement and collects its target sequence as a sibling block
+    # in state.imported_blocks, recording an ImportBinding for BindImports.
     InlineImports().run(body, state)
     if len(state.errors) != 0:
         raise state.errors[0]
 
-    # we want to run this past first, because the next
-    # stage will add statements to the start of the file
-    # which would mess with this pass
-    pre_builtin_lib_include_passes = [
-        CheckSequenceMetadataDefinedAtTop(),
-    ]
-
-    for compile_pass in pre_builtin_lib_include_passes:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    # Wrap the program in the library block: the builtin library functions and
-    # every imported sequence become siblings of the program, all children of the
-    # library root, so their scopes fall out of lexical nesting (see
-    # _build_compilation_unit).
+    # Assemble the compilation unit: a fresh library root block wrapping the
+    # builtin library, the main program (state.main_block), and every imported
+    # sequence as sibling children. All later passes run on state.root.
     _build_compilation_unit(body, state)
 
     pre_semantic_desugaring_passes = [DesugarCheckStatements()]
 
     semantics_passes: list[Visitor] = [
+        # sequence() metadata, if present, must be the first statement of the
+        # main block (the builtin library prepend cannot displace it because it
+        # goes into the library root, not the main block).
+        CheckSequenceMetadataDefinedAtTop(),
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
@@ -309,17 +288,17 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     ]
 
     for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in semantics_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in desugaring_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
@@ -327,7 +306,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
 
 def analysis_to_fpybc_directives(
-    body: AstBlock, state: CompileState
+    state: CompileState,
 ) -> tuple[list[Directive], list[FpyType]]:
     """Runs fpybc codegen passes on analysis results, returning fpybc directives.
 
@@ -343,11 +322,11 @@ def analysis_to_fpybc_directives(
         GenerateFunctions(),
     ]
     for compile_pass in codegen_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
-    ir = GenerateModule().emit(state.program_block, state)
+    ir = GenerateModule().emit(state.main_block, state)
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
     for compile_pass in ir_passes:
@@ -365,18 +344,13 @@ def analysis_to_fpybc_directives(
 
 
 def analysis_to_llvm_module(
-    body: AstBlock, state: CompileState
+    state: CompileState,
 ) -> tuple[ir.Module, list[FpyType]]:
     """Runs LLVM codegen passes on analysis results, returning an llvmlite ir.Module (the LLVM backend).
 
     Raises BackendError on failure."""
 
-    for compile_pass in []:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    module = GenerateLlvmModule().emit(body, state)
+    module = GenerateLlvmModule().emit(state.root, state)
 
     # print out warnings
     for warning in state.warnings:
@@ -386,24 +360,22 @@ def analysis_to_llvm_module(
 
 
 def analysis_to_wasm(
-    body: AstBlock,
     state: CompileState,
 ) -> tuple[bytes, list[FpyType]]:
     """Runs the LLVM backend and lowers the result to a runnable wasm module.
 
     Raises BackendError on failure."""
-    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm(module), seq_arg_types
 
 
 def analysis_to_wat(
-    body: AstBlock,
     state: CompileState,
 ) -> tuple[str, list[FpyType]]:
     """Runs the LLVM backend and lowers the result to WebAssembly text.
 
     Raises BackendError on failure."""
-    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm_text(module), seq_arg_types
 
 
@@ -415,23 +387,17 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
 
     Raises CompileError on failure.
     """
-    state.root = body
-
     # Inline imports first so sequence-run dependencies in imported sequences
     # are discovered too.
     InlineImports().run(body, state)
     if state.errors:
         raise state.errors[0]
 
-    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
-    for compile_pass in pre_builtin_passes:
-        compile_pass.run(body, state)
-        if state.errors:
-            raise state.errors[0]
-
+    # Assemble the compilation unit (sets state.root and state.main_block).
     _build_compilation_unit(body, state)
 
     discovery_passes: list[Visitor] = [
+        CheckSequenceMetadataDefinedAtTop(),
         DesugarCheckStatements(),
         AssignIds(),
         CreateScopes(),
@@ -441,12 +407,12 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
         ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root, state)
         if state.errors:
             raise state.errors[0]
 
     discover = CollectSequenceDependencies()
-    discover.run(body, state)
+    discover.run(state.root, state)
     if state.errors:
         raise state.errors[0]
 

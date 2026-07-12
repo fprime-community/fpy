@@ -43,7 +43,7 @@ def _seq_to_llvm_module(seq: str):
     state = get_base_compile_state(default_dictionary, None)
     body = text_to_ast(seq)
     state = analyze_ast(body, state)
-    return GenerateLlvmModule().emit(body, state)
+    return GenerateLlvmModule().emit(state.root, state)
 
 
 def _emit_wasm_asm(seq: str, cpu: str) -> str:

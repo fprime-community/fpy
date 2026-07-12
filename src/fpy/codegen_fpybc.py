@@ -174,9 +174,9 @@ class CalculateFrameSizes(TopDownVisitor):
         self._frame_root = start
         # For the global (main) frame -- the program block -- lay out sequence
         # args (already on stack) first, then start body variables after them.
-        if start is state.program_block:
+        if start is state.main_block:
             for name, arg_type in state.this_seq_arg_specs:
-                arg_var = state.global_scope.group(NameGroup.VALUE)[name]
+                arg_var = state.main_scope.group(NameGroup.VALUE)[name]
                 arg_var.frame_offset = self.offset
                 self.offset += arg_type.max_size
             # The flags struct lives in the shared base scope (so every sequence
@@ -194,7 +194,7 @@ class CalculateFrameSizes(TopDownVisitor):
         # while walking the library root, lay it out in a fresh frame and stop --
         # the library and imported blocks around it hold only definitions, whose
         # frames are handled per-function by visit_AstDef.
-        if node is state.program_block and node is not self._frame_root:
+        if node is state.main_block and node is not self._frame_root:
             CalculateFrameSizes().run(node, state)
             return STOP_DESCENT
         values = state.enclosing_scope[node].group(NameGroup.VALUE)
@@ -1330,7 +1330,7 @@ class GenerateFunctionBody(Emitter):
 class GenerateModule(Emitter):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.program_block:
+        if node is not state.main_block:
             return []
 
         main_body = []

@@ -56,13 +56,16 @@ from fpy.visitors import Visitor
 class SequenceContext:
     """A single sequence taking part in a compilation."""
 
-    scope: Scope
     file_path: str | None
     """the sequence's resolved file path (realpath), or None for the main
     sequence when it was compiled from a stream."""
     dir_path: str | None
     """the directory the sequence lives in, anchoring its relative imports.
     None when the sequence has no location."""
+    scope: Scope = None
+    """the sequence's block Scope. Created from syntax by CreateScopes when it
+    reaches this sequence's block (the library root keeps the pre-built base
+    scope). Read by BindImports, so it is always populated by then."""
     star_underscore_names: set = field(default_factory=set)
     """underscore-prefixed names this sequence bound via `from ... import *`;
     a later bare use of one warns."""
@@ -118,7 +121,6 @@ class InlineImports:
 
     def run(self, body: AstBlock, state):
         main_ctx = SequenceContext(
-            scope=state.global_scope,
             file_path=None,
             dir_path=state.main_file_dir,
         )
@@ -226,11 +228,9 @@ class InlineImports:
             return None, []
 
         ctx = SequenceContext(
-            scope=Scope(parent=state.base_scope),
             file_path=file_path,
             dir_path=os.path.dirname(file_path),
         )
-        state.sequence_root_scopes.add(ctx.scope)
 
         # Parse the imported file with its own diagnostic context so parse
         # errors point into it, then restore the caller's context.

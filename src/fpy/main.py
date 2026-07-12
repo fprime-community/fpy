@@ -211,13 +211,13 @@ def compile_main(args: list[str] = None):
     # codegen
     try:
         if parsed_args.emit == "llvm-ir":
-            output, seq_arg_types = analysis_to_llvm_module(body, state)
+            output, seq_arg_types = analysis_to_llvm_module(state)
         elif parsed_args.emit == "wasm":
-            output, seq_arg_types = analysis_to_wasm(body, state)
+            output, seq_arg_types = analysis_to_wasm(state)
         elif parsed_args.emit == "wat":
-            output, seq_arg_types = analysis_to_wat(body, state)
+            output, seq_arg_types = analysis_to_wat(state)
         elif parsed_args.emit in ["fpybin", "fpyasm"]:
-            output, seq_arg_types = analysis_to_fpybc_directives(body, state)
+            output, seq_arg_types = analysis_to_fpybc_directives(state)
         else:
             assert False, parsed_args.emit
     except fpy.error.BackendError as e:
@@ -542,7 +542,7 @@ def cmd_main(args: list[str] = None):
 
     try:
         state = analyze_ast(body, state)
-        directives, _ = analysis_to_fpybc_directives(body, state)
+        directives, _ = analysis_to_fpybc_directives(state)
     except RecursionError:
         print("Recursion limit exceeded in compiling", file=sys.stderr)
         sys.exit(1)

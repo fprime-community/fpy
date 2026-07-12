@@ -67,10 +67,9 @@ class ForLoopAnalysis:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    # FIXME I would call this the main_scope
-    global_scope: Scope
+    main_scope: Scope = None
     """The main sequence's scope: a child of `base_scope` holding the main
-    sequence's own top-level definitions."""
+    sequence's own top-level definitions. None until CreateScopes runs"""
 
     type_defs: dict = field(default_factory=dict)
     """Flat map of fully-qualified type name to FpyType, for resolving types at compile time."""
@@ -81,18 +80,18 @@ class CompileState:
     max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
 
     next_node_id: int = 0
+    # FIXME let's rename this to root_block
     root: AstBlock = None
-    """the outermost block: the library block, which owns the base scope
-    and holds the builtin library functions, the program block, and every
-    imported sequence block as its children."""
-    # FIXME let's rename this to main_block
-    program_block: AstBlock = None
+    """the outermost block: the library root, which owns the base scope and holds
+    the builtin library functions, the main block, and every imported sequence
+    block as its children. Built by _build_compilation_unit."""
+    main_block: AstBlock = None
     """the main sequence's block (the executable body), a child of `root`. The
     frame layout and directive stream are generated from this block, not `root`
     (which also contains the builtin library and the imported sequences)."""
     imported_blocks: list = field(default_factory=list, repr=False)
     """every imported sequence's block, collected by InlineImports. They are
-    installed as children of the library `root` (siblings of `program_block`), so
+    installed as children of the library `root` (siblings of `main_block`), so
     each imported sequence is an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
     """map of each node to its parent node in the AST"""
@@ -226,10 +225,6 @@ class CompileState:
     """maps a resolved sequence file (realpath) -> its SequenceContext. A sequence
     is loaded and compiled once; every import that resolves to the same file
     reuses this context, so its definitions are shared, never duplicated."""
-    sequence_root_scopes: set = field(default_factory=set, repr=False)
-    """the set of every sequence's root Scope (the main sequence's and each
-    imported sequence's). A variable declared directly in one of these is a
-    global."""
 
     next_anon_var_id: int = 0
 
@@ -670,7 +665,7 @@ def get_base_compile_state(
     # the callable group (plus the builtin library functions once compiled); and
     # dictionary channels, params, enum constants, constants and `flags` in the
     # value group. It is the parent of every sequence's scope -- the main
-    # sequence's global_scope and every imported sequence's -- so those names
+    # sequence's main_scope and every imported sequence's -- so those names
     # resolve up the parent chain for all of them, while each sequence's own
     # definitions live in its own child scope, isolated from the rest.
     #
@@ -682,7 +677,6 @@ def get_base_compile_state(
     base_scope.group(NameGroup.VALUE).update(values_scope)
 
     state = CompileState(
-        global_scope=Scope(parent=base_scope),
         type_defs=type_defs,
         ground_binary_dir=ground_binary_dir,
         max_directives_count=_const_int(
@@ -704,9 +698,5 @@ def get_base_compile_state(
     flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
     base_scope.define(NameGroup.VALUE, "flags", flags_var)
     state.flags_var = flags_var
-
-    # FIXME this is a confusing comment
-    # The main sequence's root scope holds its globals too.
-    state.sequence_root_scopes.add(state.global_scope)
 
     return state

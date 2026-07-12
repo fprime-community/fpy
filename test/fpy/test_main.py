@@ -42,7 +42,7 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -83,7 +83,7 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -116,7 +116,7 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
@@ -240,8 +240,7 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def fake_analysis_to_fpybc_directives(body, state):
-        assert body == "AST"
+    def fake_analysis_to_fpybc_directives(state):
         assert state == "STATE"
         return ["directive"], []
 
@@ -288,8 +287,7 @@ def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def fake_analysis_to_wat(body, state):
-        assert body == "AST"
+    def fake_analysis_to_wat(state):
         assert state == "STATE"
         return "WAT_TEXT", []
 
@@ -325,7 +323,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main,
@@ -471,7 +469,7 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xab\xcd")
 
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives", lambda body, state: ([directive], [])
+        fpy_main, "analysis_to_fpybc_directives", lambda state: ([directive], [])
     )
 
     sent = {}
@@ -507,7 +505,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def raise_compile_error(body, state):
+    def raise_compile_error(state):
         raise fpy_error.CompileError("bad arg", None)
 
     monkeypatch.setattr(fpy_main, "analysis_to_fpybc_directives", raise_compile_error)
@@ -538,7 +536,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([StackCmdDirective(args_size=10)], []),
+        lambda state: ([StackCmdDirective(args_size=10)], []),
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -568,7 +566,7 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([directive], []),
+        lambda state: ([directive], []),
     )
 
     def fail_send(*a):
@@ -604,7 +602,7 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []),
+        lambda state: ([ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []),
     )
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
 
@@ -638,7 +636,7 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([directive], []),
+        lambda state: ([directive], []),
     )
 
     sent = {}

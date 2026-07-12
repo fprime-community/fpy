@@ -165,12 +165,14 @@ class AssignIds(TopDownVisitor):
 
 
 class CreateScopes(TopDownVisitor):
-    """Creates block-level scopes for all AstBlocks
+    """Creates the Scope for every AstBlock
 
-    Each ordinary AstBlock creates a new Scope that is a child of the enclosing
-    scope; a sequence-container block (one in state.container_sequence) instead
-    installs its sequence's isolated scope. Non-block nodes inherit the scope
-    from their enclosing block.
+    Every block gets a fresh Scope that is a child of its enclosing block's
+    scope, so scope nesting exactly follows syntactic nesting. The one exception
+    is the library root, which has no enclosing block: it owns the pre-built base
+    scope (dictionary/builtin symbols, created before any AST existed).
+
+    Non-block nodes inherit the scope from their enclosing block.
     """
 
     def visit_default(self, node: Ast, state: CompileState):
@@ -180,37 +182,46 @@ class CreateScopes(TopDownVisitor):
         state.enclosing_scope[node] = state.enclosing_scope[parent]
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        container_seq = state.container_sequence.get(id(node))
-        if container_seq is not None:
-            # A sequence block (the library root, the program block, or an
-            # imported sequence): install its own scope so everything inside
-            # resolves against that sequence. The scope's parent matches the
-            # lexical nesting -- program and imports are children of the library
-            # block, so their scopes are children of the base/universe scope the
-            # library block owns.
 
-            # FIXME I still think this is weird code. Why can't we make the scopes here?
-            # why do we need this special case?
-            state.enclosing_scope[node] = container_seq.scope
-        else:
-            parent = state.parent_map[node]
-            parent_scope = state.enclosing_scope[parent]
-            in_function = parent_scope.in_function or isinstance(parent, AstDef)
-            state.enclosing_scope[node] = Scope(
-                parent=parent_scope, in_function=in_function
-            )
+        parent = state.parent_map.get(node)
+        container_seq = state.container_sequence.get(id(node))
+
+        if parent is None:
+            # FIXME this comment could be better. really, this is the root scope.
+            # so it's using the scope created for it by get_base_compile_state et co
+
+            # The library root: it has no enclosing block, so it cannot make a
+            # child scope. It owns the pre-built base scope instead.
+            assert container_seq is not None and container_seq.scope is state.base_scope
+            state.enclosing_scope[node] = state.base_scope
+            return
+
+        parent_scope = state.enclosing_scope[parent]
+        in_function = parent_scope.in_function or isinstance(parent, AstDef)
+        scope = Scope(parent=parent_scope, in_function=in_function)
+        state.enclosing_scope[node] = scope
+
+        if container_seq is not None:
+            # FIXME i'm really wondering if we can delete this concept of container_seq now
+
+            # A sequence's root block: publish its scope for BindImports (and,
+            # for the main sequence, as state.main_scope).
+            container_seq.scope = scope
+            if container_seq is state.main_sequence:
+                state.main_scope = scope
 
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
     """
     Ensure that sequence() statement is at the top of the user's sequence.
-    This pass runs BEFORE builtin functions are inserted, so we check the raw user code.
+    We check only the main block, whose statements are the raw user code. This avoids
+    taking into account the automatically prepended compile time library.
     If a sequence() definition exists, it must be the very first statement.
     """
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        # Only check the root block (top-level sequence)
-        if node is not state.root:
+        # Only check the main block (the user's top-level sequence)
+        if node is not state.main_block:
             return
 
         # Walk through statements in order
@@ -346,18 +357,19 @@ class DefineVariables(TopDownVisitor):
         variable_kind: str,
         assert_undeclared: bool = False,
     ):
-        # A variable is global if it is declared directly in some sequence's
-        # root scope (the main sequence's or an imported one's), not in a nested
-        # block or function scope.
-        # FIXME now that we don't allow variables in imported seqs, we should
-        # be able to simplify this, no? or should we keep it general?
-        is_root = scope in state.sequence_root_scopes
+        # A variable is global if it is declared directly in the main sequence's
+        # root scope, not in a nested block or function scope. Only the main
+        # sequence can declare top-level variables: imported sequences may hold
+        # only definitions and imports (no top-level statements) and may not take
+        # sequence arguments, so their root scope never gains a variable.
+        is_root = scope is state.main_scope
 
         # In a block scope, shadowing an outer or global name is allowed, so only
-        # the block's own value group blocks a redeclaration. In a sequence's
-        # root scope, the parent is the shared base (dictionary channels, params,
-        # `flags`, ...); a top-level name must not shadow those, so consult the
-        # whole chain -- matching how DefineFunctions checks callable names.
+        # the block's own value group blocks a redeclaration. In the main
+        # sequence's root scope, the parent is the shared base (dictionary
+        # channels, params, `flags`, ...); a top-level name must not shadow those,
+        # so consult the whole chain -- matching how DefineFunctions checks
+        # callable names.
 
         # FIXME no, I think either it should allow shadowing with warnings, or
         # error.
