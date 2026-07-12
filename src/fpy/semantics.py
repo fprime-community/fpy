@@ -59,8 +59,8 @@ from fpy.symbols import (
     FunctionSymbol,
     NameGroup,
     ModuleSymbol,
+    Scope,
     Symbol,
-    SymbolTable,
     TypeCtorSymbol,
     VariableSymbol,
     is_symbol_an_expr,
@@ -167,49 +167,38 @@ class AssignIds(TopDownVisitor):
 class CreateScopes(TopDownVisitor):
     """Creates block-level scopes for all AstBlocks
 
-    Each ordinary AstBlock creates a new value scope that is a child of the
-    enclosing scope; a sequence-container block (one in state.container_sequence)
-    instead installs its imported sequence's isolated scopes. Non-block nodes
-    inherit both scopes from their enclosing block. The callable scope does not
-    nest at block boundaries (there are no nested function definitions) -- it
-    only changes at a sequence boundary -- so it is simply inherited except on a
-    container or the root.
+    Each ordinary AstBlock creates a new Scope that is a child of the enclosing
+    scope; a sequence-container block (one in state.container_sequence) instead
+    installs its sequence's isolated scope. Non-block nodes inherit the scope
+    from their enclosing block.
     """
 
     def visit_default(self, node: Ast, state: CompileState):
         parent = state.parent_map.get(node)
         if parent is None:
             return
-        state.enclosing_value_scope[node] = state.enclosing_value_scope[parent]
-        state.enclosing_callable_scope[node] = state.enclosing_callable_scope[parent]
+        state.enclosing_scope[node] = state.enclosing_scope[parent]
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         container_seq = state.container_sequence.get(id(node))
         if container_seq is not None:
             # A sequence block (the library root, the program block, or an
-            # imported sequence): install its own callable/value scopes so
-            # everything inside resolves against that sequence. The scopes'
-            # parents match the lexical nesting -- program and imports are
-            # children of the library block, so their scopes are children of the
-            # base/universe scope the library block owns.
+            # imported sequence): install its own scope so everything inside
+            # resolves against that sequence. The scope's parent matches the
+            # lexical nesting -- program and imports are children of the library
+            # block, so their scopes are children of the base/universe scope the
+            # library block owns.
 
-            # FIXME what if instead of saving the scopes in SeqCtx, we just
-            # go straight ahead and save them in enclosing_x_scope? then we don't need
-            # this step i think
-            state.enclosing_value_scope[node] = container_seq.value_scope
-            state.enclosing_callable_scope[node] = container_seq.callable_scope
+            # FIXME I still think this is weird code. Why can't we make the scopes here?
+            # why do we need this special case?
+            state.enclosing_scope[node] = container_seq.scope
         else:
             parent = state.parent_map[node]
-            parent_scope = state.enclosing_value_scope[parent]
-            block_scope = SymbolTable(parent=parent_scope)
-            if isinstance(parent, AstDef):
-                block_scope.in_function = True
-            state.enclosing_value_scope[node] = block_scope
-            # FIXME let's just make a new callable scope even though it will be unused.
-            # it's for consistency's sake, it shouldn't cause us any problems now
-            state.enclosing_callable_scope[node] = state.enclosing_callable_scope[
-                parent
-            ]
+            parent_scope = state.enclosing_scope[parent]
+            in_function = parent_scope.in_function or isinstance(parent, AstDef)
+            state.enclosing_scope[node] = Scope(
+                parent=parent_scope, in_function=in_function
+            )
 
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
@@ -297,16 +286,16 @@ class CheckAssignSyntax(TopDownVisitor):
 class DefineFunctions(TopDownVisitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Functions go in their node's enclosing callable scope.
-        callable_scope = state.enclosing_callable_scope[node]
-        # lookup(), not get(): a sequence's callable scope is a child of the
-        # shared base, so a name already taken by a dictionary command, cast or
-        # type constructor is not free just because this sequence's own dict is
-        # empty. Redefinition must be rejected up the parent chain too.
+        # Functions go in their node's enclosing scope's callable group.
+        scope = state.enclosing_scope[node]
+        # lookup(), not get(): a sequence's scope is a child of the shared base,
+        # so a name already taken by a dictionary command, cast or type
+        # constructor is not free just because this sequence's own callable group
+        # is empty. Redefinition must be rejected up the parent chain too.
 
         # FIXME so basically we're disallowing shadowing here? should we disallow shadowing
         # for variables too? maybe we either make both a warning or both an error.
-        existing_func = callable_scope.lookup(node.name.name)
+        existing_func = scope.lookup(NameGroup.CALLABLE, node.name.name)
         if existing_func is not None:
             state.err(
                 f"Function '{node.name.name}' has already been defined", node.name
@@ -323,7 +312,7 @@ class DefineFunctions(TopDownVisitor):
             definition=node,
         )
 
-        callable_scope[func.name] = func
+        scope.define(NameGroup.CALLABLE, func.name, func)
 
 
 class DefineVariables(TopDownVisitor):
@@ -352,26 +341,32 @@ class DefineVariables(TopDownVisitor):
     def define_variable(
         self,
         sym: VariableSymbol,
-        scope: SymbolTable,
+        scope: Scope,
         state: CompileState,
         variable_kind: str,
         assert_undeclared: bool = False,
     ):
         # A variable is global if it is declared directly in some sequence's
-        # root value scope (the main sequence's or an imported one's), not in a
-        # nested block or function scope.
-        is_root = scope in state.sequence_root_value_scopes
+        # root scope (the main sequence's or an imported one's), not in a nested
+        # block or function scope.
+        # FIXME now that we don't allow variables in imported seqs, we should
+        # be able to simplify this, no? or should we keep it general?
+        is_root = scope in state.sequence_root_scopes
 
         # In a block scope, shadowing an outer or global name is allowed, so only
-        # the block's own dict blocks a redeclaration. In a sequence's root value
-        # scope, the parent is the shared base (dictionary channels, params,
+        # the block's own value group blocks a redeclaration. In a sequence's
+        # root scope, the parent is the shared base (dictionary channels, params,
         # `flags`, ...); a top-level name must not shadow those, so consult the
         # whole chain -- matching how DefineFunctions checks callable names.
 
         # FIXME no, I think either it should allow shadowing with warnings, or
         # error.
 
-        existing_local = scope.lookup(sym.name) if is_root else scope.get(sym.name)
+        existing_local = (
+            scope.lookup(NameGroup.VALUE, sym.name)
+            if is_root
+            else scope.get(NameGroup.VALUE, sym.name)
+        )
 
         if existing_local is not None:
             if assert_undeclared:
@@ -386,7 +381,7 @@ class DefineVariables(TopDownVisitor):
         sym.is_global = is_root
 
         # new var. put it in the scope
-        scope[sym.name] = sym
+        scope.define(NameGroup.VALUE, sym.name, sym)
 
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
 
@@ -394,7 +389,7 @@ class DefineVariables(TopDownVisitor):
             # not a variable definition
             return
 
-        scope = state.enclosing_value_scope[node]
+        scope = state.enclosing_scope[node]
         # yes a variable definition
         sym = VariableSymbol(node.lhs.name, node.type_ann, node)
         self.define_variable(sym, scope, state, "Variable")
@@ -405,7 +400,7 @@ class DefineVariables(TopDownVisitor):
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.
-        body_scope = state.enclosing_value_scope[node.body]
+        body_scope = state.enclosing_scope[node.body]
 
         self.define_variable(
             loop_var := VariableSymbol(node.loop_var.name, None, node, LoopVarType),
@@ -433,7 +428,7 @@ class DefineVariables(TopDownVisitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Parameters go in the function's enclosing scope
-        body_scope = state.enclosing_value_scope[node.body]
+        body_scope = state.enclosing_scope[node.body]
 
         for arg in node.parameters or []:
             arg_name_var, arg_type_name, _ = arg
@@ -447,7 +442,7 @@ class DefineVariables(TopDownVisitor):
         return STOP_DESCENT
 
     def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
-        scope = state.enclosing_value_scope[node]
+        scope = state.enclosing_scope[node]
 
         for arg in node.parameters or []:
             arg_name_var, arg_type_name = arg
@@ -534,22 +529,9 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
         if not is_instance_compat(node, AstIdent):
             return True
 
-        # Resolve the root identifier in the appropriate scope. Callables and
-        # values resolve in the node's own sequence's scopes (types are shared,
-        # since sequences define no types).
-        if ng == NameGroup.CALLABLE:
-            scope = state.enclosing_callable_scope[node]
-        elif ng == NameGroup.TYPE:
-            scope = state.global_type_scope
-        else:
-            scope = state.enclosing_value_scope[node]
-
-        resolved = None
-        while scope is not None:
-            resolved = scope.get(node.name)
-            if resolved is not None:
-                break
-            scope = scope.parent
+        # Resolve the root identifier in the node's enclosing scope, in the
+        # requested name group, walking the parent chain.
+        resolved = state.enclosing_scope[node].lookup(ng, node.name)
 
         if resolved is None:
             state.err(f"Unknown {ng.value} '{node.name}'", node)
@@ -587,9 +569,9 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
         if node.parameters is not None:
             # Params are defined in the function body's scope by DefineVariables
-            body_scope = state.enclosing_value_scope[node.body]
+            body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
             for arg_name_var, arg_type_name, default_value in node.parameters:
-                state.resolved_symbols[arg_name_var] = body_scope[arg_name_var.name]
+                state.resolved_symbols[arg_name_var] = body_values[arg_name_var.name]
                 if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
                     return
                 if default_value is not None:
@@ -613,9 +595,9 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
         if node.parameters is None:
             return
 
-        scope = state.enclosing_value_scope[node]
+        values = state.enclosing_scope[node].group(NameGroup.VALUE)
         for arg_name_var, arg_type_name in node.parameters:
-            state.resolved_symbols[arg_name_var] = scope[arg_name_var.name]
+            state.resolved_symbols[arg_name_var] = values[arg_name_var.name]
             if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
                 return
 
@@ -651,8 +633,8 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # loop_var is defined in the body's scope by DefineVariables
-        body_scope = state.enclosing_value_scope[node.body]
-        state.resolved_symbols[node.loop_var] = body_scope[node.loop_var.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        state.resolved_symbols[node.loop_var] = body_values[node.loop_var.name]
 
         # this really shouldn't be possible to be a var right now
         # but this is future proof
@@ -975,7 +957,7 @@ class CheckUseBeforeDefine(TopDownVisitor):
             # Global variables referenced from inside a function are always
             # accessible — they are allocated and zero-initialized at sequence
             # start, regardless of textual ordering.
-            if sym.is_global and state.enclosing_value_scope[node].in_function:
+            if sym.is_global and state.enclosing_scope[node].in_function:
                 return
             state.err(f"'{node.name}' used before defined", node)
             return
@@ -1078,7 +1060,7 @@ class CheckGlobalsInitializedBeforeCall(Visitor):
         self.defined: list[VariableSymbol] = []
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if state.enclosing_value_scope[node].in_function:
+        if state.enclosing_scope[node].in_function:
             # checked transitively at the top-level call that reaches this one
             return
         sym = state.resolved_symbols.get(node.func)

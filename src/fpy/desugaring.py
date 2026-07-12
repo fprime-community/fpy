@@ -36,6 +36,7 @@ from fpy.state import (
 )
 from fpy.symbols import (
     FieldAccess,
+    NameGroup,
     Symbol,
 )
 from fpy.visitors import Transformer
@@ -741,11 +742,11 @@ class DesugarTimeOperators(Transformer):
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
         # lookup(), not get(): the builtin library functions this desugars to
-        # (time_add, time_sub, time_cmp, ...) live in the shared base callable
-        # scope, the parent of global_callable_scope, not in its own dict.
+        # (time_add, time_sub, time_cmp, ...) live in the base scope's callable
+        # group, the parent of global_scope, not in the main sequence's own scope.
 
         # FIXME i think for correctness sake we should lookup in enclosing callable scope
-        func_symbol = state.global_callable_scope.lookup(func_name)
+        func_symbol = state.global_scope.lookup(NameGroup.CALLABLE, func_name)
         assert (
             func_symbol is not None
         ), f"Function {func_name} not found in callable scope"

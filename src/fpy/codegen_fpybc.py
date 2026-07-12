@@ -43,6 +43,7 @@ from fpy.symbols import (
     CommandSymbol,
     FieldAccess,
     FunctionSymbol,
+    NameGroup,
     TypeCtorSymbol,
     VariableSymbol,
 )
@@ -175,9 +176,15 @@ class CalculateFrameSizes(TopDownVisitor):
         # args (already on stack) first, then start body variables after them.
         if start is state.program_block:
             for name, arg_type in state.this_seq_arg_specs:
-                arg_var = state.global_value_scope[name]
+                arg_var = state.global_scope.group(NameGroup.VALUE)[name]
                 arg_var.frame_offset = self.offset
                 self.offset += arg_type.max_size
+            # The flags struct lives in the shared base scope (so every sequence
+            # sees it), but it occupies a slot in the main frame right after the
+            # sequence args. Reserve it here; the walk below lays out the user's
+            # own locals after it.
+            state.flags_var.frame_offset = self.offset
+            self.offset += state.flags_var.type.max_size
         super().run(start, state)
         state.frame_sizes[start] = self.offset
 
@@ -190,8 +197,8 @@ class CalculateFrameSizes(TopDownVisitor):
         if node is state.program_block and node is not self._frame_root:
             CalculateFrameSizes().run(node, state)
             return STOP_DESCENT
-        scope = state.enclosing_value_scope[node]
-        for _name, sym in scope.items():
+        values = state.enclosing_scope[node].group(NameGroup.VALUE)
+        for _name, sym in values.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
                 self.offset += sym.type.max_size
@@ -203,7 +210,9 @@ class CalculateFrameSizes(TopDownVisitor):
             arg_offset = -STACK_FRAME_HEADER_SIZE
             for arg in reversed(func.args):
                 arg_name, arg_type, _ = arg
-                arg_var = state.enclosing_value_scope[node.body][arg_name]
+                arg_var = state.enclosing_scope[node.body].group(NameGroup.VALUE)[
+                    arg_name
+                ]
                 arg_offset -= arg_type.max_size
                 arg_var.frame_offset = arg_offset
         # Assign body variable offsets in a fresh frame

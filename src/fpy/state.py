@@ -11,8 +11,9 @@ from fpy.symbols import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    NameGroup,
+    Scope,
     Symbol,
-    SymbolTable,
     TypeCtorSymbol,
     VariableSymbol,
     create_symbol_table,
@@ -66,13 +67,10 @@ class ForLoopAnalysis:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    global_type_scope: SymbolTable
-    """The global type scope: a symbol table whose leaf nodes are FpyType instances."""
-    global_callable_scope: SymbolTable
-    """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
-    global_value_scope: SymbolTable
-    """The global value scope: a symbol table whose leaf nodes are runtime values
-    (telemetry channels, parameters, enum constants, variables)."""
+    # FIXME I would call this the main_scope
+    global_scope: Scope
+    """The main sequence's scope: a child of `base_scope` holding the main
+    sequence's own top-level definitions."""
 
     type_defs: dict = field(default_factory=dict)
     """Flat map of fully-qualified type name to FpyType, for resolving types at compile time."""
@@ -98,14 +96,9 @@ class CompileState:
     each imported sequence is an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
     """map of each node to its parent node in the AST"""
-    enclosing_value_scope: dict[Ast, SymbolTable] = field(
-        default_factory=dict, repr=False
-    )
-    """map of node to its enclosing value scope (block scope, function scope, or global_value_scope)"""
-    enclosing_callable_scope: dict[Ast, SymbolTable] = field(
-        default_factory=dict, repr=False
-    )
-    """map of node to its enclosing callable scope. This is only used for sequence importing."""
+    enclosing_scope: dict[Ast, Scope] = field(default_factory=dict, repr=False)
+    """map of node to its enclosing Scope (block scope, function scope, a
+    sequence's root scope, or the base scope)."""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -208,20 +201,12 @@ class CompileState:
     imports. None when compiling from a stream (a relative import in the main
     sequence is then an error)."""
 
-    base_callable_scope: SymbolTable = None
-    # FIXME confusing naming. one is base, one is global?? maybe base should be called
-    # dictionary? maybe global should be called main_block_x_scope?
-    """the dictionary/builtin callable scope (dictionary commands, casts, type
-    constructors, macros) plus the builtin library functions (builtin/time.fpy),
-    which DefineFunctions registers here via the library container block. It is
-    the parent of the main sequence's global_callable_scope and of every imported
-    sequence's callable scope, so builtin names resolve up the chain for all of
-    them while each sequence's own functions stay isolated in its own child."""
-    base_value_scope: SymbolTable = None
-    # FIXME docstring weird
-    """a pristine copy of the global value scope (dictionary channels, params,
-    enum constants, constants, `flags`). Each imported sequence's value scope is
-    a child of this."""
+    base_scope: Scope = None
+    """the dictionary/builtin scope: dictionary types, commands/casts/type
+    constructors/macros (callable group), and dictionary channels, params, enum
+    constants, constants and `flags` (value group), plus the builtin library
+    functions (builtin/time.fpy) that DefineFunctions registers via the library
+    root block."""
 
     main_sequence: object = None
     """the SequenceContext for the main (top-level) sequence being compiled."""
@@ -241,9 +226,10 @@ class CompileState:
     """maps a resolved sequence file (realpath) -> its SequenceContext. A sequence
     is loaded and compiled once; every import that resolves to the same file
     reuses this context, so its definitions are shared, never duplicated."""
-    sequence_root_value_scopes: set = field(default_factory=set, repr=False)
-    """the set of every sequence's global (root) value scope. A variable declared
-    in one of these is a global."""
+    sequence_root_scopes: set = field(default_factory=set, repr=False)
+    """the set of every sequence's root Scope (the main sequence's and each
+    imported sequence's). A variable declared directly in one of these is a
+    global."""
 
     next_anon_var_id: int = 0
 
@@ -679,28 +665,24 @@ def get_base_compile_state(
         ), f"Expected int for constant {key}, got {type(val.val)}"
         return val.val
 
-    # Make copies of the scopes since we'll mutate them during compilation
-    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
-    # if we don't make copies, then the lru cache will return the modified versions, causing
-    # two runs of the compiler to conflict
+    # The base scope holds the dictionary/builtin names, split by name group:
+    # types in the type group; commands, casts, type constructors and macros in
+    # the callable group (plus the builtin library functions once compiled); and
+    # dictionary channels, params, enum constants, constants and `flags` in the
+    # value group. It is the parent of every sequence's scope -- the main
+    # sequence's global_scope and every imported sequence's -- so those names
+    # resolve up the parent chain for all of them, while each sequence's own
+    # definitions live in its own child scope, isolated from the rest.
     #
-    # The base callable scope holds the dictionary/builtin names (commands, casts,
-    # type constructors, macros) and, once compiled, the builtin library functions
-    # (builtin/time.fpy). It is the parent of every sequence's callable scope --
-    # the main sequence's global_callable_scope and every imported sequence's --
-    # so those names resolve up the parent chain for all of them, while each
-    # sequence's own functions live in its own child scope, isolated from the rest.
+    # The group dicts are copied out of the (lru-cached) module tables so that
+    # mutating the base scope during a compile does not corrupt the cache.
+    base_scope = Scope()
+    base_scope.group(NameGroup.TYPE).update(type_scope)
+    base_scope.group(NameGroup.CALLABLE).update(callable_scope)
+    base_scope.group(NameGroup.VALUE).update(values_scope)
 
-    # FIXME I think this ad hoc deciding "oh we're going to store the callable scope here
-    # but not the value" is bothering me. Maybe we should finally just make SymbolTable
-    # store three dicts, divided by the name groups. And then we wouldn't have to
-    # pass around three symtables everywhere. it's just an implementation detail
-    # that we like to split up into three dicts.
-    base_callable = callable_scope.copy()
     state = CompileState(
-        global_type_scope=type_scope,  # types are not mutated
-        global_callable_scope=SymbolTable(parent=base_callable),
-        global_value_scope=values_scope.copy(),
+        global_scope=Scope(parent=base_scope),
         type_defs=type_defs,
         ground_binary_dir=ground_binary_dir,
         max_directives_count=_const_int(
@@ -714,22 +696,17 @@ def get_base_compile_state(
         import_search_dirs=list(import_search_dirs) if import_search_dirs else [],
         main_file_dir=main_file_dir,
     )
-    state.base_callable_scope = base_callable
+    state.base_scope = base_scope
 
-    # Create the built-in 'flags' variable ($Flags struct).
-    # declaration=None marks it as a built-in that is always defined.
+    # Create the built-in 'flags' variable ($Flags struct). declaration=None
+    # marks it as a built-in that is always defined. It lives in the base scope's
+    # value group, so it is shared across all sequences.
     flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
-    state.global_value_scope["flags"] = flags_var
+    base_scope.define(NameGroup.VALUE, "flags", flags_var)
     state.flags_var = flags_var
 
-    # Snapshot the pristine dictionary/builtin value scope. Each imported
-    # sequence's value scope is a child of this, so its own globals live in its
-    # own dict (isolated from other sequences) while dictionary/builtin names
-    # still resolve up the parent chain. The `flags` variable lives here and is
-    # thus shared across all sequences (it is a single struct in the main frame).
-    # (base_callable_scope was set above, as the parent of global_callable_scope.)
-    state.base_value_scope = state.global_value_scope.copy()
-    # The main sequence's root value scope holds globals too.
-    state.sequence_root_value_scopes.add(state.global_value_scope)
+    # FIXME this is a confusing comment
+    # The main sequence's root scope holds its globals too.
+    state.sequence_root_scopes.add(state.global_scope)
 
     return state

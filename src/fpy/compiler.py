@@ -78,7 +78,6 @@ from fpy.types import (
 from fpy.state import (
     CompileState,
 )
-from fpy.symbols import SymbolTable
 from fpy.visitors import Visitor
 
 from fpy.error import BackendError, handle_lark_error
@@ -162,8 +161,7 @@ def _build_compilation_unit(body: AstBlock, state: CompileState):
     state.container_sequence[id(program_block)] = state.main_sequence
 
     library_ctx = SequenceContext(
-        callable_scope=state.base_callable_scope,
-        value_scope=SymbolTable(parent=state.base_value_scope),
+        scope=state.base_scope,
         file_path=None,
         dir_path=None,
     )

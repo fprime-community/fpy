@@ -165,6 +165,47 @@ class SymbolTable(dict):
         return new
 
 
+class Scope:
+    """A lexical scope.
+
+    Name resolution is name-group-directed: a use site knows whether it wants a
+    type, a callable, or a value, and the same identifier text may name a
+    different symbol in each group. A Scope therefore holds three independent
+    namespaces (one per NameGroup) plus a parent link; a lookup consults the
+    requested group, walking the parent chain."""
+
+    def __init__(self, parent: "Scope | None" = None, in_function: bool | None = None):
+        self.parent = parent
+        if in_function is None:
+            in_function = parent.in_function if parent is not None else False
+        self.in_function = in_function
+        self._groups: dict[NameGroup, dict[str, "Symbol"]] = {
+            ng: {} for ng in NameGroup
+        }
+
+    def group(self, ng: NameGroup) -> dict[str, "Symbol"]:
+        """The name->symbol dict for one name group (mutable)."""
+        return self._groups[ng]
+
+    def define(self, ng: NameGroup, name: str, sym: "Symbol"):
+        """Bind *name* to *sym* in this scope's *ng* group."""
+        self._groups[ng][name] = sym
+
+    def get(self, ng: NameGroup, name: str):
+        """Look up *name* in this scope's *ng* group only (no parent walk)."""
+        return self._groups[ng].get(name)
+
+    def lookup(self, ng: NameGroup, name: str):
+        """Look up *name* in the *ng* group of this scope and its ancestors."""
+        scope = self
+        while scope is not None:
+            sym = scope._groups[ng].get(name)
+            if sym is not None:
+                return sym
+            scope = scope.parent
+        return None
+
+
 def create_symbol_table(symbols: dict[str, "Symbol"]) -> SymbolTable:
     """from a flat dict of strs to symbols, creates a hierarchical symbol table.
     no two leaf nodes may have the same name"""

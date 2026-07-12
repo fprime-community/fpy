@@ -36,6 +36,7 @@ from fpy.symbols import (
     CallableSymbol,
     ModuleSymbol,
     NameGroup,
+    Scope,
     SymbolTable,
     VariableSymbol,
 )
@@ -53,16 +54,9 @@ from fpy.visitors import Visitor
 
 @dataclass
 class SequenceContext:
-    """A single sequence taking part in a compilation.
+    """A single sequence taking part in a compilation."""
 
-    The main sequence's `callable_scope`/`value_scope` are the compilation's
-    `global_callable_scope`/`global_value_scope`. Every imported sequence gets
-    its own scopes as children of the shared base scopes, so its names stay
-    isolated (a sibling child never sees them) while dictionary/builtin names
-    still resolve up the parent chain."""
-
-    callable_scope: SymbolTable
-    value_scope: SymbolTable
+    scope: Scope
     file_path: str | None
     """the sequence's resolved file path (realpath), or None for the main
     sequence when it was compiled from a stream."""
@@ -75,22 +69,22 @@ class SequenceContext:
 
     def own_definitions(self) -> dict:
         """The sequence's own top-level definitions (functions and globals), by
-        name. Because each sequence scope is a child of the shared base, its own
-        dict entries are exactly the user's top-level definitions (base names
+        name. Because the sequence scope is a child of the shared base, its own
+        group dicts hold exactly the user's top-level definitions (base names
         resolve only via the parent chain). These are what an importer may
         bind."""
-        merged = dict(self.callable_scope)
-        merged.update(self.value_scope)
+        merged = dict(self.scope.group(NameGroup.CALLABLE))
+        merged.update(self.scope.group(NameGroup.VALUE))
         return merged
 
     def get_definition(self, name: str):
         """Look up one of the sequence's own top-level definitions by name, or
-        None. Own-dict only, so base (dictionary/builtin) names are not
+        None. Own-scope only, so base (dictionary/builtin) names are not
         bindable through an import."""
-        sym = self.callable_scope.get(name)
+        sym = self.scope.get(NameGroup.CALLABLE, name)
         if sym is not None:
             return sym
-        return self.value_scope.get(name)
+        return self.scope.get(NameGroup.VALUE, name)
 
 
 @dataclass
@@ -124,11 +118,7 @@ class InlineImports:
 
     def run(self, body: AstBlock, state):
         main_ctx = SequenceContext(
-            # FIXME the names for global_x_scope aren't really good any more
-            # because they aren't global to the program post-inlining. I'd
-            # like to consider another name for them
-            callable_scope=state.global_callable_scope,
-            value_scope=state.global_value_scope,
+            scope=state.global_scope,
             file_path=None,
             dir_path=state.main_file_dir,
         )
@@ -236,12 +226,11 @@ class InlineImports:
             return None, []
 
         ctx = SequenceContext(
-            callable_scope=SymbolTable(parent=state.base_callable_scope),
-            value_scope=SymbolTable(parent=state.base_value_scope),
+            scope=Scope(parent=state.base_scope),
             file_path=file_path,
             dir_path=os.path.dirname(file_path),
         )
-        state.sequence_root_value_scopes.add(ctx.value_scope)
+        state.sequence_root_scopes.add(ctx.scope)
 
         # Parse the imported file with its own diagnostic context so parse
         # errors point into it, then restore the caller's context.
@@ -518,30 +507,24 @@ class BindImports:
             groups |= self._symbol_groups(sym)
         return groups
 
-    def _scopes_for_groups(self, ctx: SequenceContext, groups):
-        scopes = []
-        if NameGroup.CALLABLE in groups:
-            scopes.append(ctx.callable_scope)
-        if NameGroup.VALUE in groups:
-            scopes.append(ctx.value_scope)
-        return scopes
-
     def _bind_symbol(self, ctx: SequenceContext, name, sym, node, state):
         """Bind a plain (non-module) definition symbol under *name*, erroring on
         a collision in any of its name groups."""
-        scopes = self._scopes_for_groups(ctx, self._symbol_groups(sym))
-        # lookup(), not `in`: the importer's scope is a child of the shared base,
-        # so a name already taken by a dictionary/builtin definition must count
-        # as a collision even though it is not in the importer's own dict.
-        for sc in scopes:
-            if sc.lookup(name) is not None:
+
+        groups = self._symbol_groups(sym)
+        scope = ctx.scope
+        # lookup(), not get(): the importer's scope is a child of the shared
+        # base, so a name already taken by a dictionary/builtin definition must
+        # count as a collision even though it is not in the importer's own scope.
+        for ng in groups:
+            if scope.lookup(ng, name) is not None:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
-        for sc in scopes:
-            sc[name] = sym
+        for ng in groups:
+            scope.define(ng, name, sym)
 
     def _bind_module(self, ctx: SequenceContext, name, module, node, state):
         """Bind *module* under *name*, merging with an existing package module
@@ -552,11 +535,12 @@ class BindImports:
             # group; there is nothing to bind.
             return
 
+        scope = ctx.scope
         # get(), not lookup(): we only merge with a package module THIS sequence
         # already built by import, never with a base (dictionary) namespace.
         existing = None
-        for sc in (ctx.callable_scope, ctx.value_scope):
-            candidate = sc.get(name)
+        for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
+            candidate = scope.get(ng, name)
             if is_instance_compat(candidate, ModuleSymbol):
                 existing = candidate
                 break
@@ -575,20 +559,21 @@ class BindImports:
             module = existing
             groups = self._module_groups(module)
 
-        for sc in self._scopes_for_groups(ctx, groups):
+        for ng in groups:
+            # FIXME: should this be a warning? like other shadowing instances?
             # lookup(), not get(): binding a module over a name already taken by
             # a base (dictionary) definition is a collision, even though it is
-            # not in the importer's own dict. The merge above already made an own
-            # package module the occupant, so lookup returns it (own-dict first)
-            # and `is not module` stays False for the legitimate merge case.
-            occupant = sc.lookup(name)
+            # not in the importer's own scope. The merge above already made an
+            # own package module the occupant, so lookup returns it (own-scope
+            # first) and `is not module` stays False for the legitimate merge case.
+            occupant = scope.lookup(ng, name)
             if occupant is not None and occupant is not module:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
-            sc[name] = module
+            scope.define(ng, name, module)
 
     def _merge_modules(self, existing, incoming, node, state):
         """Merge *incoming* module's members into *existing*."""
