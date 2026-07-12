@@ -486,8 +486,10 @@ class GenerateLlvmModule:
     its storage, then lowers the root block's statements with EmitLlvmStmt.
     """
 
-    def emit(self, root: AstBlock, state: CompileState) -> ir.Module:
-        assert root is state.root, "module generator must be run on the root block"
+    def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
+        assert (
+            root_block is state.root_block
+        ), "module generator must be run on the root block"
         # The entry function is the main sequence -- the main block -- not the
         # library root (which also holds the builtin library and the imported
         # sequences, all definition-only). Functions are lowered on demand at

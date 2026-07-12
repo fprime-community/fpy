@@ -80,8 +80,7 @@ class CompileState:
     max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
 
     next_node_id: int = 0
-    # FIXME let's rename this to root_block
-    root: AstBlock = None
+    root_block: AstBlock = None
     """the outermost block: the library root, which owns the base scope and holds
     the builtin library functions, the main block, and every imported sequence
     block as its children. Built by _build_compilation_unit."""
@@ -209,15 +208,6 @@ class CompileState:
 
     main_sequence: object = None
     """the SequenceContext for the main (top-level) sequence being compiled."""
-    container_sequence: dict = field(default_factory=dict, repr=False)
-    """maps id(sequence block) -> the SequenceContext whose scopes it installs.
-    The sequence blocks are the library root, the program block, and every
-    imported sequence block (see _build_compilation_unit and InlineImports).
-    CreateScopes installs that context's scopes on the block, and sequence_of
-    resolves a node's owning sequence through it. Keyed by object identity (id())
-    because the blocks are created before AssignIds assigns the node ids a node
-    otherwise hashes by; the block objects live in the AST for the whole
-    compilation."""
     import_bindings: list = field(default_factory=list, repr=False)
     """recorded imports (ImportBinding) to bind into scopes once every sequence's
     definitions have been registered (by DefineFunctions / DefineVariables)."""
@@ -227,25 +217,6 @@ class CompileState:
     reuses this context, so its definitions are shared, never duplicated."""
 
     next_anon_var_id: int = 0
-
-    def sequence_of(self, node: Ast):
-        # FIXME really wondering if we can get rid of this function
-        """Return the SequenceContext that *node* belongs to.
-
-        Walks up to the nearest enclosing sequence block and returns its
-        sequence. The program block and every imported sequence block appear in
-        container_sequence, so a node resolves to whichever it sits in; a node
-        under none of them (only the library root's own builtin defs) falls
-        through to the main sequence, which is immaterial to sequence_of's only
-        consumer, the import-underscore warning, since builtin names never start
-        with an underscore."""
-        cur = node
-        while cur is not None:
-            seq = self.container_sequence.get(id(cur))
-            if seq is not None:
-                return seq
-            cur = self.parent_map.get(cur)
-        return self.main_sequence
 
     def new_anonymous_variable_name(self) -> str:
         id = self.next_anon_var_id

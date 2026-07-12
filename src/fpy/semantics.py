@@ -182,17 +182,12 @@ class CreateScopes(TopDownVisitor):
         state.enclosing_scope[node] = state.enclosing_scope[parent]
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-
         parent = state.parent_map.get(node)
-        container_seq = state.container_sequence.get(id(node))
 
         if parent is None:
-            # FIXME this comment could be better. really, this is the root scope.
-            # so it's using the scope created for it by get_base_compile_state et co
-
-            # The library root: it has no enclosing block, so it cannot make a
-            # child scope. It owns the pre-built base scope instead.
-            assert container_seq is not None and container_seq.scope is state.base_scope
+            # The base block has no enclosing block, so it cannot make a child
+            # scope. It owns the pre-built base scope (dictionary/builtin symbols,
+            # created before any AST existed) instead.
             state.enclosing_scope[node] = state.base_scope
             return
 
@@ -201,14 +196,9 @@ class CreateScopes(TopDownVisitor):
         scope = Scope(parent=parent_scope, in_function=in_function)
         state.enclosing_scope[node] = scope
 
-        if container_seq is not None:
-            # FIXME i'm really wondering if we can delete this concept of container_seq now
-
-            # A sequence's root block: publish its scope for BindImports (and,
-            # for the main sequence, as state.main_scope).
-            container_seq.scope = scope
-            if container_seq is state.main_sequence:
-                state.main_scope = scope
+        # The main block's scope is the main sequence's scope
+        if node is state.main_block:
+            state.main_scope = scope
 
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
@@ -405,10 +395,6 @@ class DefineVariables(TopDownVisitor):
         # yes a variable definition
         sym = VariableSymbol(node.lhs.name, node.type_ann, node)
         self.define_variable(sym, scope, state, "Variable")
-        # FIXME what is this comment for? why was this line split up?
-        # A top-level variable now lives directly in its sequence's own value
-        # scope, so it is already one of the sequence's own definitions (see
-        # SequenceContext.own_definitions); no separate recording is needed.
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.

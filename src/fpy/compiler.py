@@ -56,7 +56,6 @@ from fpy.semantics import (
 from fpy.imports import (
     BindImports,
     InlineImports,
-    SequenceContext,
     WarnImportUnderscore,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -132,13 +131,13 @@ def _get_builtin_library_ast():
 
 def _build_compilation_unit(program: AstBlock, state: CompileState):
     """Assemble the compilation unit: a fresh *library root* block wrapping the
-    whole program, and store it as state.root.
+    whole program, and store it as state.root_block.
 
     On entry `program` holds the main program's statements; InlineImports has
     already removed each import and collected its target as a sibling block in
     state.imported_blocks. We build:
 
-        library root (state.root)     scope = base
+        library root (state.root_block)     scope = base
         |- builtin library defs       (time_add, time_cmp, ...; registered in base)
         |- main block (state.main_block)   scope = main (child of base)
         |- imported sequence block         scope = child of base
@@ -151,25 +150,18 @@ def _build_compilation_unit(program: AstBlock, state: CompileState):
     parent chain for all of them. Only the main block executes; the library and
     imported blocks hold definitions, emitted once each by the dead-function pass.
 
-    The main program's statements are moved into `state.main_block`; `program`
-    itself is not reused (state.root is a brand-new block)."""
+    # FIXME i think this docstring is too long and verbose
+    The program block itself becomes state.main_block."""
     library_ast = _get_builtin_library_ast()
 
-    # FIXME why do we make a new block here instead of just setting state.main_block?
-    main_block = AstBlock(program.meta, program.stmts)
-    state.main_block = main_block
-    state.container_sequence[id(main_block)] = state.main_sequence
+    # The program block, as parsed, is the main block; the main sequence's
+    # context points at it so BindImports can reach its scope.
+    state.main_block = program
+    state.main_sequence.block = program
 
-    library_root = AstBlock(
+    state.root_block = AstBlock(
         program.meta,
-        copy.deepcopy(library_ast.stmts) + [main_block] + state.imported_blocks,
-    )
-    state.root = library_root
-    # FIXME i'm wondering how close we can get to removing the need for container sequence entirely
-    state.container_sequence[id(library_root)] = SequenceContext(
-        scope=state.base_scope,
-        file_path=None,
-        dir_path=None,
+        copy.deepcopy(library_ast.stmts) + [program] + state.imported_blocks,
     )
 
 
@@ -216,7 +208,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     # Assemble the compilation unit: a fresh library root block wrapping the
     # builtin library, the main program (state.main_block), and every imported
-    # sequence as sibling children. All later passes run on state.root.
+    # sequence as sibling children. All later passes run on state.root_block.
     _build_compilation_unit(body, state)
 
     pre_semantic_desugaring_passes = [DesugarCheckStatements()]
@@ -288,17 +280,17 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     ]
 
     for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(state.root, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in semantics_passes:
-        compile_pass.run(state.root, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in desugaring_passes:
-        compile_pass.run(state.root, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
@@ -322,7 +314,7 @@ def analysis_to_fpybc_directives(
         GenerateFunctions(),
     ]
     for compile_pass in codegen_passes:
-        compile_pass.run(state.root, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
@@ -350,7 +342,7 @@ def analysis_to_llvm_module(
 
     Raises BackendError on failure."""
 
-    module = GenerateLlvmModule().emit(state.root, state)
+    module = GenerateLlvmModule().emit(state.root_block, state)
 
     # print out warnings
     for warning in state.warnings:
@@ -393,7 +385,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
     if state.errors:
         raise state.errors[0]
 
-    # Assemble the compilation unit (sets state.root and state.main_block).
+    # Assemble the compilation unit (sets state.root_block and state.main_block).
     _build_compilation_unit(body, state)
 
     discovery_passes: list[Visitor] = [
@@ -407,12 +399,12 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
         ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:
-        compile_pass.run(state.root, state)
+        compile_pass.run(state.root_block, state)
         if state.errors:
             raise state.errors[0]
 
     discover = CollectSequenceDependencies()
-    discover.run(state.root, state)
+    discover.run(state.root_block, state)
     if state.errors:
         raise state.errors[0]
 

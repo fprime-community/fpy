@@ -182,10 +182,22 @@ class Scope:
         self._groups: dict[NameGroup, dict[str, "Symbol"]] = {
             ng: {} for ng in NameGroup
         }
+        self.star_underscore_names: set[str] = set()
+        """underscore-prefixed names bound into this scope via `from ... import *`;
+        a later bare use of one warns. Only a sequence's root scope carries any."""
 
     def group(self, ng: NameGroup) -> dict[str, "Symbol"]:
         """The name->symbol dict for one name group (mutable)."""
         return self._groups[ng]
+
+    def own_symbols(self) -> dict[str, "Symbol"]:
+        """The symbols defined directly in this scope (no parent walk), flattened
+        across name groups. Used to enumerate a sequence's own top-level
+        definitions -- functions, globals, and re-exported modules -- when an
+        import binds the whole sequence."""
+        merged = dict(self._groups[NameGroup.CALLABLE])
+        merged.update(self._groups[NameGroup.VALUE])
+        return merged
 
     def define(self, ng: NameGroup, name: str, sym: "Symbol"):
         """Bind *name* to *sym* in this scope's *ng* group."""

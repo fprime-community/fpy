@@ -16,9 +16,8 @@ The work is split into two passes:
 
 * `InlineImports` runs first, on the raw AST. It resolves each import to a file,
   recursively parses it, collects its statements as a sibling block in
-  state.imported_blocks (recorded in state.container_sequence), and records an
-  `ImportBinding` for each import. _build_compilation_unit then installs those
-  blocks under the library root.
+  state.imported_blocks, and records an `ImportBinding` for each import.
+  _build_compilation_unit then installs those blocks under the library root.
 
 * `BindImports` runs after `DefineFunctions`/`DefineVariables` have registered
   every sequence's definitions. It creates the module chains / direct bindings
@@ -48,13 +47,17 @@ from fpy.syntax import (
     AstImport,
     AstSequenceMetadata,
 )
+from fpy.state import CompileState
 from fpy.types import is_instance_compat
 from fpy.visitors import Visitor
 
 
 @dataclass
 class SequenceContext:
-    """A single sequence taking part in a compilation."""
+    """A single sequence taking part in a compilation.
+
+    Holds only what an import needs: where the sequence came from (for resolving
+    its own relative imports) and the AST block it was compiled into.."""
 
     file_path: str | None
     """the sequence's resolved file path (realpath), or None for the main
@@ -62,32 +65,10 @@ class SequenceContext:
     dir_path: str | None
     """the directory the sequence lives in, anchoring its relative imports.
     None when the sequence has no location."""
-    scope: Scope = None
-    """the sequence's block Scope. Created from syntax by CreateScopes when it
-    reaches this sequence's block (the library root keeps the pre-built base
-    scope). Read by BindImports, so it is always populated by then."""
-    star_underscore_names: set = field(default_factory=set)
-    """underscore-prefixed names this sequence bound via `from ... import *`;
-    a later bare use of one warns."""
-
-    def own_definitions(self) -> dict:
-        """The sequence's own top-level definitions (functions and globals), by
-        name. Because the sequence scope is a child of the shared base, its own
-        group dicts hold exactly the user's top-level definitions (base names
-        resolve only via the parent chain). These are what an importer may
-        bind."""
-        merged = dict(self.scope.group(NameGroup.CALLABLE))
-        merged.update(self.scope.group(NameGroup.VALUE))
-        return merged
-
-    def get_definition(self, name: str):
-        """Look up one of the sequence's own top-level definitions by name, or
-        None. Own-scope only, so base (dictionary/builtin) names are not
-        bindable through an import."""
-        sym = self.scope.get(NameGroup.CALLABLE, name)
-        if sym is not None:
-            return sym
-        return self.scope.get(NameGroup.VALUE, name)
+    block: AstBlock = None
+    """the sequence's AST block (the main block, or an imported sequence's
+    sibling block). Set once the block exists (_build_compilation_unit for the
+    main sequence, _handle_import for an imported one)."""
 
 
 @dataclass
@@ -134,8 +115,8 @@ class InlineImports:
         self, stmts, ctx: SequenceContext, state, import_stack, is_main: bool
     ):
         """Return *stmts* with each import removed. Each import's target sequence
-        is collected as a sibling block in state.imported_blocks (recorded in
-        state.container_sequence) rather than spliced in at the import's position."""
+        is collected as a sibling block in state.imported_blocks rather than
+        spliced in at the import's position."""
         result = []
         for stmt in stmts:
             if is_instance_compat(stmt, AstImport):
@@ -165,7 +146,11 @@ class InlineImports:
             state.next_node_id += 1
 
     def _handle_import(
-        self, node: AstImport, importer: SequenceContext, state, import_stack
+        self,
+        node: AstImport,
+        importer: SequenceContext,
+        state: CompileState,
+        import_stack,
     ):
         resolved = self._resolve(node, importer, state)
         if resolved is None:
@@ -200,13 +185,13 @@ class InlineImports:
 
             # Collect the imported sequence's statements as a sibling block of the
             # main program (installed under the library root by
-            # _build_compilation_unit), recording its sequence context in
-            # state.container_sequence so CreateScopes installs the sequence's
-            # isolated scopes on it. The import statement itself contributes
-            # nothing at its position -- an imported sequence has only definitions
-            # (no side effects), so it never executes inline.
+            # _build_compilation_unit). CreateScopes gives this block its own
+            # isolated scope; the sequence's context points at it via .block. The
+            # import statement itself contributes nothing at its position -- an
+            # imported sequence has only definitions (no side effects), so it
+            # never executes inline.
             block = AstBlock(node.meta, target_stmts)
-            state.container_sequence[id(block)] = target
+            target.block = block
             state.imported_blocks.append(block)
 
         state.import_bindings.append(
@@ -411,9 +396,11 @@ class BindImports:
     # -- import forms ---------------------------------------------------------
 
     def _bind_plain(self, binding: ImportBinding, state):
-        node, importer, target = binding.node, binding.importer, binding.target
+        node = binding.node
+        importer_scope = state.enclosing_scope[binding.importer.block]
+        target_scope = state.enclosing_scope[binding.target.block]
         if binding.member is not None:
-            sym = self._lookup_definition(target, binding.member, node, state)
+            sym = self._lookup_definition(target_scope, binding.member, node, state)
             if sym is None:
                 return
             self._maybe_underscore_warn(binding.member, node, state)
@@ -421,50 +408,54 @@ class BindImports:
             leaf[binding.member] = sym
         else:
             leaf = _make_module(is_sequence_module=True)
-            for name, sym in target.own_definitions().items():
+            for name, sym in target_scope.own_symbols().items():
                 leaf[name] = sym
 
         root_name, root_module = self._build_chain(binding.seq_path, leaf)
-        self._bind_module(importer, root_name, root_module, node, state)
+        self._bind_module(importer_scope, root_name, root_module, node, state)
 
     def _bind_alias(self, binding: ImportBinding, state):
-        node, importer, target = binding.node, binding.importer, binding.target
+        node = binding.node
+        importer_scope = state.enclosing_scope[binding.importer.block]
+        target_scope = state.enclosing_scope[binding.target.block]
         if binding.member is not None:
-            sym = self._lookup_definition(target, binding.member, node, state)
+            sym = self._lookup_definition(target_scope, binding.member, node, state)
             if sym is None:
                 return
             self._maybe_underscore_warn(binding.member, node, state)
-            self._bind_symbol(importer, node.alias, sym, node, state)
+            self._bind_symbol(importer_scope, node.alias, sym, node, state)
         else:
             module = _make_module(is_sequence_module=True)
-            for name, sym in target.own_definitions().items():
+            for name, sym in target_scope.own_symbols().items():
                 module[name] = sym
-            self._bind_module(importer, node.alias, module, node, state)
+            self._bind_module(importer_scope, node.alias, module, node, state)
 
     def _bind_from(self, binding: ImportBinding, state):
-        node, importer, target = binding.node, binding.importer, binding.target
+        node = binding.node
+        importer_scope = state.enclosing_scope[binding.importer.block]
+        target_scope = state.enclosing_scope[binding.target.block]
         if node.is_star:
-            for name, sym in target.own_definitions().items():
-                self._bind_symbol(importer, name, sym, node, state)
+            for name, sym in target_scope.own_symbols().items():
+                self._bind_symbol(importer_scope, name, sym, node, state)
                 if state.errors:
                     return
                 if name.startswith("_"):
-                    importer.star_underscore_names.add(name)
+                    importer_scope.star_underscore_names.add(name)
             return
 
         for member_name, alias in node.members:
-            sym = self._lookup_definition(target, member_name, node, state)
+            sym = self._lookup_definition(target_scope, member_name, node, state)
             if sym is None:
                 return
             self._maybe_underscore_warn(member_name, node, state)
-            self._bind_symbol(importer, alias or member_name, sym, node, state)
+            self._bind_symbol(importer_scope, alias or member_name, sym, node, state)
             if state.errors:
                 return
 
     # -- helpers --------------------------------------------------------------
 
-    def _lookup_definition(self, target: SequenceContext, name: str, node, state):
-        sym = target.get_definition(name)
+    def _lookup_definition(self, target_scope: Scope, name: str, node, state):
+        sym = target_scope.own_symbols().get(name)
         if sym is None:
             state.err(
                 f"Imported sequence has no definition named '{name}'",
@@ -507,12 +498,11 @@ class BindImports:
             groups |= self._symbol_groups(sym)
         return groups
 
-    def _bind_symbol(self, ctx: SequenceContext, name, sym, node, state):
-        """Bind a plain (non-module) definition symbol under *name*, erroring on
-        a collision in any of its name groups."""
+    def _bind_symbol(self, scope: Scope, name, sym, node, state):
+        """Bind a plain (non-module) definition symbol under *name* into *scope*
+        (the importer's), erroring on a collision in any of its name groups."""
 
         groups = self._symbol_groups(sym)
-        scope = ctx.scope
         # lookup(), not get(): the importer's scope is a child of the shared
         # base, so a name already taken by a dictionary/builtin definition must
         # count as a collision even though it is not in the importer's own scope.
@@ -526,16 +516,15 @@ class BindImports:
         for ng in groups:
             scope.define(ng, name, sym)
 
-    def _bind_module(self, ctx: SequenceContext, name, module, node, state):
-        """Bind *module* under *name*, merging with an existing package module
-        or erroring on a collision."""
+    def _bind_module(self, scope: Scope, name, module, node, state):
+        """Bind *module* under *name* into *scope* (the importer's), merging with
+        an existing package module or erroring on a collision."""
         groups = self._module_groups(module)
         if not groups:
             # An empty sequence's module holds nothing and belongs to no name
             # group; there is nothing to bind.
             return
 
-        scope = ctx.scope
         # get(), not lookup(): we only merge with a package module THIS sequence
         # already built by import, never with a base (dictionary) namespace.
         existing = None
@@ -622,8 +611,13 @@ class WarnImportUnderscore(Visitor):
     def visit_AstIdent(self, node: AstIdent, state):
         if not node.name.startswith("_"):
             return
-        seq = state.sequence_of(node)
-        if seq is not None and node.name in seq.star_underscore_names:
+        # star_underscore_names lives on the sequence's root scope -- the scope
+        # in this node's chain whose parent is the shared base scope. Walk up to
+        # it (a node under no sequence, e.g. a builtin lib def, finds none).
+        scope = state.enclosing_scope[node]
+        while scope is not None and scope.parent is not state.base_scope:
+            scope = scope.parent
+        if scope is not None and node.name in scope.star_underscore_names:
             state.warn(
                 WarningType.IMPORT_UNDERSCORE,
                 f"'{node.name}' is a library-internal definition (its name "
