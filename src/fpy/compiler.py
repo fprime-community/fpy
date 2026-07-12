@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 from pathlib import Path
 from lark import Lark, LarkError
 from llvmlite import ir
@@ -52,6 +53,12 @@ from fpy.semantics import (
     UpdateStateWithTypes,
     WarnRangesAreNotEmpty,
 )
+from fpy.imports import (
+    BindImports,
+    InlineImports,
+    SequenceContext,
+    WarnImportUnderscore,
+)
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
 from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
@@ -71,6 +78,7 @@ from fpy.types import (
 from fpy.state import (
     CompileState,
 )
+from fpy.symbols import SymbolTable
 from fpy.visitors import Visitor
 
 from fpy.error import BackendError, handle_lark_error
@@ -123,6 +131,55 @@ def _get_builtin_library_ast():
     return _builtin_library_ast
 
 
+def _build_compilation_unit(body: AstBlock, state: CompileState):
+    """Turn `body` into the outermost *library block* wrapping the whole program.
+
+    On entry `body` holds the main program's statements; InlineImports has
+    already removed each import and collected its target as a sibling block in
+    state.imported_blocks. This makes `body` the library block -- the top of the
+    tree, owning the base/universe callable scope -- and moves the program's own
+    statements into a new *program block* nested inside it. Its children are:
+
+        library block (body)          callable scope = base (universe)
+        |- builtin library defs       (time_add, time_cmp, ...; registered in base)
+        |- program block              callable scope = global (child of base)
+        |- imported sequence block    callable scope = child of base
+        |- ...
+
+    Every sequence block (the program and each import) is thus a direct child of
+    the library block, so its scope is a child of base by lexical nesting: syntax
+    and scope agree, imported sequences are siblings of the program (isolated from
+    it and each other), and the builtin library functions resolve up the parent
+    chain for all of them. Only the program block executes; the library and
+    imported blocks hold definitions, emitted once each by the dead-function pass.
+
+    `body` keeps its object identity (it stays state.root), so a caller that
+    passes the same AST to codegen still hands it the root."""
+    library_ast = _get_builtin_library_ast()
+
+    program_block = AstBlock(body.meta, body.stmts)
+    state.program_block = program_block
+    state.container_sequence[id(program_block)] = state.main_sequence
+
+    library_ctx = SequenceContext(
+        callable_scope=state.base_callable_scope,
+        value_scope=SymbolTable(parent=state.base_value_scope),
+        file_path=None,
+        dir_path=None,
+    )
+    state.container_sequence[id(body)] = library_ctx
+
+    # FIXME ideally we wouldn't have to do this switcheroo. that just
+    # obfuscates what's really going on here. please consider a different
+    # code flow where we can be explicit about what's going on, in
+    # the compiler_main func and analyze_ast funcs esp. also, body is not a good name for this
+    # variable any more, because we don't know which body we're talking about.
+    # i think we should call this main_block or something
+    body.stmts = (
+        copy.deepcopy(library_ast.stmts) + [program_block] + state.imported_blocks
+    )
+
+
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
 
@@ -157,7 +214,19 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     Returns the populated CompileState. Raises the first CompileError encountered.
     """
+    # FIXME is state.root actually always the real root? don't be misleading!
     state.root = body
+
+    # Resolve and inline every import first, on the raw AST: this splices each
+    # imported sequence's top-level statements into `body` and records the
+    # bindings for BindImports. It runs before everything else so later passes
+    # see one combined tree.
+    # FIXME why do we start by splicing statements into body??
+    # shouldn't we first resolve import statements, then parse them, then
+    # include their bodies under the dict/library block?
+    InlineImports().run(body, state)
+    if len(state.errors) != 0:
+        raise state.errors[0]
 
     # we want to run this past first, because the next
     # stage will add statements to the start of the file
@@ -171,12 +240,11 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         if len(state.errors) != 0:
             raise state.errors[0]
 
-    # Now prepend builtin library functions to user code - always available.
-    # will be elided if unused
-    import copy
-
-    builtin_library_ast = _get_builtin_library_ast()
-    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
+    # Wrap the program in the library block: the builtin library functions and
+    # every imported sequence become siblings of the program, all children of the
+    # library root, so their scopes fall out of lexical nesting (see
+    # _build_compilation_unit).
+    _build_compilation_unit(body, state)
 
     pre_semantic_desugaring_passes = [DesugarCheckStatements()]
 
@@ -188,16 +256,22 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # check that assignment targets are valid
         CheckAssignSyntax(),
         # register all user-defined functions in the global callable scope
+        # (and the builtin library functions in the shared base callable scope)
         DefineFunctions(),
         # register all variable declarations in their enclosing scopes.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
         DefineVariables(),
+        # now that every sequence's definitions are registered, bind the
+        # modules / names each import introduces into the importer's scopes
+        BindImports(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
         ResolveQualifiedIdentifiers(),
         CheckAllUnqualifiedIdentifiersResolved(),
+        # warn when the importer uses an underscore-prefixed imported definition
+        WarnImportUnderscore(),
         CheckAllTypesAndCallablesResolved(),
         CheckForConstantSizeTypes(),
         UpdateStateWithTypes(),
@@ -275,7 +349,7 @@ def analysis_to_fpybc_directives(
         if len(state.errors) != 0:
             raise state.errors[0]
 
-    ir = GenerateModule().emit(body, state)
+    ir = GenerateModule().emit(state.program_block, state)
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
     for compile_pass in ir_passes:
@@ -345,15 +419,19 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
     """
     state.root = body
 
+    # Inline imports first so sequence-run dependencies in imported sequences
+    # are discovered too.
+    InlineImports().run(body, state)
+    if state.errors:
+        raise state.errors[0]
+
     pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
     for compile_pass in pre_builtin_passes:
         compile_pass.run(body, state)
         if state.errors:
             raise state.errors[0]
 
-    import copy
-
-    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+    _build_compilation_unit(body, state)
 
     discovery_passes: list[Visitor] = [
         DesugarCheckStatements(),
@@ -361,6 +439,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
         CreateScopes(),
         DefineFunctions(),
         DefineVariables(),
+        BindImports(),
         ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:

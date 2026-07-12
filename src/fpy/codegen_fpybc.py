@@ -167,11 +167,13 @@ class CalculateFrameSizes(TopDownVisitor):
     def __init__(self):
         super().__init__()
         self.offset = 0
+        self._frame_root = None
 
     def run(self, start: Ast, state: CompileState):
-        # For the global frame, lay out sequence args (already on stack) first,
-        # then start body variables after them.
-        if start is state.root:
+        self._frame_root = start
+        # For the global (main) frame -- the program block -- lay out sequence
+        # args (already on stack) first, then start body variables after them.
+        if start is state.program_block:
             for name, arg_type in state.this_seq_arg_specs:
                 arg_var = state.global_value_scope[name]
                 arg_var.frame_offset = self.offset
@@ -180,6 +182,14 @@ class CalculateFrameSizes(TopDownVisitor):
         state.frame_sizes[start] = self.offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # FIXME I'd like an explanation of this, it seems weird
+        # The program block is its own (global/main) frame. When we reach it
+        # while walking the library root, lay it out in a fresh frame and stop --
+        # the library and imported blocks around it hold only definitions, whose
+        # frames are handled per-function by visit_AstDef.
+        if node is state.program_block and node is not self._frame_root:
+            CalculateFrameSizes().run(node, state)
+            return STOP_DESCENT
         scope = state.enclosing_value_scope[node]
         for _name, sym in scope.items():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
@@ -642,6 +652,11 @@ class GenerateFunctionBody(Emitter):
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
+            if is_instance_compat(stmt, AstBlock):
+                # a sub block. this is only possible if it is an imported sequence
+                # emit its statements inline in this frame
+                dirs.extend(self.emit(stmt, state))
+                continue
             if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
@@ -1306,7 +1321,7 @@ class GenerateFunctionBody(Emitter):
 class GenerateModule(Emitter):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.root:
+        if node is not state.program_block:
             return []
 
         main_body = []

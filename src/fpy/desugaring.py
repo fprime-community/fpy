@@ -740,7 +740,12 @@ class DesugarTimeOperators(Transformer):
         state: CompileState,
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
-        func_symbol = state.global_callable_scope.get(func_name)
+        # lookup(), not get(): the builtin library functions this desugars to
+        # (time_add, time_sub, time_cmp, ...) live in the shared base callable
+        # scope, the parent of global_callable_scope, not in its own dict.
+
+        # FIXME i think for correctness sake we should lookup in enclosing callable scope
+        func_symbol = state.global_callable_scope.lookup(func_name)
         assert (
             func_symbol is not None
         ), f"Function {func_name} not found in callable scope"

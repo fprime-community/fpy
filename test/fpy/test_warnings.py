@@ -31,15 +31,15 @@ class TestWarningTypeParsing:
         assert parse_warning_set("empty-range") == {WarningType.EMPTY_RANGE}
 
     def test_comma_separated(self):
-        assert parse_warning_set("empty-range,import-side-effects") == {
+        assert parse_warning_set("empty-range,import-underscore") == {
             WarningType.EMPTY_RANGE,
-            WarningType.IMPORT_SIDE_EFFECTS,
+            WarningType.IMPORT_UNDERSCORE,
         }
 
     def test_whitespace_tolerated(self):
-        assert parse_warning_set("  empty-range ,  import-side-effects  ") == {
+        assert parse_warning_set("  empty-range ,  import-underscore  ") == {
             WarningType.EMPTY_RANGE,
-            WarningType.IMPORT_SIDE_EFFECTS,
+            WarningType.IMPORT_UNDERSCORE,
         }
 
     def test_empty_spec_is_empty_set(self):
@@ -87,7 +87,7 @@ class TestIgnoreWarnings:
 
     def test_ignore_unrelated_type_keeps_warning(self):
         state, _, _ = compile_seq(
-            EMPTY_RANGE_SEQ, ignored_warnings={WarningType.IMPORT_SIDE_EFFECTS}
+            EMPTY_RANGE_SEQ, ignored_warnings={WarningType.IMPORT_UNDERSCORE}
         )
         assert any(w.type == WarningType.EMPTY_RANGE for w in state.warnings)
 
@@ -106,7 +106,7 @@ class TestEscalateWarnings:
     def test_unrelated_error_type_does_not_fail(self):
         # Escalating a different warning type must not affect the empty-range warning.
         state, _, _ = compile_seq(
-            EMPTY_RANGE_SEQ, error_warnings={WarningType.IMPORT_SIDE_EFFECTS}
+            EMPTY_RANGE_SEQ, error_warnings={WarningType.IMPORT_UNDERSCORE}
         )
         assert any(w.type == WarningType.EMPTY_RANGE for w in state.warnings)
 

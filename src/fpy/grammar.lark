@@ -3,9 +3,7 @@
 # input is the top-level rule, consisting of zero or more newlines or top level statements
 input: (_NEWLINE | _toplevel_stmt)*
 
-# Top-level statements: function definitions OR regular statements
-# Function definitions can ONLY appear here, not nested in any control structure
-_toplevel_stmt: def_stmt | _stmt | meta_stmt
+_toplevel_stmt: def_stmt | _stmt | meta_stmt | import_stmt
 
 # Regular statements (no function definitions allowed)
 # Small statements must be followed by a newline; compound statements end with their block's DEDENT
@@ -19,6 +17,24 @@ _compound_stmt: if_stmt | for_stmt | while_stmt | check_stmt
 meta_stmt: "sequence" "(" [sequence_stmt_parameters] ")"
 sequence_stmt_parameters: sequence_stmt_parameter ("," sequence_stmt_parameter)* ","?
 sequence_stmt_parameter: name ":" expr
+
+
+# the import statement. imports another Fpy sequence and makes its definitions
+# available in the importing sequence. Two forms:
+#   import [dots] a.b.c [as alias]
+#   from [dots] a.b.c import (* | m1 [as x], m2, ...)
+# The leading dots (DOTS) make an import relative; absence makes it absolute.
+import_stmt: "import" [import_dots] dotted_name ["as" name] -> import_stmt
+           | "from" [import_dots] dotted_name "import" import_star -> import_from_stmt
+           | "from" [import_dots] dotted_name "import" import_members -> import_from_stmt
+           | "from" [import_dots] dotted_name "import" "(" import_members ")" -> import_from_stmt
+import_dots: DOTS
+dotted_name: name ("." name)*
+import_star: "*"
+import_members: import_member ("," import_member)* ","?
+import_member: name ["as" name]
+# one or more literal dots, used as the relative-import prefix
+DOTS: /\.+/
 
 
 # an indented list of statements

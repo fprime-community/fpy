@@ -116,16 +116,16 @@ def compile_main(args: list[str] = None):
         metavar="DIR",
         dest="include",
         help=(
-            "Directory to search when resolving `import` statements (repeatable). "
-            "The importing file's own directory is always searched first; each "
-            "--include directory is searched afterwards, in the order given"
+            "Directory to search when resolving absolute `import` statements "
+            "(repeatable). An import that resolves in more than one --include "
+            "directory is ambiguous and an error."
         ),
     )
     arg_parser.add_argument(
         "--ignore",
         type=str,
         default="",
-        help="Comma-separated warning types to silence (e.g. 'import-side-effects,empty-range'), or 'all'",
+        help="Comma-separated warning types to silence (e.g. 'import-underscore,empty-range'), or 'all'",
     )
     arg_parser.add_argument(
         "--error",
@@ -165,11 +165,14 @@ def compile_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
 
-    # imports resolve against the importing file's own directory first, then
-    # each -i/--include directory in the order given
-    import_search_dirs = [str(parsed_args.input.parent.resolve())] + [
-        str(d.resolve()) for d in parsed_args.include
-    ]
+    # absolute imports resolve against the -i/--include directories only; the
+    # input file's own directory anchors its relative imports but is not on
+    # the base search path. Exact duplicate directories are dropped: a
+    # repeated -i flag carries no information and must not manufacture an
+    # ambiguity error.
+    import_search_dirs = list(
+        dict.fromkeys(str(d.resolve()) for d in parsed_args.include)
+    )
 
     # reading dictionary
     try:
@@ -179,6 +182,7 @@ def compile_main(args: list[str] = None):
             ignored_warnings=ignored_warnings,
             error_warnings=error_warnings,
             import_search_dirs=import_search_dirs,
+            main_file_dir=str(parsed_args.input.parent.resolve()),
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
@@ -620,6 +624,16 @@ def depend_main(args: list[str] = None):
         default=None,
         help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
     )
+    arg_parser.add_argument(
+        "-i",
+        "--include",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="DIR",
+        dest="include",
+        help="Directory to search when resolving absolute `import` statements (repeatable)",
+    )
     if args is not None:
         parsed_args = arg_parser.parse_args(args)
     else:
@@ -634,10 +648,16 @@ def depend_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
 
+    import_search_dirs = list(
+        dict.fromkeys(str(d.resolve()) for d in parsed_args.include)
+    )
+
     try:
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
             str(ground_binary_dir.resolve()),
+            import_search_dirs=import_search_dirs,
+            main_file_dir=str(parsed_args.input.parent.resolve()),
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)

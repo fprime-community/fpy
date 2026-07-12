@@ -196,7 +196,7 @@ class WarningType(str, Enum):
     """The set of diagnostics the compiler may warn about."""
 
     EMPTY_RANGE = "empty-range"
-    IMPORT_SIDE_EFFECTS = "import-side-effects"
+    IMPORT_UNDERSCORE = "import-underscore"
 
     @classmethod
     def from_value(cls, value: str) -> "WarningType":

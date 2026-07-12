@@ -84,12 +84,28 @@ class CompileState:
 
     next_node_id: int = 0
     root: AstBlock = None
+    """the outermost block: the library block, which owns the base scope
+    and holds the builtin library functions, the program block, and every
+    imported sequence block as its children."""
+    # FIXME let's rename this to main_block
+    program_block: AstBlock = None
+    """the main sequence's block (the executable body), a child of `root`. The
+    frame layout and directive stream are generated from this block, not `root`
+    (which also contains the builtin library and the imported sequences)."""
+    imported_blocks: list = field(default_factory=list, repr=False)
+    """every imported sequence's block, collected by InlineImports. They are
+    installed as children of the library `root` (siblings of `program_block`), so
+    each imported sequence is an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
     """map of each node to its parent node in the AST"""
     enclosing_value_scope: dict[Ast, SymbolTable] = field(
         default_factory=dict, repr=False
     )
     """map of node to its enclosing value scope (block scope, function scope, or global_value_scope)"""
+    enclosing_callable_scope: dict[Ast, SymbolTable] = field(
+        default_factory=dict, repr=False
+    )
+    """map of node to its enclosing callable scope. This is only used for sequence importing."""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -183,11 +199,72 @@ class CompileState:
     """warning types to promote to hard compile errors (`--error`)"""
 
     import_search_dirs: list[str] = field(default_factory=list)
-    """ordered list of directories searched to resolve `import` statements to
-    source files (first match wins). Populated from `-i/--include` in the CLI (in addition to the
-    importing file's own directory)."""
+    """the base import search path: directories searched to resolve absolute
+    `import` statements to source files. Resolving in more than one of them is
+    an ambiguity error. Populated from `-i/--include` in the CLI."""
+
+    main_file_dir: str | None = None
+    """directory containing the main sequence, used to anchor its relative
+    imports. None when compiling from a stream (a relative import in the main
+    sequence is then an error)."""
+
+    base_callable_scope: SymbolTable = None
+    # FIXME confusing naming. one is base, one is global?? maybe base should be called
+    # dictionary? maybe global should be called main_block_x_scope?
+    """the dictionary/builtin callable scope (dictionary commands, casts, type
+    constructors, macros) plus the builtin library functions (builtin/time.fpy),
+    which DefineFunctions registers here via the library container block. It is
+    the parent of the main sequence's global_callable_scope and of every imported
+    sequence's callable scope, so builtin names resolve up the chain for all of
+    them while each sequence's own functions stay isolated in its own child."""
+    base_value_scope: SymbolTable = None
+    # FIXME docstring weird
+    """a pristine copy of the global value scope (dictionary channels, params,
+    enum constants, constants, `flags`). Each imported sequence's value scope is
+    a child of this."""
+
+    main_sequence: object = None
+    """the SequenceContext for the main (top-level) sequence being compiled."""
+    container_sequence: dict = field(default_factory=dict, repr=False)
+    """maps id(sequence block) -> the SequenceContext whose scopes it installs.
+    The sequence blocks are the library root, the program block, and every
+    imported sequence block (see _build_compilation_unit and InlineImports).
+    CreateScopes installs that context's scopes on the block, and sequence_of
+    resolves a node's owning sequence through it. Keyed by object identity (id())
+    because the blocks are created before AssignIds assigns the node ids a node
+    otherwise hashes by; the block objects live in the AST for the whole
+    compilation."""
+    import_bindings: list = field(default_factory=list, repr=False)
+    """recorded imports (ImportBinding) to bind into scopes once every sequence's
+    definitions have been registered (by DefineFunctions / DefineVariables)."""
+    loaded_sequences: dict = field(default_factory=dict, repr=False)
+    """maps a resolved sequence file (realpath) -> its SequenceContext. A sequence
+    is loaded and compiled once; every import that resolves to the same file
+    reuses this context, so its definitions are shared, never duplicated."""
+    sequence_root_value_scopes: set = field(default_factory=set, repr=False)
+    """the set of every sequence's global (root) value scope. A variable declared
+    in one of these is a global."""
 
     next_anon_var_id: int = 0
+
+    def sequence_of(self, node: Ast):
+        # FIXME really wondering if we can get rid of this function
+        """Return the SequenceContext that *node* belongs to.
+
+        Walks up to the nearest enclosing sequence block and returns its
+        sequence. The program block and every imported sequence block appear in
+        container_sequence, so a node resolves to whichever it sits in; a node
+        under none of them (only the library root's own builtin defs) falls
+        through to the main sequence, which is immaterial to sequence_of's only
+        consumer, the import-underscore warning, since builtin names never start
+        with an underscore."""
+        cur = node
+        while cur is not None:
+            seq = self.container_sequence.get(id(cur))
+            if seq is not None:
+                return seq
+            cur = self.parent_map.get(cur)
+        return self.main_sequence
 
     def new_anonymous_variable_name(self) -> str:
         id = self.next_anon_var_id
@@ -584,6 +661,7 @@ def get_base_compile_state(
     ignored_warnings: set[WarningType] | None = None,
     error_warnings: set[WarningType] | None = None,
     import_search_dirs: list[str] | None = None,
+    main_file_dir: str | None = None,
 ) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(
@@ -605,9 +683,23 @@ def get_base_compile_state(
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
     # if we don't make copies, then the lru cache will return the modified versions, causing
     # two runs of the compiler to conflict
+    #
+    # The base callable scope holds the dictionary/builtin names (commands, casts,
+    # type constructors, macros) and, once compiled, the builtin library functions
+    # (builtin/time.fpy). It is the parent of every sequence's callable scope --
+    # the main sequence's global_callable_scope and every imported sequence's --
+    # so those names resolve up the parent chain for all of them, while each
+    # sequence's own functions live in its own child scope, isolated from the rest.
+
+    # FIXME I think this ad hoc deciding "oh we're going to store the callable scope here
+    # but not the value" is bothering me. Maybe we should finally just make SymbolTable
+    # store three dicts, divided by the name groups. And then we wouldn't have to
+    # pass around three symtables everywhere. it's just an implementation detail
+    # that we like to split up into three dicts.
+    base_callable = callable_scope.copy()
     state = CompileState(
         global_type_scope=type_scope,  # types are not mutated
-        global_callable_scope=callable_scope.copy(),
+        global_callable_scope=SymbolTable(parent=base_callable),
         global_value_scope=values_scope.copy(),
         type_defs=type_defs,
         ground_binary_dir=ground_binary_dir,
@@ -620,12 +712,24 @@ def get_base_compile_state(
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
         import_search_dirs=list(import_search_dirs) if import_search_dirs else [],
+        main_file_dir=main_file_dir,
     )
+    state.base_callable_scope = base_callable
 
     # Create the built-in 'flags' variable ($Flags struct).
     # declaration=None marks it as a built-in that is always defined.
     flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
     state.global_value_scope["flags"] = flags_var
     state.flags_var = flags_var
+
+    # Snapshot the pristine dictionary/builtin value scope. Each imported
+    # sequence's value scope is a child of this, so its own globals live in its
+    # own dict (isolated from other sequences) while dictionary/builtin names
+    # still resolve up the parent chain. The `flags` variable lives here and is
+    # thus shared across all sequences (it is a single struct in the main frame).
+    # (base_callable_scope was set above, as the parent of global_callable_scope.)
+    state.base_value_scope = state.global_value_scope.copy()
+    # The main sequence's root value scope holds globals too.
+    state.sequence_root_value_scopes.add(state.global_value_scope)
 
     return state

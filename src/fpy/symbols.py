@@ -128,6 +128,12 @@ class SymbolTable(dict):
         next_symbol_table_id += 1
         self.parent = parent
         self.in_function = parent.in_function if parent is not None else False
+        # FIXME confusing... should be a module class outright
+        self.is_sequence_module = False
+        """when this table is used as a ModuleSymbol, True marks it as a sequence
+        module (the leaf holding an imported file's definitions, which never
+        merges) rather than a package module (a chain intermediate, which does).
+        Meaningless (and left False) for non-module symbol tables."""
 
     def __getitem__(self, key: str) -> "Symbol":
         return super().__getitem__(key)
@@ -154,6 +160,7 @@ class SymbolTable(dict):
         """Return a shallow copy that preserves SymbolTable metadata."""
         new = SymbolTable(parent=self.parent)
         new.in_function = self.in_function
+        new.is_sequence_module = self.is_sequence_module
         new.update(self)
         return new
 

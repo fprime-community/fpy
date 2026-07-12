@@ -165,20 +165,39 @@ class AssignIds(TopDownVisitor):
 
 
 class CreateScopes(TopDownVisitor):
-    """Creates block-level scopes for all AstBlocks.
+    """Creates block-level scopes for all AstBlocks
 
-    Each AstBlock creates a new scope that is a child of the enclosing scope.
-    Non-block nodes inherit the scope of their enclosing block.
+    Each ordinary AstBlock creates a new value scope that is a child of the
+    enclosing scope; a sequence-container block (one in state.container_sequence)
+    instead installs its imported sequence's isolated scopes. Non-block nodes
+    inherit both scopes from their enclosing block. The callable scope does not
+    nest at block boundaries (there are no nested function definitions) -- it
+    only changes at a sequence boundary -- so it is simply inherited except on a
+    container or the root.
     """
 
     def visit_default(self, node: Ast, state: CompileState):
         parent = state.parent_map.get(node)
-        if parent is not None:
-            state.enclosing_value_scope[node] = state.enclosing_value_scope[parent]
+        if parent is None:
+            return
+        state.enclosing_value_scope[node] = state.enclosing_value_scope[parent]
+        state.enclosing_callable_scope[node] = state.enclosing_callable_scope[parent]
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is state.root:
-            state.enclosing_value_scope[node] = state.global_value_scope
+        container_seq = state.container_sequence.get(id(node))
+        if container_seq is not None:
+            # A sequence block (the library root, the program block, or an
+            # imported sequence): install its own callable/value scopes so
+            # everything inside resolves against that sequence. The scopes'
+            # parents match the lexical nesting -- program and imports are
+            # children of the library block, so their scopes are children of the
+            # base/universe scope the library block owns.
+
+            # FIXME what if instead of saving the scopes in SeqCtx, we just
+            # go straight ahead and save them in enclosing_x_scope? then we don't need
+            # this step i think
+            state.enclosing_value_scope[node] = container_seq.value_scope
+            state.enclosing_callable_scope[node] = container_seq.callable_scope
         else:
             parent = state.parent_map[node]
             parent_scope = state.enclosing_value_scope[parent]
@@ -186,6 +205,11 @@ class CreateScopes(TopDownVisitor):
             if isinstance(parent, AstDef):
                 block_scope.in_function = True
             state.enclosing_value_scope[node] = block_scope
+            # FIXME let's just make a new callable scope even though it will be unused.
+            # it's for consistency's sake, it shouldn't cause us any problems now
+            state.enclosing_callable_scope[node] = state.enclosing_callable_scope[
+                parent
+            ]
 
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
@@ -273,8 +297,16 @@ class CheckAssignSyntax(TopDownVisitor):
 class DefineFunctions(TopDownVisitor):
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Functions always go in the global callable scope
-        existing_func = state.global_callable_scope.get(node.name.name)
+        # Functions go in their node's enclosing callable scope.
+        callable_scope = state.enclosing_callable_scope[node]
+        # lookup(), not get(): a sequence's callable scope is a child of the
+        # shared base, so a name already taken by a dictionary command, cast or
+        # type constructor is not free just because this sequence's own dict is
+        # empty. Redefinition must be rejected up the parent chain too.
+
+        # FIXME so basically we're disallowing shadowing here? should we disallow shadowing
+        # for variables too? maybe we either make both a warning or both an error.
+        existing_func = callable_scope.lookup(node.name.name)
         if existing_func is not None:
             state.err(
                 f"Function '{node.name.name}' has already been defined", node.name
@@ -291,7 +323,7 @@ class DefineFunctions(TopDownVisitor):
             definition=node,
         )
 
-        state.global_callable_scope[func.name] = func
+        callable_scope[func.name] = func
 
 
 class DefineVariables(TopDownVisitor):
@@ -325,8 +357,21 @@ class DefineVariables(TopDownVisitor):
         variable_kind: str,
         assert_undeclared: bool = False,
     ):
-        # make sure it isn't defined in this scope (shadowing parent scopes is ok)
-        existing_local = scope.get(sym.name)
+        # A variable is global if it is declared directly in some sequence's
+        # root value scope (the main sequence's or an imported one's), not in a
+        # nested block or function scope.
+        is_root = scope in state.sequence_root_value_scopes
+
+        # In a block scope, shadowing an outer or global name is allowed, so only
+        # the block's own dict blocks a redeclaration. In a sequence's root value
+        # scope, the parent is the shared base (dictionary channels, params,
+        # `flags`, ...); a top-level name must not shadow those, so consult the
+        # whole chain -- matching how DefineFunctions checks callable names.
+
+        # FIXME no, I think either it should allow shadowing with warnings, or
+        # error.
+
+        existing_local = scope.lookup(sym.name) if is_root else scope.get(sym.name)
 
         if existing_local is not None:
             if assert_undeclared:
@@ -338,7 +383,7 @@ class DefineVariables(TopDownVisitor):
             )
             return
 
-        sym.is_global = scope is state.global_value_scope
+        sym.is_global = is_root
 
         # new var. put it in the scope
         scope[sym.name] = sym
@@ -351,9 +396,12 @@ class DefineVariables(TopDownVisitor):
 
         scope = state.enclosing_value_scope[node]
         # yes a variable definition
-        self.define_variable(
-            VariableSymbol(node.lhs.name, node.type_ann, node), scope, state, "Variable"
-        )
+        sym = VariableSymbol(node.lhs.name, node.type_ann, node)
+        self.define_variable(sym, scope, state, "Variable")
+        # FIXME what is this comment for? why was this line split up?
+        # A top-level variable now lives directly in its sequence's own value
+        # scope, so it is already one of the sequence's own definitions (see
+        # SequenceContext.own_definitions); no separate recording is needed.
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # The loop variable is always a new declaration in the loop body's scope.
@@ -486,9 +534,11 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
         if not is_instance_compat(node, AstIdent):
             return True
 
-        # Resolve the root identifier in the appropriate scope
+        # Resolve the root identifier in the appropriate scope. Callables and
+        # values resolve in the node's own sequence's scopes (types are shared,
+        # since sequences define no types).
         if ng == NameGroup.CALLABLE:
-            scope = state.global_callable_scope
+            scope = state.enclosing_callable_scope[node]
         elif ng == NameGroup.TYPE:
             scope = state.global_type_scope
         else:
@@ -502,7 +552,7 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
             scope = scope.parent
 
         if resolved is None:
-            state.err(f"Unknown {ng} '{node.name}'", node)
+            state.err(f"Unknown {ng.value} '{node.name}'", node)
             return False
 
         # root identifier was successfully resolved
@@ -697,13 +747,13 @@ class CheckAllTypesAndCallablesResolved(Visitor):
     def check_resolved(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
         sym = state.resolved_symbols.get(node)
         if sym is None:
-            state.err(f"Unknown {ng}", node)
+            state.err(f"Unknown {ng.value}", node)
             return False
         if ng == NameGroup.CALLABLE and not is_instance_compat(sym, CallableSymbol):
-            state.err(f"Expected a {ng}", node)
+            state.err(f"Expected a {ng.value}", node)
             return False
         if ng == NameGroup.TYPE and not is_instance_compat(sym, FpyType):
-            state.err(f"Expected a {ng}", node)
+            state.err(f"Expected a {ng.value}", node)
             return False
         return True
 
@@ -1590,6 +1640,18 @@ class PickTypesAndResolveFields(Visitor):
         if sym is None:
             return
         if not is_symbol_an_expr(sym):
+            # FIXME explain this, why do we need this? point me to a test. we really should not be using parent
+            # map.
+
+            # A module used directly as a value is invalid, unless it is the
+            # qualifier of a member access (that getattr resolves it).
+            if is_instance_compat(sym, ModuleSymbol):
+                parent = state.parent_map.get(node)
+                is_qualifier = (
+                    is_instance_compat(parent, AstGetAttr) and parent.parent is node
+                )
+                if not is_qualifier:
+                    state.err("A module cannot be used as a value", node)
             return
 
         sym_type = self.get_type_of_symbol(sym)

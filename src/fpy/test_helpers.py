@@ -47,12 +47,9 @@ def compile_seq(
     ignored_warnings=None,
     error_warnings=None,
     import_search_dirs: list[str] | None = None,
+    main_file_dir: str | None = None,
 ) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string and return (state, directives, arg_types).
-
-    Exposes the CompileState so tests can inspect collected warnings.
-    Raises CompilationFailed on a compile/backend error (which is also how an
-    `error_warnings`-escalated warning surfaces)."""
+    """Compile a sequence string and return (state, directives, arg_types)."""
     fpy.error.file_name = "<test>"
 
     state = get_base_compile_state(
@@ -61,6 +58,7 @@ def compile_seq(
         ignored_warnings=ignored_warnings,
         error_warnings=error_warnings,
         import_search_dirs=import_search_dirs,
+        main_file_dir=main_file_dir,
     )
 
     try:
@@ -79,6 +77,7 @@ def compile_seq_wasm(
     import_search_dirs: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
+    main_file_dir: str | None = None,
 ) -> bytes:
     """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
     fpy.error.file_name = "<test>"
@@ -89,6 +88,7 @@ def compile_seq_wasm(
         ignored_warnings=ignored_warnings,
         error_warnings=error_warnings,
         import_search_dirs=import_search_dirs,
+        main_file_dir=main_file_dir,
     )
 
     try:
@@ -102,7 +102,10 @@ def compile_seq_wasm(
 
 
 def run_seq_wasm(
-    seq: str, ground_binary_dir: str = None, import_search_dirs: list[str] | None = None
+    seq: str,
+    ground_binary_dir: str = None,
+    import_search_dirs: list[str] | None = None,
+    main_file_dir: str | None = None,
 ) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
 
@@ -115,7 +118,10 @@ def run_seq_wasm(
     ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
 
     wasm = compile_seq_wasm(
-        seq, ground_binary_dir, import_search_dirs=import_search_dirs
+        seq,
+        ground_binary_dir,
+        import_search_dirs=import_search_dirs,
+        main_file_dir=main_file_dir,
     )
     wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     wasm_file.write(wasm)
@@ -285,18 +291,23 @@ def assert_run_success(
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
     import_search_dirs: list[str] | None = None,
+    main_file_dir: str | None = None,
 ):
     if USE_WASM:
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
             import_search_dirs=import_search_dirs,
+            main_file_dir=main_file_dir,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return
     _, directives, arg_name_types = compile_seq(
-        seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
+        seq,
+        ground_binary_dir=ground_binary_dir,
+        import_search_dirs=import_search_dirs,
+        main_file_dir=main_file_dir,
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None
@@ -330,6 +341,7 @@ def assert_compile_failure(
     import_search_dirs: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
+    main_file_dir: str | None = None,
 ):
     try:
         if USE_WASM:
@@ -339,6 +351,7 @@ def assert_compile_failure(
                 import_search_dirs=import_search_dirs,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
+                main_file_dir=main_file_dir,
             )
         else:
             compile_seq(
@@ -347,6 +360,7 @@ def assert_compile_failure(
                 import_search_dirs=import_search_dirs,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
+                main_file_dir=main_file_dir,
             )
     except (SystemExit, CompilationFailed) as e:
         if match is not None:
