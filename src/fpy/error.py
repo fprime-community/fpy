@@ -197,6 +197,8 @@ class WarningType(str, Enum):
 
     EMPTY_RANGE = "empty-range"
     IMPORT_UNDERSCORE = "import-underscore"
+    SHADOW_VARIABLE = "shadow-variable"
+    SHADOW_FUNCTION = "shadow-function"
 
     @classmethod
     def from_value(cls, value: str) -> "WarningType":

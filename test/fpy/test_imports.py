@@ -648,46 +648,23 @@ assert dup == 3
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
-class TestImportedSequenceCannotShadowBuiltins:
+class TestImportedSequenceShadowingBuiltins:
     """An imported sequence's own scope layers on top of the shared dictionary /
-    builtin base scope, but must never shadow a name that already lives in that
-    base (a cast like `U32`, a type constructor, a dictionary namespace). This
-    holds regardless of how the sequence's scope is implemented (a copy of base,
-    or a child of it), so these guard the copy->child-of-base refactor: a child
-    scope resolves base names only up its parent chain, so a naive own-dict-only
-    collision check would silently let an import shadow them."""
+    builtin base scope. Binding a name already taken by that base (a cast like
+    `U32`, a type constructor, a dictionary namespace) does not collide -- the
+    base name lives in an ENCLOSING scope, so it is shadowed, with a warning,
+    like any other shadow. A same-scope collision or a side effect stays a hard
+    error. These also guard the child-of-base scope shape: a child scope resolves
+    base names up its parent chain, so the shadow must be detected there (not
+    only in the importer's own dict)."""
 
-    def test_imported_sequence_cannot_define_function_shadowing_builtin_cast(
+    def test_nested_import_alias_shadowing_builtin_cast_warns(
         self, fprime_test_api, tmp_path
     ):
-        """Defining a function named after a builtin cast (`U32`) inside an
-        imported sequence is rejected -- the name is already taken by the
-        shared base scope, not free just because the sequence's own dict is
-        empty."""
-        _write_sequence(
-            tmp_path,
-            "lib",
-            """\
-def U32() -> U32:
-    return U32(0)
-""",
-        )
-        main = "import lib\n"
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="already been defined",
-            import_search_dirs=[str(tmp_path)],
-        )
-
-    def test_nested_import_alias_colliding_with_builtin_cast_is_rejected(
-        self, fprime_test_api, tmp_path
-    ):
-        """When an IMPORTED sequence is itself the importer, binding a name
-        (here an alias) that collides with a builtin base name (`U32`) is a
-        collision, exactly as it is for the main sequence. The importer's scope
-        is a child of base, so the collision must be detected up the parent
-        chain, not just in the importer's own dict."""
+        """An IMPORTED sequence that binds an alias matching a builtin base name
+        (`U32`) shadows it. The importer's scope is a child of base, so the
+        shadow is surfaced up the parent chain, not just in the importer's own
+        dict -- and it warns rather than erroring."""
         _write_sequence(
             tmp_path,
             "inner",
@@ -704,19 +681,19 @@ from inner import helper as U32
 """,
         )
         main = "import outer\n"
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="collides with an existing definition",
-            import_search_dirs=[str(tmp_path)],
-        )
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        #FIXME warning should be SHADOW_CALLABLE not function
+        assert any(
+            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
+        ), f"expected a shadow-function warning, got {state.warnings}"
 
     def test_imported_sequence_cannot_declare_top_level_flags(
         self, fprime_test_api, tmp_path
     ):
         """An imported sequence can not declare a top-level `flags` (or any
         other top-level variable): a top-level assignment is a side effect, so it
-        is rejected outright, before it could shadow the shared $Flags builtin."""
+        is rejected outright -- a side effect stays an error, it is not a shadow
+        warning."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -732,14 +709,13 @@ flags: U32 = 5
             import_search_dirs=[str(tmp_path)],
         )
 
-    def test_nested_import_of_module_named_after_dictionary_namespace_is_rejected(
+    def test_nested_import_of_module_named_after_dictionary_namespace_warns(
         self, fprime_test_api, tmp_path
     ):
         """An imported sequence that itself imports a module whose name matches
-        a dictionary namespace (`Ref`) collides with that base namespace rather
-        than silently shadowing it (which would break `Ref.*` commands in that
-        sequence). Bound through `_bind_module`, so it must also consult the
-        parent chain."""
+        a dictionary namespace (`Ref`) shadows that base namespace. Bound through
+        `_bind_module`, so the shadow is detected up the parent chain. Allowed
+        with a warning (it does change what `Ref.*` names in that sequence)."""
         _write_sequence(
             tmp_path,
             "Ref",
@@ -756,6 +732,101 @@ import Ref
 """,
         )
         main = "import outer\n"
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        assert any(
+            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
+        ), f"expected a shadow-function warning, got {state.warnings}"
+
+
+class TestImportShadowsBuiltins:
+    """A main-sequence import that binds a name taken only by the builtin /
+    dictionary base scope shadows it -- a warning categorized by the bound name's
+    name group. Imports of function-only sequences occupy the callable group, so
+    they warn as `shadow-function`. A same-scope collision stays an error."""
+
+    def test_import_module_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
+        # A sequence file named after the builtin library function `time_add`;
+        # `import time_add` binds module `time_add` over the builtin callable.
+        _write_sequence(
+            tmp_path,
+            "time_add",
+            """\
+def f() -> U32:
+    return U32(1)
+""",
+        )
+        main = "import time_add\n"
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        assert any(
+            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
+        ), f"expected a shadow-function warning, got {state.warnings}"
+
+    def test_from_import_alias_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
+        # `... as time_cmp` binds the imported function under a builtin's name.
+        _write_sequence(
+            tmp_path,
+            "lib",
+            """\
+def public() -> U32:
+    return U32(7)
+""",
+        )
+        main = "from lib import public as time_cmp\n"
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        assert any(
+            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
+        ), f"expected a shadow-function warning, got {state.warnings}"
+
+    def test_imported_sequence_function_shadowing_builtin_warns(
+        self, fprime_test_api, tmp_path
+    ):
+        # A function defined INSIDE an imported sequence that shadows a builtin
+        # cast (`U32`) warns rather than erroring.
+        _write_sequence(
+            tmp_path,
+            "lib",
+            """\
+def U32() -> U32:
+    return U32(0)
+""",
+        )
+        # FIXME for all the ones which just compile success, please also run them. then don't need
+        # a duplicate _still_compiles test below i think
+        main = "import lib\n"
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        assert any(
+            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
+        ), f"expected a shadow-function warning, got {state.warnings}"
+
+    def test_import_shadowing_builtin_still_compiles(self, fprime_test_api, tmp_path):
+        # The warning is non-fatal: the shadowing import compiles and runs.
+        _write_sequence(
+            tmp_path,
+            "time_add",
+            """\
+def f() -> U32:
+    return U32(1)
+""",
+        )
+        main = "import time_add\nexit(0)\n"
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_import_over_local_definition_is_error(self, fprime_test_api, tmp_path):
+        # Binding an import over a name defined in the SAME (importer's) scope is
+        # a same-scope collision -- it stays a hard error, not a shadow warning.
+        _write_sequence(
+            tmp_path,
+            "lib",
+            """\
+def public() -> U32:
+    return U32(7)
+""",
+        )
+        main = """\
+def public() -> U32:
+    return U32(1)
+from lib import public
+"""
         assert_compile_failure(
             fprime_test_api,
             main,
