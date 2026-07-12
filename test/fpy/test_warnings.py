@@ -59,17 +59,13 @@ class TestWarningTypeParsing:
 
 
 class TestWarningEmission:
-    """A warning is collected on the state and does not fail compilation."""
+    """An expected warning is collected and does not fail compilation.
+    `expected_warnings` both permits the warning and requires it to be emitted,
+    so a separate presence assertion is unnecessary."""
 
     def test_empty_range_warns(self):
-        state, _, _ = compile_seq(EMPTY_RANGE_SEQ)
-        assert any(
-            w.type == WarningType.EMPTY_RANGE for w in state.warnings
-        ), f"expected an empty-range warning, got {state.warnings}"
-
-    def test_warning_does_not_fail_compile(self):
-        # Should not raise -- warnings are non-fatal by default.
-        compile_seq(EMPTY_RANGE_SEQ)
+        # If EMPTY_RANGE were not emitted, the helper would fail the test.
+        compile_seq(EMPTY_RANGE_SEQ, expected_warnings={WarningType.EMPTY_RANGE})
 
 
 class TestIgnoreWarnings:
@@ -87,7 +83,9 @@ class TestIgnoreWarnings:
 
     def test_ignore_unrelated_type_keeps_warning(self):
         state, _, _ = compile_seq(
-            EMPTY_RANGE_SEQ, ignored_warnings={WarningType.IMPORT_UNDERSCORE}
+            EMPTY_RANGE_SEQ,
+            ignored_warnings={WarningType.IMPORT_UNDERSCORE},
+            expected_warnings={WarningType.EMPTY_RANGE},
         )
         assert any(w.type == WarningType.EMPTY_RANGE for w in state.warnings)
 

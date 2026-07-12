@@ -96,6 +96,14 @@ def _is_sequence_module(m) -> bool:
     return m.is_sequence_module
 
 
+def _shadow_warning_type(ng: NameGroup) -> WarningType:
+    """The shadow warning category for a name group: the callable group warns as
+    `shadow-callable`, every other group (value) as `shadow-value`."""
+    if ng is NameGroup.CALLABLE:
+        return WarningType.SHADOW_CALLABLE
+    return WarningType.SHADOW_VALUE
+
+
 class InlineImports:
     # FIXME can we split resolving and inlining into separate passes?
     """Resolve and inline every import into the main sequence's AST."""
@@ -500,20 +508,31 @@ class BindImports:
 
     def _bind_symbol(self, scope: Scope, name, sym, node, state):
         """Bind a plain (non-module) definition symbol under *name* into *scope*
-        (the importer's), erroring on a collision in any of its name groups."""
+        (the importer's). A name already in the importer's own scope is a
+        collision (error); a name taken only by an enclosing (dictionary/builtin)
+        scope is shadowed (warning)."""
 
         groups = self._symbol_groups(sym)
-        # lookup(), not get(): the importer's scope is a child of the shared
-        # base, so a name already taken by a dictionary/builtin definition must
-        # count as a collision even though it is not in the importer's own scope.
+        # get(), not lookup(): a name in the importer's OWN scope is a same-scope
+        # collision -- an error, with no outer name to fall back to.
         for ng in groups:
-            if scope.lookup(ng, name) is not None:
+            if scope.get(ng, name) is not None:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
+        # The name is free in the importer's scope. If it still resolves up the
+        # parent chain (a dictionary/builtin definition), the import shadows it.
         for ng in groups:
+            # FIXME can you explain why we're checking all name groups? shouldn't we only
+            # check a single name group?
+            if scope.lookup(ng, name) is not None:
+                state.warn(
+                    _shadow_warning_type(ng),
+                    f"Import of '{name}' shadows an existing definition",
+                    node,
+                )
             scope.define(ng, name, sym)
 
     def _bind_module(self, scope: Scope, name, module, node, state):
@@ -548,20 +567,28 @@ class BindImports:
             module = existing
             groups = self._module_groups(module)
 
+        # get(), not lookup(): a non-module name in the importer's OWN scope is a
+        # same-scope collision -- an error. (After a merge above the own occupant
+        # IS this module, so `is not module` skips it.)
         for ng in groups:
-            # FIXME: should this be a warning? like other shadowing instances?
-            # lookup(), not get(): binding a module over a name already taken by
-            # a base (dictionary) definition is a collision, even though it is
-            # not in the importer's own scope. The merge above already made an
-            # own package module the occupant, so lookup returns it (own-scope
-            # first) and `is not module` stays False for the legitimate merge case.
-            occupant = scope.lookup(ng, name)
-            if occupant is not None and occupant is not module:
+            own = scope.get(ng, name)
+            if own is not None and own is not module:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
+        # The name is free in the importer's scope (or occupied by this same
+        # merged module). If it still resolves up the parent chain to a base
+        # (dictionary) definition, the import shadows it: a warning, not an error.
+        for ng in groups:
+            outer = scope.lookup(ng, name)
+            if outer is not None and outer is not module:
+                state.warn(
+                    _shadow_warning_type(ng),
+                    f"Import of '{name}' shadows an existing definition",
+                    node,
+                )
             scope.define(ng, name, module)
 
     def _merge_modules(self, existing, incoming, node, state):

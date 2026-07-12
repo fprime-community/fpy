@@ -215,12 +215,20 @@ import lib
 x: U32 = lib._helper()
 assert x == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        expected = {WarningType.IMPORT_UNDERSCORE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
         assert any(
             w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
         ), f"expected an import-underscore warning, got {state.warnings}"
         # The warning is non-fatal: the sequence still compiles and runs.
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
 
     def test_underscore_member_import_warns(self, fprime_test_api, tmp_path):
         """`import lib._helper` names the underscore definition as a member."""
@@ -231,11 +239,20 @@ import lib._helper
 x: U32 = lib._helper()
 assert x == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        expected = {WarningType.IMPORT_UNDERSCORE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
+        # FIXME redundant
         assert any(
             w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
         ), f"expected an import-underscore warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
 
     def test_underscore_from_import_warns(self, fprime_test_api, tmp_path):
         """`from lib import _helper` names the underscore definition."""
@@ -246,11 +263,19 @@ from lib import _helper
 x: U32 = _helper()
 assert x == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        expected = {WarningType.IMPORT_UNDERSCORE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
         assert any(
             w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
         ), f"expected an import-underscore warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
 
     def test_star_import_underscore_use_warns(self, fprime_test_api, tmp_path):
         """`from lib import *` binds `_helper` without naming it; the later
@@ -262,11 +287,19 @@ from lib import *
 x: U32 = _helper()
 assert x == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        expected = {WarningType.IMPORT_UNDERSCORE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
         assert any(
             w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
         ), f"expected an import-underscore warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
 
     def test_library_internal_use_does_not_warn(self, fprime_test_api, tmp_path):
         """`lib.public()` internally calls `_helper`; the importer never names
@@ -296,14 +329,22 @@ y: U32 = helper()
 assert x == 7
 assert y == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        expected = {WarningType.IMPORT_UNDERSCORE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
         underscore_warnings = [
             w for w in state.warnings if w.type == WarningType.IMPORT_UNDERSCORE
         ]
         assert (
             len(underscore_warnings) == 1
         ), f"expected exactly one import-underscore warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
 
 
 class TestImportErrors:
@@ -681,11 +722,12 @@ from inner import helper as U32
 """,
         )
         main = "import outer\nexit(0)\n"
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert any(
-            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
-        ), f"expected a shadow-callable warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings={WarningType.SHADOW_CALLABLE},
+        )
 
     def test_imported_sequence_cannot_declare_top_level_flags(
         self, fprime_test_api, tmp_path
@@ -732,11 +774,12 @@ import Ref
 """,
         )
         main = "import outer\nexit(0)\n"
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert any(
-            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
-        ), f"expected a shadow-callable warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings={WarningType.SHADOW_CALLABLE},
+        )
 
 
 class TestImportShadowsBuiltins:
@@ -757,14 +800,15 @@ def f() -> U32:
     return U32(1)
 """,
         )
+        # expected_warnings both requires shadow-callable and (by promoting
+        # anything else) asserts it is not miscategorized as shadow-value.
         main = "import time_add\nexit(0)\n"
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        types = {w.type for w in state.warnings}
-        assert (
-            WarningType.SHADOW_CALLABLE in types
-        ), f"expected shadow-callable: {types}"
-        assert WarningType.SHADOW_VALUE not in types, f"unexpected: {types}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings={WarningType.SHADOW_CALLABLE},
+        )
 
     def test_from_import_alias_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
         # `... as time_cmp` binds the imported function under a builtin's name.
@@ -777,11 +821,12 @@ def public() -> U32:
 """,
         )
         main = "from lib import public as time_cmp\nexit(0)\n"
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert any(
-            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
-        ), f"expected a shadow-callable warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings={WarningType.SHADOW_CALLABLE},
+        )
 
     def test_imported_sequence_function_shadowing_builtin_warns(
         self, fprime_test_api, tmp_path
@@ -793,15 +838,16 @@ def public() -> U32:
             "lib",
             """\
 def U32() -> U32:
-    return U32(0)
+    return 0
 """,
         )
         main = "import lib\nexit(0)\n"
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert any(
-            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
-        ), f"expected a shadow-callable warning, got {state.warnings}"
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings={WarningType.SHADOW_CALLABLE},
+        )
 
     def test_import_over_local_definition_is_error(self, fprime_test_api, tmp_path):
         # Binding an import over a name defined in the SAME (importer's) scope is

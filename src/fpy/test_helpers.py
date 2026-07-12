@@ -18,7 +18,35 @@ from fpy.compiler import (
 from fpy.state import CompileState, get_base_compile_state
 from fpy.bytecode.assembler import serialize_directives
 from fpy.dictionary import load_dictionary
+from fpy.error import WarningType
 from fpy.types import FpyType, FpyValue
+
+# Every known warning type. Tests fail on ANY warning by default: the compile
+# helpers promote every warning to a hard error unless the caller declares it in
+# `expected_warnings` (kept as a collected warning) or `ignored_warnings`
+# (dropped). This surfaces stray warnings -- e.g. an accidental shadow -- that a
+# test did not mean to trigger.
+ALL_WARNINGS = frozenset(WarningType)
+
+
+def _default_error_warnings(error_warnings, ignored_warnings, expected_warnings):
+    """The set of warnings to promote to errors. An explicit *error_warnings*
+    wins; otherwise it is every warning except those expected or ignored."""
+    if error_warnings is not None:
+        return error_warnings
+    return ALL_WARNINGS - set(expected_warnings or ()) - set(ignored_warnings or ())
+
+
+def _assert_expected_emitted(state, expected_warnings):
+    """A warning in *expected_warnings* must actually be emitted, not merely
+    allowed -- so declaring it both permits it and asserts it. (Unexpected
+    warnings already fail via promotion to errors.)"""
+    if not expected_warnings:
+        return
+    emitted = {w.type for w in state.warnings}
+    missing = set(expected_warnings) - emitted
+    assert not missing, f"expected warnings not emitted: {missing} (got {emitted})"
+
 
 default_dictionary = str(
     Path(__file__).parent.parent.parent / "test" / "fpy" / "RefTopologyDictionary.json"
@@ -46,17 +74,23 @@ def compile_seq(
     ground_binary_dir: str = None,
     ignored_warnings=None,
     error_warnings=None,
+    expected_warnings=None,
     import_search_dirs: list[str] | None = None,
     main_file_dir: str | None = None,
 ) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string and return (state, directives, arg_types)."""
+    """Compile a sequence string and return (state, directives, arg_types).
+
+    By default every warning is a hard error; pass *expected_warnings* to allow
+    (and still collect) specific ones."""
     fpy.error.file_name = "<test>"
 
     state = get_base_compile_state(
         default_dictionary,
         ground_binary_dir,
         ignored_warnings=ignored_warnings,
-        error_warnings=error_warnings,
+        error_warnings=_default_error_warnings(
+            error_warnings, ignored_warnings, expected_warnings
+        ),
         import_search_dirs=import_search_dirs,
         main_file_dir=main_file_dir,
     )
@@ -68,6 +102,7 @@ def compile_seq(
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
+    _assert_expected_emitted(state, expected_warnings)
     return state, directives, arg_types
 
 
@@ -77,16 +112,22 @@ def compile_seq_wasm(
     import_search_dirs: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
+    expected_warnings=None,
     main_file_dir: str | None = None,
 ) -> bytes:
-    """Compile a sequence string to a runnable wasm binary (the LLVM backend)."""
+    """Compile a sequence string to a runnable wasm binary (the LLVM backend).
+
+    By default every warning is a hard error; pass *expected_warnings* to allow
+    (and still collect) specific ones."""
     fpy.error.file_name = "<test>"
 
     state = get_base_compile_state(
         default_dictionary,
         ground_binary_dir,
         ignored_warnings=ignored_warnings,
-        error_warnings=error_warnings,
+        error_warnings=_default_error_warnings(
+            error_warnings, ignored_warnings, expected_warnings
+        ),
         import_search_dirs=import_search_dirs,
         main_file_dir=main_file_dir,
     )
@@ -98,6 +139,7 @@ def compile_seq_wasm(
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
+    _assert_expected_emitted(state, expected_warnings)
     return wasm
 
 
@@ -105,6 +147,7 @@ def run_seq_wasm(
     seq: str,
     ground_binary_dir: str = None,
     import_search_dirs: list[str] | None = None,
+    expected_warnings=None,
     main_file_dir: str | None = None,
 ) -> int:
     """Compile *seq* to wasm and run it, returning fpy_main's error code.
@@ -121,6 +164,7 @@ def run_seq_wasm(
         seq,
         ground_binary_dir,
         import_search_dirs=import_search_dirs,
+        expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
     wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
@@ -270,12 +314,23 @@ def run_seq(
 
 
 def assert_compile_success(
-    fprime_test_api, seq: str, import_search_dirs: list[str] | None = None
+    fprime_test_api,
+    seq: str,
+    import_search_dirs: list[str] | None = None,
+    expected_warnings=None,
 ):
     if USE_WASM:
-        compile_seq_wasm(seq, import_search_dirs=import_search_dirs)
+        compile_seq_wasm(
+            seq,
+            import_search_dirs=import_search_dirs,
+            expected_warnings=expected_warnings,
+        )
         return
-    compile_seq(seq, import_search_dirs=import_search_dirs)
+    compile_seq(
+        seq,
+        import_search_dirs=import_search_dirs,
+        expected_warnings=expected_warnings,
+    )
 
 
 def assert_run_success(
@@ -291,6 +346,7 @@ def assert_run_success(
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
     import_search_dirs: list[str] | None = None,
+    expected_warnings=None,
     main_file_dir: str | None = None,
 ):
     if USE_WASM:
@@ -298,6 +354,7 @@ def assert_run_success(
             seq,
             ground_binary_dir=ground_binary_dir,
             import_search_dirs=import_search_dirs,
+            expected_warnings=expected_warnings,
             main_file_dir=main_file_dir,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
@@ -307,6 +364,7 @@ def assert_run_success(
         seq,
         ground_binary_dir=ground_binary_dir,
         import_search_dirs=import_search_dirs,
+        expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
     arg_types = [t for _, t in arg_name_types]
@@ -341,6 +399,7 @@ def assert_compile_failure(
     import_search_dirs: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
+    expected_warnings=None,
     main_file_dir: str | None = None,
 ):
     try:
@@ -351,6 +410,7 @@ def assert_compile_failure(
                 import_search_dirs=import_search_dirs,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
+                expected_warnings=expected_warnings,
                 main_file_dir=main_file_dir,
             )
         else:
@@ -360,6 +420,7 @@ def assert_compile_failure(
                 import_search_dirs=import_search_dirs,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
+                expected_warnings=expected_warnings,
                 main_file_dir=main_file_dir,
             )
     except (SystemExit, CompilationFailed) as e:

@@ -1,6 +1,6 @@
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success, compile_seq
+from fpy.test_helpers import assert_compile_failure, assert_run_success
 from fpy.error import WarningType
 
 
@@ -930,6 +930,8 @@ class TestShadowWarnings:
     def test_function_shadows_builtin_warns(self, fprime_test_api):
         # `time_add` is a builtin library function; redefining it here shadows
         # the base callable rather than colliding with a same-scope definition.
+        # expected_warnings both requires shadow-callable and (by promoting
+        # anything else) asserts it is not miscategorized as shadow-value.
         seq = """
 def time_add() -> U32:
     return U32(0)
@@ -937,11 +939,6 @@ def time_add() -> U32:
 x: U32 = time_add()
 assert x == 0
 """
-        state, _, _ = compile_seq(seq)
-        types = {w.type for w in state.warnings}
-        assert (
-            WarningType.SHADOW_CALLABLE in types
-        ), f"expected shadow-callable: {types}"
-        assert WarningType.SHADOW_VALUE not in types, f"unexpected: {types}"
-        # The warning is non-fatal: the sequence still compiles and runs.
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )

@@ -289,19 +289,22 @@ class DefineFunctions(TopDownVisitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Functions go in their node's enclosing scope's callable group.
         scope = state.enclosing_scope[node]
-        # lookup(), not get(): a sequence's scope is a child of the shared base,
-        # so a name already taken by a dictionary command, cast or type
-        # constructor is not free just because this sequence's own callable group
-        # is empty. Redefinition must be rejected up the parent chain too.
 
-        # FIXME so basically we're disallowing shadowing here? should we disallow shadowing
-        # for variables too? maybe we either make both a warning or both an error.
-        existing_func = scope.lookup(NameGroup.CALLABLE, node.name.name)
-        if existing_func is not None:
+        # get(), not lookup(): a name already in THIS scope's callable group is a
+        # conflict
+        if scope.get(NameGroup.CALLABLE, node.name.name) is not None:
             state.err(
                 f"Function '{node.name.name}' has already been defined", node.name
             )
             return
+
+        # If the name resolves to something already, it's a shadow
+        if scope.lookup(NameGroup.CALLABLE, node.name.name) is not None:
+            state.warn(
+                WarningType.SHADOW_CALLABLE,
+                f"Function '{node.name.name}' shadows an existing definition",
+                node.name,
+            )
 
         func = FunctionSymbol(
             # we know the name
@@ -354,31 +357,23 @@ class DefineVariables(TopDownVisitor):
         # sequence arguments, so their root scope never gains a variable.
         is_root = scope is state.main_scope
 
-        # In a block scope, shadowing an outer or global name is allowed, so only
-        # the block's own value group blocks a redeclaration. In the main
-        # sequence's root scope, the parent is the shared base (dictionary
-        # channels, params, `flags`, ...); a top-level name must not shadow those,
-        # so consult the whole chain -- matching how DefineFunctions checks
-        # callable names.
-
-        # FIXME no, I think either it should allow shadowing with warnings, or
-        # error.
-
-        existing_local = (
-            scope.lookup(NameGroup.VALUE, sym.name)
-            if is_root
-            else scope.get(NameGroup.VALUE, sym.name)
-        )
-
-        if existing_local is not None:
+        # get(), not lookup(): a name already in THIS scope's value group is a
+        # same-scope redeclaration
+        if scope.get(NameGroup.VALUE, sym.name) is not None:
             if assert_undeclared:
                 assert False, f"{variable_kind} '{sym.name}' has already been defined"
-            # redeclaring an existing variable in the SAME scope
             state.err(
                 f"{variable_kind} '{sym.name}' has already been defined",
                 sym.declaration,
             )
             return
+
+        if scope.lookup(NameGroup.VALUE, sym.name) is not None:
+            state.warn(
+                WarningType.SHADOW_VALUE,
+                f"{variable_kind} '{sym.name}' shadows an existing definition",
+                sym.declaration,
+            )
 
         sym.is_global = is_root
 

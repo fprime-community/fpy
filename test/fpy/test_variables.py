@@ -1,6 +1,6 @@
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success, compile_seq
+from fpy.test_helpers import assert_compile_failure, assert_run_success
 from fpy.error import WarningType
 
 
@@ -165,7 +165,7 @@ var2: I64 = 0
 
     def test_scope_override_name(self, fprime_test_api):
         # With block scoping, each indentation block creates a new scope.
-        # So while/if bodies can shadow variables from outer scopes.
+        # So while/if bodies can shadow variables from outer scopes (warns).
         seq = """
 i: U8 = 0
 while True:
@@ -175,7 +175,9 @@ while True:
     exit(1)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_override_global_name(self, fprime_test_api):
         # Shadowing a dictionary name with a user variable is allowed, but warns
@@ -187,7 +189,9 @@ if CdhCore == 1:
 exit(1)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_redeclare_after_scope(self, fprime_test_api):
         seq = """
@@ -213,6 +217,7 @@ assert i == 0
         assert_run_success(fprime_test_api, seq)
 
     def test_redeclare_in_nested_scopes(self, fprime_test_api):
+        # The inner `for z` shadows the outer `z` (warns).
         seq = """
 z: U8 = 123
 for i in 0 .. 7:
@@ -221,7 +226,9 @@ for i in 0 .. 7:
 assert z == 123
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
 
 class TestShadowWarnings:
@@ -232,19 +239,18 @@ class TestShadowWarnings:
     hard error."""
 
     def test_inner_block_shadows_outer_variable_warns(self, fprime_test_api):
-        # `i` in the while body shadows the global `i`.
+        # `i` in the while body shadows the global `i`. expected_warnings both
+        # requires the shadow-value warning and (by promoting anything else)
+        # asserts it is not miscategorized as shadow-callable.
         seq = """
 i: U8 = 0
 while True:
     i: U8 = 1
     exit(0)
 """
-        state, _, _ = compile_seq(seq)
-        types = {w.type for w in state.warnings}
-        assert WarningType.SHADOW_VALUE in types, f"expected shadow-value: {types}"
-        assert WarningType.SHADOW_CALLABLE not in types, f"unexpected: {types}"
-        # The warning is non-fatal: the sequence still compiles and runs.
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_root_variable_shadows_dictionary_name_warns(self, fprime_test_api):
         # A top-level variable named after a dictionary namespace shadows the
@@ -253,10 +259,9 @@ while True:
 CdhCore: U8 = 1
 exit(0)
 """
-        state, _, _ = compile_seq(seq)
-        types = {w.type for w in state.warnings}
-        assert WarningType.SHADOW_VALUE in types, f"expected shadow-value: {types}"
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_same_scope_variable_redeclare_is_error(self, fprime_test_api):
         # Redefining a variable in the SAME scope is not shadowing -- it stays a
@@ -268,15 +273,11 @@ x: U8 = 1
         assert_compile_failure(fprime_test_api, seq, match="already been defined")
 
     def test_no_shadow_warning_for_unique_names(self, fprime_test_api):
+        # No expected_warnings: any warning at all would fail the test.
         seq = """
 a: U8 = 0
 while True:
     b: U8 = 1
     exit(0)
 """
-        state, _, _ = compile_seq(seq)
-        assert not any(
-            w.type in (WarningType.SHADOW_VALUE, WarningType.SHADOW_CALLABLE)
-            for w in state.warnings
-        ), f"unique names should not warn, got {state.warnings}"
         assert_run_success(fprime_test_api, seq)
