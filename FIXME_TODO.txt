@@ -1,0 +1,143 @@
+FIXME triage and plan
+======================
+Source: every `# FIXME` comment in the tree, grouped and prioritized by blast
+radius -- items that reshape the most other items come first.
+
+Status key: [ ] todo  [~] in progress  [x] done  [-] wont-do/moot
+
+------------------------------------------------------------------------------
+STATUS (as of end of T1.3)
+  DONE:  T1.1, T1.2, T1.3 (all of Tier 1) + T4.3.
+  NEXT:  >>> T2.1 (shadowing policy) <<<  -- needs a decision, see below.
+  Open FIXMEs remaining in tree: 21.
+  Baseline: full suite 1511 passed, 3 skipped, 1 xpassed; black + spec-links clean.
+  Line numbers below are CURRENT (re-grep `# FIXME` if they drift after edits).
+------------------------------------------------------------------------------
+
+
+==============================================================================
+TIER 1 -- structural, reshapes everything downstream        [ALL DONE]
+==============================================================================
+
+[x] T1.1  Collapse the 3 parallel symbol tables (type/callable/value) into ONE
+          symbols.Scope holding 3 name-group dicts. Stop passing 3 tables around.
+            - global_/base_/enclosing_ *_scope -> main_scope / base_scope /
+              enclosing_scope (single Scope objects); SequenceContext.{callable,
+              value}_scope -> one scope.
+            - Left SymbolTable as the flat ModuleSymbol (Tier 3 formalizes it).
+            - flags_var moved into base_scope; its main-frame slot reserved
+              explicitly in CalculateFrameSizes.run.
+          Removed FIXMEs: base/global naming x2, weird docstring, unused-callable-
+          scope, store-scopes-in-enclosing.
+
+[x] T1.2  Rebuild the compilation unit cleanly + centralize scope creation.
+          Step1 killed the body.stmts "switcheroo" (fresh library root + main
+            block; codegen entry points dropped the `body` param); renamed
+            program_block -> main_block.
+          Step2 renamed global_scope -> main_scope.
+          Step3 deleted sequence_root_scopes; is_root == `scope is main_scope`.
+          Step4 made CreateScopes the SOLE scope creator (only special case: the
+            root owns base_scope).
+          Removed FIXMEs: switcheroo, state.root-misleading, splice, rename,
+            confusing comment, container special-case, sequence_root_scopes.
+
+[x] T1.3  Remove container_sequence + sequence_of (and own_definitions/
+          get_definition).
+            - SequenceContext now holds `block` (not `scope`); scope derived via
+              state.enclosing_scope[block].
+            - BindImports resolves importer/target Scopes from blocks; passes
+              Scopes into _bind_symbol/_bind_module. own_definitions/get_definition
+              DELETED -> one Scope.own_symbols().
+            - star_underscore_names moved onto Scope; underscore warning walks the
+              scope chain to the root scope (parent is base_scope). sequence_of
+              DELETED.
+            - _build_compilation_unit reuses `program` as main_block; dropped the
+              library SequenceContext.
+            - state.root -> state.root_block.
+          Removed FIXMEs: 7.
+
+
+==============================================================================
+TIER 2 -- behavioral policy (touches spec + tests; needs a decision)
+==============================================================================
+
+>>> NEXT UP <<<
+[ ] T2.1  Settle the shadowing / name-collision rule across all THREE sites,
+          consistently. DECISION NEEDED before implementing (it changes SPEC.md
+          + tests, not just code).
+
+          The three FIXME sites:
+            - semantics.py:297  DefineFunctions.visit_AstDef -- function
+              redefinition.
+            - semantics.py:364  DefineVariables.define_variable -- variable
+              redeclaration.
+            - imports.py:552    BindImports._bind_module -- import binding over an
+              existing name.
+
+          Current (INCONSISTENT) behavior:
+            - Functions: redefinition is an ERROR, checked up the WHOLE chain
+              (cannot even shadow a dictionary/builtin callable).
+            - Variables: same-scope redeclaration is an ERROR; but shadowing an
+              OUTER/global name from an inner block is SILENTLY ALLOWED; at the
+              sequence root, cannot shadow base (dictionary) names.
+            - Imports: binding over an existing name is an ERROR.
+
+          The decision to make: pick ONE uniform policy -- e.g. (a) all ERROR
+          (no shadowing anywhere), (b) all WARN (allow, but warn), or (c) a
+          defined split (e.g. inner-block shadowing warns; same-scope + base/dict
+          collisions error). Then apply it to all three sites + update SPEC.md +
+          tests.
+
+          >> When resuming: ASK THE USER which policy before coding. <<
+
+
+==============================================================================
+TIER 3 -- module modeling
+==============================================================================
+
+[ ] T3.1  symbols.py:131 -- replace the is_sequence_module bool on SymbolTable
+          with a real Module class. Then, built on it:
+            - imports.py:379  simplify BindImports._bind (imagine an explicit IR:
+              "from file import symbol as path"; delete helpers).
+            - semantics.py:1623 explain / stop using parent_map in the
+              module-used-as-a-value check; point it at a test.
+
+
+==============================================================================
+TIER 4 -- localized correctness / investigations (independent, low ripple)
+==============================================================================
+
+[ ] T4.1  desugaring.py:748 -- _make_func_call should look up in the enclosing
+          callable scope (correctness). Currently main_scope.lookup, which is
+          fine for the builtins it targets; revisit for correctness.
+[ ] T4.2  test_imports.py:2163 -- verify/add a test that relative imports INSIDE
+          an imported lib resolve relative to THAT lib, not the importer
+          (possible bug).
+[x] T4.3  delete sequence_of() entirely  [done in T1.3]
+[ ] T4.4  imports.py:275 -- is the `i != 0` sequence()-metadata check already
+          caught by another semantic pass? if so, dedupe.
+[ ] T4.5  imports.py:313 + imports.py:315 -- do we actually forbid duplicate
+          search dirs? + do a brief TOCTOU analysis of file resolution.
+[ ] T4.6  imports.py:143 -- assign node ids at parse time instead of in the
+          semantics passes (would remove _ensure_id).
+[ ] T4.7  imports.py:100 -- split InlineImports into separate resolve vs inline
+          passes (deferred from T1.2).
+[ ] T4.8  imports.py:126 -- confirm it's safe to early-return from _inline_stmts
+          on state.errors without signalling further (deferred from T1.2).
+
+
+==============================================================================
+TIER 5 -- cosmetic / cleanup (last, near-zero ripple)
+==============================================================================
+
+[ ] T5.1  codegen_fpybc.py:192 -- explain the main-block fresh-frame logic in
+          CalculateFrameSizes.visit_AstBlock (seems weird / wants a comment).
+[ ] T5.2  compiler.py:153 -- _build_compilation_unit docstring is too long/verbose;
+          trim it.
+[ ] T5.3  imports.py:162 -- add a type annotation for import_stack.
+[ ] T5.4  imports.py:164 -- better circular-import error msg (show the cycle).
+[ ] T5.5  imports.py:262 -- fix the misleading "not top-level statements" wording
+          (AstDef/AstImport/AstSequenceMetadata ARE top-level statements).
+[ ] T5.6  imports.py:305 -- use pathlib instead of os.path.dirname? (safety).
+[ ] T5.7  test_imports.py:2107 -- are the TestImportModuleMerging tests duplicates
+          of existing coverage?
