@@ -361,7 +361,7 @@ assert i == 2
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_modify_global_var_in_func_be: this is allowed, butfore_definition(self, fprime_test_api):
+    def test_modify_global_var_in_func_before_definition(self, fprime_test_api):
         """Calling a function that reads a global before that global is declared
         is an error, even though the function itself may be defined earlier."""
         seq = """
@@ -923,34 +923,13 @@ exit(exit_code=0)
 class TestShadowWarnings:
     """Defining a function whose name already resolves in an ENCLOSING scope
     (typically a builtin command, cast, type constructor, or library function)
-    is allowed but emits the `shadow-function` warning. Redefining a name
-    already in the SAME scope stays a hard error (see test_redeclare_func)."""
+    is allowed but emits the `shadow-callable` warning (never `shadow-value`),
+    and still compiles and runs. Redefining a name already in the SAME scope
+    stays a hard error (see test_redeclare_func)."""
 
-    def test_function_shadows_builtin_warns(self):
+    def test_function_shadows_builtin_warns(self, fprime_test_api):
         # `time_add` is a builtin library function; redefining it here shadows
         # the base callable rather than colliding with a same-scope definition.
-        seq = """\
-def time_add() -> U32:
-    return U32(0)
-"""
-        state, _, _ = compile_seq(seq)
-        assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
-
-    def test_function_shadow_is_not_categorized_as_shadow_variable(self):
-        seq = """\
-def time_add() -> U32:
-    return U32(0)
-"""
-        state, _, _ = compile_seq(seq)
-        assert not any(
-            w.type == WarningType.SHADOW_VARIABLE for w in state.warnings
-        ), f"shadowing a function must not warn as shadow-variable: {state.warnings}"
-
-    def test_shadowing_function_still_compiles(self, fprime_test_api):
-        # The warning is non-fatal: the shadowing definition compiles and runs.
-        # FIXME this could easily be one test instead of three
         seq = """
 def time_add() -> U32:
     return U32(0)
@@ -958,4 +937,11 @@ def time_add() -> U32:
 x: U32 = time_add()
 assert x == 0
 """
+        state, _, _ = compile_seq(seq)
+        types = {w.type for w in state.warnings}
+        assert (
+            WarningType.SHADOW_CALLABLE in types
+        ), f"expected shadow-callable: {types}"
+        assert WarningType.SHADOW_VALUE not in types, f"unexpected: {types}"
+        # The warning is non-fatal: the sequence still compiles and runs.
         assert_run_success(fprime_test_api, seq)

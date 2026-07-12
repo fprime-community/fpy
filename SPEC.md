@@ -117,10 +117,10 @@ The **resolving name group** is the name group that a name should be resolved in
 A [definition](#definitions) **shadows** an outer name when it introduces a name into its [resolving scope](#scopes)'s [name group](#name-groups) that is *not* already defined in that scope, but *does* resolve to a symbol in an enclosing scope's same name group.
 
 Each shadowing definition emits a warning named for the name group it shadows:
-* Shadowing a name in the [value name group](#name-groups) emits the `shadow-variable` warning.
-* Shadowing a name in the [callable name group](#name-groups) emits the `shadow-function` warning.
+* Shadowing a name in the [value name group](#name-groups) emits the `shadow-value` warning.
+* Shadowing a name in the [callable name group](#name-groups) emits the `shadow-callable` warning.
 
-*Tests:* [1](test/fpy/test_variables.py#L233 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L246 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_functions.py#L929 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [4](test/fpy/test_imports.py#L746 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns")
+*Tests:* [1](test/fpy/test_variables.py#L234 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L249 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_functions.py#L930 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [4](test/fpy/test_imports.py#L749 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns")
 
 ## Modules
 
@@ -199,9 +199,9 @@ If `lhs` is already defined in the resolving scope's [value name group](#name-gr
 
 > This prevents redefining a variable in the same scope.
 
-If `lhs` is not defined in the resolving scope, but resolves to a symbol in an enclosing scope's value name group, the definition [shadows](#shadowing) that outer name, and emits the `shadow-variable` warning.
+If `lhs` is not defined in the resolving scope, but resolves to a symbol in an enclosing scope's value name group, the definition [shadows](#shadowing) that outer name, and emits the `shadow-value` warning.
 
-*Tests:* [1](test/fpy/test_variables.py#L233 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L246 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_variables.py#L282 "test/fpy/test_variables.py::TestShadowWarnings::test_same_scope_variable_redeclare_is_error")
+*Tests:* [1](test/fpy/test_variables.py#L234 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L249 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_variables.py#L261 "test/fpy/test_variables.py::TestShadowWarnings::test_same_scope_variable_redeclare_is_error")
 
 If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
@@ -407,9 +407,9 @@ If `name` is already defined in the resolving scope's [callable name group](#nam
 
 > This prevents redefining a function in the same scope.
 
-If `name` is not defined in the resolving scope, but resolves to a callable in an enclosing scope's callable name group, the definition [shadows](#shadowing) that outer callable, and emits the `shadow-function` warning.
+If `name` is not defined in the resolving scope, but resolves to a callable in an enclosing scope's callable name group, the definition [shadows](#shadowing) that outer callable, and emits the `shadow-callable` warning.
 
-*Tests:* [1](test/fpy/test_functions.py#L929 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [2](test/fpy/test_functions.py#L39 "test/fpy/test_functions.py::TestDefinition::test_redeclare_func")
+*Tests:* [1](test/fpy/test_functions.py#L930 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [2](test/fpy/test_functions.py#L39 "test/fpy/test_functions.py::TestDefinition::test_redeclare_func")
 
 A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
 
@@ -671,7 +671,7 @@ The **import path** is the dotted chain of names, excluding any leading dots. It
 
 An import statement with one or more leading dots is **relative**; one with none is **absolute**. The leading dots must be followed by an import path of at least one name.
 
-*Tests:* [1](test/fpy/test_imports.py#L2115 "test/fpy/test_imports.py::TestImportRelative::test_bare_dot_from_is_error")
+*Tests:* [1](test/fpy/test_imports.py#L2110 "test/fpy/test_imports.py::TestImportRelative::test_bare_dot_from_is_error")
 
 > Unlike Python, `import .util` is valid and `from . import util` is not. The members of a `from` statement are always definitions, never sequences; to import a sibling sequence whole, write `import .util`.
 
@@ -679,7 +679,7 @@ In the parenthesized form, the member list may span multiple lines.
 
 An import statement is only valid outside an indentation block.
 
-*Tests:* [1](test/fpy/test_imports.py#L891 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L908 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
+*Tests:* [1](test/fpy/test_imports.py#L886 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L903 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
 
 ## Semantics
 
@@ -693,15 +693,15 @@ An import statement is resolved against **candidate directories**:
 * The candidate directories of an absolute import are the base import search path. The location of the importing sequence plays no role, so an absolute import path names the same file in every sequence of a compilation.
 * A relative import has a single candidate directory, its **anchor**: one leading dot anchors at the directory containing the importing sequence, and each additional leading dot moves the anchor to its parent directory. The base import search path plays no role.
 
-*Tests:* [1](test/fpy/test_imports.py#L1937 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_of_sibling"), [2](test/fpy/test_imports.py#L1960 "test/fpy/test_imports.py::TestImportRelative::test_absolute_import_ignores_importer_directory"), [3](test/fpy/test_imports.py#L1986 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_does_not_search_base_path"), [4](test/fpy/test_imports.py#L2029 "test/fpy/test_imports.py::TestImportRelative::test_parent_relative_import")
+*Tests:* [1](test/fpy/test_imports.py#L1932 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_of_sibling"), [2](test/fpy/test_imports.py#L1955 "test/fpy/test_imports.py::TestImportRelative::test_absolute_import_ignores_importer_directory"), [3](test/fpy/test_imports.py#L1981 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_does_not_search_base_path"), [4](test/fpy/test_imports.py#L2024 "test/fpy/test_imports.py::TestImportRelative::test_parent_relative_import")
 
 If a relative import appears in a sequence that has no containing directory (such as one compiled from a stream), an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L2145 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_without_location_is_error")
+*Tests:* [1](test/fpy/test_imports.py#L2140 "test/fpy/test_imports.py::TestImportRelative::test_relative_import_without_location_is_error")
 
 A sequence path `s_0.s_1. ... .s_n` **resolves** in a directory `dir` if the file `dir/s_0/s_1/.../s_n.fpy` exists.
 
-*Tests:* [1](test/fpy/test_imports.py#L1061 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L1081 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L1159 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_sequence_file_beats_directory"), [4](test/fpy/test_imports.py#L1173 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
+*Tests:* [1](test/fpy/test_imports.py#L1056 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L1076 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L1154 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_sequence_file_beats_directory"), [4](test/fpy/test_imports.py#L1168 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
 
 An import statement names its imported sequence and an optional member as follows. Let its import path be `s_0. ... .s_n`. In each candidate directory:
 1. If `s_0. ... .s_n` resolves in the directory, that file is the directory's **split**; the whole path is the **sequence path**, and there is no member.
@@ -712,7 +712,7 @@ If exactly one candidate directory has a split, it names the imported sequence a
 
 A `from` statement's path splits by step 1 only: it is always the whole sequence path, never a sequence path plus member. Each name in its import list is a member.
 
-*Tests:* [1](test/fpy/test_imports.py#L1217 "test/fpy/test_imports.py::TestImportSearchDirs::test_sequence_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L1233 "test/fpy/test_imports.py::TestImportSearchDirs::test_same_name_in_two_dirs_is_ambiguous"), [3](test/fpy/test_imports.py#L1254 "test/fpy/test_imports.py::TestImportSearchDirs::test_whole_vs_member_across_dirs_is_ambiguous"), [4](test/fpy/test_imports.py#L1276 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_sequence_resolved_across_search_dirs"), [5](test/fpy/test_imports.py#L330 "test/fpy/test_imports.py::TestImportErrors::test_missing_sequence_is_an_error"), [6](test/fpy/test_imports.py#L1294 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [7](test/fpy/test_imports.py#L1119 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [8](test/fpy/test_imports.py#L1186 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [9](test/fpy/test_imports.py#L1199 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [10](test/fpy/test_imports.py#L464 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails"), [11](test/fpy/test_imports.py#L2051 "test/fpy/test_imports.py::TestImportRelative::test_relative_member_import")
+*Tests:* [1](test/fpy/test_imports.py#L1212 "test/fpy/test_imports.py::TestImportSearchDirs::test_sequence_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L1228 "test/fpy/test_imports.py::TestImportSearchDirs::test_same_name_in_two_dirs_is_ambiguous"), [3](test/fpy/test_imports.py#L1249 "test/fpy/test_imports.py::TestImportSearchDirs::test_whole_vs_member_across_dirs_is_ambiguous"), [4](test/fpy/test_imports.py#L1271 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_sequence_resolved_across_search_dirs"), [5](test/fpy/test_imports.py#L330 "test/fpy/test_imports.py::TestImportErrors::test_missing_sequence_is_an_error"), [6](test/fpy/test_imports.py#L1289 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [7](test/fpy/test_imports.py#L1114 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [8](test/fpy/test_imports.py#L1181 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [9](test/fpy/test_imports.py#L1194 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [10](test/fpy/test_imports.py#L464 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails"), [11](test/fpy/test_imports.py#L2046 "test/fpy/test_imports.py::TestImportRelative::test_relative_member_import")
 
 > A file `foo.fpy` always takes precedence over a sibling directory `foo/` for `import foo`, while `import foo.bar` descends into the directory `foo/` regardless of whether `foo.fpy` exists.
 
@@ -743,25 +743,25 @@ If the imported sequence declares one or more [sequence arguments](todo), an err
 
 The imported sequence is compiled as a sequence in its own right: names in it resolve in its own, new global scope, and the semantics of this section apply recursively to its own import statements, with the imported sequence in the role of the importing sequence.
 
-*Tests:* [1](test/fpy/test_imports.py#L930 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works"), [2](test/fpy/test_imports.py#L559 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_function_cannot_see_importer_globals"), [3](test/fpy/test_imports.py#L958 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
+*Tests:* [1](test/fpy/test_imports.py#L925 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works"), [2](test/fpy/test_imports.py#L559 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_function_cannot_see_importer_globals"), [3](test/fpy/test_imports.py#L953 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
 
 > Isolation is by construction. The importing sequence's symbols live in the importing sequence's global scope, so they are not visible in the imported sequence; a sequence imported by the imported sequence binds names in the imported sequence's global scope, so it is not visible in the importing sequence. Every rule below that binds a name says which global scope receives it.
 
 If a sequence transitively imports itself, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L991 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L1012 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L1043 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
+*Tests:* [1](test/fpy/test_imports.py#L986 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L1007 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L1038 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
 
 To introduce a sequence path `s_0. ... .s_k` as a **module chain** is to add `s_0` as a [module](#modules) to the importing sequence's global scope, and each following `s_i` as a module to `s_{i-1}`; the last module, `s_k`, is the **leaf module**.
 
 An import statement with no member and no alias introduces its sequence path as a module chain, and adds each [definition](#definitions) in the imported sequence's global scope to the leaf module, under its own name.
 
-*Tests:* [1](test/fpy/test_imports.py#L103 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L124 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L491 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L529 "test/fpy/test_imports.py::TestImportModuleIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L1099 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
+*Tests:* [1](test/fpy/test_imports.py#L103 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L124 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L491 "test/fpy/test_imports.py::TestImportModuleIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L529 "test/fpy/test_imports.py::TestImportModuleIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L1094 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
 
 > After `import a.b.c` of a sequence that defines `x`, the symbol is named `a.b.c.x`, and is available under no shorter name.
 
 The sequence path of a relative import excludes its leading dots; the dots affect resolution only.
 
-*Tests:* [1](test/fpy/test_imports.py#L2007 "test/fpy/test_imports.py::TestImportRelative::test_relative_binds_path_after_dots"), [2](test/fpy/test_imports.py#L2029 "test/fpy/test_imports.py::TestImportRelative::test_parent_relative_import")
+*Tests:* [1](test/fpy/test_imports.py#L2002 "test/fpy/test_imports.py::TestImportRelative::test_relative_binds_path_after_dots"), [2](test/fpy/test_imports.py#L2024 "test/fpy/test_imports.py::TestImportRelative::test_parent_relative_import")
 
 > `import .sub.mod` introduces the module chain `sub.mod`, and `import ..util` introduces the module `util`. So the depth of the importer never leaks into names: `lib/a.fpy` (via `import .util`) and `lib/sub/b.fpy` (via `import ..util`) both bind `lib/util.fpy` as module `util`.
 
@@ -769,11 +769,11 @@ A module that holds an imported sequence's definitions -- the leaf module of a m
 
 A name introduced by an import is an ordinary symbol: mapping one name to two symbols in the same [name group](#name-groups) and the same scope or [module](#modules) is a collision, and an error is raised. The exception is two modules, which instead merge into one module whose members are those of both -- unless both are sequence modules, which collide like any other symbols.
 
-A collision is only with a name in the importing scope itself (or the same module). If the imported name is instead free in the importing scope but resolves to a symbol in an enclosing scope, the import [shadows](#shadowing) that name rather than colliding. This emits the `shadow-function` warning if the bound name occupies the callable name group, or the `shadow-variable` warning if it occupies the value name group.
+A collision is only with a name in the importing scope itself (or the same module). If the imported name is instead free in the importing scope but resolves to a symbol in an enclosing scope, the import [shadows](#shadowing) that name rather than colliding. This emits the `shadow-callable` warning if the bound name occupies the callable name group, or the `shadow-value` warning if it occupies the value name group.
 
-*Tests:* [1](test/fpy/test_imports.py#L746 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns"), [2](test/fpy/test_imports.py#L763 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_from_import_alias_shadowing_builtin_warns"), [3](test/fpy/test_imports.py#L779 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_imported_sequence_function_shadowing_builtin_warns")
+*Tests:* [1](test/fpy/test_imports.py#L749 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns"), [2](test/fpy/test_imports.py#L769 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_from_import_alias_shadowing_builtin_warns"), [3](test/fpy/test_imports.py#L786 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_imported_sequence_function_shadowing_builtin_warns")
 
-*Tests:* [1](test/fpy/test_imports.py#L588 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L609 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable"), [3](test/fpy/test_imports.py#L628 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable"), [4](test/fpy/test_imports.py#L1517 "test/fpy/test_imports.py::TestImportAlias::test_alias_collides_with_local"), [5](test/fpy/test_imports.py#L1767 "test/fpy/test_imports.py::TestImportFrom::test_from_import_collides_with_local"), [6](test/fpy/test_imports.py#L1788 "test/fpy/test_imports.py::TestImportFrom::test_from_star_collides_across_sequences"), [7](test/fpy/test_imports.py#L1711 "test/fpy/test_imports.py::TestImportFrom::test_from_import_duplicate_member_is_error"), [8](test/fpy/test_imports.py#L1136 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_sequences_in_same_package_no_collision"), [9](test/fpy/test_imports.py#L2180 "test/fpy/test_imports.py::TestImportModuleMerging::test_sequence_and_package_module_merge"), [10](test/fpy/test_imports.py#L2196 "test/fpy/test_imports.py::TestImportModuleMerging::test_two_aliases_same_name_collide"), [11](test/fpy/test_imports.py#L2209 "test/fpy/test_imports.py::TestImportModuleMerging::test_relative_and_absolute_leaf_collision")
+*Tests:* [1](test/fpy/test_imports.py#L588 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L609 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable"), [3](test/fpy/test_imports.py#L628 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable"), [4](test/fpy/test_imports.py#L1512 "test/fpy/test_imports.py::TestImportAlias::test_alias_collides_with_local"), [5](test/fpy/test_imports.py#L1762 "test/fpy/test_imports.py::TestImportFrom::test_from_import_collides_with_local"), [6](test/fpy/test_imports.py#L1783 "test/fpy/test_imports.py::TestImportFrom::test_from_star_collides_across_sequences"), [7](test/fpy/test_imports.py#L1706 "test/fpy/test_imports.py::TestImportFrom::test_from_import_duplicate_member_is_error"), [8](test/fpy/test_imports.py#L1131 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_sequences_in_same_package_no_collision"), [9](test/fpy/test_imports.py#L2175 "test/fpy/test_imports.py::TestImportModuleMerging::test_sequence_and_package_module_merge"), [10](test/fpy/test_imports.py#L2191 "test/fpy/test_imports.py::TestImportModuleMerging::test_two_aliases_same_name_collide"), [11](test/fpy/test_imports.py#L2204 "test/fpy/test_imports.py::TestImportModuleMerging::test_relative_and_absolute_leaf_collision")
 
 > So after `import pkg.a` and `import pkg.b`, package module `pkg` contains both `a` and `b`. After `import pkg` and `import pkg.mod`, module `pkg` holds sequence `pkg.fpy`'s definitions alongside module `mod`. And a variable `lib` coexists with an imported module `lib` that defines only functions, because a value and a callable never share a name group.
 
@@ -781,19 +781,19 @@ A collision is only with a name in the importing scope itself (or the same modul
 
 An import statement with a member and no alias introduces its sequence path as a module chain, and adds the [definition](#definitions) named by the member in the imported sequence's global scope to the leaf module, under the member's name. If the imported sequence's global scope has no such definition, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L1338 "test/fpy/test_imports.py::TestImportMember::test_import_member_function"), [2](test/fpy/test_imports.py#L1357 "test/fpy/test_imports.py::TestImportMember::test_import_member_of_dotted_sequence"), [3](test/fpy/test_imports.py#L1376 "test/fpy/test_imports.py::TestImportMember::test_member_requires_full_path"), [4](test/fpy/test_imports.py#L1396 "test/fpy/test_imports.py::TestImportMember::test_member_import_hides_other_symbols"), [5](test/fpy/test_imports.py#L1419 "test/fpy/test_imports.py::TestImportMember::test_missing_member_is_error")
+*Tests:* [1](test/fpy/test_imports.py#L1333 "test/fpy/test_imports.py::TestImportMember::test_import_member_function"), [2](test/fpy/test_imports.py#L1352 "test/fpy/test_imports.py::TestImportMember::test_import_member_of_dotted_sequence"), [3](test/fpy/test_imports.py#L1371 "test/fpy/test_imports.py::TestImportMember::test_member_requires_full_path"), [4](test/fpy/test_imports.py#L1391 "test/fpy/test_imports.py::TestImportMember::test_member_import_hides_other_symbols"), [5](test/fpy/test_imports.py#L1414 "test/fpy/test_imports.py::TestImportMember::test_missing_member_is_error")
 
 > `import a.b.c.foo` adds only `foo`, named `a.b.c.foo`.
 
 An import statement with an alias introduces no module chain. It binds the alias, in the importing sequence's global scope, to the imported symbol if the import has a member, or otherwise to a [module](#modules) holding each [definition](#definitions) in the imported sequence's global scope. The alias occupies the [name groups](#name-groups) of what it is bound to.
 
-*Tests:* [1](test/fpy/test_imports.py#L1442 "test/fpy/test_imports.py::TestImportAlias::test_import_sequence_as_alias"), [2](test/fpy/test_imports.py#L1461 "test/fpy/test_imports.py::TestImportAlias::test_dotted_import_as_alias"), [3](test/fpy/test_imports.py#L1479 "test/fpy/test_imports.py::TestImportAlias::test_import_member_as_alias"), [4](test/fpy/test_imports.py#L1497 "test/fpy/test_imports.py::TestImportAlias::test_alias_hides_chain")
+*Tests:* [1](test/fpy/test_imports.py#L1437 "test/fpy/test_imports.py::TestImportAlias::test_import_sequence_as_alias"), [2](test/fpy/test_imports.py#L1456 "test/fpy/test_imports.py::TestImportAlias::test_dotted_import_as_alias"), [3](test/fpy/test_imports.py#L1474 "test/fpy/test_imports.py::TestImportAlias::test_import_member_as_alias"), [4](test/fpy/test_imports.py#L1492 "test/fpy/test_imports.py::TestImportAlias::test_alias_hides_chain")
 
 > `import a.b.c as x` binds `x` to a module of `a.b.c`'s definitions; `import a.b.c.foo as x` binds `x` to the symbol `foo`.
 
 A `from` statement introduces no module chain. It binds, in the importing sequence's global scope, the [definition](#definitions) named by each member in the imported sequence's global scope, under the member's name or its alias if one is given. `from p import *` binds every definition in the imported sequence's global scope, each under its own name. If a member names no definition in the imported sequence's global scope, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L1543 "test/fpy/test_imports.py::TestImportFrom::test_from_import_function"), [2](test/fpy/test_imports.py#L1561 "test/fpy/test_imports.py::TestImportFrom::test_from_dotted_sequence"), [3](test/fpy/test_imports.py#L1579 "test/fpy/test_imports.py::TestImportFrom::test_from_import_as_alias"), [4](test/fpy/test_imports.py#L1597 "test/fpy/test_imports.py::TestImportFrom::test_from_import_star"), [5](test/fpy/test_imports.py#L1728 "test/fpy/test_imports.py::TestImportFrom::test_from_import_does_not_introduce_sequence_name"), [6](test/fpy/test_imports.py#L1750 "test/fpy/test_imports.py::TestImportFrom::test_from_import_missing_member_is_error"), [7](test/fpy/test_imports.py#L1619 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_members"), [8](test/fpy/test_imports.py#L1640 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_with_aliases"), [9](test/fpy/test_imports.py#L1661 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_single_line"), [10](test/fpy/test_imports.py#L1682 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_multiline")
+*Tests:* [1](test/fpy/test_imports.py#L1538 "test/fpy/test_imports.py::TestImportFrom::test_from_import_function"), [2](test/fpy/test_imports.py#L1556 "test/fpy/test_imports.py::TestImportFrom::test_from_dotted_sequence"), [3](test/fpy/test_imports.py#L1574 "test/fpy/test_imports.py::TestImportFrom::test_from_import_as_alias"), [4](test/fpy/test_imports.py#L1592 "test/fpy/test_imports.py::TestImportFrom::test_from_import_star"), [5](test/fpy/test_imports.py#L1723 "test/fpy/test_imports.py::TestImportFrom::test_from_import_does_not_introduce_sequence_name"), [6](test/fpy/test_imports.py#L1745 "test/fpy/test_imports.py::TestImportFrom::test_from_import_missing_member_is_error"), [7](test/fpy/test_imports.py#L1614 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_members"), [8](test/fpy/test_imports.py#L1635 "test/fpy/test_imports.py::TestImportFrom::test_from_import_multiple_with_aliases"), [9](test/fpy/test_imports.py#L1656 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_single_line"), [10](test/fpy/test_imports.py#L1677 "test/fpy/test_imports.py::TestImportFrom::test_from_import_parenthesized_multiline")
 
 Two import statements import the same sequence if they resolve to the same file, whatever paths named it. 
 
@@ -801,17 +801,17 @@ A sequence is compiled once, however many import statements name it: in one impo
 
 > So a sequence and a sequence it imports may both import a third, and it is compiled once for the whole program.
 
-*Tests:* [1](test/fpy/test_imports.py#L861 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
+*Tests:* [1](test/fpy/test_imports.py#L856 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
 
 Importing the same sequence more than once in one sequence is governed by the ordinary collision rule above: the names the imports bind must not collide.
 
 > To use several of a sequence's symbols, import it whole and qualify them, use one `from seq import a, b`, or use `from seq import *`.
 
-*Tests:* [1](test/fpy/test_imports.py#L1832 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_import_and_from_same_sequence_coexist"), [2](test/fpy/test_imports.py#L1904 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_from_same_sequence_coexist"), [3](test/fpy/test_imports.py#L841 "test/fpy/test_imports.py::TestImportDuplicates::test_import_same_sequence_twice_collides"), [4](test/fpy/test_imports.py#L1857 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_members_same_sequence_collides"), [5](test/fpy/test_imports.py#L1882 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_whole_and_member_same_sequence_collides"), [6](test/fpy/test_imports.py#L2156 "test/fpy/test_imports.py::TestImportRelative::test_relative_and_absolute_same_file_collides")
+*Tests:* [1](test/fpy/test_imports.py#L1827 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_import_and_from_same_sequence_coexist"), [2](test/fpy/test_imports.py#L1899 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_from_same_sequence_coexist"), [3](test/fpy/test_imports.py#L836 "test/fpy/test_imports.py::TestImportDuplicates::test_import_same_sequence_twice_collides"), [4](test/fpy/test_imports.py#L1852 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_two_members_same_sequence_collides"), [5](test/fpy/test_imports.py#L1877 "test/fpy/test_imports.py::TestImportDuplicateSequence::test_whole_and_member_same_sequence_collides"), [6](test/fpy/test_imports.py#L2151 "test/fpy/test_imports.py::TestImportRelative::test_relative_and_absolute_same_file_collides")
 
 An imported sequence may contain only function definitions and import statements. If it contains any other top-level statement, an error is raised. Such a statement is a side effect that would have to execute at the position of the import; because an imported sequence is compiled as a sibling scope block that does not run inline, it has no place to execute.
 
-*Tests:* [1](test/fpy/test_imports.py#L159 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_is_error"), [2](test/fpy/test_imports.py#L173 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_sequence_compiles"), [3](test/fpy/test_imports.py#L1308 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_error"), [4](test/fpy/test_imports.py#L1801 "test/fpy/test_imports.py::TestImportFrom::test_from_import_side_effects_is_error"), [5](test/fpy/test_imports.py#L689 "test/fpy/test_imports.py::TestImportedSequenceShadowingBuiltins::test_imported_sequence_cannot_declare_top_level_flags"), [6](test/fpy/test_imports.py#L475 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_sequence_compiles_without_warning")
+*Tests:* [1](test/fpy/test_imports.py#L159 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_is_error"), [2](test/fpy/test_imports.py#L173 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_sequence_compiles"), [3](test/fpy/test_imports.py#L1303 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_error"), [4](test/fpy/test_imports.py#L1796 "test/fpy/test_imports.py::TestImportFrom::test_from_import_side_effects_is_error"), [5](test/fpy/test_imports.py#L690 "test/fpy/test_imports.py::TestImportedSequenceShadowingBuiltins::test_imported_sequence_cannot_declare_top_level_flags"), [6](test/fpy/test_imports.py#L475 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_sequence_compiles_without_warning")
 
 If an importing sequence names a [definition](#definitions) of an imported sequence by a name that begins with an underscore, the `import-underscore` warning is emitted.
 

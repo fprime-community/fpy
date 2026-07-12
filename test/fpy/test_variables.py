@@ -179,7 +179,7 @@ while True:
 
     def test_override_global_name(self, fprime_test_api):
         # Shadowing a dictionary name with a user variable is allowed, but warns
-        # (shadow-variable). See TestShadowWarnings below.
+        # (shadow-value). See TestShadowWarnings below.
         seq = """
 CdhCore: U8 = 1
 if CdhCore == 1:
@@ -227,57 +227,35 @@ assert z == 123
 class TestShadowWarnings:
     """Declaring a variable whose name already resolves in an ENCLOSING scope
     (an outer block, the global scope, or the builtin/dictionary base scope) is
-    allowed but emits the `shadow-variable` warning. Redefining a name already
-    in the SAME scope stays a hard error."""
+    allowed but emits the `shadow-value` warning (never `shadow-callable`), and
+    still compiles and runs. Redefining a name already in the SAME scope stays a
+    hard error."""
 
-    def test_inner_block_shadows_outer_variable_warns(self):
+    def test_inner_block_shadows_outer_variable_warns(self, fprime_test_api):
         # `i` in the while body shadows the global `i`.
-        seq = """\
-i: U8 = 0
-while True:
-    i: U8 = 1
-    exit(0)
-"""
-        state, _, _ = compile_seq(seq)
-        assert any(
-            w.type == WarningType.SHADOW_VARIABLE for w in state.warnings
-        ), f"expected a shadow-variable warning, got {state.warnings}"
-
-    def test_root_variable_shadows_dictionary_name_warns(self):
-        # A top-level variable named after a dictionary namespace shadows the
-        # base (dictionary) name -- a warning, not an error.
-        seq = """\
-CdhCore: U8 = 1
-exit(0)
-"""
-        state, _, _ = compile_seq(seq)
-        assert any(
-            w.type == WarningType.SHADOW_VARIABLE for w in state.warnings
-        ), f"expected a shadow-variable warning, got {state.warnings}"
-
-    def test_shadow_variable_is_not_categorized_as_shadow_function(self):
-        seq = """\
-i: U8 = 0
-while True:
-    i: U8 = 1
-    exit(0)
-"""
-        state, _, _ = compile_seq(seq)
-        assert not any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"shadowing a variable must not warn as shadow-function: {state.warnings}"
-
-    def test_shadowing_variable_still_compiles(self, fprime_test_api):
-        # The warning is non-fatal: shadowing compiles and runs.
         seq = """
 i: U8 = 0
 while True:
     i: U8 = 1
-    if i == 1:
-        exit(0)
-    exit(1)
+    exit(0)
 """
-        # FIXME this test and last two can be collapsed into one
+        state, _, _ = compile_seq(seq)
+        types = {w.type for w in state.warnings}
+        assert WarningType.SHADOW_VALUE in types, f"expected shadow-value: {types}"
+        assert WarningType.SHADOW_CALLABLE not in types, f"unexpected: {types}"
+        # The warning is non-fatal: the sequence still compiles and runs.
+        assert_run_success(fprime_test_api, seq)
+
+    def test_root_variable_shadows_dictionary_name_warns(self, fprime_test_api):
+        # A top-level variable named after a dictionary namespace shadows the
+        # base (dictionary) name -- a warning, not an error.
+        seq = """
+CdhCore: U8 = 1
+exit(0)
+"""
+        state, _, _ = compile_seq(seq)
+        types = {w.type for w in state.warnings}
+        assert WarningType.SHADOW_VALUE in types, f"expected shadow-value: {types}"
         assert_run_success(fprime_test_api, seq)
 
     def test_same_scope_variable_redeclare_is_error(self, fprime_test_api):
@@ -287,11 +265,10 @@ while True:
 x: U8 = 0
 x: U8 = 1
 """
-        # FIXME is this not a duplicate?
         assert_compile_failure(fprime_test_api, seq, match="already been defined")
 
-    def test_no_shadow_warning_for_unique_names(self):
-        seq = """\
+    def test_no_shadow_warning_for_unique_names(self, fprime_test_api):
+        seq = """
 a: U8 = 0
 while True:
     b: U8 = 1
@@ -299,6 +276,7 @@ while True:
 """
         state, _, _ = compile_seq(seq)
         assert not any(
-            w.type in (WarningType.SHADOW_VARIABLE, WarningType.SHADOW_FUNCTION)
+            w.type in (WarningType.SHADOW_VALUE, WarningType.SHADOW_CALLABLE)
             for w in state.warnings
         ), f"unique names should not warn, got {state.warnings}"
+        assert_run_success(fprime_test_api, seq)

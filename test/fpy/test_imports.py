@@ -680,12 +680,12 @@ def helper() -> U32:
 from inner import helper as U32
 """,
         )
-        main = "import outer\n"
+        main = "import outer\nexit(0)\n"
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        #FIXME warning should be SHADOW_CALLABLE not function
         assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
+            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
+        ), f"expected a shadow-callable warning, got {state.warnings}"
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_imported_sequence_cannot_declare_top_level_flags(
         self, fprime_test_api, tmp_path
@@ -731,18 +731,20 @@ def f() -> U32:
 import Ref
 """,
         )
-        main = "import outer\n"
+        main = "import outer\nexit(0)\n"
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
         assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
+            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
+        ), f"expected a shadow-callable warning, got {state.warnings}"
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
 class TestImportShadowsBuiltins:
     """A main-sequence import that binds a name taken only by the builtin /
     dictionary base scope shadows it -- a warning categorized by the bound name's
     name group. Imports of function-only sequences occupy the callable group, so
-    they warn as `shadow-function`. A same-scope collision stays an error."""
+    they warn as `shadow-callable`, and still compile and run. A same-scope
+    collision stays an error."""
 
     def test_import_module_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
         # A sequence file named after the builtin library function `time_add`;
@@ -755,11 +757,14 @@ def f() -> U32:
     return U32(1)
 """,
         )
-        main = "import time_add\n"
+        main = "import time_add\nexit(0)\n"
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
+        types = {w.type for w in state.warnings}
+        assert (
+            WarningType.SHADOW_CALLABLE in types
+        ), f"expected shadow-callable: {types}"
+        assert WarningType.SHADOW_VALUE not in types, f"unexpected: {types}"
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_from_import_alias_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
         # `... as time_cmp` binds the imported function under a builtin's name.
@@ -771,11 +776,12 @@ def public() -> U32:
     return U32(7)
 """,
         )
-        main = "from lib import public as time_cmp\n"
+        main = "from lib import public as time_cmp\nexit(0)\n"
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
         assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
+            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
+        ), f"expected a shadow-callable warning, got {state.warnings}"
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_imported_sequence_function_shadowing_builtin_warns(
         self, fprime_test_api, tmp_path
@@ -790,25 +796,11 @@ def U32() -> U32:
     return U32(0)
 """,
         )
-        # FIXME for all the ones which just compile success, please also run them. then don't need
-        # a duplicate _still_compiles test below i think
-        main = "import lib\n"
+        main = "import lib\nexit(0)\n"
         state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
         assert any(
-            w.type == WarningType.SHADOW_FUNCTION for w in state.warnings
-        ), f"expected a shadow-function warning, got {state.warnings}"
-
-    def test_import_shadowing_builtin_still_compiles(self, fprime_test_api, tmp_path):
-        # The warning is non-fatal: the shadowing import compiles and runs.
-        _write_sequence(
-            tmp_path,
-            "time_add",
-            """\
-def f() -> U32:
-    return U32(1)
-""",
-        )
-        main = "import time_add\nexit(0)\n"
+            w.type == WarningType.SHADOW_CALLABLE for w in state.warnings
+        ), f"expected a shadow-callable warning, got {state.warnings}"
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_import_over_local_definition_is_error(self, fprime_test_api, tmp_path):
