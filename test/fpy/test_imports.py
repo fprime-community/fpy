@@ -188,8 +188,7 @@ import clean
 x: U32 = U32(clean.a() + clean.b())
 assert x == 3
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
@@ -215,19 +214,11 @@ import lib
 x: U32 = lib._helper()
 assert x == 7
 """
-        expected = {WarningType.IMPORT_UNDERSCORE}
-        state, _, _ = compile_seq(
-            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
-        )
-        assert any(
-            w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
-        ), f"expected an import-underscore warning, got {state.warnings}"
-        # The warning is non-fatal: the sequence still compiles and runs.
         assert_run_success(
             fprime_test_api,
             main,
             import_search_dirs=[str(tmp_path)],
-            expected_warnings=expected,
+            expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
 
     def test_underscore_member_import_warns(self, fprime_test_api, tmp_path):
@@ -239,19 +230,11 @@ import lib._helper
 x: U32 = lib._helper()
 assert x == 7
 """
-        expected = {WarningType.IMPORT_UNDERSCORE}
-        state, _, _ = compile_seq(
-            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
-        )
-        # FIXME redundant
-        assert any(
-            w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
-        ), f"expected an import-underscore warning, got {state.warnings}"
         assert_run_success(
             fprime_test_api,
             main,
             import_search_dirs=[str(tmp_path)],
-            expected_warnings=expected,
+            expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
 
     def test_underscore_from_import_warns(self, fprime_test_api, tmp_path):
@@ -263,18 +246,11 @@ from lib import _helper
 x: U32 = _helper()
 assert x == 7
 """
-        expected = {WarningType.IMPORT_UNDERSCORE}
-        state, _, _ = compile_seq(
-            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
-        )
-        assert any(
-            w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
-        ), f"expected an import-underscore warning, got {state.warnings}"
         assert_run_success(
             fprime_test_api,
             main,
             import_search_dirs=[str(tmp_path)],
-            expected_warnings=expected,
+            expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
 
     def test_star_import_underscore_use_warns(self, fprime_test_api, tmp_path):
@@ -287,18 +263,11 @@ from lib import *
 x: U32 = _helper()
 assert x == 7
 """
-        expected = {WarningType.IMPORT_UNDERSCORE}
-        state, _, _ = compile_seq(
-            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
-        )
-        assert any(
-            w.type == WarningType.IMPORT_UNDERSCORE for w in state.warnings
-        ), f"expected an import-underscore warning, got {state.warnings}"
         assert_run_success(
             fprime_test_api,
             main,
             import_search_dirs=[str(tmp_path)],
-            expected_warnings=expected,
+            expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
 
     def test_library_internal_use_does_not_warn(self, fprime_test_api, tmp_path):
@@ -311,8 +280,7 @@ import lib
 x: U32 = lib.public()
 assert x == 7
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_underscore_alias_statement_warns_but_uses_do_not(
@@ -521,8 +489,7 @@ import empty
 
 CdhCore.cmdDisp.CMD_NO_OP()
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
@@ -1115,8 +1082,7 @@ import pkg.mod
 result: U32 = pkg.mod.add_one(41)
 assert result == 42
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_deeply_nested_dotted_import(self, fprime_test_api, tmp_path):
@@ -1599,6 +1565,21 @@ assert result == 42
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
+    def test_from_import_reexported_module(self, fprime_test_api, tmp_path):
+        """A `from` member may name a module the imported sequence itself
+        imported (a re-export). `lib` imports `sub`, so `sub` is a module in
+        lib's own scope; `from lib import sub` binds that whole module, and
+        `sub.f()` resolves through it."""
+        _write_sequence(tmp_path, "sub", "def f() -> U32:\n    return 7\n")
+        _write_sequence(tmp_path, "lib", "import sub\n")
+        main = """\
+from lib import sub
+
+x: U32 = sub.f()
+assert x == 7
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
     def test_from_dotted_sequence(self, fprime_test_api, tmp_path):
         """The sequence path of a `from` may be dotted."""
         _write_sequence(
@@ -1891,8 +1872,7 @@ from lib import b
 x: U32 = U32(lib.a() + b())
 assert x == 3
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_two_members_same_sequence_collides(self, fprime_test_api, tmp_path):
@@ -1963,8 +1943,7 @@ from lib import b
 x: U32 = U32(a() + b())
 assert x == 3
 """
-        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
-        assert state.warnings == []
+        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 

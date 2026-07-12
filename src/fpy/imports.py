@@ -507,10 +507,17 @@ class BindImports:
         return groups
 
     def _bind_symbol(self, scope: Scope, name, sym, node, state):
-        """Bind a plain (non-module) definition symbol under *name* into *scope*
-        (the importer's). A name already in the importer's own scope is a
-        collision (error); a name taken only by an enclosing (dictionary/builtin)
-        scope is shadowed (warning)."""
+        """Bind a definition symbol under *name* into *scope* (the importer's). A
+        name already in the importer's own scope is a collision (error); a name
+        taken only by an enclosing (dictionary/builtin) scope is shadowed
+        (warning).
+
+        *sym* is a function, a variable, or a re-exported module (e.g. a `sub`
+        that the imported sequence itself imported). In the current language each
+        occupies exactly one name group -- a module holds only functions, so it
+        is callable-group-only -- so the loop below runs once. It is written as a
+        loop only to stay correct should a symbol ever span more than one group;
+        `_bind_module` genuinely needs it."""
 
         groups = self._symbol_groups(sym)
         # get(), not lookup(): a name in the importer's OWN scope is a same-scope
@@ -522,11 +529,10 @@ class BindImports:
                     node,
                 )
                 return
-        # The name is free in the importer's scope. If it still resolves up the
-        # parent chain (a dictionary/builtin definition), the import shadows it.
+        # The name is free in the importer's scope. In each group the symbol
+        # occupies, if the name still resolves up the parent chain (a
+        # dictionary/builtin definition), the import shadows it.
         for ng in groups:
-            # FIXME can you explain why we're checking all name groups? shouldn't we only
-            # check a single name group?
             if scope.lookup(ng, name) is not None:
                 state.warn(
                     _shadow_warning_type(ng),
