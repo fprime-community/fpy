@@ -36,6 +36,7 @@ pytestmark = pytest.mark.wasm
 
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
+ARRAY_OOB = DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
 
 
 def _seq_to_llvm_module(seq: str):
@@ -161,6 +162,143 @@ class TestWasmVariables:
             run_seq_wasm(
                 "p: Ref.SignalPair = Ref.SignalPair(3, 4)\n"
                 "q: Ref.SignalPair = p\nassert True\n"
+            )
+            == NO_ERROR
+        )
+
+
+class TestWasmMemberAccess:
+    """Struct member and array element access, on both sides of an assignment,
+    including runtime (non-constant) indices and their bounds checks."""
+
+    def test_read_struct_member(self):
+        assert (
+            run_seq_wasm(
+                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
+                "assert p.time == 3.0\nassert p.value == 4.0\n"
+            )
+            == NO_ERROR
+        )
+        assert (
+            run_seq_wasm(
+                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
+                "assert p.value == 5.0\n"
+            )
+            == EXIT_WITH_ERROR
+        )
+
+    def test_write_struct_member(self):
+        # An in-place store: the sibling member must keep its value.
+        assert (
+            run_seq_wasm(
+                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
+                "p.value = 9.5\n"
+                "assert p.value == 9.5\nassert p.time == 3.0\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_read_array_element_const_index(self):
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(7, 8)\n"
+                "assert a[0] == 7\nassert a[1] == 8\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_read_array_element_runtime_index(self):
+        # An I8 index also exercises the sext to ArrayIndexType (I64).
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = 1\n"
+                "assert a[i] == 123\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_write_array_element_runtime_index(self):
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = 1\n"
+                "a[i] = 111\n"
+                "assert a[1] == 111\nassert a[0] == 456\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_read_runtime_index_out_of_bounds(self):
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = 2\n"
+                "x: U32 = a[i]\n"
+            )
+            == ARRAY_OOB
+        )
+
+    def test_read_runtime_index_negative(self):
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = -1\n"
+                "x: U32 = a[i]\n"
+            )
+            == ARRAY_OOB
+        )
+
+    def test_write_runtime_index_out_of_bounds(self):
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = 2\n"
+                "a[i] = 111\n"
+            )
+            == ARRAY_OOB
+        )
+
+    def test_nested_chain_runtime_index(self):
+        # a[i].member on an array of structs: a GEP chain with a runtime index
+        # in the middle, read and written in place.
+        pairs = (
+            "pairs: Ref.SignalPairSet = Ref.SignalPairSet("
+            "Ref.SignalPair(1.0, 2.0), Ref.SignalPair(3.0, 4.0), "
+            "Ref.SignalPair(5.0, 6.0), Ref.SignalPair(7.0, 8.0))\n"
+        )
+        assert (
+            run_seq_wasm(
+                pairs + "i: I64 = 1\n"
+                "assert pairs[i].time == 3.0\n"
+                "pairs[i].value = 99.0\n"
+                "assert pairs[1].value == 99.0\n"
+                "assert pairs[1].time == 3.0\n"
+                "assert pairs[0].value == 2.0\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_runtime_index_into_const_array(self):
+        # The parent is a constant expression, not a variable, so it has no
+        # storage; it gets spilled to a temporary stack slot to be indexed.
+        assert (
+            run_seq_wasm(
+                "i: I8 = 1\n"
+                "x: U32 = Svc.ComQueueDepth(10, 20)[i]\n"
+                "assert x == 20\n"
+            )
+            == NO_ERROR
+        )
+
+    def test_anon_struct_member(self):
+        # Member access on an anonymous struct literal emits just the member
+        # expression; a runtime member value keeps it from const-folding.
+        assert (
+            run_seq_wasm(
+                "y: F32 = 4.5\n"
+                "x: F32 = {time: 1.0, value: y}.value\n"
+                "assert x == 4.5\n"
             )
             == NO_ERROR
         )

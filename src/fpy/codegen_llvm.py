@@ -12,8 +12,10 @@ import llvmlite.binding as llvm
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
-from fpy.symbols import BuiltinFuncSymbol, CastSymbol, VariableSymbol
+from fpy.symbols import BuiltinFuncSymbol, CastSymbol, FieldAccess, VariableSymbol
 from fpy.syntax import (
+    AstAnonArray,
+    AstAnonStruct,
     AstAssert,
     AstAssign,
     AstBinaryOp,
@@ -21,8 +23,10 @@ from fpy.syntax import (
     AstDef,
     AstExpr,
     AstFuncCall,
+    AstGetAttr,
     AstIdent,
     AstIf,
+    AstIndexExpr,
     AstNodeWithSideEffects,
     AstUnaryOp,
     BinaryStackOp,
@@ -30,7 +34,7 @@ from fpy.syntax import (
     UnaryStackOp,
 )
 from fpy.bytecode.directives import ErrorCodeType
-from fpy.types import FpyValue, is_instance_compat
+from fpy.types import ChDef, FpyValue, PrmDef, is_instance_compat
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 LLVM_TRIPLE = "wasm32-unknown-unknown"
@@ -97,7 +101,12 @@ class EmitLlvmExpr(Emitter):
         if value is not None:
             # Const values are stored at the node's contextual type already.
             return value.llvm_value
-        result = super().emit(node, state)
+        emitter = self.emitters.get(type(node))
+        if emitter is None:
+            raise BackendError(
+                f"LLVM backend can't lower expression {type(node).__name__} yet"
+            )
+        result = emitter(node, state)
         if result is None:
             # NOTHING-typed expr, nothing to convert.
             return None
@@ -298,6 +307,113 @@ class EmitLlvmExpr(Emitter):
         # synthesized type; emit() handles any widening to the contextual type.
         return self.builder.load(sym.llvm_ptr, name=str(node.name))
 
+    def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState) -> ir.Value:
+        sym = state.resolved_symbols[node]
+        if is_instance_compat(sym, (ChDef, PrmDef)):
+            raise BackendError(
+                "LLVM backend can't read telemetry channels or parameters yet"
+            )
+        if is_instance_compat(sym, VariableSymbol):
+            # a variable referenced by a qualified name
+            return self.builder.load(sym.llvm_ptr, name=node.attr)
+        # all other cases are FieldAccess
+        assert is_instance_compat(sym, FieldAccess), sym
+        if is_instance_compat(sym.parent_expr, AstAnonStruct):
+            # degenerate case for field access.
+            # Member access on an anonymous struct literal: emit just the
+            # accessed member's expression (skip building the struct).
+            for name, value_expr in sym.parent_expr.members:
+                if name == node.attr:
+                    return self.emit(value_expr, state)
+            assert False, f"member {node.attr} not found in anon struct"
+        # all other cases of field access are done by calculating a ptr
+        # to the attr we want to read, and loading it
+        return self.builder.load(self._emit_ptr(node, state), name=node.attr)
+
+    def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState) -> ir.Value:
+        sym = state.resolved_symbols[node]
+        assert is_instance_compat(sym, FieldAccess), sym
+        if is_instance_compat(node.parent, AstAnonArray):
+            # Element access on an anonymous array literal: the index must be
+            # a compile-time constant; emit just that element's expression.
+            idx_value = state.const_expr_values.get(node.item)
+            assert (
+                idx_value is not None
+            ), "Dynamic indexing on anonymous array literals is not supported"
+            idx = idx_value.val
+            assert 0 <= idx < len(node.parent.elements), f"Index {idx} out of bounds"
+            return self.emit(node.parent.elements[idx], state)
+        return self.builder.load(self._emit_ptr(node, state))
+
+    def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
+        """Emit a pointer to the storage backing *expr*.
+
+        Variables point at their own slot (alloca/global); a field or element
+        access GEPs into its parent's storage, so reads and writes touch just
+        the one field rather than copying the whole aggregate (element
+        accesses bounds-check their index first, faulting with
+        ARRAY_OUT_OF_BOUNDS like the VM does). An expression with no backing
+        storage (e.g. a constant aggregate or an anonymous literal's member)
+        is materialized into a temporary stack slot, so a runtime index can
+        still address it.
+        """
+        b = self.builder
+        i32 = ir.IntType(32)
+        sym = state.resolved_symbols.get(expr)
+        if is_instance_compat(sym, VariableSymbol):
+            return sym.llvm_ptr
+        if is_instance_compat(sym, FieldAccess) and not is_instance_compat(
+            sym.parent_expr, (AstAnonStruct, AstAnonArray)
+        ):
+            parent_ptr = self._emit_ptr(sym.parent_expr, state)
+            parent_type = state.contextual_types[sym.parent_expr]
+            if sym.is_struct_member:
+                # GEP by member position, not FieldAccess.local_offset: that
+                # offset is in the packed serialized layout, while LLVM lays
+                # the struct out itself.
+                for i, member in enumerate(parent_type.members):
+                    if member.name == sym.name:
+                        # FIXME can you fully explain this GEP call
+                        return b.gep(
+                            parent_ptr,
+                            [ir.Constant(i32, 0), ir.Constant(i32, i)],
+                            inbounds=True,
+                            name=sym.name,
+                        )
+                assert False, (sym.name, parent_type)
+            assert sym.is_array_element, sym
+            idx = self.emit(sym.idx_expr, state)
+            self._emit_array_bounds_check(idx, parent_type.length)
+            return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
+        # it's a field access into an anon struct/anon array
+        # FIXME explain why this isn't caught already in the cases in emit_astgetattr/index
+        value = self.emit(expr, state)
+        with b.goto_entry_block():
+            slot = b.alloca(value.type)
+        b.store(value, slot)
+        return slot
+
+    def _emit_array_bounds_check(self, idx: ir.Value, length: int) -> None:
+        """Exit with ARRAY_OUT_OF_BOUNDS unless 0 <= idx < length, matching
+        the VM's runtime check. ArrayIndexType is signed, so a negative index
+        must be caught explicitly."""
+        b = self.builder
+        too_low = b.icmp_signed("<", idx, ir.Constant(idx.type, 0))
+        too_high = b.icmp_signed(">=", idx, ir.Constant(idx.type, length))
+        oob = b.or_(too_low, too_high)
+        fail_block = b.function.append_basic_block("idx_oob")
+        ok_block = b.function.append_basic_block("idx_ok")
+        b.cbranch(oob, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        # FIXME I want to split into host fault for implicit traps, and exit for explicit ones (ones that user
+        # wrote directly in syntax). let's do this as the next work item. let's also rename the host func to just
+        # be called exit and fault rather than fpy_exit e.g.
+        emit_host_exit(
+            b,
+            ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value),
+        )
+        b.position_at_end(ok_block)
+
     def emit_AstFuncCall(
         self, node: AstFuncCall, state: CompileState
     ) -> ir.Value | None:
@@ -424,10 +540,19 @@ class EmitLlvmStmt(Emitter):
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
         sym = state.resolved_symbols[node.lhs]
-        # The rhs is coerced to the variable's type, so its emitted value
-        # already matches the slot's element type.
+        # The rhs is coerced to the target's type, so its emitted value
+        # already matches the slot's element type. Emit it before the lhs
+        # pointer so a failing bounds check in the lhs still evaluates the
+        # rhs first, matching the VM's evaluation order.
+        # FIXME add a test for the vm evaluation order if not already present (if possible)
         value = self.expr.emit(node.rhs, state)
-        self.builder.store(value, sym.llvm_ptr)
+        if is_instance_compat(sym, VariableSymbol):
+            self.builder.store(value, sym.llvm_ptr)
+            return
+        # A field/element target (x.f = ..., a[i] = ...): store through a
+        # pointer into the base variable's storage, in place.
+        assert is_instance_compat(sym, FieldAccess), sym
+        self.builder.store(value, self.expr._emit_ptr(node.lhs, state))
 
     def emit_AstIf(self, node: AstIf, state: CompileState) -> None:
         builder = self.builder
