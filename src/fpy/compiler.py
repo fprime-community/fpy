@@ -99,6 +99,29 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+
+def _parse_fpy(text: str, **kwargs):
+    """Parse fpy source into a Lark tree, tolerating a missing final newline.
+
+    The indenter (PythonIndenter) derives INDENT/DEDENT tokens from the
+    whitespace each _NEWLINE token carries. When the source does not end in a
+    newline, the final line's leading whitespace is never followed by a newline,
+    so at end-of-input it is misread as a brand-new indentation level: a trailing
+    tab or an over-indented comment on the last line then emits a spurious INDENT
+    (or a bogus dedent) and an otherwise-valid sequence fails to compile
+    (https://github.com/fprime-community/fpy/issues/61).
+
+    Appending a newline when one is absent makes the last line's indentation
+    resolve to column 0 -- closing any open blocks cleanly -- exactly as
+    CPython's tokenizer supplies an implicit NEWLINE before end-of-input. The
+    newline is added only at the very end, so it shifts no positions and leaves
+    error line/column reporting (and text.splitlines()) unchanged.
+    """
+    if not text.endswith("\n"):
+        text = text + "\n"
+    return _fpy_parser.parse(text, **kwargs)
+
+
 # Load builtin time.fpy functions at module level
 _builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
 _builtin_time_text = _builtin_time_path.read_text(encoding="utf-8")
@@ -118,7 +141,7 @@ def _get_builtin_library_ast():
         fpy.error.input_text = _builtin_time_text
         fpy.error.input_lines = _builtin_time_text.splitlines()
 
-        tree = _fpy_parser.parse(_builtin_time_text)
+        tree = _parse_fpy(_builtin_time_text)
         _builtin_library_ast = FpyTransformer().transform(tree)
 
         # Restore error state
@@ -171,7 +194,7 @@ def text_to_ast(text: str):
     fpy.error.input_text = text
     fpy.error.input_lines = text.splitlines()
     try:
-        tree = _fpy_parser.parse(text, on_error=handle_lark_error)
+        tree = _parse_fpy(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
         return None

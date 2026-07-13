@@ -121,6 +121,26 @@ assert result == 42
         # ...and the embedded assert holds at run time.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
+    def test_imported_sequence_without_trailing_newline(
+        self, fprime_test_api, tmp_path
+    ):
+        """An imported sequence file whose last line is a lone tab with no final
+        newline must still parse. Imported files flow through the same parser
+        entry point as the main sequence, so the fix for issue #61 (trailing
+        whitespace at end of file) covers them too."""
+        _write_sequence(
+            tmp_path,
+            "lib",
+            "def add_one(x: U32) -> U32:\n    return U32(x + 1)\n\t",
+        )
+        main = """\
+import lib
+
+result: U32 = lib.add_one(41)
+assert result == 42
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
     def test_local_and_imported_names_coexist(self, fprime_test_api, tmp_path):
         """A local `helper` and an imported `lib.helper` must not collide --
         the imported symbols are sectioned off under `lib`."""
