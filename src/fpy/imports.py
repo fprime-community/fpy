@@ -139,6 +139,10 @@ class InlineImports:
                 # The main sequence keeps its metadata (handled by the normal
                 # passes). Imported sequences' metadata was already validated
                 # in _load_sequence and is dropped.
+                # FIXME why do we drop the metadata from non main seqs? why not just keep it?
+                # is it because otherwise we would crash because there could be multiple metadatas
+                # in one file? i think the metadata checker pass should just take into account
+                # that there could be multiple, one for each block, right?
                 if is_main:
                     result.append(stmt)
             else:
@@ -374,7 +378,12 @@ class InlineImports:
 
 
 class BindImports:
-    """Bind each recorded import into its importer's scopes."""
+    """Bind each recorded import into its importer's scopes.
+
+    # FIXME don't call it desguar, that's not actually accurate
+    Every import form is first *desugared* (_desugar) to a flat list of
+    (name, value, mergeable) actions, each installing one definition or one
+    synthesized module under a name in the importer's scope."""
 
     def run(self, body, state):
         for binding in state.import_bindings:
@@ -383,84 +392,80 @@ class BindImports:
                 return
 
     def _bind(self, binding: ImportBinding, state):
-        node = binding.node
-        # FIXME i wonder if there's a way we can simplify this code.
-        # ideally, I'd like to make it very clear just from looking at
-        # the code that it's doing the right thing. maybe try to imagine
-        # an IR that is much more explicit. so transform everything into:
-        # from file import symbol as sym.path.or.alias
-        # and then just handle from there? you don't litearlly have to use an
-        # ir, could just be tuples e.g.
-        # in general i want to delete functions and helpers and code as much as
-        # possible, and make everything correspond to the spec, or change the spec
-        # if it's contrived.
-        if node.is_from:
-            self._bind_from(binding, state)
-        elif node.alias is not None:
-            self._bind_alias(binding, state)
-        else:
-            self._bind_plain(binding, state)
-
-    # -- import forms ---------------------------------------------------------
-
-    def _bind_plain(self, binding: ImportBinding, state):
-        node = binding.node
         importer_scope = state.enclosing_scope[binding.importer.block]
-        target_scope = state.enclosing_scope[binding.target.block]
-        if binding.member is not None:
-            sym = self._lookup_definition(target_scope, binding.member, node, state)
-            if sym is None:
+        for name, value, mergeable in self._desugar(binding, importer_scope, state):
+            if state.errors:
                 return
-            self._maybe_underscore_warn(binding.member, node, state)
-            leaf = _make_module(is_sequence_module=True)
-            leaf[binding.member] = sym
-        else:
-            leaf = _make_module(is_sequence_module=True)
-            for name, sym in target_scope.own_symbols().items():
-                leaf[name] = sym
-
-        root_name, root_module = self._build_chain(binding.seq_path, leaf)
-        self._bind_module(importer_scope, root_name, root_module, node, state)
-
-    def _bind_alias(self, binding: ImportBinding, state):
-        node = binding.node
-        importer_scope = state.enclosing_scope[binding.importer.block]
-        target_scope = state.enclosing_scope[binding.target.block]
-        if binding.member is not None:
-            sym = self._lookup_definition(target_scope, binding.member, node, state)
-            if sym is None:
-                return
-            self._maybe_underscore_warn(binding.member, node, state)
-            self._bind_symbol(importer_scope, node.alias, sym, node, state)
-        else:
-            module = _make_module(is_sequence_module=True)
-            for name, sym in target_scope.own_symbols().items():
-                module[name] = sym
-            self._bind_module(importer_scope, node.alias, module, node, state)
-
-    def _bind_from(self, binding: ImportBinding, state):
-        node = binding.node
-        importer_scope = state.enclosing_scope[binding.importer.block]
-        target_scope = state.enclosing_scope[binding.target.block]
-        if node.is_star:
-            for name, sym in target_scope.own_symbols().items():
-                self._bind_symbol(importer_scope, name, sym, node, state)
-                if state.errors:
-                    return
-                if name.startswith("_"):
-                    importer_scope.star_underscore_names.add(name)
-            return
-
-        for member_name, alias in node.members:
-            sym = self._lookup_definition(target_scope, member_name, node, state)
-            if sym is None:
-                return
-            self._maybe_underscore_warn(member_name, node, state)
-            self._bind_symbol(importer_scope, alias or member_name, sym, node, state)
+            self._bind_one(importer_scope, name, value, mergeable, binding.node, state)
             if state.errors:
                 return
 
-    # -- helpers --------------------------------------------------------------
+    # -- desugaring -----------------------------------------------------------
+
+    def _desugar(self, binding: ImportBinding, importer_scope: Scope, state):
+        """Expand an import into a flat list of (name, value, mergeable) actions,
+        each of which installs one thing under *name* in the importer's scope:
+
+          * a synthesized package/sequence module (mergeable=True) -- what a
+            plain `import a.b.c` or an aliased `import a.b.c as x` binds; or
+          * a single looked-up definition (mergeable=False) -- what a member
+            import, an aliased member, or any `from` binds.
+
+        # FIXME document how it returns on error
+        Member lookups and their underscore warnings (the source side) happen
+        here; collisions, shadows and module merging (the destination side)
+        happen in _bind_one."""
+        node = binding.node
+        target_scope = state.enclosing_scope[binding.target.block]
+
+        # `from a.b.c import ...` binds looked-up definitions under bare names,
+        # introducing no module chain.
+        # FIXME I wonder if we could write this in a less-indented form. basically
+        # cut down on the number of sub blocks here for readability
+        if node.is_from:
+            if node.is_star:
+                actions = []
+                for name, sym in target_scope.own_symbols().items():
+                    if name.startswith("_"):
+                        # FIXME what if * import doesn't import underscored names? then we can remove star_underscore_names
+                        importer_scope.star_underscore_names.add(name)
+                    actions.append((name, sym, False))
+                return actions
+            actions = []
+            for member_name, alias in node.members:
+                sym = self._lookup_definition(target_scope, member_name, node, state)
+                if sym is None:
+                    return actions
+                self._maybe_underscore_warn(member_name, node, state)
+                actions.append((alias or member_name, sym, False))
+            return actions
+
+        # `import a.b.c[.member] [as alias]`.
+        if binding.member is not None:
+            sym = self._lookup_definition(target_scope, binding.member, node, state)
+            if sym is None:
+                return []
+            self._maybe_underscore_warn(binding.member, node, state)
+            if node.alias is not None:
+                # `import a.b.c.member as x` binds the definition directly under x.
+                return [(node.alias, sym, False)]
+            # `import a.b.c.member` binds a.b.c as a module holding just `member`.
+            # FIXME again wondering if we can drop this func and have a SequenceSymbol...
+            leaf = _make_module(is_sequence_module=True)
+            leaf[binding.member] = sym
+        else:
+            # Whole sequence: a module of all its definitions.
+            leaf = _make_module(is_sequence_module=True)
+            for name, sym in target_scope.own_symbols().items():
+                leaf[name] = sym
+            if node.alias is not None:
+                # `import a.b.c as x` binds the whole module under x (no chain).
+                return [(node.alias, leaf, True)]
+
+        # Plain `import a.b.c[.member]`: wrap the leaf in its package chain and
+        # bind the chain's root name.
+        root_name, root = self._build_chain(binding.seq_path, leaf)
+        return [(root_name, root, True)]
 
     def _lookup_definition(self, target_scope: Scope, name: str, node, state):
         sym = target_scope.own_symbols().get(name)
@@ -506,96 +511,72 @@ class BindImports:
             groups |= self._symbol_groups(sym)
         return groups
 
-    def _bind_symbol(self, scope: Scope, name, sym, node, state):
-        """Bind a definition symbol under *name* into *scope* (the importer's). A
-        name already in the importer's own scope is a collision (error); a name
-        taken only by an enclosing (dictionary/builtin) scope is shadowed
-        (warning).
+    def _bind_one(self, scope: Scope, name, value, mergeable, node, state):
+        """Install *value* under *name* into *scope* (the importer's).
 
-        *sym* is a function, a variable, or a re-exported module (e.g. a `sub`
-        that the imported sequence itself imported). In the current language each
-        occupies exactly one name group -- a module holds only functions, so it
-        is callable-group-only -- so the loop below runs once. It is written as a
-        loop only to stay correct should a symbol ever span more than one group;
-        `_bind_module` genuinely needs it."""
+        # FIXME value is misleading, it's not a value, it should just be called sym i think?
+        *value* is either a single definition (mergeable=False -- a function, a
+        variable, or a re-exported module bound opaquely) or a synthesized
+        package/sequence module (mergeable=True). A mergeable module merges with
+        a package module THIS sequence already built under *name*; two sequence
+        modules on one name collide.
 
-        groups = self._symbol_groups(sym)
-        # get(), not lookup(): a name in the importer's OWN scope is a same-scope
-        # collision -- an error, with no outer name to fall back to.
-        for ng in groups:
-            if scope.get(ng, name) is not None:
-                state.err(
-                    f"Import of '{name}' collides with an existing definition",
-                    node,
-                )
-                return
-        # The name is free in the importer's scope. In each group the symbol
-        # occupies, if the name still resolves up the parent chain (a
-        # dictionary/builtin definition), the import shadows it.
-        for ng in groups:
-            if scope.lookup(ng, name) is not None:
-                state.warn(
-                    _shadow_warning_type(ng),
-                    f"Import of '{name}' shadows an existing definition",
-                    node,
-                )
-            scope.define(ng, name, sym)
-
-    def _bind_module(self, scope: Scope, name, module, node, state):
-        """Bind *module* under *name* into *scope* (the importer's), merging with
-        an existing package module or erroring on a collision."""
-        groups = self._module_groups(module)
+        A name already taken in the importer's OWN scope is a same-scope
+        collision (error); a name that only resolves up the parent chain -- a
+        dictionary/builtin definition -- is shadowed (warning).
+        """
+        groups = self._symbol_groups(value)
         if not groups:
             # An empty sequence's module holds nothing and belongs to no name
             # group; there is nothing to bind.
             return
 
-        # get(), not lookup(): we only merge with a package module THIS sequence
-        # already built by import, never with a base (dictionary) namespace.
-        existing = None
-        for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
-            candidate = scope.get(ng, name)
-            if is_instance_compat(candidate, ModuleSymbol):
-                existing = candidate
-                break
+        # A mergeable module folds into a package module already built here.
+        merged_into = None
+        if mergeable:
+            existing = None
+            for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
+                candidate = scope.get(ng, name)
+                if is_instance_compat(candidate, ModuleSymbol):
+                    existing = candidate
+                    break
+            if existing is not None:
+                if _is_sequence_module(existing) and _is_sequence_module(value):
+                    state.err(
+                        f"Import of '{name}' collides with an existing imported "
+                        f"sequence of the same name",
+                        node,
+                    )
+                    return
+                self._merge_modules(existing, value, node, state)
+                if state.errors:
+                    return
+                value = existing
+                merged_into = existing
+                groups = self._symbol_groups(value)
 
-        if existing is not None:
-            if _is_sequence_module(existing) and _is_sequence_module(module):
-                state.err(
-                    f"Import of '{name}' collides with an existing imported "
-                    f"sequence of the same name",
-                    node,
-                )
-                return
-            self._merge_modules(existing, module, node, state)
-            if state.errors:
-                return
-            module = existing
-            groups = self._module_groups(module)
-
-        # get(), not lookup(): a non-module name in the importer's OWN scope is a
-        # same-scope collision -- an error. (After a merge above the own occupant
-        # IS this module, so `is not module` skips it.)
+        # A name occupied in the importer's own scope collides -- unless it is
+        # the very module we just merged into.
         for ng in groups:
             own = scope.get(ng, name)
-            if own is not None and own is not module:
+            if own is not None and own is not merged_into:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
-        # The name is free in the importer's scope (or occupied by this same
-        # merged module). If it still resolves up the parent chain to a base
-        # (dictionary) definition, the import shadows it: a warning, not an error.
+        # The name is free (or holds the just-merged module). If it still
+        # resolves up the parent chain to a base (dictionary) definition, the
+        # import shadows it: a warning, not an error.
         for ng in groups:
             outer = scope.lookup(ng, name)
-            if outer is not None and outer is not module:
+            if outer is not None and outer is not value:
                 state.warn(
                     _shadow_warning_type(ng),
                     f"Import of '{name}' shadows an existing definition",
                     node,
                 )
-            scope.define(ng, name, module)
+            scope.define(ng, name, value)
 
     def _merge_modules(self, existing, incoming, node, state):
         """Merge *incoming* module's members into *existing*."""

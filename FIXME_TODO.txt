@@ -6,11 +6,13 @@ radius -- items that reshape the most other items come first.
 Status key: [ ] todo  [~] in progress  [x] done  [-] wont-do/moot
 
 ------------------------------------------------------------------------------
-STATUS (as of end of T1.3)
-  DONE:  T1.1, T1.2, T1.3 (all of Tier 1) + T4.3.
-  NEXT:  >>> T2.1 (shadowing policy) <<<  -- needs a decision, see below.
-  Open FIXMEs remaining in tree: 21.
-  Baseline: full suite 1511 passed, 3 skipped, 1 xpassed; black + spec-links clean.
+STATUS (as of end of T2.1)
+  DONE:  T1.1, T1.2, T1.3 (all of Tier 1) + T4.3 + T2.1 (all of Tier 2).
+  NEXT:  >>> T3.1 (module modeling) <<<  -- or any independent Tier 4 item.
+  Open FIXMEs remaining in tree: 17 (15 in src; 2 in test = T5.7, T4.2).
+  Baseline: full suite 1519 passed, 3 skipped, 1 xpassed; black + spec-links
+    clean. (Includes the 69 @pytest.mark.wasm tests -- spacewasm submodule now
+    checked out + runner built; needs Rust >=1.85 / edition 2024.)
   Line numbers below are CURRENT (re-grep `# FIXME` if they drift after edits).
 ------------------------------------------------------------------------------
 
@@ -61,46 +63,62 @@ TIER 1 -- structural, reshapes everything downstream        [ALL DONE]
 TIER 2 -- behavioral policy (touches spec + tests; needs a decision)
 ==============================================================================
 
->>> NEXT UP <<<
-[ ] T2.1  Settle the shadowing / name-collision rule across all THREE sites,
-          consistently. DECISION NEEDED before implementing (it changes SPEC.md
-          + tests, not just code).
+[x] T2.1  Settled the shadowing / name-collision rule uniformly across all THREE
+          sites. DECISION (user): a same-scope duplicate stays a hard ERROR; any
+          CROSS-scope shadow (an inner definition hiding an outer/global/base
+          name) is a WARNING, categorized by the shadowed name group:
+            - shadow-value    (WarningType.SHADOW_VALUE)    -- value group
+            - shadow-callable (WarningType.SHADOW_CALLABLE) -- callable group
+          Imports fold in by name group (an import binding a callable over a
+          builtin -> shadow-callable, etc.).
 
-          The three FIXME sites:
-            - semantics.py:297  DefineFunctions.visit_AstDef -- function
-              redefinition.
-            - semantics.py:364  DefineVariables.define_variable -- variable
-              redeclaration.
-            - imports.py:552    BindImports._bind_module -- import binding over an
-              existing name.
+          Applied at all three sites, uniformly: get() = same scope -> error;
+          else lookup() up the parent chain -> shadow warning, then define.
+            - semantics.py DefineFunctions.visit_AstDef   (functions).
+            - semantics.py DefineVariables.define_variable (variables).
+            - imports.py BindImports._bind_symbol + _bind_module (imports; BOTH
+              carried the same collision check, so both were updated).
+          Removed FIXMEs: the 3 shadowing sites + a follow-up "check all name
+          groups?" on _bind_symbol (answered in-code: a bound symbol occupies
+          exactly one name group today -- a re-exported module holds only
+          functions -- so the loop runs once; kept only to mirror _bind_module).
 
-          Current (INCONSISTENT) behavior:
-            - Functions: redefinition is an ERROR, checked up the WHOLE chain
-              (cannot even shadow a dictionary/builtin callable).
-            - Variables: same-scope redeclaration is an ERROR; but shadowing an
-              OUTER/global name from an inner block is SILENTLY ALLOWED; at the
-              sequence root, cannot shadow base (dictionary) names.
-            - Imports: binding over an existing name is an ERROR.
+          SPEC.md: added a "## Shadowing" section; reworded the variable /
+          function definition + import-collision semantics; added *Tests:* links.
 
-          The decision to make: pick ONE uniform policy -- e.g. (a) all ERROR
-          (no shadowing anywhere), (b) all WARN (allow, but warn), or (c) a
-          defined split (e.g. inner-block shadowing warns; same-scope + base/dict
-          collisions error). Then apply it to all three sites + update SPEC.md +
-          tests.
+          Tests: new TestShadowWarnings (variables, functions) + TestImportShadows
+          Builtins / TestImportedSequenceShadowingBuiltins (imports). Flipped the
+          old "imported sequence cannot shadow a builtin" ERROR-tests to expect
+          the warning instead.
 
-          >> When resuming: ASK THE USER which policy before coding. <<
+          Test-infra change (user-requested): the compile helpers now promote
+          EVERY warning to a hard error BY DEFAULT. Pass expected_warnings={...}
+          to allow AND require specific ones (a stray/accidental shadow now fails
+          the test). Fixed all fallout (loop-var + seq-param shadows, empty-range,
+          import-underscore, a README example) by declaring expected warnings.
+
+          Drive-by: added TestImportFrom::test_from_import_reexported_module (the
+          `from lib import <module lib itself imported>` re-export path was
+          untested); fixed a syntax error a prior commit left in a
+          test_functions.py test name (was breaking that file's collection).
 
 
 ==============================================================================
 TIER 3 -- module modeling
 ==============================================================================
 
-[ ] T3.1  symbols.py:131 -- replace the is_sequence_module bool on SymbolTable
+>>> NEXT UP <<<
+[~] T3.1  symbols.py:131 -- replace the is_sequence_module bool on SymbolTable
           with a real Module class. Then, built on it:
-            - imports.py:379  simplify BindImports._bind (imagine an explicit IR:
-              "from file import symbol as path"; delete helpers).
-            - semantics.py:1623 explain / stop using parent_map in the
+            - [x] imports.py:387  simplify BindImports._bind. DONE (independent of
+              the Module class): every form now desugars (_desugar) to a flat list
+              of (name, value, mergeable) actions, and ONE installer (_bind_one,
+              which absorbed the old _bind_symbol + _bind_module) applies the
+              collision/shadow/merge rules in a single place. Deleted _bind_plain/
+              _bind_alias/_bind_from. Behavior unchanged (all import tests pass).
+            - [ ] semantics.py:1618 explain / stop using parent_map in the
               module-used-as-a-value check; point it at a test.
+          REMAINING: the Module class itself + the semantics.py:1618 sub-item.
 
 
 ==============================================================================
@@ -110,19 +128,19 @@ TIER 4 -- localized correctness / investigations (independent, low ripple)
 [ ] T4.1  desugaring.py:748 -- _make_func_call should look up in the enclosing
           callable scope (correctness). Currently main_scope.lookup, which is
           fine for the builtins it targets; revisit for correctness.
-[ ] T4.2  test_imports.py:2163 -- verify/add a test that relative imports INSIDE
+[ ] T4.2  test_imports.py:2251 -- verify/add a test that relative imports INSIDE
           an imported lib resolve relative to THAT lib, not the importer
           (possible bug).
 [x] T4.3  delete sequence_of() entirely  [done in T1.3]
-[ ] T4.4  imports.py:275 -- is the `i != 0` sequence()-metadata check already
+[ ] T4.4  imports.py:283 -- is the `i != 0` sequence()-metadata check already
           caught by another semantic pass? if so, dedupe.
-[ ] T4.5  imports.py:313 + imports.py:315 -- do we actually forbid duplicate
+[ ] T4.5  imports.py:321 + imports.py:323 -- do we actually forbid duplicate
           search dirs? + do a brief TOCTOU analysis of file resolution.
-[ ] T4.6  imports.py:143 -- assign node ids at parse time instead of in the
+[ ] T4.6  imports.py:151 -- assign node ids at parse time instead of in the
           semantics passes (would remove _ensure_id).
-[ ] T4.7  imports.py:100 -- split InlineImports into separate resolve vs inline
+[ ] T4.7  imports.py:108 -- split InlineImports into separate resolve vs inline
           passes (deferred from T1.2).
-[ ] T4.8  imports.py:126 -- confirm it's safe to early-return from _inline_stmts
+[ ] T4.8  imports.py:134 -- confirm it's safe to early-return from _inline_stmts
           on state.errors without signalling further (deferred from T1.2).
 
 
@@ -134,10 +152,10 @@ TIER 5 -- cosmetic / cleanup (last, near-zero ripple)
           CalculateFrameSizes.visit_AstBlock (seems weird / wants a comment).
 [ ] T5.2  compiler.py:153 -- _build_compilation_unit docstring is too long/verbose;
           trim it.
-[ ] T5.3  imports.py:162 -- add a type annotation for import_stack.
-[ ] T5.4  imports.py:164 -- better circular-import error msg (show the cycle).
-[ ] T5.5  imports.py:262 -- fix the misleading "not top-level statements" wording
+[ ] T5.3  imports.py:170 -- add a type annotation for import_stack.
+[ ] T5.4  imports.py:172 -- better circular-import error msg (show the cycle).
+[ ] T5.5  imports.py:270 -- fix the misleading "not top-level statements" wording
           (AstDef/AstImport/AstSequenceMetadata ARE top-level statements).
-[ ] T5.6  imports.py:305 -- use pathlib instead of os.path.dirname? (safety).
-[ ] T5.7  test_imports.py:2107 -- are the TestImportModuleMerging tests duplicates
+[ ] T5.6  imports.py:313 -- use pathlib instead of os.path.dirname? (safety).
+[ ] T5.7  test_imports.py:2195 -- are the TestImportModuleMerging tests duplicates
           of existing coverage?
