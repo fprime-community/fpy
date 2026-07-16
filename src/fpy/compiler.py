@@ -55,7 +55,7 @@ from fpy.semantics import (
 )
 from fpy.imports import (
     BindImports,
-    InlineImports,
+    LoadImports,
     WarnImportUnderscore,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
@@ -133,7 +133,7 @@ def _build_compilation_unit(program: AstBlock, state: CompileState):
     """Assemble the compilation unit: a fresh *library root* block wrapping the
     whole program, and store it as state.root_block.
 
-    On entry `program` holds the main program's statements; InlineImports has
+    On entry `program` holds the main program's statements; LoadImports has
     already removed each import and collected its target as a sibling block in
     state.imported_blocks. We build:
 
@@ -199,10 +199,11 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     Returns the populated CompileState. Raises the first CompileError encountered.
     """
-    # Resolve and inline every import first, on the raw program AST: this removes
-    # each import statement and collects its target sequence as a sibling block
-    # in state.imported_blocks, recording an ImportBinding for BindImports.
-    InlineImports().run(body, state)
+    # Load every transitively imported sequence first, on the raw program AST:
+    # this removes each import statement and collects its target sequence as a
+    # sibling block in state.imported_blocks, recording an ImportBinding for
+    # BindImports.
+    LoadImports().run(body, state)
     if len(state.errors) != 0:
         raise state.errors[0]
 
@@ -214,9 +215,8 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     pre_semantic_desugaring_passes = [DesugarCheckStatements()]
 
     semantics_passes: list[Visitor] = [
-        # sequence() metadata, if present, must be the first statement of the
-        # main block (the builtin library prepend cannot displace it because it
-        # goes into the library root, not the main block).
+        # sequence() metadata, if present, must be the first statement of
+        # each sequence block
         CheckSequenceMetadataDefinedAtTop(),
         # assign each node a unique id for indexing/hashing
         AssignIds(),
@@ -379,9 +379,9 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
 
     Raises CompileError on failure.
     """
-    # Inline imports first so sequence-run dependencies in imported sequences
-    # are discovered too.
-    InlineImports().run(body, state)
+    # Load imported sequences first so sequence-run dependencies inside them are
+    # discovered too.
+    LoadImports().run(body, state)
     if state.errors:
         raise state.errors[0]
 

@@ -89,7 +89,7 @@ class CompileState:
     frame layout and directive stream are generated from this block, not `root`
     (which also contains the builtin library and the imported sequences)."""
     imported_blocks: list = field(default_factory=list, repr=False)
-    """every imported sequence's block, collected by InlineImports. They are
+    """every imported sequence's block, collected by LoadImports. They are
     installed as children of the library `root` (siblings of `main_block`), so
     each imported sequence is an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)

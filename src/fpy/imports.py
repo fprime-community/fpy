@@ -14,10 +14,11 @@ builtin names still resolve up the parent chain.
 
 The work is split into two passes:
 
-* `InlineImports` runs first, on the raw AST. It resolves each import to a file,
-  recursively parses it, collects its statements as a sibling block in
-  state.imported_blocks, and records an `ImportBinding` for each import.
-  _build_compilation_unit then installs those blocks under the library root.
+* `LoadImports` runs first, on the raw AST. It resolves each import to a file
+  (via `ImportResolver`), recursively parses it, collects its statements as a
+  sibling block in state.imported_blocks, and records an `ImportBinding` for each
+  import. _build_compilation_unit then installs those blocks under the library
+  root.
 
 * `BindImports` runs after `DefineFunctions`/`DefineVariables` have registered
   every sequence's definitions. It creates the module chains / direct bindings
@@ -71,6 +72,20 @@ class SequenceContext:
 
 
 @dataclass
+class ResolvedImport:
+    """The sequence file an import statement names, and how its import path split
+    to name it."""
+
+    seq_path: list[str]
+    """the sequence path segments (leading dots already stripped) that name the
+    file; the module chain an `import` introduces."""
+    member: str | None
+    """the trailing member name for `import a.b.c.foo`, else None."""
+    file_path: str
+    """the named sequence's file (realpath)."""
+
+
+@dataclass
 class ImportBinding:
     """A resolved import, recorded for `BindImports` to bind once every
     sequence's definitions exist."""
@@ -103,9 +118,113 @@ def _shadow_warning_type(ng: NameGroup) -> WarningType:
     return WarningType.SHADOW_VALUE
 
 
-class InlineImports:
-    # FIXME can we split resolving and inlining into separate passes?
-    """Resolve and inline every import into the main sequence's AST."""
+class ImportResolver:
+    """Resolve an import statement to the sequence file it names.
+
+    Pure path logic over the filesystem and the search path: it neither reads nor
+    writes the AST, and knows nothing of sequences, blocks or scopes. The only
+    thing it needs from the importer is the directory that anchors a relative
+    import."""
+
+    def resolve(
+        self, node: AstImport, importer: SequenceContext, state
+    ) -> ResolvedImport | None:
+        """Resolve *node* against its candidate directories. Reports an error and
+        returns None if it names no file, or a file in more than one directory."""
+        candidate_dirs = self._candidate_dirs(node, importer, state)
+        if candidate_dirs is None:
+            return None
+
+        splits = []
+        for d in candidate_dirs:
+            s = self._split_in_dir(d, node.path, node.is_from)
+            if s is not None:
+                splits.append(s)
+
+        if len(splits) == 0:
+            state.err(
+                f"Cannot resolve import '{'.'.join(node.path)}'; no matching sequence found",
+                node,
+            )
+            return None
+        if len(splits) > 1:
+            state.err(
+                f"Ambiguous import '{'.'.join(node.path)}': it resolves in more than "
+                f"one search directory",
+                node,
+            )
+            return None
+        return splits[0]
+
+    def _candidate_dirs(
+        self, node: AstImport, importer: SequenceContext, state
+    ) -> list[str] | None:
+        """The directories *node* is searched in: the anchor of a relative import,
+        or the base search path of an absolute one. None on error."""
+        if node.num_dots > 0:
+            anchor = importer.dir_path
+            if anchor is None:
+                state.err(
+                    "Relative import in a sequence with no containing directory",
+                    node,
+                )
+                return None
+            for _ in range(node.num_dots - 1):
+                # FIXME should we use the Path api? is it safer?
+                anchor = os.path.dirname(anchor)
+            return [anchor]
+        return self._dedupe(state.import_search_dirs)
+
+    def _dedupe(self, dirs) -> list[str]:
+        """Drop duplicate directories (after resolution) so a repeated search
+        dir cannot manufacture an ambiguity."""
+        # FIXME I thought that we don't allow duplicate directories? I thought
+        # that was a compile error? or i guess its just ambiguous files that we dont allow
+        # FIXME we should do a brief TOCTOU analysis just to find out if that's
+        # something we need to consider a bit more
+        seen = set()
+        deduped = []
+        for d in dirs:
+            rp = os.path.realpath(d)
+            if rp not in seen:
+                seen.add(rp)
+                deduped.append(d)
+        return deduped
+
+    def _split_in_dir(self, d, path, is_from) -> ResolvedImport | None:
+        """Return how *path* splits into a sequence path and an optional member in
+        *d*, or None if it does not resolve there."""
+        whole = self._file_for(d, path)
+        if whole is not None:
+            return ResolvedImport(list(path), None, whole)
+        # `from` paths are always the whole sequence path; only plain/alias
+        # imports may split a trailing member off.
+        if not is_from and len(path) > 1:
+            f = self._file_for(d, path[:-1])
+            if f is not None:
+                return ResolvedImport(list(path[:-1]), path[-1], f)
+        return None
+
+    def _file_for(self, d, segments):
+        p = os.path.join(d, *segments) + ".fpy"
+        if os.path.isfile(p):
+            return os.path.realpath(p)
+        return None
+
+
+class LoadImports:
+    """Load every sequence the program transitively imports, and strip the import
+    statements naming them out of the AST.
+
+    Resolving an import (a path -> a file, `ImportResolver`) and loading one (a
+    file -> a parsed, checked sequence) are separate concerns, but they cannot be
+    separate passes: an import is only resolvable once its importer has been
+    parsed, and parsing that importer is what surfaces the next imports to
+    resolve. So the two interleave here, walking the import graph outward from
+    the main sequence."""
+
+    def __init__(self):
+        self._resolver = ImportResolver()
 
     def run(self, body: AstBlock, state):
         main_ctx = SequenceContext(
@@ -114,22 +233,21 @@ class InlineImports:
         )
         state.main_sequence = main_ctx
 
-        body.stmts = self._inline_stmts(body.stmts, main_ctx, state, import_stack=[])
+        body.stmts = self._strip_imports(body.stmts, main_ctx, state, import_stack=[])
 
-    def _inline_stmts(self, stmts, ctx: SequenceContext, state, import_stack):
-        """Return *stmts* with each import removed. Each import's target sequence
-        is collected as a sibling block in state.imported_blocks rather than
-        spliced in at the import's position."""
+    def _strip_imports(self, stmts, ctx: SequenceContext, state, import_stack):
+        """Return *stmts* with each import removed, having loaded every sequence
+        they name. An import's target is collected as a sibling block in
+        state.imported_blocks."""
         result = []
         for stmt in stmts:
             if is_instance_compat(stmt, AstImport):
                 self._ensure_id(stmt, state)
-                inlined = self._handle_import(stmt, ctx, state, import_stack)
+                self._handle_import(stmt, ctx, state, import_stack)
                 if state.errors:
                     # FIXME how do we know that it's okay to not return some
                     # error condition here?
                     return result
-                result.extend(inlined)
             else:
                 result.append(stmt)
         return result
@@ -148,11 +266,13 @@ class InlineImports:
         importer: SequenceContext,
         state: CompileState,
         import_stack,
-    ):
-        resolved = self._resolve(node, importer, state)
+    ) -> None:
+        """Load the sequence *node* names (if it is not already loaded) and record
+        an ImportBinding for BindImports."""
+        resolved = self._resolver.resolve(node, importer, state)
         if resolved is None:
-            return []
-        seq_path, member, file_path = resolved
+            return
+        file_path = resolved.file_path
 
         # A file currently on the import stack is mid-load: importing it now is a
         # cycle.
@@ -164,7 +284,7 @@ class InlineImports:
                 f"Circular import detected: '{os.path.basename(file_path)}'",
                 node,
             )
-            return []
+            return
 
         # A sequence is compiled once. The first import of a file loads it and
         # installs its block; later imports of the same file (in this sequence or
@@ -177,7 +297,7 @@ class InlineImports:
                 file_path, state, import_stack + [file_path]
             )
             if state.errors:
-                return []
+                return
             state.loaded_sequences[file_path] = target
 
             # Collect the imported sequence's statements as a sibling block of the
@@ -192,14 +312,14 @@ class InlineImports:
             state.imported_blocks.append(block)
 
         state.import_bindings.append(
-            ImportBinding(node, importer, target, seq_path, member)
+            ImportBinding(node, importer, target, resolved.seq_path, resolved.member)
         )
-        return []
 
     def _load_sequence(self, file_path: str, state, import_stack):
-        """Parse and recursively inline the sequence at *file_path*.
+        """Parse the sequence at *file_path*, check it, and load every sequence it
+        imports in turn.
 
-        Returns (SequenceContext, inlined_statements)."""
+        Returns (SequenceContext, its statements with imports stripped)."""
         from fpy.compiler import text_to_ast
 
         try:
@@ -241,7 +361,7 @@ class InlineImports:
         if state.errors:
             return ctx, []
 
-        stmts = self._inline_stmts(parsed.stmts, ctx, state, import_stack)
+        stmts = self._strip_imports(parsed.stmts, ctx, state, import_stack)
         return ctx, stmts
 
     def _check_no_side_effects(self, stmts, state):
@@ -270,82 +390,6 @@ class InlineImports:
                     stmt,
                 )
                 return
-
-    # -- resolution -----------------------------------------------------------
-
-    def _resolve(self, node: AstImport, importer: SequenceContext, state):
-        """Resolve an import to (seq_path, member, file_path), or None on error."""
-        path = node.path
-        if node.num_dots > 0:
-            anchor = importer.dir_path
-            if anchor is None:
-                state.err(
-                    "Relative import in a sequence with no containing directory",
-                    node,
-                )
-                return None
-            for _ in range(node.num_dots - 1):
-                # FIXME should we use the Path api? is it safer?
-                anchor = os.path.dirname(anchor)
-            candidate_dirs = [anchor]
-        else:
-            candidate_dirs = list(state.import_search_dirs)
-
-        # Drop duplicate directories (after resolution) so a repeated search
-        # dir cannot manufacture an ambiguity.
-        # FIXME I thought that we don't allow duplicate directories? I thought
-        # that was a compile error? or i guess its just ambiguous files that we dont allow
-        # FIXME we should do a brief TOCTOU analysis just to find out if that's
-        # something we need to consider a bit more
-        seen = set()
-        deduped = []
-        for d in candidate_dirs:
-            rp = os.path.realpath(d)
-            if rp not in seen:
-                seen.add(rp)
-                deduped.append(d)
-        candidate_dirs = deduped
-
-        splits = []
-        for d in candidate_dirs:
-            s = self._split_in_dir(d, path, node.is_from)
-            if s is not None:
-                splits.append(s)
-
-        if len(splits) == 0:
-            state.err(
-                f"Cannot resolve import '{'.'.join(path)}'; no matching sequence found",
-                node,
-            )
-            return None
-        if len(splits) > 1:
-            state.err(
-                f"Ambiguous import '{'.'.join(path)}': it resolves in more than "
-                f"one search directory",
-                node,
-            )
-            return None
-        return splits[0]
-
-    def _split_in_dir(self, d, path, is_from):
-        """Return (seq_path, member, file_path) for how *path* splits in *d*,
-        or None if it does not resolve there."""
-        whole = self._file_for(d, path)
-        if whole is not None:
-            return (list(path), None, whole)
-        # `from` paths are always the whole sequence path; only plain/alias
-        # imports may split a trailing member off.
-        if not is_from and len(path) > 1:
-            f = self._file_for(d, path[:-1])
-            if f is not None:
-                return (list(path[:-1]), path[-1], f)
-        return None
-
-    def _file_for(self, d, segments):
-        p = os.path.join(d, *segments) + ".fpy"
-        if os.path.isfile(p):
-            return os.path.realpath(p)
-        return None
 
 
 class BindImports:
