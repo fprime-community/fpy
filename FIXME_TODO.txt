@@ -6,11 +6,12 @@ radius -- items that reshape the most other items come first.
 Status key: [ ] todo  [~] in progress  [x] done  [-] wont-do/moot
 
 ------------------------------------------------------------------------------
-STATUS (as of end of T2.1)
-  DONE:  T1.1, T1.2, T1.3 (all of Tier 1) + T4.3 + T2.1 (all of Tier 2).
+STATUS (as of end of T3.2)
+  DONE:  T1.1, T1.2, T1.3 (all of Tier 1) + T4.3 + T2.1 (all of Tier 2) + T3.2
+         + T4.4.
   NEXT:  >>> T3.1 (module modeling) <<<  -- or any independent Tier 4 item.
   Open FIXMEs remaining in tree: 17 (15 in src; 2 in test = T5.7, T4.2).
-  Baseline: full suite 1519 passed, 3 skipped, 1 xpassed; black + spec-links
+  Baseline: full suite 1521 passed, 3 skipped, 1 xpassed; black + spec-links
     clean. (Includes the 69 @pytest.mark.wasm tests -- spacewasm submodule now
     checked out + runner built; needs Rust >=1.85 / edition 2024.)
   Line numbers below are CURRENT (re-grep `# FIXME` if they drift after edits).
@@ -108,17 +109,38 @@ TIER 3 -- module modeling
 ==============================================================================
 
 >>> NEXT UP <<<
-[~] T3.1  symbols.py:131 -- replace the is_sequence_module bool on SymbolTable
-          with a real Module class. Then, built on it:
-            - [x] imports.py:387  simplify BindImports._bind. DONE (independent of
-              the Module class): every form now desugars (_desugar) to a flat list
-              of (name, value, mergeable) actions, and ONE installer (_bind_one,
-              which absorbed the old _bind_symbol + _bind_module) applies the
-              collision/shadow/merge rules in a single place. Deleted _bind_plain/
-              _bind_alias/_bind_from. Behavior unchanged (all import tests pass).
-            - [ ] semantics.py:1618 explain / stop using parent_map in the
+[ ] T3.1  symbols.py:131 -- replace the is_sequence_module bool on SymbolTable
+          with a real Module class (Sequence/Package module types).
+          imports.py:432 marks the call sites that collapse with it: _make_module
+          and _is_sequence_module are the bool's only real users, so both die
+          when the class lands. Also folds in the "SequenceSymbol?" musing.
+          Sub-item, independent, still open:
+            - [ ] semantics.py:1604 explain / stop using parent_map in the
               module-used-as-a-value check; point it at a test.
-          REMAINING: the Module class itself + the semantics.py:1618 sub-item.
+
+[x] T3.2  imports.py:387 -- simplify BindImports._bind. DONE, independent of the
+          Module class. Every form now EXPANDS (_expand) to a flat list of
+          (name, sym, mergeable) actions, and ONE installer (_bind_one, which
+          absorbed the old _bind_symbol + _bind_module) applies the collision/
+          shadow/merge rules in a single place. Deleted _bind_plain/_bind_alias/
+          _bind_from. Behavior unchanged.
+          Follow-up FIXMEs (all resolved):
+            - not "desugar": it computes bindings, it does not rewrite to a
+              simpler form of the language -> renamed _desugar to _expand.
+            - documented _expand's on-error return (partial list; the caller
+              checks state.errors before installing any of it).
+            - flattened the `from` branch to two top-level guards.
+            - renamed _bind_one's `value` param to `sym`.
+          DECISION (user): `from p import *` no longer binds underscore names --
+          it names nothing, so it takes only the public surface, per Python.
+          A later use of one is an unknown-name ERROR, not a warning. Deleted
+          Scope.star_underscore_names and WarnImportUnderscore.visit_AstIdent.
+          Forms that DO name an underscore member (`lib._helper`,
+          `import lib._helper`, `from lib import _helper`) still bind + warn.
+          SPEC.md: reworded the `from ... import *` rule + added a note to the
+          underscore section. Tests: test_star_import_underscore_use_warns ->
+          test_star_import_does_not_bind_underscore_names (now expects the
+          error) + test_star_import_binds_public_names.
 
 
 ==============================================================================
@@ -132,8 +154,23 @@ TIER 4 -- localized correctness / investigations (independent, low ripple)
           an imported lib resolve relative to THAT lib, not the importer
           (possible bug).
 [x] T4.3  delete sequence_of() entirely  [done in T1.3]
-[ ] T4.4  imports.py:283 -- is the `i != 0` sequence()-metadata check already
-          caught by another semantic pass? if so, dedupe.
+[x] T4.4  imports.py:283 -- is the `i != 0` sequence()-metadata check already
+          caught by another semantic pass? if so, dedupe. DONE.
+          ANSWER: it was not -- and only because the metadata was DROPPED from
+          imported blocks before the general pass could see it. The duplication
+          and the drop each existed because of the other.
+          DECISION (user): imported blocks now KEEP their sequence() statement,
+          so CheckSequenceMetadataDefinedAtTop (its `node is not main_block`
+          guard removed) enforces the position rule on every sequence's block
+          uniformly. _check_metadata shrank to the one import-specific rule
+          (args make a sequence un-importable); _inline_stmts' is_main param
+          died with the drop. Safe because the grammar admits sequence() only as
+          a top-level statement (no nested block can hold one), the library root
+          holds none, and every visit_AstSequenceMetadata early-returns on the
+          argless metadata an imported sequence is guaranteed to have.
+          Drive-by: the pass's found_non_metadata flag was redundant (it implies
+          `stmt is not stmts[0]`), so the check is now one condition.
+          Test: TestImportErrors::test_imported_sequence_metadata_must_be_first.
 [ ] T4.5  imports.py:321 + imports.py:323 -- do we actually forbid duplicate
           search dirs? + do a brief TOCTOU analysis of file resolution.
 [ ] T4.6  imports.py:151 -- assign node ids at parse time instead of in the

@@ -182,9 +182,6 @@ class Scope:
         self._groups: dict[NameGroup, dict[str, "Symbol"]] = {
             ng: {} for ng in NameGroup
         }
-        self.star_underscore_names: set[str] = set()
-        """underscore-prefixed names bound into this scope via `from ... import *`;
-        a later bare use of one warns. Only a sequence's root scope carries any."""
 
     def group(self, ng: NameGroup) -> dict[str, "Symbol"]:
         """The name->symbol dict for one name group (mutable)."""

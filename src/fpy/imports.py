@@ -43,7 +43,6 @@ from fpy.syntax import (
     AstBlock,
     AstDef,
     AstGetAttr,
-    AstIdent,
     AstImport,
     AstSequenceMetadata,
 )
@@ -115,13 +114,9 @@ class InlineImports:
         )
         state.main_sequence = main_ctx
 
-        body.stmts = self._inline_stmts(
-            body.stmts, main_ctx, state, import_stack=[], is_main=True
-        )
+        body.stmts = self._inline_stmts(body.stmts, main_ctx, state, import_stack=[])
 
-    def _inline_stmts(
-        self, stmts, ctx: SequenceContext, state, import_stack, is_main: bool
-    ):
+    def _inline_stmts(self, stmts, ctx: SequenceContext, state, import_stack):
         """Return *stmts* with each import removed. Each import's target sequence
         is collected as a sibling block in state.imported_blocks rather than
         spliced in at the import's position."""
@@ -135,16 +130,6 @@ class InlineImports:
                     # error condition here?
                     return result
                 result.extend(inlined)
-            elif is_instance_compat(stmt, AstSequenceMetadata):
-                # The main sequence keeps its metadata (handled by the normal
-                # passes). Imported sequences' metadata was already validated
-                # in _load_sequence and is dropped.
-                # FIXME why do we drop the metadata from non main seqs? why not just keep it?
-                # is it because otherwise we would crash because there could be multiple metadatas
-                # in one file? i think the metadata checker pass should just take into account
-                # that there could be multiple, one for each block, right?
-                if is_main:
-                    result.append(stmt)
             else:
                 result.append(stmt)
         return result
@@ -256,9 +241,7 @@ class InlineImports:
         if state.errors:
             return ctx, []
 
-        stmts = self._inline_stmts(
-            parsed.stmts, ctx, state, import_stack, is_main=False
-        )
+        stmts = self._inline_stmts(parsed.stmts, ctx, state, import_stack)
         return ctx, stmts
 
     def _check_no_side_effects(self, stmts, state):
@@ -278,22 +261,10 @@ class InlineImports:
                 return
 
     def _check_metadata(self, stmts, state):
-        """An imported sequence may declare `sequence()` (no args) as its first
-        statement; sequence arguments make it un-importable."""
-        for i, stmt in enumerate(stmts):
-            if not is_instance_compat(stmt, AstSequenceMetadata):
-                continue
-            if i != 0:
-                # FIXME won't this already be caught in other semantic passes?
-                # should we move that pass up? should we have it run as a sub pass of this?
-                # should this pass handle "importing" the main sequence? i.e. just treat it
-                # as yet another block?
-                state.err(
-                    "sequence() definition must be the first statement in the file",
-                    stmt,
-                )
-                return
-            if stmt.parameters:
+        """Sequence arguments make a sequence un-importable: nothing would supply
+        them at the import."""
+        for stmt in stmts:
+            if is_instance_compat(stmt, AstSequenceMetadata) and stmt.parameters:
                 state.err(
                     "Cannot import a sequence that declares sequence arguments",
                     stmt,
@@ -380,9 +351,8 @@ class InlineImports:
 class BindImports:
     """Bind each recorded import into its importer's scopes.
 
-    # FIXME don't call it desguar, that's not actually accurate
-    Every import form is first *desugared* (_desugar) to a flat list of
-    (name, value, mergeable) actions, each installing one definition or one
+    Every import form is first *expanded* (_expand) to a flat list of
+    (name, sym, mergeable) actions, each installing one definition or one
     synthesized module under a name in the importer's scope."""
 
     def run(self, body, state):
@@ -393,17 +363,15 @@ class BindImports:
 
     def _bind(self, binding: ImportBinding, state):
         importer_scope = state.enclosing_scope[binding.importer.block]
-        for name, value, mergeable in self._desugar(binding, importer_scope, state):
+        for name, sym, mergeable in self._expand(binding, state):
             if state.errors:
                 return
-            self._bind_one(importer_scope, name, value, mergeable, binding.node, state)
+            self._bind_one(importer_scope, name, sym, mergeable, binding.node, state)
             if state.errors:
                 return
 
-    # -- desugaring -----------------------------------------------------------
-
-    def _desugar(self, binding: ImportBinding, importer_scope: Scope, state):
-        """Expand an import into a flat list of (name, value, mergeable) actions,
+    def _expand(self, binding: ImportBinding, state):
+        """Expand an import into a flat list of (name, sym, mergeable) actions,
         each of which installs one thing under *name* in the importer's scope:
 
           * a synthesized package/sequence module (mergeable=True) -- what a
@@ -411,26 +379,25 @@ class BindImports:
           * a single looked-up definition (mergeable=False) -- what a member
             import, an aliased member, or any `from` binds.
 
-        # FIXME document how it returns on error
-        Member lookups and their underscore warnings (the source side) happen
-        here; collisions, shadows and module merging (the destination side)
-        happen in _bind_one."""
+        On error, reports it via state.err and returns whatever actions were
+        built so far. The caller checks state.errors before installing any of
+        them, so a partial list is never bound."""
         node = binding.node
         target_scope = state.enclosing_scope[binding.target.block]
 
-        # `from a.b.c import ...` binds looked-up definitions under bare names,
-        # introducing no module chain.
-        # FIXME I wonder if we could write this in a less-indented form. basically
-        # cut down on the number of sub blocks here for readability
+        # `from a.b.c import *` binds the sequence's public definitions, each
+        # under its own name. A star import takes only the
+        # public surface: underscore definitions are internal and stay unbound
+        if node.is_from and node.is_star:
+            return [
+                (name, sym, False)
+                for name, sym in target_scope.own_symbols().items()
+                if not name.startswith("_")
+            ]
+
+        # `from a.b.c import m [as n], ...` binds looked-up definitions under
+        # bare names, introducing no module chain.
         if node.is_from:
-            if node.is_star:
-                actions = []
-                for name, sym in target_scope.own_symbols().items():
-                    if name.startswith("_"):
-                        # FIXME what if * import doesn't import underscored names? then we can remove star_underscore_names
-                        importer_scope.star_underscore_names.add(name)
-                    actions.append((name, sym, False))
-                return actions
             actions = []
             for member_name, alias in node.members:
                 sym = self._lookup_definition(target_scope, member_name, node, state)
@@ -450,7 +417,9 @@ class BindImports:
                 # `import a.b.c.member as x` binds the definition directly under x.
                 return [(node.alias, sym, False)]
             # `import a.b.c.member` binds a.b.c as a module holding just `member`.
-            # FIXME again wondering if we can drop this func and have a SequenceSymbol...
+            # FIXME _make_module/_is_sequence_module are the is_sequence_module
+            # bool's only real call sites; both collapse into Sequence/Package
+            # Module classes when symbols.py:131 lands.
             leaf = _make_module(is_sequence_module=True)
             leaf[binding.member] = sym
         else:
@@ -511,11 +480,10 @@ class BindImports:
             groups |= self._symbol_groups(sym)
         return groups
 
-    def _bind_one(self, scope: Scope, name, value, mergeable, node, state):
-        """Install *value* under *name* into *scope* (the importer's).
+    def _bind_one(self, scope: Scope, name, sym, mergeable, node, state):
+        """Install *sym* under *name* into *scope* (the importer's).
 
-        # FIXME value is misleading, it's not a value, it should just be called sym i think?
-        *value* is either a single definition (mergeable=False -- a function, a
+        *sym* is either a single definition (mergeable=False -- a function, a
         variable, or a re-exported module bound opaquely) or a synthesized
         package/sequence module (mergeable=True). A mergeable module merges with
         a package module THIS sequence already built under *name*; two sequence
@@ -525,7 +493,7 @@ class BindImports:
         collision (error); a name that only resolves up the parent chain -- a
         dictionary/builtin definition -- is shadowed (warning).
         """
-        groups = self._symbol_groups(value)
+        groups = self._symbol_groups(sym)
         if not groups:
             # An empty sequence's module holds nothing and belongs to no name
             # group; there is nothing to bind.
@@ -541,19 +509,19 @@ class BindImports:
                     existing = candidate
                     break
             if existing is not None:
-                if _is_sequence_module(existing) and _is_sequence_module(value):
+                if _is_sequence_module(existing) and _is_sequence_module(sym):
                     state.err(
                         f"Import of '{name}' collides with an existing imported "
                         f"sequence of the same name",
                         node,
                     )
                     return
-                self._merge_modules(existing, value, node, state)
+                self._merge_modules(existing, sym, node, state)
                 if state.errors:
                     return
-                value = existing
+                sym = existing
                 merged_into = existing
-                groups = self._symbol_groups(value)
+                groups = self._symbol_groups(sym)
 
         # A name occupied in the importer's own scope collides -- unless it is
         # the very module we just merged into.
@@ -570,13 +538,13 @@ class BindImports:
         # import shadows it: a warning, not an error.
         for ng in groups:
             outer = scope.lookup(ng, name)
-            if outer is not None and outer is not value:
+            if outer is not None and outer is not sym:
                 state.warn(
                     _shadow_warning_type(ng),
                     f"Import of '{name}' shadows an existing definition",
                     node,
                 )
-            scope.define(ng, name, value)
+            scope.define(ng, name, sym)
 
     def _merge_modules(self, existing, incoming, node, state):
         """Merge *incoming* module's members into *existing*."""
@@ -604,11 +572,13 @@ class BindImports:
 
 
 class WarnImportUnderscore(Visitor):
-    """Warn when the importer *uses* an underscore-prefixed imported definition.
+    """Warn when the importer *uses* an underscore-prefixed imported definition
+    via `module._helper` member access.
 
-    Covers `module._helper` member access and a bare use of a name that a
-    `from ... import *` brought in under an underscore name. Import statements
-    that name an underscore member warn at bind time in `BindImports`."""
+    A bare name never needs this: the only import form that binds a definition
+    under a bare name without naming it is `from ... import *`, and that one
+    does not bind underscore names at all. Import statements that DO name an
+    underscore member warn at bind time in `BindImports`."""
 
     def visit_AstGetAttr(self, node: AstGetAttr, state):
         if not node.attr.startswith("_"):
@@ -618,23 +588,6 @@ class WarnImportUnderscore(Visitor):
             state.warn(
                 WarningType.IMPORT_UNDERSCORE,
                 f"'{node.attr}' is a library-internal definition (its name "
-                f"begins with an underscore)",
-                node,
-            )
-
-    def visit_AstIdent(self, node: AstIdent, state):
-        if not node.name.startswith("_"):
-            return
-        # star_underscore_names lives on the sequence's root scope -- the scope
-        # in this node's chain whose parent is the shared base scope. Walk up to
-        # it (a node under no sequence, e.g. a builtin lib def, finds none).
-        scope = state.enclosing_scope[node]
-        while scope is not None and scope.parent is not state.base_scope:
-            scope = scope.parent
-        if scope is not None and node.name in scope.star_underscore_names:
-            state.warn(
-                WarningType.IMPORT_UNDERSCORE,
-                f"'{node.name}' is a library-internal definition (its name "
                 f"begins with an underscore)",
                 node,
             )

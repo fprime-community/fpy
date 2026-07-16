@@ -253,9 +253,12 @@ assert x == 7
             expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
 
-    def test_star_import_underscore_use_warns(self, fprime_test_api, tmp_path):
-        """`from lib import *` binds `_helper` without naming it; the later
-        bare `_helper()` use is what warns."""
+    def test_star_import_does_not_bind_underscore_names(
+        self, fprime_test_api, tmp_path
+    ):
+        """`from lib import *` names nothing, so it binds only the public
+        surface: `_helper` stays unbound and using it is an error, not a
+        warning."""
         _write_sequence(tmp_path, "lib", self.LIB)
         main = """\
 from lib import *
@@ -263,12 +266,24 @@ from lib import *
 x: U32 = _helper()
 assert x == 7
 """
-        assert_run_success(
+        assert_compile_failure(
             fprime_test_api,
             main,
+            match="Unknown callable '_helper'",
             import_search_dirs=[str(tmp_path)],
-            expected_warnings={WarningType.IMPORT_UNDERSCORE},
         )
+
+    def test_star_import_binds_public_names(self, fprime_test_api, tmp_path):
+        """The public half of the same star import still binds, and `public`
+        internally calling `_helper` does not warn the importer."""
+        _write_sequence(tmp_path, "lib", self.LIB)
+        main = """\
+from lib import *
+
+x: U32 = public()
+assert x == 7
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_library_internal_use_does_not_warn(self, fprime_test_api, tmp_path):
         """`lib.public()` internally calls `_helper`; the importer never names
@@ -364,6 +379,30 @@ x: U32 = no_argument_sequence.f()
 assert x == 1
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_imported_sequence_metadata_must_be_first(self, fprime_test_api, tmp_path):
+        """An imported sequence keeps its `sequence()` statement, so the
+        position rule is enforced on its block by the same pass that checks the
+        main sequence's."""
+        _write_sequence(
+            tmp_path,
+            "late_metadata",
+            """\
+def f() -> U32:
+    return 1
+
+sequence()
+""",
+        )
+        main = """\
+import late_metadata
+"""
+        assert_compile_failure(
+            fprime_test_api,
+            main,
+            match="must be the first statement",
+            import_search_dirs=[str(tmp_path)],
+        )
 
 
 class TestImporterWithArguments:

@@ -203,36 +203,22 @@ class CreateScopes(TopDownVisitor):
 
 class CheckSequenceMetadataDefinedAtTop(TopDownVisitor):
     """
-    Ensure that sequence() statement is at the top of the user's sequence.
-    We check only the main block, whose statements are the raw user code. This avoids
-    taking into account the automatically prepended compile time library.
-    If a sequence() definition exists, it must be the very first statement.
+    Ensure a sequence() statement is the first statement of its file.
+
+    Every sequence's block gets this check.
     """
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        # Only check the main block (the user's top-level sequence)
-        if node is not state.main_block:
-            return
-
-        # Walk through statements in order
-        found_non_metadata = False
         for stmt in node.stmts:
-            if isinstance(stmt, AstSequenceMetadata):
-                # If we've already seen a non-metadata statement, this is an error
-                if found_non_metadata:
-                    state.err(
-                        f"sequence() definition must be the first statement in the file",
-                        stmt,
-                    )
-                # sequence() must be the first statement if present
-                elif stmt is not node.stmts[0]:
-                    state.err(
-                        f"sequence() definition must be the first statement in the file",
-                        stmt,
-                    )
-            else:
-                # Mark that we've seen a non-metadata statement
-                found_non_metadata = True
+            if isinstance(stmt, AstSequenceMetadata) and stmt is not node.stmts[0]:
+                # sequence() is guaranteed to be only in a top-level block by the
+                # grammar, so we know node is a top level block of a sequence
+                # (may be an imported sequence)
+                state.err(
+                    "sequence() definition must be the first statement in the file",
+                    stmt,
+                )
+                return
 
 
 class CheckAssignSyntax(TopDownVisitor):
