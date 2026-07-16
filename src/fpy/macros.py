@@ -131,9 +131,9 @@ def generate_log_signed_int(
 
 
 def generate_exit_llvm(builder, args):
-    """LLVM/wasm lowering of exit(code): call the host fpy_exit function, which
+    """LLVM/wasm lowering of exit(code): call the host exit function, which
     ends the whole sequence from any call depth (code 0 is a normal exit,
-    nonzero a fault).
+    nonzero an error).
     """
     from fpy.codegen_llvm import emit_host_exit
 

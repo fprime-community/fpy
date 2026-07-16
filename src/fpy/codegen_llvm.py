@@ -55,22 +55,27 @@ WASM_VERSION = "1.0 (MVP)"
 
 ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 
-# Host import that ends the whole sequence
-HOST_EXIT_FUNC_NAME = "fpy_exit"
+# Host imports that end the whole sequence. Both take an error code and never
+# return, but they mean different things to the host: `exit` carries a
+# termination the user wrote in syntax (exit(), a failing assert), while
+# `fault` carries an implicit runtime trap the program never asked for (array
+# index out of bounds, zero divisor).
+HOST_EXIT_FUNC_NAME = "exit"
+HOST_FAULT_FUNC_NAME = "fault"
 
 
 # TODO this adhoc emit and declare stuff is not super nice. should probably
 # clean it up, have a list of the expected host module signature funcs, declare them
 # all at the start.
-def _declare_host_exit(module: ir.Module) -> ir.Function:
-    """Get-or-declare the fpy_exit host import on *module*."""
-    existing = module.globals.get(HOST_EXIT_FUNC_NAME)
+def _declare_host_terminator(module: ir.Module, name: str) -> ir.Function:
+    """Get-or-declare the noreturn `void(code)` host import *name* on *module*."""
+    existing = module.globals.get(name)
     if existing is not None:
         return existing
     fn = ir.Function(
         module,
         ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-        name=HOST_EXIT_FUNC_NAME,
+        name=name,
     )
     # It never returns to wasm: the host unwinds the interpreter.
     fn.attributes.add("noreturn")
@@ -78,8 +83,14 @@ def _declare_host_exit(module: ir.Module) -> ir.Function:
 
 
 def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to fpy_exit(code) and terminate the current block."""
-    builder.call(_declare_host_exit(builder.module), [code])
+    """Emit a call to the host exit(code) and terminate the current block."""
+    builder.call(_declare_host_terminator(builder.module, HOST_EXIT_FUNC_NAME), [code])
+    builder.unreachable()
+
+
+def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
+    """Emit a call to the host fault(code) and terminate the current block."""
+    builder.call(_declare_host_terminator(builder.module, HOST_FAULT_FUNC_NAME), [code])
     builder.unreachable()
 
 
@@ -187,10 +198,15 @@ class EmitLlvmExpr(Emitter):
         if is_float:
             # Floats have a real floor: divide, then floor the quotient. The
             # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
-            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0.
+            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0. A zero
+            # divisor needs no guard: float division is IEEE (inf/nan), and
+            # floor passes that through, matching the VM.
             quotient = b.fdiv(lhs, rhs)
             floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
+        # wasm's integer div instructions trap uncatchably on a zero divisor;
+        # the VM reports DOMAIN_ERROR instead, so guard first.
+        self._emit_zero_divisor_check(rhs, is_float=False)
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
             # there's nothing below zero to floor toward, so udiv (which
@@ -230,6 +246,11 @@ class EmitLlvmExpr(Emitter):
         lowers to an fmod libcall on wasm, hence the imported env.fmod.)
         """
         b = self.builder
+        # A zero divisor is DOMAIN_ERROR in the VM for *every* modulo,
+        # including floats (unlike float division, which is IEEE): wasm's
+        # integer rem instructions would trap uncatchably, and the host fmod
+        # would return NaN, so guard first.
+        self._emit_zero_divisor_check(rhs, is_float)
         if not is_float and not is_signed:
             # Unsigned operands are non-negative, so floored == truncated.
             return b.urem(lhs, rhs)
@@ -249,6 +270,26 @@ class EmitLlvmExpr(Emitter):
             signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
             corrected = b.add(rem, rhs)
         return b.select(b.and_(nonzero, signs_differ), corrected, rem)
+
+    def _emit_zero_divisor_check(self, rhs: ir.Value, is_float: bool) -> None:
+        """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, matching the
+        VM. (fcmp `==` treats -0.0 as zero, like the VM's `rhs == 0.0`.)"""
+        b = self.builder
+        zero = ir.Constant(rhs.type, 0)
+        # FIXME can you explain why ordered vs unordered here? also why is signed okay? i guess signed eq is same as unsigned?
+        is_zero = (
+            b.fcmp_ordered("==", rhs, zero)
+            if is_float
+            else b.icmp_signed("==", rhs, zero)
+        )
+        fail_block = b.function.append_basic_block("div_zero")
+        ok_block = b.function.append_basic_block("div_ok")
+        b.cbranch(is_zero, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        emit_host_fault(
+            b, ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)
+        )
+        b.position_at_end(ok_block)
 
     def _emit_short_circuit(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
         """Lower ``and``/``or`` with short-circuit evaluation."""
@@ -368,12 +409,20 @@ class EmitLlvmExpr(Emitter):
             parent_ptr = self._emit_ptr(sym.parent_expr, state)
             parent_type = state.contextual_types[sym.parent_expr]
             if sym.is_struct_member:
-                # GEP by member position, not FieldAccess.local_offset: that
-                # offset is in the packed serialized layout, while LLVM lays
-                # the struct out itself.
+                # GEP computes a pointer to member i of the struct behind
+                # parent_ptr, taking one index per level it steps through.
+                # The first index is in units of the *pointee* type: GEP
+                # treats parent_ptr as pointing into an array of structs, and
+                # 0 selects the very struct it points at (k would mean "the
+                # k-th struct after it"). The second index then steps into
+                # that struct, selecting member i; struct indices must be
+                # constant i32s because each member has a different type, so
+                # the result type (ptr to that member's type) must be known
+                # statically.
+                # `inbounds` promises the optimizer the address stays inside
+                # the parent object, which a valid member index always does.
                 for i, member in enumerate(parent_type.members):
                     if member.name == sym.name:
-                        # FIXME can you fully explain this GEP call
                         return b.gep(
                             parent_ptr,
                             [ir.Constant(i32, 0), ir.Constant(i32, i)],
@@ -385,8 +434,17 @@ class EmitLlvmExpr(Emitter):
             idx = self.emit(sym.idx_expr, state)
             self._emit_array_bounds_check(idx, parent_type.length)
             return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
-        # it's a field access into an anon struct/anon array
-        # FIXME explain why this isn't caught already in the cases in emit_astgetattr/index
+        # *expr* has no addressable storage. Either it isn't a resolved
+        # access at all (e.g. a constructor call like Svc.ComQueueDepth(1, 2),
+        # whose value is a const aggregate), or it's a field access on an
+        # anonymous literal. The anon special cases in emit_AstGetAttr/
+        # emit_AstIndexExpr don't make the latter unreachable here: they only
+        # fire when the anon access is the expression being emitted *as a
+        # value*, while _emit_ptr also recurses through the parents of a
+        # longer chain -- e.g. lowering `{a: [1, 2]}.a[i]` needs a *pointer*
+        # to the `.a` member so the runtime index can GEP into it. Either
+        # way the value exists only as an SSA value, so materialize it into
+        # a temporary stack slot to give it an address.
         value = self.emit(expr, state)
         with b.goto_entry_block():
             slot = b.alloca(value.type)
@@ -405,10 +463,7 @@ class EmitLlvmExpr(Emitter):
         ok_block = b.function.append_basic_block("idx_ok")
         b.cbranch(oob, fail_block, ok_block)
         b.position_at_end(fail_block)
-        # FIXME I want to split into host fault for implicit traps, and exit for explicit ones (ones that user
-        # wrote directly in syntax). let's do this as the next work item. let's also rename the host func to just
-        # be called exit and fault rather than fpy_exit e.g.
-        emit_host_exit(
+        emit_host_fault(
             b,
             ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value),
         )
@@ -543,8 +598,7 @@ class EmitLlvmStmt(Emitter):
         # The rhs is coerced to the target's type, so its emitted value
         # already matches the slot's element type. Emit it before the lhs
         # pointer so a failing bounds check in the lhs still evaluates the
-        # rhs first, matching the VM's evaluation order.
-        # FIXME add a test for the vm evaluation order if not already present (if possible)
+        # rhs first
         value = self.expr.emit(node.rhs, state)
         if is_instance_compat(sym, VariableSymbol):
             self.builder.store(value, sym.llvm_ptr)

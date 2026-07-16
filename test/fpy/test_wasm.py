@@ -37,6 +37,7 @@ pytestmark = pytest.mark.wasm
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
 ARRAY_OOB = DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
+DOMAIN_ERROR = DirectiveErrorCode.DOMAIN_ERROR.value
 
 
 def _seq_to_llvm_module(seq: str):
@@ -81,21 +82,6 @@ class TestWasmAssert:
         # so the failure branch is taken.
         suffix = "" if exit_code is None else f", {exit_code}"
         assert run_seq_wasm(f"assert 1 == 2{suffix}\n") == expected
-
-
-class TestWasmExit:
-    """exit() lowers to the host fpy_exit call rather than a `ret`, so it ends
-    the whole sequence (code 0 is a normal exit, nonzero a fault)."""
-
-    @pytest.mark.parametrize("code", [0, 5, 123])
-    def test_exit_returns_code(self, code):
-        assert run_seq_wasm(f"exit({code})\n") == code
-
-    def test_exit_ends_sequence_early(self):
-        # The exit happens before the (would-fail) assert, so the sequence ends
-        # with exit's code and never reaches the assert.
-        assert run_seq_wasm("exit(0)\nassert 1 == 2\n") == NO_ERROR
-        assert run_seq_wasm("exit(9)\nassert 1 == 1\n") == 9
 
 
 class TestWasmVariables:
@@ -291,6 +277,22 @@ class TestWasmMemberAccess:
             == NO_ERROR
         )
 
+    def test_assign_rhs_evaluated_before_lhs_bounds_check(self):
+        # In `a[i] = rhs` the rhs is evaluated before the lhs index is
+        # bounds-checked, matching the VM's evaluation order: the rhs's zero
+        # divisor faults with DOMAIN_ERROR before the out-of-bounds store
+        # could fault with ARRAY_OOB. (The VM-side twin lives in
+        # test_types_and_constructors.py under the same name.)
+        assert (
+            run_seq_wasm(
+                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+                "i: I8 = 2\n"
+                "z: U32 = 0\n"
+                "a[i] = U32(456 // z)\n"
+            )
+            == DOMAIN_ERROR
+        )
+
     def test_anon_struct_member(self):
         # Member access on an anonymous struct literal emits just the member
         # expression; a runtime member value keeps it from const-folding.
@@ -353,6 +355,27 @@ class TestWasmArithmetic:
             run_seq_wasm("x: F64 = 0.0 - 5.5\nassert x // 2.0 == (0.0 - 3.0)\n")
             == NO_ERROR
         )
+
+    def test_floor_divide_by_zero_faults(self):
+        # A zero divisor is DOMAIN_ERROR in the VM; the wasm i64.div_s/div_u
+        # would trap uncatchably instead, so the backend guards and faults.
+        # (The divisor is a variable so nothing folds at compile time.)
+        assert run_seq_wasm("z: U64 = 0\nx: U64 = 17 // z\n") == DOMAIN_ERROR
+        assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 // z\n") == DOMAIN_ERROR
+
+    def test_modulus_by_zero_faults(self):
+        # Like division -- and unlike float `/` -- a zero divisor in `%` is
+        # DOMAIN_ERROR even for floats (the VM checks it; libm fmod would
+        # quietly return NaN).
+        assert run_seq_wasm("z: U64 = 0\nx: U64 = 17 % z\n") == DOMAIN_ERROR
+        assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 % z\n") == DOMAIN_ERROR
+        assert run_seq_wasm("z: F64 = 0.0\nx: F64 = 5.5 % z\n") == DOMAIN_ERROR
+
+    def test_float_divide_by_zero_is_ieee(self):
+        # Float `/` (and thus float `//`) by zero is IEEE inf, not a fault,
+        # matching the VM.
+        assert run_seq_wasm("z: F64 = 0.0\nassert 1.0 / z > 1.0e308\n") == NO_ERROR
+        assert run_seq_wasm("z: F64 = 0.0\nassert 1.0 // z > 1.0e308\n") == NO_ERROR
 
     def test_greater_than_unsigned(self):
         assert run_seq_wasm("x: U64 = 5\nassert x > 3\n") == NO_ERROR
@@ -426,11 +449,16 @@ class TestWasmExponent:
 
 
 class TestWasmExit:
-    """The exit() builtin returns its code from the sequence entry point."""
+    """exit() lowers to the host `exit` call rather than a `ret`, so it ends
+    the whole sequence with its code (0 is a normal exit, nonzero an error)."""
 
     def test_exit_returns_code_verbatim(self):
         assert run_seq_wasm("exit(42)\n") == 42
         assert run_seq_wasm("exit(7)\n") == EXIT_WITH_ERROR
+
+    def test_exit_ends_sequence_early(self):
+        # A nonzero exit also returns immediately; nothing after it runs.
+        assert run_seq_wasm("exit(9)\nassert False\n") == 9
 
     def test_exit_zero_succeeds(self):
         assert run_seq_wasm("exit(0)\n") == NO_ERROR

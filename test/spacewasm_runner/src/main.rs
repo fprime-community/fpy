@@ -4,16 +4,20 @@
 //! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]`
 //!
 //! On success it prints the sequence's i32 error code as a single decimal line
-//! to stdout and exits 0. The code comes from `env.fpy_exit` when the sequence
-//! calls exit() or fails an assert, or from `fpy_main`'s return value when the
-//! sequence falls off its end (0 == success). The caller reads the printed
-//! code; the process exit status only distinguishes "ran cleanly" (0) from
-//! "harness/runtime fault" (2), so a nonzero error code is not conflated with a
-//! trap.
+//! to stdout and exits 0. The code comes from `env.exit` when the sequence
+//! calls exit() or fails an assert, from `env.fault` when it hits an implicit
+//! runtime trap (array index out of bounds, zero divisor), or from
+//! `fpy_main`'s return value when the sequence falls off its end (0 ==
+//! success). The caller reads the printed code; the process exit status only
+//! distinguishes "ran cleanly" (0) from "harness/runtime fault" (2), so a
+//! nonzero error code is not conflated with a trap.
+// FIXME we should have the main function be a void return. if it returns without
+// calling a host exit or fault, then we should consider it a success
 //!
 //! The `env.{pow,fmod,log}` host imports the fpy LLVM backend may emit are
 //! provided here, backed by libm so they match the C/IEEE semantics the LLVM
-//! intrinsics lower to. `env.fpy_exit` is provided to terminate the sequence.
+//! intrinsics lower to. `env.{exit,fault}` are provided to terminate the
+//! sequence.
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -129,11 +133,14 @@ fn wasm_alloc() -> spacewasm::Rc<dyn WasmMemoryAllocator> {
 /// `pow`/`fmod`/`log` are backed by libm so edge cases (e.g. `pow(0, -1)` ->
 /// +inf, domain errors -> NaN) match what the LLVM intrinsics produce.
 ///
-/// `fpy_exit(code)` ends the whole sequence: it records the code into
-/// *exit_code* and unwinds the interpreter with a host trap, so exit() and a
-/// failing assert terminate the program from any call depth (a `ret` would only
-/// unwind the current function). The recorded code -- not the trap -- carries
-/// the result; code 0 is a normal exit, nonzero a fault.
+/// `exit(code)` and `fault(code)` end the whole sequence: they record the code
+/// into *exit_code* and unwind the interpreter with a host trap, so they
+/// terminate the program from any call depth (a `ret` would only unwind the
+/// current function). The recorded code -- not the trap -- carries the result.
+/// `exit` is a termination the sequence asked for (exit(), a failing assert;
+/// code 0 is a normal exit, nonzero an error), `fault` an implicit runtime
+/// trap (array index out of bounds, zero divisor; always an error). This
+/// harness reports both the same way, as the sequence's resulting error code.
 fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
     fn arg_f64(args: &[Value], i: usize) -> f64 {
         match args[i] {
@@ -141,6 +148,19 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
             other => panic!("expected f64 host arg, got {other:?}"),
         }
     }
+    fn record_code_and_unwind(
+        exit_code: &Rc<Cell<Option<i32>>>,
+        args: &[Value],
+    ) -> ControlFlow<HostFunctionBreak, Option<Value>> {
+        let code = match args[0] {
+            Value::I32(v) => v,
+            other => panic!("expected i32 exit code, got {other:?}"),
+        };
+        exit_code.set(Some(code));
+        // Unwind the whole interpreter; run() reads the code back.
+        ControlFlow::Break(HostFunctionBreak::Trap)
+    }
+    let fault_code = exit_code.clone();
     HostModule {
         name: "env",
         globals: spacewasm::vec![],
@@ -160,14 +180,11 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
             HostFunction::new("log", "d".into(), "d".into(), |_, args| {
                 ControlFlow::Continue(Some(Value::F64(libm::log(arg_f64(args, 0)))))
             }),
-            HostFunction::new("fpy_exit", "i".into(), "".into(), move |_, args| {
-                let code = match args[0] {
-                    Value::I32(v) => v,
-                    other => panic!("expected i32 exit code, got {other:?}"),
-                };
-                exit_code.set(Some(code));
-                // Unwind the whole interpreter; run() reads the code back.
-                ControlFlow::Break(HostFunctionBreak::Trap)
+            HostFunction::new("exit", "i".into(), "".into(), move |_, args| {
+                record_code_and_unwind(&exit_code, args)
+            }),
+            HostFunction::new("fault", "i".into(), "".into(), move |_, args| {
+                record_code_and_unwind(&fault_code, args)
             }),
         ],
         memory: spacewasm::vec![],
@@ -178,7 +195,7 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
 fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     let wasm = std::fs::read(wasm_path).map_err(|e| format!("read {wasm_path}: {e}"))?;
 
-    // fpy_exit writes the sequence's exit code here and unwinds the interpreter.
+    // exit/fault write the sequence's error code here and unwind the interpreter.
     let exit_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
     let mut store = spacewasm::Store::new(256, [fpy_host_module(exit_code.clone())])
@@ -243,10 +260,10 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     let interpreter = spacewasm::Interpreter::default();
     let result = interpreter.run(&text, &mut state, 10_000_000);
 
-    // If fpy_exit ran, its recorded code is authoritative -- it unwinds via a
-    // host trap, so the interpreter result is a trap we must not treat as a
-    // fault. exit()/assert take this path; falling off the end of fpy_main does
-    // not (it returns normally below).
+    // If exit/fault ran, the recorded code is authoritative -- they unwind via
+    // a host trap, so the interpreter result is a trap we must not treat as a
+    // harness fault. exit()/assert/implicit traps take this path; falling off
+    // the end of fpy_main does not (it returns normally below).
     if let Some(code) = exit_code.get() {
         return Ok(code);
     }
