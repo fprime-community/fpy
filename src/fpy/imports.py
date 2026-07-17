@@ -2,8 +2,9 @@
 
 Importing sequence S imports sequence T by compiling T's definitions alongside
 S's and exposing them to S under a module (or, for `from` imports, directly). An
-imported sequence may contain only function definitions and imports -- no
-top-level statements, so importing runs no code and order does not matter.
+imported sequence may contain only function definitions and imports -- nothing
+that executes -- so importing runs no code, and order does not matter. Nor do
+cycles: a sequence may transitively import itself.
 
 Isolation is by construction. Each imported sequence is compiled as its own
 block, a sibling of the main program under the shared library root; its callable
@@ -14,11 +15,10 @@ builtin names still resolve up the parent chain.
 
 The work is split into two passes:
 
-* `LoadImports` runs first, on the raw AST. It resolves each import to a file
-  (via `ImportResolver`), recursively parses it, collects its statements as a
-  sibling block in state.imported_blocks, and records an `ImportBinding` for each
-  import. _build_compilation_unit then installs those blocks under the library
-  root.
+* `LoadImports` runs first, on the raw AST. It resolves each import to a file,
+  recursively parses it, collects its statements as a sibling block in
+  state.imported_blocks, and records an `ImportBinding` for each import.
+  _build_compilation_unit then installs those blocks under the library root.
 
 * `BindImports` runs after `DefineFunctions`/`DefineVariables` have registered
   every sequence's definitions. It creates the module chains / direct bindings
@@ -27,8 +27,8 @@ The work is split into two passes:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-import os
+from dataclasses import dataclass
+from pathlib import Path
 
 import fpy.error
 from fpy.error import WarningType
@@ -68,7 +68,7 @@ class SequenceContext:
     block: AstBlock = None
     """the sequence's AST block (the main block, or an imported sequence's
     sibling block). Set once the block exists (_build_compilation_unit for the
-    main sequence, _handle_import for an imported one)."""
+    main sequence; at construction for an imported one)."""
 
 
 @dataclass
@@ -118,15 +118,174 @@ def _shadow_warning_type(ng: NameGroup) -> WarningType:
     return WarningType.SHADOW_VALUE
 
 
-class ImportResolver:
-    """Resolve an import statement to the sequence file it names.
+class LoadImports:
+    """Load every sequence the program transitively imports, and strip the import
+    statements naming them out of the AST."""
 
-    Pure path logic over the filesystem and the search path: it neither reads nor
-    writes the AST, and knows nothing of sequences, blocks or scopes. The only
-    thing it needs from the importer is the directory that anchors a relative
-    import."""
+    def run(self, body: AstBlock, state):
+        main_ctx = SequenceContext(
+            file_path=None,
+            dir_path=state.main_file_dir,
+        )
+        state.main_sequence = main_ctx
 
-    def resolve(
+        body.stmts = self._strip_imports(body.stmts, main_ctx, state)
+
+    # FIXME I feel like strip imports is not really descriptive of what this does. rename, also handle import is vague.
+    def _strip_imports(self, stmts, ctx: SequenceContext, state):
+        """Return *stmts* with each import removed, having loaded every sequence
+        they name. An import's target is collected as a sibling block in
+        state.imported_blocks.
+
+        # FIXME return something that denotes an error, so we don't have to enforce a calling convention
+        On error we stop and hand back the statements stripped so far."""
+        result = []
+        for stmt in stmts:
+            if is_instance_compat(stmt, AstImport):
+                self._ensure_id(stmt, state)
+                self._handle_import(stmt, ctx, state)
+                if state.errors:
+                    return result
+            else:
+                result.append(stmt)
+        return result
+
+    def _ensure_id(self, node, state):
+        # Import nodes are removed before AssignIds runs, but we still use them
+        # for diagnostics, so give them a unique id up front.
+        # FIXME can we consider assigning ids at parse time instead of in semantics passes?
+        if node.id is None:
+            node.id = state.next_node_id
+            state.next_node_id += 1
+
+    def _handle_import(
+        self,
+        node: AstImport,
+        importer: SequenceContext,
+        state: CompileState,
+    ) -> None:
+        """Load the sequence *node* names (if it is not already loaded) and record
+        an ImportBinding for BindImports."""
+        resolved = self._resolve(node, importer, state)
+        if resolved is None:
+            return
+
+        # A sequence is compiled once. The first import of a file loads it and
+        # installs its block; later imports of the same file (in this sequence or
+        # any other) reuse that one SequenceContext, so its definitions are shared,
+        # never duplicated. Whether importing the same sequence more than once is
+        # allowed then falls to the ordinary name-collision rule in BindImports.
+        target = state.loaded_sequences.get(resolved.file_path)
+        if target is None:
+            target = self._load_sequence(resolved.file_path, node.meta, state)
+            if state.errors:
+                return
+            assert target is not None
+
+        state.import_bindings.append(
+            ImportBinding(node, importer, target, resolved.seq_path, resolved.member)
+        )
+
+    def _load_sequence(self, file_path: str, meta, state) -> SequenceContext | None:
+        """Parse the sequence at *file_path*, check it, register it, and load
+        every sequence it imports in turn. Returns its SequenceContext, or None
+        with an error reported.
+
+        *meta* is the position of the import that first named the file, used for
+        the block we build from it."""
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            state.err(f"Cannot read imported sequence '{file_path}': {e}", None)
+            return None
+
+        parsed = self._parse(file_path, text, state)
+        if parsed is None:
+            return None
+
+        self._check_metadata(parsed.stmts, state)
+        if state.errors:
+            return None
+
+        self._check_no_side_effects(parsed.stmts, state)
+        if state.errors:
+            return None
+
+        # Collect the imported sequence's statements as a sibling block of the
+        # main program (installed under the library root by
+        # _build_compilation_unit). CreateScopes gives this block its own
+        # isolated scope; the sequence's context points at it via .block. The
+        # import statement itself contributes nothing at its position -- an
+        # imported sequence has only definitions (no side effects), so it
+        # never executes inline.
+        ctx = SequenceContext(
+            file_path=file_path,
+            dir_path=str(Path(file_path).parent),
+            block=AstBlock(meta, parsed.stmts),
+        )
+        state.loaded_sequences[file_path] = ctx
+        state.imported_blocks.append(ctx.block)
+
+        # Only now descend into this sequence's own imports. Registering it first
+        # is what lets an import cycle resolve: an import that comes back around
+        # to this file finds the context above and binds against it, instead of
+        # loading the file a second time forever. Nothing about a cycle needs
+        # rejecting -- an import binds names and runs nothing, and BindImports
+        # does not run until every sequence's definitions exist.
+        ctx.block.stmts = self._strip_imports(parsed.stmts, ctx, state)
+        return ctx
+
+    def _parse(self, file_path: str, text: str, state):
+        """Parse *text* under its own diagnostic context, so its parse errors
+        point into *file_path* rather than into the importing file. Restores the
+        caller's context before returning."""
+        from fpy.compiler import text_to_ast
+
+        old_file, old_text, old_lines = (
+            fpy.error.file_name,
+            fpy.error.input_text,
+            fpy.error.input_lines,
+        )
+        fpy.error.file_name = file_path
+        try:
+            parsed = text_to_ast(text)
+        finally:
+            fpy.error.file_name = old_file
+            fpy.error.input_text = old_text
+            fpy.error.input_lines = old_lines
+
+        if parsed is None:
+            state.err(f"Failed to parse imported sequence '{file_path}'", None)
+        return parsed
+
+    def _check_no_side_effects(self, stmts, state):
+        """An imported sequence may contain only function definitions and import
+        statements. Any other top-level statement is a side effect that would
+        have to execute at the importer's position; since an imported sequence is
+        a sibling scope block (it does not run inline), such a statement has no
+        place to execute and is an error."""
+        for stmt in stmts:
+            if not is_instance_compat(stmt, (AstDef, AstImport, AstSequenceMetadata)):
+                state.err(
+                    "An imported sequence may contain only function definitions "
+                    "and imports, not statements that execute",
+                    stmt,
+                )
+                return
+
+    def _check_metadata(self, stmts, state):
+        """Sequence arguments make a sequence un-importable: nothing would supply
+        them at the import."""
+        for stmt in stmts:
+            if is_instance_compat(stmt, AstSequenceMetadata) and stmt.parameters:
+                state.err(
+                    "Cannot import a sequence that declares sequence arguments",
+                    stmt,
+                )
+                return
+
+    def _resolve(
         self, node: AstImport, importer: SequenceContext, state
     ) -> ResolvedImport | None:
         """Resolve *node* against its candidate directories. Reports an error and
@@ -158,40 +317,41 @@ class ImportResolver:
 
     def _candidate_dirs(
         self, node: AstImport, importer: SequenceContext, state
-    ) -> list[str] | None:
+    ) -> list[Path] | None:
         """The directories *node* is searched in: the anchor of a relative import,
         or the base search path of an absolute one. None on error."""
         if node.num_dots > 0:
-            anchor = importer.dir_path
-            if anchor is None:
+            if importer.dir_path is None:
                 state.err(
                     "Relative import in a sequence with no containing directory",
                     node,
                 )
                 return None
+            # Each dot past the first moves the anchor one directory up. .parent
+            # saturates at the root, so an over-deep relative import lands there
+            # and simply finds no file.
+            # FIXME add edge cases for a shit ton of dots on an import stmt
+            anchor = Path(importer.dir_path)
             for _ in range(node.num_dots - 1):
-                # FIXME should we use the Path api? is it safer?
-                anchor = os.path.dirname(anchor)
+                anchor = anchor.parent
             return [anchor]
         return self._dedupe(state.import_search_dirs)
 
-    def _dedupe(self, dirs) -> list[str]:
-        """Drop duplicate directories (after resolution) so a repeated search
-        dir cannot manufacture an ambiguity."""
-        # FIXME I thought that we don't allow duplicate directories? I thought
-        # that was a compile error? or i guess its just ambiguous files that we dont allow
-        # FIXME we should do a brief TOCTOU analysis just to find out if that's
-        # something we need to consider a bit more
+    def _dedupe(self, dirs) -> list[Path]:
+        """Drop duplicate search directories, comparing them resolved. Duplicates
+        are dropped rather than rejected: only a path resolving in two DISTINCT
+        directories is the ambiguity the error is for, so a doubled `-i` flag must
+        not manufacture one."""
         seen = set()
         deduped = []
         for d in dirs:
-            rp = os.path.realpath(d)
-            if rp not in seen:
-                seen.add(rp)
-                deduped.append(d)
+            path = Path(d)
+            if path.resolve() not in seen:
+                seen.add(path.resolve())
+                deduped.append(path)
         return deduped
 
-    def _split_in_dir(self, d, path, is_from) -> ResolvedImport | None:
+    def _split_in_dir(self, d: Path, path, is_from) -> ResolvedImport | None:
         """Return how *path* splits into a sequence path and an optional member in
         *d*, or None if it does not resolve there."""
         whole = self._file_for(d, path)
@@ -205,191 +365,15 @@ class ImportResolver:
                 return ResolvedImport(list(path[:-1]), path[-1], f)
         return None
 
-    def _file_for(self, d, segments):
-        p = os.path.join(d, *segments) + ".fpy"
-        if os.path.isfile(p):
-            return os.path.realpath(p)
+    def _file_for(self, d: Path, segments) -> str | None:
+        """The resolved path of `<d>/<segments...>.fpy`, or None if it is not a
+        file. Every segment but the last names a package directory."""
+        assert segments, "an import path always has at least one segment"
+        *dirs, leaf = segments
+        p = d.joinpath(*dirs, leaf + ".fpy")
+        if p.is_file():
+            return str(p.resolve())
         return None
-
-
-class LoadImports:
-    """Load every sequence the program transitively imports, and strip the import
-    statements naming them out of the AST.
-
-    Resolving an import (a path -> a file, `ImportResolver`) and loading one (a
-    file -> a parsed, checked sequence) are separate concerns, but they cannot be
-    separate passes: an import is only resolvable once its importer has been
-    parsed, and parsing that importer is what surfaces the next imports to
-    resolve. So the two interleave here, walking the import graph outward from
-    the main sequence."""
-
-    def __init__(self):
-        self._resolver = ImportResolver()
-
-    def run(self, body: AstBlock, state):
-        main_ctx = SequenceContext(
-            file_path=None,
-            dir_path=state.main_file_dir,
-        )
-        state.main_sequence = main_ctx
-
-        body.stmts = self._strip_imports(body.stmts, main_ctx, state, import_stack=[])
-
-    def _strip_imports(self, stmts, ctx: SequenceContext, state, import_stack):
-        """Return *stmts* with each import removed, having loaded every sequence
-        they name. An import's target is collected as a sibling block in
-        state.imported_blocks."""
-        result = []
-        for stmt in stmts:
-            if is_instance_compat(stmt, AstImport):
-                self._ensure_id(stmt, state)
-                self._handle_import(stmt, ctx, state, import_stack)
-                if state.errors:
-                    # FIXME how do we know that it's okay to not return some
-                    # error condition here?
-                    return result
-            else:
-                result.append(stmt)
-        return result
-
-    def _ensure_id(self, node, state):
-        # Import nodes are removed before AssignIds runs, but we still use them
-        # for diagnostics, so give them a unique id up front.
-        # FIXME can we consider assigning ids at parse time instead of in semantics passes?
-        if node.id is None:
-            node.id = state.next_node_id
-            state.next_node_id += 1
-
-    def _handle_import(
-        self,
-        node: AstImport,
-        importer: SequenceContext,
-        state: CompileState,
-        import_stack,
-    ) -> None:
-        """Load the sequence *node* names (if it is not already loaded) and record
-        an ImportBinding for BindImports."""
-        resolved = self._resolver.resolve(node, importer, state)
-        if resolved is None:
-            return
-        file_path = resolved.file_path
-
-        # A file currently on the import stack is mid-load: importing it now is a
-        # cycle.
-        # FIXME type annotation for import stack?
-        if file_path in import_stack:
-            # FIXME would it be easy to make a better err msg for circular imports? showing the cycle?
-            # If not we can ignore this for now.
-            state.err(
-                f"Circular import detected: '{os.path.basename(file_path)}'",
-                node,
-            )
-            return
-
-        # A sequence is compiled once. The first import of a file loads it and
-        # installs its block; later imports of the same file (in this sequence or
-        # any other) reuse that one SequenceContext, so its definitions are shared,
-        # never duplicated. Whether importing the same sequence more than once is
-        # allowed then falls to the ordinary name-collision rule in BindImports.
-        target = state.loaded_sequences.get(file_path)
-        if target is None:
-            target, target_stmts = self._load_sequence(
-                file_path, state, import_stack + [file_path]
-            )
-            if state.errors:
-                return
-            state.loaded_sequences[file_path] = target
-
-            # Collect the imported sequence's statements as a sibling block of the
-            # main program (installed under the library root by
-            # _build_compilation_unit). CreateScopes gives this block its own
-            # isolated scope; the sequence's context points at it via .block. The
-            # import statement itself contributes nothing at its position -- an
-            # imported sequence has only definitions (no side effects), so it
-            # never executes inline.
-            block = AstBlock(node.meta, target_stmts)
-            target.block = block
-            state.imported_blocks.append(block)
-
-        state.import_bindings.append(
-            ImportBinding(node, importer, target, resolved.seq_path, resolved.member)
-        )
-
-    def _load_sequence(self, file_path: str, state, import_stack):
-        """Parse the sequence at *file_path*, check it, and load every sequence it
-        imports in turn.
-
-        Returns (SequenceContext, its statements with imports stripped)."""
-        from fpy.compiler import text_to_ast
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
-        except OSError as e:
-            state.err(f"Cannot read imported sequence '{file_path}': {e}", None)
-            return None, []
-
-        ctx = SequenceContext(
-            file_path=file_path,
-            dir_path=os.path.dirname(file_path),
-        )
-
-        # Parse the imported file with its own diagnostic context so parse
-        # errors point into it, then restore the caller's context.
-        old_file, old_text, old_lines = (
-            fpy.error.file_name,
-            fpy.error.input_text,
-            fpy.error.input_lines,
-        )
-        fpy.error.file_name = file_path
-        try:
-            parsed = text_to_ast(text)
-        finally:
-            fpy.error.file_name = old_file
-            fpy.error.input_text = old_text
-            fpy.error.input_lines = old_lines
-
-        if parsed is None:
-            state.err(f"Failed to parse imported sequence '{file_path}'", None)
-            return ctx, []
-
-        self._check_metadata(parsed.stmts, state)
-        if state.errors:
-            return ctx, []
-
-        self._check_no_side_effects(parsed.stmts, state)
-        if state.errors:
-            return ctx, []
-
-        stmts = self._strip_imports(parsed.stmts, ctx, state, import_stack)
-        return ctx, stmts
-
-    def _check_no_side_effects(self, stmts, state):
-        """An imported sequence may contain only function definitions and import
-        statements. Any other top-level statement is a side effect that would
-        have to execute at the importer's position; since an imported sequence is
-        a sibling scope block (it does not run inline), such a statement has no
-        place to execute and is an error."""
-        for stmt in stmts:
-            if not is_instance_compat(stmt, (AstDef, AstImport, AstSequenceMetadata)):
-                state.err(
-                    "An imported sequence may contain only function definitions "
-                    # FIXME error msg misleading, astdef and astimport and astsequencemeta are top level statements
-                    "and imports, not top-level statements",
-                    stmt,
-                )
-                return
-
-    def _check_metadata(self, stmts, state):
-        """Sequence arguments make a sequence un-importable: nothing would supply
-        them at the import."""
-        for stmt in stmts:
-            if is_instance_compat(stmt, AstSequenceMetadata) and stmt.parameters:
-                state.err(
-                    "Cannot import a sequence that declares sequence arguments",
-                    stmt,
-                )
-                return
 
 
 class BindImports:

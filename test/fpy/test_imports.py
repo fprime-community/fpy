@@ -42,11 +42,12 @@ Design decisions encoded here:
     regardless of any sibling `a.fpy`.  Importing a leaf that resolves only to
     a directory (no sequence file to inline) is an error.
   * `import` is only valid as a top-level statement (not nested in a block),
-    but an imported sequence MAY itself import other sequences (transitive
-    imports are supported, with cycle detection).
-  * Inlining an imported sequence that does more than define functions emits
-    the `import-side-effects` warning (its top-level code runs as part of the
-    importing sequence).
+    but an imported sequence MAY itself import other sequences.  Transitive
+    imports are supported, cycles included: a sequence is compiled once and an
+    import executes nothing, so a cycle needs no special handling.
+  * An imported sequence that does more than define functions and import is a
+    hard error: its top-level code would have to run at the importer's position,
+    and an imported sequence is a sibling block that never runs inline.
   * A leading underscore marks a definition as library-internal: an importer
     naming it (`lib._helper()`, `import lib._helper`, `from lib import
     _helper`) emits the `import-underscore` warning.  The library's own
@@ -1033,9 +1034,14 @@ x: U32 = b.g()
 
 
 class TestImportCycles:
-    """Import cycles are detected and rejected."""
+    """A sequence may import a sequence that transitively imports it. A cycle
+    needs no special handling: a sequence is compiled once, an import binds names
+    and executes nothing, and no sequence's definitions are needed until every
+    sequence has been compiled."""
 
-    def test_self_import_is_cycle_error(self, fprime_test_api, tmp_path):
+    def test_self_import(self, fprime_test_api, tmp_path):
+        """The tightest cycle: a sequence importing itself, and reaching its own
+        definitions back through the module it binds."""
         _write_sequence(
             tmp_path,
             "self_import",
@@ -1044,19 +1050,21 @@ import self_import
 
 def f() -> U32:
     return 1
+
+def via_self() -> U32:
+    return self_import.f()
 """,
         )
         main = """\
 import self_import
-"""
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="(?i)(circular|cycle)",
-            import_search_dirs=[str(tmp_path)],
-        )
 
-    def test_mutual_import_is_cycle_error(self, fprime_test_api, tmp_path):
+x: U32 = self_import.via_self()
+assert x == 1
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_mutual_import(self, fprime_test_api, tmp_path):
+        """mod_a and mod_b import each other, and each calls into the other."""
         _write_sequence(
             tmp_path,
             "mod_a",
@@ -1065,6 +1073,9 @@ import mod_b
 
 def a() -> U32:
     return mod_b.b()
+
+def a_leaf() -> U32:
+    return 10
 """,
         )
         _write_sequence(
@@ -1074,32 +1085,97 @@ def a() -> U32:
 import mod_a
 
 def b() -> U32:
-    return 1
+    return 7
+
+def b_uses_a() -> U32:
+    return mod_a.a_leaf()
 """,
         )
         main = """\
 import mod_a
-"""
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="(?i)(circular|cycle)",
-            import_search_dirs=[str(tmp_path)],
-        )
+import mod_b
 
-    def test_three_way_cycle_error(self, fprime_test_api, tmp_path):
-        _write_sequence(tmp_path, "c1", "import c2\n\ndef f() -> U32:\n    return 1\n")
-        _write_sequence(tmp_path, "c2", "import c3\n\ndef f() -> U32:\n    return 1\n")
-        _write_sequence(tmp_path, "c3", "import c1\n\ndef f() -> U32:\n    return 1\n")
+x: U32 = mod_a.a()
+assert x == 7
+y: U32 = mod_b.b_uses_a()
+assert y == 10
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_three_way_cycle(self, fprime_test_api, tmp_path):
+        """c1 -> c2 -> c3 -> c1, with a call chain running the length of it."""
+        _write_sequence(
+            tmp_path,
+            "c1",
+            """\
+import c2
+
+def f() -> U32:
+    return c2.g()
+""",
+        )
+        _write_sequence(
+            tmp_path,
+            "c2",
+            """\
+import c3
+
+def g() -> U32:
+    return c3.h()
+""",
+        )
+        _write_sequence(
+            tmp_path,
+            "c3",
+            """\
+import c1
+
+def h() -> U32:
+    return 3
+""",
+        )
         main = """\
 import c1
+
+x: U32 = c1.f()
+assert x == 3
 """
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="(?i)(circular|cycle)",
-            import_search_dirs=[str(tmp_path)],
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_cycle_compiles_each_sequence_once(self, tmp_path):
+        """A sequence in a cycle is compiled once, like any other: the cycle adds
+        no duplicate block."""
+        _write_sequence(
+            tmp_path,
+            "cyc_a",
+            """\
+import cyc_b
+
+def a() -> U32:
+    return 1
+""",
         )
+        _write_sequence(
+            tmp_path,
+            "cyc_b",
+            """\
+import cyc_a
+
+def b() -> U32:
+    return 2
+""",
+        )
+        main = """\
+import cyc_a
+import cyc_b
+
+x: U32 = U32(cyc_a.a() + cyc_b.b())
+assert x == 3
+"""
+        state, _, _ = compile_seq(main, import_search_dirs=[str(tmp_path)])
+        loaded = {Path(p).stem for p in state.loaded_sequences}
+        assert loaded == {"cyc_a", "cyc_b"}
+        assert len(state.imported_blocks) == 2
 
 
 class TestImportDottedPaths:
