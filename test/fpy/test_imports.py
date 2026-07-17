@@ -2277,6 +2277,60 @@ assert x == 6
             fprime_test_api, main, import_search_dirs=[], main_file_dir=str(tmp_path)
         )
 
+    def test_imported_lib_relative_import_anchors_at_the_lib(
+        self, fprime_test_api, tmp_path
+    ):
+        """A relative import in an IMPORTED sequence anchors at that sequence's
+        own directory, not the original importer's. main lives in `app/` and a
+        decoy `helper.fpy` sits beside it; the library `lib/consumer.fpy` does
+        `import .helper`, which must bind `lib/helper.fpy` (returning 5), never
+        the decoy next to main (returning 99)."""
+        d_app = tmp_path / "app"
+        d_lib = tmp_path / "lib"
+        d_app.mkdir()
+        d_lib.mkdir()
+        # Decoy: same name as the library's sibling, but next to main. If the
+        # anchor were the original importer, this would be picked instead.
+        _write_sequence(d_app, "helper", "def h() -> U32:\n    return 99\n")
+        _write_sequence(d_lib, "helper", "def h() -> U32:\n    return 5\n")
+        _write_sequence(
+            d_lib,
+            "consumer",
+            """\
+import .helper
+
+def f() -> U32:
+    return helper.h()
+""",
+        )
+        main = """\
+import consumer
+
+x: U32 = consumer.f()
+assert x == 5
+"""
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(d_lib)],
+            main_file_dir=str(d_app),
+        )
+
+    def test_over_deep_relative_saturates_at_root(self, fprime_test_api, tmp_path):
+        """A relative import with more dots than the tree is deep does not
+        crash: each extra dot walks one parent, saturating at the filesystem
+        root, where the sequence is (almost certainly) not found -- an ordinary
+        missing-sequence error, not an IndexError."""
+        _write_sequence(tmp_path, "util", "def v() -> U32:\n    return 6\n")
+        main = "import " + "." * 40 + "util\n"
+        assert_compile_failure(
+            fprime_test_api,
+            main,
+            match="no matching sequence found",
+            import_search_dirs=[str(tmp_path)],
+            main_file_dir=str(tmp_path),
+        )
+
     def test_relative_import_without_location_is_error(self, fprime_test_api, tmp_path):
         """A relative import in a sequence with no containing directory (a
         stream; `main_file_dir=None` here) has no anchor and is an error."""
@@ -2307,10 +2361,16 @@ import .util
 
 
 class TestImportModuleMerging:
-    # FIXME i think these might be duplicates?
     """Package modules (non-leaf chain segments) merge freely; sequence
     modules (a module holding a file's definitions -- chain leaf or alias)
-    never merge with each other."""
+    never merge with each other.
+
+    So this covers both sides: the one case that merges (a sequence module and
+    a package module on the same name), and the two that look like merges but
+    collide instead -- two files aliased to one name, and a relative and an
+    absolute import naming two different files under one leaf name. The
+    same-file collisions are TestImportDuplicateSequence's; these are all two
+    DISTINCT files meeting on one name."""
 
     def test_sequence_and_package_module_merge(self, fprime_test_api, tmp_path):
         """`import pkg` (the file `pkg.fpy`) and `import pkg.mod` (the file
@@ -2361,7 +2421,3 @@ import .util
             import_search_dirs=[str(d_base)],
             main_file_dir=str(d_main),
         )
-
-
-# FIXME what happens if an import has relative imports? do we test this? the relative imports from the imported lib should
-# resolve relative to the imported lib, not the original importing file

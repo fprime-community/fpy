@@ -129,13 +129,12 @@ class LoadImports:
         )
         state.main_sequence = main_ctx
 
-        body.stmts = self._strip_imports(body.stmts, main_ctx, state)
+        body.stmts = self._load_imports_in(body.stmts, main_ctx, state)
 
-    # FIXME I feel like strip imports is not really descriptive of what this does. rename, also handle import is vague.
-    def _strip_imports(self, stmts, ctx: SequenceContext, state):
-        """Return *stmts* with each import removed, having loaded every sequence
-        they name. An import's target is collected as a sibling block in
-        state.imported_blocks.
+    def _load_imports_in(self, stmts, ctx: SequenceContext, state):
+        """Load every sequence the imports in *stmts* name, and return *stmts*
+        with those import statements removed. Each named sequence is collected as
+        a sibling block in state.imported_blocks.
 
         # FIXME return something that denotes an error, so we don't have to enforce a calling convention
         On error we stop and hand back the statements stripped so far."""
@@ -143,7 +142,7 @@ class LoadImports:
         for stmt in stmts:
             if is_instance_compat(stmt, AstImport):
                 self._ensure_id(stmt, state)
-                self._handle_import(stmt, ctx, state)
+                self._load_import(stmt, ctx, state)
                 if state.errors:
                     return result
             else:
@@ -158,7 +157,7 @@ class LoadImports:
             node.id = state.next_node_id
             state.next_node_id += 1
 
-    def _handle_import(
+    def _load_import(
         self,
         node: AstImport,
         importer: SequenceContext,
@@ -233,7 +232,7 @@ class LoadImports:
         # loading the file a second time forever. Nothing about a cycle needs
         # rejecting -- an import binds names and runs nothing, and BindImports
         # does not run until every sequence's definitions exist.
-        ctx.block.stmts = self._strip_imports(parsed.stmts, ctx, state)
+        ctx.block.stmts = self._load_imports_in(parsed.stmts, ctx, state)
         return ctx
 
     def _parse(self, file_path: str, text: str, state):
