@@ -2388,6 +2388,44 @@ assert x == 6
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
+    def test_package_then_sequence_module_merge(self, fprime_test_api, tmp_path):
+        """The same merge with the imports reversed: `import pkg.mod` builds
+        `pkg` as a package module first, then `import pkg` merges the `pkg.fpy`
+        sequence module INTO it, promoting `pkg` to the sequence. Both members
+        stay reachable regardless of order."""
+        _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
+        _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
+        main = """\
+import pkg.mod
+import pkg
+
+x: U32 = U32(pkg.top() + pkg.mod.f())
+assert x == 6
+"""
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_promoted_package_then_collides_as_sequence(
+        self, fprime_test_api, tmp_path
+    ):
+        """Once `import pkg.mod` + `import pkg` has promoted `pkg` to a sequence
+        module, a third import binding another file's sequence module to `pkg`
+        collides -- proof the promotion took effect (a mere package module would
+        have merged instead)."""
+        _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
+        _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
+        _write_sequence(tmp_path, "other", "def g() -> U32:\n    return 2\n")
+        main = """\
+import pkg.mod
+import pkg
+import other as pkg
+"""
+        assert_compile_failure(
+            fprime_test_api,
+            main,
+            match="collides with an existing imported sequence",
+            import_search_dirs=[str(tmp_path)],
+        )
+
     def test_two_aliases_same_name_collide(self, fprime_test_api, tmp_path):
         """Two different sequences aliased to one name are two sequence
         modules on the same name: a collision, not a merge."""

@@ -128,12 +128,6 @@ class SymbolTable(dict):
         next_symbol_table_id += 1
         self.parent = parent
         self.in_function = parent.in_function if parent is not None else False
-        # FIXME confusing... should be a module class outright
-        self.is_sequence_module = False
-        """when this table is used as a ModuleSymbol, True marks it as a sequence
-        module (the leaf holding an imported file's definitions, which never
-        merges) rather than a package module (a chain intermediate, which does).
-        Meaningless (and left False) for non-module symbol tables."""
 
     def __getitem__(self, key: str) -> "Symbol":
         return super().__getitem__(key)
@@ -157,10 +151,10 @@ class SymbolTable(dict):
         return isinstance(value, SymbolTable) and value.id == self.id
 
     def copy(self):
-        """Return a shallow copy that preserves SymbolTable metadata."""
-        new = SymbolTable(parent=self.parent)
+        """Return a shallow copy that preserves the table's concrete class
+        (SymbolTable, or a PackageModule/SequenceModule) and metadata."""
+        new = self.__class__(parent=self.parent)
         new.in_function = self.in_function
-        new.is_sequence_module = self.is_sequence_module
         new.update(self)
         return new
 
@@ -294,6 +288,22 @@ def is_symbol_an_expr(symbol: "Symbol") -> bool:
 
 
 ModuleSymbol = SymbolTable
+"""a table on which qualified member access (`a.b`) is valid: an F' dictionary
+namespace, or one of the module kinds an `import` builds below."""
+
+
+class PackageModule(SymbolTable):
+    """A chain intermediate of a dotted import -- `a` and `a.b` in
+    `import a.b.c`. Package modules that meet on one name merge freely, since
+    each only contributes its slice of the path."""
+
+
+class SequenceModule(SymbolTable):
+    """A module holding one imported file's definitions: a chain leaf, or the
+    target of an `as` alias. Two sequence modules on one name are two different
+    files claiming one name -- a collision, never a merge. A package module that
+    a sequence module merges into is promoted to a SequenceModule."""
+
 
 Symbol = typing.Union[
     ChDef,

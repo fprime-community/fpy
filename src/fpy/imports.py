@@ -36,8 +36,9 @@ from fpy.symbols import (
     CallableSymbol,
     ModuleSymbol,
     NameGroup,
+    PackageModule,
     Scope,
-    SymbolTable,
+    SequenceModule,
     VariableSymbol,
 )
 from fpy.syntax import (
@@ -100,16 +101,6 @@ class ImportBinding:
     """the trailing member name for `import a.b.c.foo`, else None."""
 
 
-def _make_module(is_sequence_module: bool) -> ModuleSymbol:
-    m = SymbolTable()
-    m.is_sequence_module = is_sequence_module
-    return m
-
-
-def _is_sequence_module(m) -> bool:
-    return m.is_sequence_module
-
-
 def _shadow_warning_type(ng: NameGroup) -> WarningType:
     """The shadow warning category for a name group: the callable group warns as
     `shadow-callable`, every other group (value) as `shadow-value`."""
@@ -136,7 +127,6 @@ class LoadImports:
         with those import statements removed. Each named sequence is collected as
         a sibling block in state.imported_blocks.
 
-        # FIXME return something that denotes an error, so we don't have to enforce a calling convention
         On error we stop and hand back the statements stripped so far."""
         result = []
         for stmt in stmts:
@@ -444,14 +434,11 @@ class BindImports:
                 # `import a.b.c.member as x` binds the definition directly under x.
                 return [(node.alias, sym, False)]
             # `import a.b.c.member` binds a.b.c as a module holding just `member`.
-            # FIXME _make_module/_is_sequence_module are the is_sequence_module
-            # bool's only real call sites; both collapse into Sequence/Package
-            # Module classes when symbols.py:131 lands.
-            leaf = _make_module(is_sequence_module=True)
+            leaf = SequenceModule()
             leaf[binding.member] = sym
         else:
             # Whole sequence: a module of all its definitions.
-            leaf = _make_module(is_sequence_module=True)
+            leaf = SequenceModule()
             for name, sym in target_scope.own_symbols().items():
                 leaf[name] = sym
             if node.alias is not None:
@@ -486,7 +473,7 @@ class BindImports:
         (root_name, root_module)."""
         current = leaf
         for i in range(len(seq_path) - 2, -1, -1):
-            parent = _make_module(is_sequence_module=False)
+            parent = PackageModule()
             parent[seq_path[i + 1]] = current
             current = parent
         return seq_path[0], current
@@ -536,7 +523,11 @@ class BindImports:
                     existing = candidate
                     break
             if existing is not None:
-                if _is_sequence_module(existing) and _is_sequence_module(sym):
+                if is_instance_compat(existing, SequenceModule) and is_instance_compat(
+                    sym, SequenceModule
+                ):
+                    # FIXME what if we removed this requirement for collision?
+                    # what are the implications? can we simplify this code? Can we delete sequencemodule/packagemodule?
                     state.err(
                         f"Import of '{name}' collides with an existing imported "
                         f"sequence of the same name",
@@ -581,7 +572,10 @@ class BindImports:
                 if (
                     is_instance_compat(ex, ModuleSymbol)
                     and is_instance_compat(sym, ModuleSymbol)
-                    and not (_is_sequence_module(ex) and _is_sequence_module(sym))
+                    and not (
+                        is_instance_compat(ex, SequenceModule)
+                        and is_instance_compat(sym, SequenceModule)
+                    )
                 ):
                     self._merge_modules(ex, sym, node, state)
                     if state.errors:
@@ -594,8 +588,15 @@ class BindImports:
                     return
             else:
                 existing[key] = sym
-        if _is_sequence_module(incoming):
-            existing.is_sequence_module = True
+        # Merging a sequence module into a package module makes the result the
+        # sequence: `import pkg.mod` builds package `pkg`, then `import pkg`
+        # (pkg.fpy) merges in, and `pkg` now IS the pkg.fpy sequence, still
+        # holding submodule `mod`. Promoting in place keeps the identity already
+        # bound under the name.
+        if is_instance_compat(incoming, SequenceModule) and not is_instance_compat(
+            existing, SequenceModule
+        ):
+            existing.__class__ = SequenceModule
 
 
 class WarnImportUnderscore(Visitor):
