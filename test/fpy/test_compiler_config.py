@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 import fpy.error
+import fpy.types
 from fpy.compiler import (
     text_to_ast,
     analyze_ast,
@@ -294,7 +295,6 @@ def fw_serialize_constant(name: str, value: int) -> dict:
 def test_load_fw_serialize_from_default_dictionary():
     """Test that boolean wire-format values are loaded from the standard dictionary."""
     _clear_caches()
-    import fpy.types
     from fpy.types import BOOL, FpyValue
 
     get_base_compile_state(DEFAULT_DICTIONARY, {})
@@ -309,7 +309,6 @@ def test_load_fw_serialize_from_default_dictionary():
 def test_custom_fw_serialize_values():
     """Test that custom boolean wire-format values from the dictionary are used."""
     _clear_caches()
-    import fpy.types
     from fpy.types import (
         BOOL,
         DEFAULT_FW_SERIALIZE_FALSE_VALUE,
@@ -342,7 +341,6 @@ def test_custom_fw_serialize_values():
 def test_missing_fw_serialize_use_defaults():
     """Test that missing FW_SERIALIZE constants fall back to framework defaults."""
     _clear_caches()
-    import fpy.types
     from fpy.types import (
         DEFAULT_FW_SERIALIZE_FALSE_VALUE,
         DEFAULT_FW_SERIALIZE_TRUE_VALUE,
