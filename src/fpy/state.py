@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Union
 from dataclasses import dataclass, field
 
+import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
 from fpy.ir import Ir, IrLabel
@@ -38,6 +39,8 @@ from fpy.types import (
     BOOL,
     CHECK_STATE,
     CMD_RESPONSE,
+    DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+    DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
     FLAGS_TYPE,
@@ -600,6 +603,17 @@ def get_base_compile_state(
             val.val, int
         ), f"Expected int for constant {key}, got {type(val.val)}"
         return val.val
+
+    # Override the live boolean wire-format constants from the dictionary.
+    # FpyValue.serialize() is stateless and reads these module globals directly,
+    # so we set them here (in the uncached path, run once per compile) rather
+    # than threading them through every serialize() call site.
+    fpy.types.FW_SERIALIZE_TRUE_VALUE = _const_int(
+        "FW_SERIALIZE_TRUE_VALUE", DEFAULT_FW_SERIALIZE_TRUE_VALUE
+    )
+    fpy.types.FW_SERIALIZE_FALSE_VALUE = _const_int(
+        "FW_SERIALIZE_FALSE_VALUE", DEFAULT_FW_SERIALIZE_FALSE_VALUE
+    )
 
     # Make copies of the scopes since we'll mutate them during compilation
     # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
