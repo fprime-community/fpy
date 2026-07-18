@@ -747,8 +747,8 @@ class DesugarTimeOperators(Transformer):
         # Resolve there directly rather than from any one sequence's scope -- the
         # target is the same builtin no matter which sequence the operator
         # appears in, and a sequence-local function that happens to share the
-        # name must not hijack the desugaring.
-        # FIXME can you test that we don't hijack the desugaring? or maybe this is already tested
+        # name must not hijack the desugaring (see
+        # test_sequence_function_does_not_hijack_time_desugaring).
         func_symbol = state.base_scope.lookup(NameGroup.CALLABLE, func_name)
         assert (
             func_symbol is not None

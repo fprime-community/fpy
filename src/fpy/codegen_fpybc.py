@@ -153,82 +153,90 @@ class CollectUsedFunctions(Visitor):
         state.used_funcs.add(func.definition)
 
 
-class CalculateFrameSizes(TopDownVisitor):
-    """Assigns frame offsets to variables before code generation.
+class _LayOutFrameLocals(TopDownVisitor):
+    """Walk one frame's blocks, giving each not-yet-placed local variable the
+    next offset. Does not descend into nested function bodies -- each of those
+    owns its own frame.
 
-    Each instance handles one frame (global or function). Visits blocks
-    top-down, assigning sequential offsets to variables. At function
-    boundaries, spawns a fresh instance for the function's frame and
-    returns STOP_DESCENT to isolate frames from each other.
+    `offset` starts past the frame's prologue (the sequence args and flags slot
+    # FIXME what do you mean by "nothing" here
+    for the main frame; nothing for a function frame, whose parameters sit at
+    negative offsets) and ends past the last local, i.e. at the frame size."""
 
-    This must run before GenerateFunctions so that global variable offsets
-    are known when generating function bodies that access them.
-    # FIXME I think this pass is confusingly written. Each function, plus the main block,
-    # own a frame. So we just have to visit each function plus the main block, and for each of those, calculate the frame size.
-    # to calculate the frame size, we just have to walk the blocks in the frame owner nodes tree, and add up
-    # the variable symbols. two exceptions: for the main block frame, we have to add sequence args, and for
-    # the function frames, we have to add the formal parameters. can you restructure it to be very clear like that?
-    """
-
-    def __init__(self):
+    def __init__(self, offset: int):
         super().__init__()
-        self.offset = 0
-        self._frame_root = None
-
-    def run(self, start: Ast, state: CompileState):
-        self._frame_root = start
-        # For the global (main) frame -- the program block -- lay out sequence
-        # args (already on stack) first, then start body variables after them.
-        if start is state.main_block:
-            for name, arg_type in state.this_seq_arg_specs:
-                arg_var = state.main_scope.group(NameGroup.VALUE)[name]
-                arg_var.frame_offset = self.offset
-                self.offset += arg_type.max_size
-            # The flags struct lives in the shared base scope (so every sequence
-            # sees it), but it occupies a slot in the main frame right after the
-            # sequence args. Reserve it here; the walk below lays out the user's
-            # own locals after it.
-            state.flags_var.frame_offset = self.offset
-            self.offset += state.flags_var.type.max_size
-        super().run(start, state)
-        state.frame_sizes[start] = self.offset
+        self.offset = offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        # The main block is the global frame, but it sits nested inside the
-        # library root this walk may have started on. When we meet it as an
-        # inner block (not the block we were started on), hand it to a FRESH
-        # CalculateFrameSizes so it gets its own offset counter from zero --
-        # run() seeds that frame with the sequence args and the flags slot --
-        # then STOP_DESCENT so this outer walk doesn't also lay out its locals.
-        # The `not self._frame_root` guard is what prevents infinite recursion:
-        # the fresh run() visits the main block again, but now it IS the frame
-        # root, so control falls through to the ordinary local layout below. The
-        # surrounding library and imported blocks hold only definitions and get
-        # no frame of their own; each function's frame is built by visit_AstDef.
-        if node is state.main_block and node is not self._frame_root:
-            CalculateFrameSizes().run(node, state)
-            return STOP_DESCENT
-        values = state.enclosing_scope[node].group(NameGroup.VALUE)
-        for _name, sym in values.items():
+        for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
                 self.offset += sym.type.max_size
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Assign argument offsets (negative offsets before frame start)
-        func = state.resolved_symbols[node.name]
-        if func.args:
-            arg_offset = -STACK_FRAME_HEADER_SIZE
-            for arg in reversed(func.args):
-                arg_name, arg_type, _ = arg
-                arg_var = state.enclosing_scope[node.body].group(NameGroup.VALUE)[
-                    arg_name
-                ]
-                arg_offset -= arg_type.max_size
-                arg_var.frame_offset = arg_offset
-        # Assign body variable offsets in a fresh frame
-        CalculateFrameSizes().run(node.body, state)
         return STOP_DESCENT
+
+
+class CalculateFrameSizes(Visitor):
+    """Assign every local variable its offset within its stack frame, and record
+    each frame's total size in state.frame_sizes.
+
+    A frame is owned by a block: the main block (the global frame) or a
+    function body. Its locals are the variables declared in that block and its
+    nested blocks, except nested function bodies, which own their own frames.
+    Ahead of the locals sits the frame's prologue:
+      * the main frame: the sequence arguments, then the flags slot
+      * a function frame: the formal parameters, at negative offsets (before the
+        frame start)
+
+    We walk the whole tree only to find the frame owners: run() lays out the
+    main frame, then visit_AstDef lays out each function's frame.
+
+    This must run before GenerateFunctions so global variable offsets are known
+    when generating function bodies that access them."""
+
+    def run(self, start: Ast, state: CompileState):
+        self._layout_main_frame(state)
+        # The rest of the walk just finds the function definitions; each lays out
+        # its own frame in visit_AstDef.
+        super().run(start, state)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        self._layout_function_frame(node, state)
+
+    def _layout_main_frame(self, state: CompileState):
+        # Sequence args arrive on the stack first, then the flags slot -- which
+        # lives in the base scope but occupies a slot in the main frame here.
+        offset = 0
+        for name, arg_type in state.this_seq_arg_specs:
+            arg_var = state.main_scope.group(NameGroup.VALUE)[name]
+            arg_var.frame_offset = offset
+            offset += arg_type.max_size
+        state.flags_var.frame_offset = offset
+        offset += state.flags_var.type.max_size
+
+        state.frame_sizes[state.main_block] = self._layout_locals(
+            state.main_block, offset, state
+        )
+
+    def _layout_function_frame(self, node: AstDef, state: CompileState):
+        # FIXME you can inline this func
+        # Formal parameters sit before the frame start, at negative offsets.
+        func = state.resolved_symbols[node.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg_name, arg_type, _default in reversed(func.args):
+            arg_offset -= arg_type.max_size
+            body_values[arg_name].frame_offset = arg_offset
+
+        state.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
+
+    def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
+        """Lay out every local in *frame_block*'s frame, starting at *offset*,
+        and return the offset past the last one (the frame's total size)."""
+        layout = _LayOutFrameLocals(offset)
+        layout.run(frame_block, state)
+        return layout.offset
 
 
 class GenerateFunctionEntryPoints(Visitor):

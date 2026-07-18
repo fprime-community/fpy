@@ -191,9 +191,7 @@ def test():
 
         # `Fw` is a dictionary namespace (a module), not a value; using it bare
         # is rejected before any void-return check.
-        assert_compile_failure(
-            fprime_test_api, seq, match="A module cannot be used as a value"
-        )
+        assert_compile_failure(fprime_test_api, seq, match="Expected a value")
 
     def test_void_function_without_explicit_return(self, fprime_test_api):
         seq = """

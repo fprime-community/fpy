@@ -120,7 +120,7 @@ Each shadowing definition emits a warning named for the name group it shadows:
 * Shadowing a name in the [value name group](#name-groups) emits the `shadow-value` warning.
 * Shadowing a name in the [callable name group](#name-groups) emits the `shadow-callable` warning.
 
-*Tests:* [1](test/fpy/test_variables.py#L241 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L255 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_functions.py#L934 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [4](test/fpy/test_imports.py#L805 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns")
+*Tests:* [1](test/fpy/test_variables.py#L241 "test/fpy/test_variables.py::TestShadowWarnings::test_inner_block_shadows_outer_variable_warns"), [2](test/fpy/test_variables.py#L255 "test/fpy/test_variables.py::TestShadowWarnings::test_root_variable_shadows_dictionary_name_warns"), [3](test/fpy/test_functions.py#L932 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [4](test/fpy/test_imports.py#L805 "test/fpy/test_imports.py::TestImportShadowsBuiltins::test_import_module_shadowing_builtin_warns")
 
 ## Modules
 
@@ -409,7 +409,7 @@ If `name` is already defined in the resolving scope's [callable name group](#nam
 
 If `name` is not defined in the resolving scope, but resolves to a callable in an enclosing scope's callable name group, the definition [shadows](#shadowing) that outer callable, and emits the `shadow-callable` warning.
 
-*Tests:* [1](test/fpy/test_functions.py#L934 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [2](test/fpy/test_functions.py#L39 "test/fpy/test_functions.py::TestDefinition::test_redeclare_func")
+*Tests:* [1](test/fpy/test_functions.py#L932 "test/fpy/test_functions.py::TestShadowWarnings::test_function_shadows_builtin_warns"), [2](test/fpy/test_functions.py#L39 "test/fpy/test_functions.py::TestDefinition::test_redeclare_func")
 
 A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
 

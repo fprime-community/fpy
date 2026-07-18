@@ -584,29 +584,40 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
         assert is_instance_compat(parent_sym, ModuleSymbol), parent_sym
         return parent_sym.get(name)
 
-    def try_resolve_ident(
-        self, node: AstExpr, ng: NameGroup, state: CompileState
-    ) -> bool:
-        # Walk down to the leftmost identifier, collecting getattrs (outermost first)
+    # -- resolve any identifier/getattr that was given a name group --
+
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
+        self._resolve(node, state)
+
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        self._resolve(node, state)
+
+    def _resolve(self, node: AstExpr, state: CompileState):
+        # Only the outermost expression of a reference is given a name group; the
+        # rest of a getattr chain is resolved within this same call, and defining
+        # occurrences are never given one. So a node with no name group is one we
+        # must not resolve here.
+        ng = state.contextual_name_group.get(node)
+        if ng is None:
+            return
+
+        # Walk down to the leftmost identifier, collecting getattrs (outermost
+        # first).
         attrs: list[AstGetAttr] = []
         while is_instance_compat(node, AstGetAttr):
             attrs.append(node)
             node = node.parent
 
-        # the root is not an identifier. so the original expression is not a
-        # qualified identifier. skip it
+        # The root isn't an identifier, so this isn't a qualified identifier.
         if not is_instance_compat(node, AstIdent):
-            return True
+            return
 
-        # Resolve the root identifier in the node's enclosing scope, in the
-        # requested name group, walking the parent chain.
+        # Resolve the root identifier in its enclosing scope, in the name group,
+        # walking the parent chain.
         resolved = state.enclosing_scope[node].lookup(ng, node.name)
-
         if resolved is None:
             state.err(f"Unknown {ng.value} '{node.name}'", node)
-            return False
-
-        # root identifier was successfully resolved
+            return
         state.resolved_symbols[node] = resolved
 
         # Walk back down the getattr chain (innermost first) resolving each.
@@ -618,31 +629,12 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
                 # further getattrs cannot be qualified names as
                 # the parent symbol definition may not contain
                 # other definitions
-                return True
+                return
             attr_sym = self.get_sub_definition(parent_sym, getattr_node.attr)
             if attr_sym is None:
                 state.err("Unknown name", getattr_node)
-                return False
+                return
             state.resolved_symbols[getattr_node] = attr_sym
-
-        return True
-
-    # -- resolve any identifier/getattr that was given a name group --
-
-    def visit_AstIdent(self, node: AstIdent, state: CompileState):
-        self._resolve(node, state)
-
-    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        self._resolve(node, state)
-
-    def _resolve(self, node: AstExpr, state: CompileState):
-        # Only the outermost expression is given a name group; the rest of a
-        # getattr chain is resolved within that one try_resolve_ident walk, and
-        # defining occurrences are never given one. So a node with no name group
-        # is one we must not resolve here.
-        ng = state.contextual_name_group.get(node)
-        if ng is not None:
-            self.try_resolve_ident(node, ng, state)
 
     # -- defining occurrences: bind the introduced name directly --
 
@@ -668,15 +660,11 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
 
 class CheckAllUnqualifiedIdentifiersResolved(Visitor):
-    """Verifies that every AstIdent has been resolved by ResolveUnqualifiedIdentifiers.
-    Catches bare references that no parent visit method dispatched on -- e.g. a top-level
-    expression statement like `Foo.bar.BAZ`, whose root ident `Foo` would otherwise slip
-    through unresolved and cause a KeyError in later passes."""
+    """Verify every AstIdent was resolved by ResolveQualifiedIdentifiers. Catches
+    an identifier without a contextual name group -- e.g. a bare expression statement
+    like `Foo.bar.BAZ`, whose root `Foo` is given no name group and so is never
+    resolved -- which would otherwise KeyError in a later pass."""
 
-    # FIXME can we move this pass to after assigning contextual name groups?
-    # or could we fold this into assign name groups? or fold into resolve qualified idents?
-    # or does it have to be a separate pass? if it involves more than these three lines of code
-    # then i'd prefer to keep separate
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node not in state.resolved_symbols:
             state.err("Unknown name", node)

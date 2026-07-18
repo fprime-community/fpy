@@ -101,19 +101,11 @@ class ImportBinding:
     """the trailing member name for `import a.b.c.foo`, else None."""
 
 
-def _shadow_warning_type(ng: NameGroup) -> WarningType:
-    """The shadow warning category for a name group: the callable group warns as
-    `shadow-callable`, every other group (value) as `shadow-value`."""
-    if ng is NameGroup.CALLABLE:
-        return WarningType.SHADOW_CALLABLE
-    return WarningType.SHADOW_VALUE
-
-
 class LoadImports:
     """Load every sequence the program transitively imports, and strip the import
     statements naming them out of the AST."""
 
-    def run(self, body: AstBlock, state):
+    def run(self, body: AstBlock, state: CompileState):
         main_ctx = SequenceContext(
             file_path=None,
             dir_path=state.main_file_dir,
@@ -378,7 +370,7 @@ class BindImports:
                 return
 
     def _expand(self, binding: ImportBinding, state):
-        """Expand an import into a flat list of (name, sym, mergeable) actions,
+        """Expand an import into a flat list of (name, sym, mergeable) tuples,
         each of which installs one thing under *name* in the importer's scope:
 
           * a synthesized package/sequence module (mergeable=True) -- what a
@@ -405,6 +397,7 @@ class BindImports:
         # `from a.b.c import m [as n], ...` binds looked-up definitions under
         # bare names, introducing no module chain.
         if node.is_from:
+            # FIXME don't use the action jargon, use a direct, simple name
             actions = []
             for member_name, alias in node.members:
                 sym = self._lookup_definition(target_scope, member_name, node, state)
@@ -415,6 +408,9 @@ class BindImports:
             return actions
 
         # `import a.b.c[.member] [as alias]`.
+        # FIXME I wonder if this code for the next like 20-30 lines can
+        # be a lot more simple. if condition: do thing, return result, or something
+        # like that
         if binding.member is not None:
             sym = self._lookup_definition(target_scope, binding.member, node, state)
             if sym is None:
@@ -488,15 +484,14 @@ class BindImports:
         """Install *sym* under *name* into *scope* (the importer's).
 
         *sym* is either a single definition (mergeable=False -- a function, a
+        # FIXME what does bound opaquely mean
         variable, or a re-exported module bound opaquely) or a synthesized
         package/sequence module (mergeable=True). A mergeable module merges with
         a package module THIS sequence already built under *name*; two sequence
         modules on one name collide.
-
-        A name already taken in the importer's OWN scope is a same-scope
-        collision (error); a name that only resolves up the parent chain -- a
-        dictionary/builtin definition -- is shadowed (warning).
         """
+        # FIXME: like with the other function i just commented on, I'd really like
+        # to transform this into a more simple flow. condition, do something, return
         groups = self._symbol_groups(sym)
         if not groups:
             # An empty sequence's module holds nothing and belongs to no name
@@ -549,8 +544,13 @@ class BindImports:
         for ng in groups:
             outer = scope.lookup(ng, name)
             if outer is not None and outer is not sym:
+                warning = (
+                    WarningType.SHADOW_CALLABLE
+                    if ng is NameGroup.CALLABLE
+                    else WarningType.SHADOW_VALUE
+                )
                 state.warn(
-                    _shadow_warning_type(ng),
+                    warning,
                     f"Import of '{name}' shadows an existing definition",
                     node,
                 )
