@@ -129,29 +129,15 @@ def _get_builtin_library_ast():
     return _builtin_library_ast
 
 
-def _build_compilation_unit(program: AstBlock, state: CompileState):
-    """Assemble the compilation unit: a fresh *library root* block wrapping the
-    whole program, and store it as state.root_block.
-
-    On entry `program` holds the main program's statements; LoadImports has
-    already removed each import and collected its target as a sibling block in
-    state.imported_blocks. We build:
+def _build_root_block(program: AstBlock, state: CompileState):
+    """Wrap the program in a fresh *library root* block, stored as
+    state.root_block, and put the imported sequence blocks as sibling blocks:
 
         library root (state.root_block)     scope = base
-        |- builtin library defs       (time_add, time_cmp, ...; registered in base)
-        |- main block (state.main_block)   scope = main (child of base)
-        |- imported sequence block         scope = child of base
-        |- ...
-
-    Every sequence block (the main block and each import) is a direct child of
-    the library root, so its scope is a child of base by lexical nesting: syntax
-    and scope agree, imported sequences are siblings of the main block (isolated
-    from it and each other), and the builtin library functions resolve up the
-    parent chain for all of them. Only the main block executes; the library and
-    imported blocks hold definitions, emitted once each by the dead-function pass.
-
-    # FIXME i think this docstring is too long and verbose
-    The program block itself becomes state.main_block."""
+        |- builtin library defs             (time_add, time_cmp, ...)
+        |- main block (state.main_block)     scope = child of base
+        |- imported sequence block           scope = child of base
+        |- ..."""
     library_ast = _get_builtin_library_ast()
 
     # The program block, as parsed, is the main block; the main sequence's
@@ -207,10 +193,10 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     if len(state.errors) != 0:
         raise state.errors[0]
 
-    # Assemble the compilation unit: a fresh library root block wrapping the
-    # builtin library, the main program (state.main_block), and every imported
-    # sequence as sibling children. All later passes run on state.root_block.
-    _build_compilation_unit(body, state)
+    # Wrap the program in the library root block: builtin library, the main
+    # program (state.main_block), and every imported sequence as sibling
+    # children. All later passes run on state.root_block.
+    _build_root_block(body, state)
 
     pre_semantic_desugaring_passes = [DesugarCheckStatements()]
 
@@ -385,8 +371,9 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
     if state.errors:
         raise state.errors[0]
 
-    # Assemble the compilation unit (sets state.root_block and state.main_block).
-    _build_compilation_unit(body, state)
+    # Wrap the program in the library root block (sets state.root_block and
+    # state.main_block).
+    _build_root_block(body, state)
 
     discovery_passes: list[Visitor] = [
         CheckSequenceMetadataDefinedAtTop(),

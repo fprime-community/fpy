@@ -83,7 +83,7 @@ class CompileState:
     root_block: AstBlock = None
     """the outermost block: the library root, which owns the base scope and holds
     the builtin library functions, the main block, and every imported sequence
-    block as its children. Built by _build_compilation_unit."""
+    block as its children. Built by _build_root_block."""
     main_block: AstBlock = None
     """the main sequence's block (the executable body), a child of `root`. The
     frame layout and directive stream are generated from this block, not `root`

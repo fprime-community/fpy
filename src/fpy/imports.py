@@ -18,7 +18,7 @@ The work is split into two passes:
 * `LoadImports` runs first, on the raw AST. It resolves each import to a file,
   recursively parses it, collects its statements as a sibling block in
   state.imported_blocks, and records an `ImportBinding` for each import.
-  _build_compilation_unit then installs those blocks under the library root.
+  _build_root_block then installs those blocks under the library root.
 
 * `BindImports` runs after `DefineFunctions`/`DefineVariables` have registered
   every sequence's definitions. It creates the module chains / direct bindings
@@ -68,7 +68,7 @@ class SequenceContext:
     None when the sequence has no location."""
     block: AstBlock = None
     """the sequence's AST block (the main block, or an imported sequence's
-    sibling block). Set once the block exists (_build_compilation_unit for the
+    sibling block). Set once the block exists (_build_root_block for the
     main sequence; at construction for an imported one)."""
 
 
@@ -131,21 +131,12 @@ class LoadImports:
         result = []
         for stmt in stmts:
             if is_instance_compat(stmt, AstImport):
-                self._ensure_id(stmt, state)
                 self._load_import(stmt, ctx, state)
                 if state.errors:
                     return result
             else:
                 result.append(stmt)
         return result
-
-    def _ensure_id(self, node, state):
-        # Import nodes are removed before AssignIds runs, but we still use them
-        # for diagnostics, so give them a unique id up front.
-        # FIXME can we consider assigning ids at parse time instead of in semantics passes?
-        if node.id is None:
-            node.id = state.next_node_id
-            state.next_node_id += 1
 
     def _load_import(
         self,
@@ -203,7 +194,7 @@ class LoadImports:
 
         # Collect the imported sequence's statements as a sibling block of the
         # main program (installed under the library root by
-        # _build_compilation_unit). CreateScopes gives this block its own
+        # _build_root_block). CreateScopes gives this block its own
         # isolated scope; the sequence's context points at it via .block. The
         # import statement itself contributes nothing at its position -- an
         # imported sequence has only definitions (no side effects), so it
@@ -319,7 +310,6 @@ class LoadImports:
             # Each dot past the first moves the anchor one directory up. .parent
             # saturates at the root, so an over-deep relative import lands there
             # and simply finds no file.
-            # FIXME add edge cases for a shit ton of dots on an import stmt
             anchor = Path(importer.dir_path)
             for _ in range(node.num_dots - 1):
                 anchor = anchor.parent
@@ -526,8 +516,10 @@ class BindImports:
                 if is_instance_compat(existing, SequenceModule) and is_instance_compat(
                     sym, SequenceModule
                 ):
-                    # FIXME what if we removed this requirement for collision?
-                    # what are the implications? can we simplify this code? Can we delete sequencemodule/packagemodule?
+                    # Two sequence modules on one name are two distinct files
+                    # claiming it; merging would silently union unrelated
+                    # definitions. Only package intermediates (path segments)
+                    # merge -- hence the class distinction.
                     state.err(
                         f"Import of '{name}' collides with an existing imported "
                         f"sequence of the same name",
