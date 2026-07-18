@@ -473,26 +473,116 @@ class CheckReturnInFunc(TopDownVisitor):
             return
 
 
+class AssignNameGroups(Visitor):
+    """Record, for every expression, the name group it is used in: a callee is
+    CALLABLE, a type annotation is TYPE, an operand / argument / rhs / condition
+    is VALUE.
+
+    A *defining* occurrence (a def / parameter / loop-variable name being
+    introduced, not referenced) is not resolved, and is deliberately given no
+    name group."""
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        state.contextual_name_group[node.name] = NameGroup.CALLABLE
+        if node.return_type is not None:
+            state.contextual_name_group[node.return_type] = NameGroup.TYPE
+        if node.parameters is not None:
+            for _arg_name, arg_type_name, default_value in node.parameters:
+                state.contextual_name_group[arg_type_name] = NameGroup.TYPE
+                if default_value is not None:
+                    state.contextual_name_group[default_value] = NameGroup.VALUE
+
+    def visit_AstAssign(self, node: AstAssign, state: CompileState):
+        if node.type_ann is not None:
+            state.contextual_name_group[node.type_ann] = NameGroup.TYPE
+        state.contextual_name_group[node.lhs] = NameGroup.VALUE
+        state.contextual_name_group[node.rhs] = NameGroup.VALUE
+
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
+            return
+        for _arg_name, arg_type_name in node.parameters:
+            state.contextual_name_group[arg_type_name] = NameGroup.TYPE
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        state.contextual_name_group[node.func] = NameGroup.CALLABLE
+        if node.args is None:
+            return
+        for arg in node.args:
+            value = arg.value if is_instance_compat(arg, AstNamedArgument) else arg
+            state.contextual_name_group[value] = NameGroup.VALUE
+
+    def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
+        state.contextual_name_group[node.condition] = NameGroup.VALUE
+
+    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
+        state.contextual_name_group[node.lhs] = NameGroup.VALUE
+        state.contextual_name_group[node.rhs] = NameGroup.VALUE
+
+    def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
+        state.contextual_name_group[node.val] = NameGroup.VALUE
+
+    def visit_AstFor(self, node: AstFor, state: CompileState):
+        state.contextual_name_group[node.range] = NameGroup.VALUE
+
+    def visit_AstWhile(self, node: AstWhile, state: CompileState):
+        state.contextual_name_group[node.condition] = NameGroup.VALUE
+
+    def visit_AstAssert(self, node: AstAssert, state: CompileState):
+        state.contextual_name_group[node.condition] = NameGroup.VALUE
+        if node.exit_code is not None:
+            state.contextual_name_group[node.exit_code] = NameGroup.VALUE
+
+    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
+        state.contextual_name_group[node.parent] = NameGroup.VALUE
+        state.contextual_name_group[node.item] = NameGroup.VALUE
+
+    def visit_AstRange(self, node: AstRange, state: CompileState):
+        state.contextual_name_group[node.lower_bound] = NameGroup.VALUE
+        state.contextual_name_group[node.upper_bound] = NameGroup.VALUE
+
+    def visit_AstReturn(self, node: AstReturn, state: CompileState):
+        if node.value is not None:
+            state.contextual_name_group[node.value] = NameGroup.VALUE
+
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        for _, value_expr in node.members:
+            state.contextual_name_group[value_expr] = NameGroup.VALUE
+
+    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
+        for elem_expr in node.elements:
+            state.contextual_name_group[elem_expr] = NameGroup.VALUE
+
+    def visit_AstLiteral_AstGetAttr_AstIdent(
+        self, node: Union[AstLiteral, AstGetAttr, AstIdent], state: CompileState
+    ):
+        # A bare literal / getattr / ident does not name a group on its own; the
+        # enclosing expression records its name group (or intentionally records
+        # none, for a defining occurrence).
+        pass
+
+    def visit_default(self, node, state):
+        # Every statement/expression that contains an identifier to resolve must
+        # be handled above, or those identifiers would never be given a name
+        # group and so never resolved. This mirrors the old resolver's safety
+        # assertion.
+        assert not is_instance_compat(node, AstStmtWithExpr), node
+
+
 class ResolveQualifiedIdentifiers(TopDownVisitor):
+    """Resolve every referenced identifier to its symbol, in the name group
+    AssignNameGroups recorded for it. Parameter and loop-variable names are
+    *definitions*, not references, so they are bound directly instead."""
 
     def may_contain_sub_definitions(self, sym: Symbol) -> bool:
-        """return True if a symbol definition may contain other definitions.
-        The only definitions in Fpy which may contain other definitions are
-        modules (whose only purpose is to contain other definitions) and
-        enum types (who contain definitions of enum consts)"""
-        return is_instance_compat(sym, ModuleSymbol) or (
-            is_instance_compat(sym, FpyType) and sym.kind == TypeKind.ENUM
-        )
+        """return True if a symbol may contain other definitions reachable by
+        member access. At the moment, only a module does -- an import module or a dictionary
+        namespace."""
+        return is_instance_compat(sym, ModuleSymbol)
 
     def get_sub_definition(self, parent_sym: Symbol, name: str) -> Symbol | None:
-        if is_instance_compat(parent_sym, ModuleSymbol):
-            return parent_sym.get(name)
-
-        assert (
-            is_instance_compat(parent_sym, FpyType) and parent_sym.kind == TypeKind.ENUM
-        ), parent_sym
-
-        return parent_sym.enum_dict.get(name)
+        assert is_instance_compat(parent_sym, ModuleSymbol), parent_sym
+        return parent_sym.get(name)
 
     def try_resolve_ident(
         self, node: AstExpr, ng: NameGroup, state: CompileState
@@ -521,7 +611,7 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
         # Walk back down the getattr chain (innermost first) resolving each.
         # Stop when the parent isn't a module -- the rest is a member access
-        # (e.g. enum.MEMBER, struct.field) handled later by type checking.
+        # (e.g. a struct field) handled later by type checking.
         for getattr_node in reversed(attrs):
             parent_sym = state.resolved_symbols.get(getattr_node.parent)
             if not self.may_contain_sub_definitions(parent_sym):
@@ -535,154 +625,46 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
                 return False
             state.resolved_symbols[getattr_node] = attr_sym
 
-        # A fully-resolved identifier expression in a value context must denote a
-        # value. A module (an import module, or a dictionary namespace like `Fw`)
-        # is legal only as an intermediate qualifier -- something accesses into
-        # it, as `Fw` does in `Fw.Time`. As the whole expression (`return Fw`,
-        # `x = Fw`) it is a misuse. We know the structure here without any parent
-        # lookup: the outermost node is the first getattr collected, or the root
-        # ident when the expression is a bare name.
-        outermost = attrs[0] if attrs else node
-        if ng == NameGroup.VALUE and is_instance_compat(
-            state.resolved_symbols.get(outermost), ModuleSymbol
-        ):
-            state.err("A module cannot be used as a value", outermost)
-            return False
-
         return True
 
+    # -- resolve any identifier/getattr that was given a name group --
+
+    def visit_AstIdent(self, node: AstIdent, state: CompileState):
+        self._resolve(node, state)
+
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        self._resolve(node, state)
+
+    def _resolve(self, node: AstExpr, state: CompileState):
+        # Only the outermost expression is given a name group; the rest of a
+        # getattr chain is resolved within that one try_resolve_ident walk, and
+        # defining occurrences are never given one. So a node with no name group
+        # is one we must not resolve here.
+        ng = state.contextual_name_group.get(node)
+        if ng is not None:
+            self.try_resolve_ident(node, ng, state)
+
+    # -- defining occurrences: bind the introduced name directly --
+
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # all callables are always resolved in callable ng
-        if not self.try_resolve_ident(node.name, NameGroup.CALLABLE, state):
-            return
-        if node.return_type is not None:
-            # all types always in type ng
-            if not self.try_resolve_ident(node.return_type, NameGroup.TYPE, state):
-                return
-
-        if node.parameters is not None:
-            # Params are defined in the function body's scope by DefineVariables
-            body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
-            for arg_name_var, arg_type_name, default_value in node.parameters:
-                state.resolved_symbols[arg_name_var] = body_values[arg_name_var.name]
-                if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
-                    return
-                if default_value is not None:
-                    # TODO make sure that we test that default vals cant access vars inside of func
-                    # default values are calculated outside of func scope
-                    if not self.try_resolve_ident(
-                        default_value, NameGroup.VALUE, state
-                    ):
-                        return
-
-    def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if node.type_ann is not None:
-            if not self.try_resolve_ident(node.type_ann, NameGroup.TYPE, state):
-                return
-        if not self.try_resolve_ident(node.lhs, NameGroup.VALUE, state):
-            return
-        if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
-            return
-
-    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
         if node.parameters is None:
             return
-
-        values = state.enclosing_scope[node].group(NameGroup.VALUE)
-        for arg_name_var, arg_type_name in node.parameters:
-            state.resolved_symbols[arg_name_var] = values[arg_name_var.name]
-            if not self.try_resolve_ident(arg_type_name, NameGroup.TYPE, state):
-                return
-
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.try_resolve_ident(node.func, NameGroup.CALLABLE, state):
-            return
-
-        if node.args is None:
-            return
-
-        for arg in node.args:
-            if is_instance_compat(arg, AstNamedArgument):
-                if not self.try_resolve_ident(arg.value, NameGroup.VALUE, state):
-                    return
-            else:
-                if not self.try_resolve_ident(arg, NameGroup.VALUE, state):
-                    return
-
-    def visit_AstIf_AstElif(self, node: Union[AstIf, AstElif], state: CompileState):
-        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
-            return
-
-    def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
-        # lhs/rhs side of stack op, if they are refs, must be refs to "runtime vals"
-        if not self.try_resolve_ident(node.lhs, NameGroup.VALUE, state):
-            return
-        if not self.try_resolve_ident(node.rhs, NameGroup.VALUE, state):
-            return
-
-    def visit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        if not self.try_resolve_ident(node.val, NameGroup.VALUE, state):
-            return
+        # Params are defined in the function body's scope by DefineVariables.
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        for arg_name_var, _arg_type_name, _default_value in node.parameters:
+            state.resolved_symbols[arg_name_var] = body_values[arg_name_var.name]
 
     def visit_AstFor(self, node: AstFor, state: CompileState):
         # loop_var is defined in the body's scope by DefineVariables
         body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
         state.resolved_symbols[node.loop_var] = body_values[node.loop_var.name]
 
-        # this really shouldn't be possible to be a var right now
-        # but this is future proof
-        if not self.try_resolve_ident(node.range, NameGroup.VALUE, state):
+    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
+        if node.parameters is None:
             return
-
-    def visit_AstWhile(self, node: AstWhile, state: CompileState):
-        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
-            return
-
-    def visit_AstAssert(self, node: AstAssert, state: CompileState):
-        if not self.try_resolve_ident(node.condition, NameGroup.VALUE, state):
-            return
-        if node.exit_code is not None:
-            if not self.try_resolve_ident(node.exit_code, NameGroup.VALUE, state):
-                return
-
-    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        if not self.try_resolve_ident(node.parent, NameGroup.VALUE, state):
-            return
-        if not self.try_resolve_ident(node.item, NameGroup.VALUE, state):
-            return
-
-    def visit_AstRange(self, node: AstRange, state: CompileState):
-        if not self.try_resolve_ident(node.lower_bound, NameGroup.VALUE, state):
-            return
-        if not self.try_resolve_ident(node.upper_bound, NameGroup.VALUE, state):
-            return
-
-    def visit_AstReturn(self, node: AstReturn, state: CompileState):
-        if node.value is not None:
-            if not self.try_resolve_ident(node.value, NameGroup.VALUE, state):
-                return
-
-    def visit_AstLiteral_AstGetAttr_AstIdent(
-        self, node: Union[AstLiteral, AstGetAttr, AstIdent], state: CompileState
-    ):
-        # don't need to do anything for literals, getattrs, or bare idents -- bare idents
-        # are always reached as children and resolved (or skipped) by their parent's visit method.
-        # this is because they do not imply anything about the context in which an AstIdent should get resolved
-        pass
-
-    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
-        for _, value_expr in node.members:
-            if not self.try_resolve_ident(value_expr, NameGroup.VALUE, state):
-                return
-
-    def visit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
-        for elem_expr in node.elements:
-            if not self.try_resolve_ident(elem_expr, NameGroup.VALUE, state):
-                return
-
-    def visit_default(self, node, state):
-        # coding error, missed an expr
-        assert not is_instance_compat(node, AstStmtWithExpr), node
+        values = state.enclosing_scope[node].group(NameGroup.VALUE)
+        for arg_name_var, _arg_type_name in node.parameters:
+            state.resolved_symbols[arg_name_var] = values[arg_name_var.name]
 
 
 class CheckAllUnqualifiedIdentifiersResolved(Visitor):
@@ -691,6 +673,10 @@ class CheckAllUnqualifiedIdentifiersResolved(Visitor):
     expression statement like `Foo.bar.BAZ`, whose root ident `Foo` would otherwise slip
     through unresolved and cause a KeyError in later passes."""
 
+    # FIXME can we move this pass to after assigning contextual name groups?
+    # or could we fold this into assign name groups? or fold into resolve qualified idents?
+    # or does it have to be a separate pass? if it involves more than these three lines of code
+    # then i'd prefer to keep separate
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node not in state.resolved_symbols:
             state.err("Unknown name", node)
@@ -717,53 +703,37 @@ def is_type_constant_size(type: FpyType) -> bool:
     return True
 
 
-class CheckAllTypesAndCallablesResolved(Visitor):
+class CheckResolvedSymbolKinds(Visitor):
+    """Verify each resolved identifier is the KIND its name group requires: a
+    callee must be callable, a type annotation must be a type, and a value must
+    be a value -- not a module/namespace, which is legal only as a member-access
+    qualifier (`Fw` in `Fw.Time`, never bare `Fw`).
 
-    def check_resolved(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
+    The name group comes from AssignNameGroups, so no parent lookup is needed;
+    this replaces the old parallel visit methods and the module-as-value check
+    that used to live in the (bottom-up) type pass."""
+
+    def visit_default(self, node: Ast, state: CompileState):
+        ng = state.contextual_name_group.get(node)
+        if ng is None:
+            return
         sym = state.resolved_symbols.get(node)
         if sym is None:
-            state.err(f"Unknown {ng.value}", node)
-            return False
+            # A type or callable name group must be a single resolved name;
+            # anything with no resolution there -- an unresolved identifier, or a
+            # literal like `x: True` -- is unknown (the resolver often reports it
+            # first). A value name group may instead hold a compound expression
+            # or a member access resolved later, which have no resolution here
+            # and are fine.
+            if ng in (NameGroup.TYPE, NameGroup.CALLABLE):
+                state.err(f"Unknown {ng.value}", node)
+            return
         if ng == NameGroup.CALLABLE and not is_instance_compat(sym, CallableSymbol):
             state.err(f"Expected a {ng.value}", node)
-            return False
-        if ng == NameGroup.TYPE and not is_instance_compat(sym, FpyType):
+        elif ng == NameGroup.TYPE and not is_instance_compat(sym, FpyType):
             state.err(f"Expected a {ng.value}", node)
-            return False
-        return True
-
-    def visit_AstDef(self, node: AstDef, state: CompileState):
-        # all callables are always resolved in callable ng
-        if not self.check_resolved(node.name, NameGroup.CALLABLE, state):
-            return
-        if node.return_type is not None:
-            # all types always in type ng
-            if not self.check_resolved(node.return_type, NameGroup.TYPE, state):
-                return
-
-        if node.parameters is not None:
-            for _, arg_type_name, default_value in node.parameters:
-                if not self.check_resolved(arg_type_name, NameGroup.TYPE, state):
-                    return
-                # arg_name_var is a defining use and so already resolved
-
-    def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        if node.type_ann is not None:
-            if not self.check_resolved(node.type_ann, NameGroup.TYPE, state):
-                return
-
-    def visit_AstSequenceMetadata(self, node: AstSequenceMetadata, state: CompileState):
-        if node.parameters is None:
-            return
-
-        for _, arg_type_name in node.parameters:
-            if not self.check_resolved(arg_type_name, NameGroup.TYPE, state):
-                return
-            # arg_name_var is a defining use and so already resolved
-
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        if not self.check_resolved(node.func, NameGroup.CALLABLE, state):
-            return
+        elif ng == NameGroup.VALUE and not is_symbol_an_expr(sym):
+            state.err(f"Expected a {ng.value}", node)
 
 
 class CheckForConstantSizeTypes(Visitor):

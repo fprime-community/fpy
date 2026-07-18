@@ -27,8 +27,9 @@ from fpy.desugaring import (
 )
 from fpy.semantics import (
     AssignIds,
+    AssignNameGroups,
     CreateScopes,
-    CheckAllTypesAndCallablesResolved,
+    CheckResolvedSymbolKinds,
     CheckAllUnqualifiedIdentifiersResolved,
     CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
@@ -223,11 +224,14 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
+        # record each expression's name group (callable/type/value) from its
+        # syntactic slot, so resolution and kind-checking can read it back
+        AssignNameGroups(),
         ResolveQualifiedIdentifiers(),
         CheckAllUnqualifiedIdentifiersResolved(),
         # warn when the importer uses an underscore-prefixed imported definition
         WarnImportUnderscore(),
-        CheckAllTypesAndCallablesResolved(),
+        CheckResolvedSymbolKinds(),
         CheckForConstantSizeTypes(),
         UpdateStateWithTypes(),
         # make sure we don't use any variables before they are declared
@@ -383,6 +387,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
         DefineFunctions(),
         DefineVariables(),
         BindImports(),
+        AssignNameGroups(),
         ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:

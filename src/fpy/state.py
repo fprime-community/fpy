@@ -108,6 +108,13 @@ class CompileState:
 
     enclosing_funcs: dict[AstReturn, AstDef] = field(default_factory=dict)
 
+    contextual_name_group: dict[AstExpr, NameGroup] = field(
+        default_factory=dict, repr=False
+    )
+    """The name group an expression is used in, determined purely from where it
+    appears (a func's callee is CALLABLE, a type annotation is TYPE, an
+    operand/argument/rhs is VALUE)."""
+
     resolved_symbols: dict[AstReference, Symbol] = field(
         default_factory=dict, repr=False
     )
