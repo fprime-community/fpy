@@ -570,8 +570,14 @@ import lib
 
 y: U32 = lib
 """
+        # An import module binds only in the callable group, so a value-context
+        # use fails at name resolution ("Unknown value") before the more general
+        # module-as-value check (see test_return_nothing_expr_in_void_func).
         assert_compile_failure(
-            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="Unknown value 'lib'",
+            import_search_dirs=[str(tmp_path)],
         )
 
     def test_same_function_name_in_two_modules_no_collision(

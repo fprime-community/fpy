@@ -741,12 +741,15 @@ class DesugarTimeOperators(Transformer):
         state: CompileState,
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
-        # lookup(), not get(): the builtin library functions this desugars to
-        # (time_add, time_sub, time_cmp, ...) live in the base scope's callable
-        # group, the parent of main_scope, not in the main sequence's own scope.
-
-        # FIXME i think for correctness sake we should lookup in enclosing callable scope
-        func_symbol = state.main_scope.lookup(NameGroup.CALLABLE, func_name)
+        # These operators desugar to compiler-chosen library builtins
+        # (time_add, time_sub, time_cmp, ...), which live in the base scope: the
+        # shared library scope that is the parent of every sequence's scope.
+        # Resolve there directly rather than from any one sequence's scope -- the
+        # target is the same builtin no matter which sequence the operator
+        # appears in, and a sequence-local function that happens to share the
+        # name must not hijack the desugaring.
+        # FIXME can you test that we don't hijack the desugaring? or maybe this is already tested
+        func_symbol = state.base_scope.lookup(NameGroup.CALLABLE, func_name)
         assert (
             func_symbol is not None
         ), f"Function {func_name} not found in callable scope"

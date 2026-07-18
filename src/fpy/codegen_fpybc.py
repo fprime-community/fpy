@@ -163,6 +163,11 @@ class CalculateFrameSizes(TopDownVisitor):
 
     This must run before GenerateFunctions so that global variable offsets
     are known when generating function bodies that access them.
+    # FIXME I think this pass is confusingly written. Each function, plus the main block,
+    # own a frame. So we just have to visit each function plus the main block, and for each of those, calculate the frame size.
+    # to calculate the frame size, we just have to walk the blocks in the frame owner nodes tree, and add up
+    # the variable symbols. two exceptions: for the main block frame, we have to add sequence args, and for
+    # the function frames, we have to add the formal parameters. can you restructure it to be very clear like that?
     """
 
     def __init__(self):
@@ -189,11 +194,17 @@ class CalculateFrameSizes(TopDownVisitor):
         state.frame_sizes[start] = self.offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        # FIXME I'd like an explanation of this, it seems weird
-        # The program block is its own (global/main) frame. When we reach it
-        # while walking the library root, lay it out in a fresh frame and stop --
-        # the library and imported blocks around it hold only definitions, whose
-        # frames are handled per-function by visit_AstDef.
+        # The main block is the global frame, but it sits nested inside the
+        # library root this walk may have started on. When we meet it as an
+        # inner block (not the block we were started on), hand it to a FRESH
+        # CalculateFrameSizes so it gets its own offset counter from zero --
+        # run() seeds that frame with the sequence args and the flags slot --
+        # then STOP_DESCENT so this outer walk doesn't also lay out its locals.
+        # The `not self._frame_root` guard is what prevents infinite recursion:
+        # the fresh run() visits the main block again, but now it IS the frame
+        # root, so control falls through to the ordinary local layout below. The
+        # surrounding library and imported blocks hold only definitions and get
+        # no frame of their own; each function's frame is built by visit_AstDef.
         if node is state.main_block and node is not self._frame_root:
             CalculateFrameSizes().run(node, state)
             return STOP_DESCENT

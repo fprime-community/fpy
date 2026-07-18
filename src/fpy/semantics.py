@@ -535,6 +535,20 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
                 return False
             state.resolved_symbols[getattr_node] = attr_sym
 
+        # A fully-resolved identifier expression in a value context must denote a
+        # value. A module (an import module, or a dictionary namespace like `Fw`)
+        # is legal only as an intermediate qualifier -- something accesses into
+        # it, as `Fw` does in `Fw.Time`. As the whole expression (`return Fw`,
+        # `x = Fw`) it is a misuse. We know the structure here without any parent
+        # lookup: the outermost node is the first getattr collected, or the root
+        # ident when the expression is a bare name.
+        outermost = attrs[0] if attrs else node
+        if ng == NameGroup.VALUE and is_instance_compat(
+            state.resolved_symbols.get(outermost), ModuleSymbol
+        ):
+            state.err("A module cannot be used as a value", outermost)
+            return False
+
         return True
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -1601,18 +1615,10 @@ class PickTypesAndResolveFields(Visitor):
         if sym is None:
             return
         if not is_symbol_an_expr(sym):
-            # FIXME explain this, why do we need this? point me to a test. we really should not be using parent
-            # map.
-
-            # A module used directly as a value is invalid, unless it is the
-            # qualifier of a member access (that getattr resolves it).
-            if is_instance_compat(sym, ModuleSymbol):
-                parent = state.parent_map.get(node)
-                is_qualifier = (
-                    is_instance_compat(parent, AstGetAttr) and parent.parent is node
-                )
-                if not is_qualifier:
-                    state.err("A module cannot be used as a value", node)
+            # A non-value symbol reaching here is a module serving as a member-
+            # access qualifier (`Fw` in `Fw.Time`); it has no value type of its
+            # own to synthesize. A module misused as a bare value was already
+            # rejected by ResolveQualifiedIdentifiers.
             return
 
         sym_type = self.get_type_of_symbol(sym)
