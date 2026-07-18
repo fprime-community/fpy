@@ -604,10 +604,7 @@ def get_base_compile_state(
         ), f"Expected int for constant {key}, got {type(val.val)}"
         return val.val
 
-    # Override the live boolean wire-format constants from the dictionary.
-    # FpyValue.serialize() is stateless and reads these module globals directly,
-    # so we set them here (in the uncached path, run once per compile) rather
-    # than threading them through every serialize() call site.
+    # Override the live boolean wire-format constants (read directly by the stateless FpyValue.serialize()) from the dictionary.
     fpy.types.FW_SERIALIZE_TRUE_VALUE = _const_int(
         "FW_SERIALIZE_TRUE_VALUE", DEFAULT_FW_SERIALIZE_TRUE_VALUE
     )
