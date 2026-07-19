@@ -19,6 +19,7 @@ from fpy.codegen_llvm import (
     llvm_module_to_wasm_text,
 )
 from fpy.desugaring import (
+    DesugarAugmentedAssignments,
     DesugarDefaultArgs,
     DesugarForLoops,
     DesugarCheckStatements,
@@ -201,7 +202,10 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     builtin_library_ast = _get_builtin_library_ast()
     body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
 
-    pre_semantic_desugaring_passes = [DesugarCheckStatements()]
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
+    ]
 
     semantics_passes: list[Visitor] = [
         # assign each node a unique id for indexing/hashing
@@ -380,6 +384,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
 
     discovery_passes: list[Visitor] = [
         DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
         AssignIds(),
         CreateScopes(),
         DefineFunctions(),

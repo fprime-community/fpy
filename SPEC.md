@@ -302,6 +302,27 @@ At execution:
 
 The value of the variable is unchanged except for the element.
 
+## Augmented assignment
+
+An **augmented assignment statement** combines a [binary operator](#binary-operator-expressions) with an assignment.
+
+### Syntax
+Rule:
+
+`aug_assign_stmt: expr AUG_ASSIGN_OP expr`
+
+`AUG_ASSIGN_OP: "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "//="`
+
+Name:
+
+`aug_assign_stmt: lhs op rhs`
+
+### Semantics
+
+The statement `lhs op= rhs` is rewritten into `lhs = lhs op rhs` before semantic analysis. All rules of [variable assignment](#variable-assignment), [member assignment](#member-assignment) and [element assignment](#element-assignment), as well as those of the [binary operator](#binary-operator-expressions) `op`, apply to the rewritten form.
+
+*Tests:* [1](test/fpy/test_aug_assign.py#L9 "test/fpy/test_aug_assign.py::TestAugmentedAssignment::test_add_assign"), [2](test/fpy/test_aug_assign.py#L33 "test/fpy/test_aug_assign.py::TestAugmentedAssignment::test_div_assign"), [3](test/fpy/test_aug_assign.py#L87 "test/fpy/test_aug_assign.py::TestAugmentedAssignment::test_member_aug_assign"), [4](test/fpy/test_aug_assign.py#L122 "test/fpy/test_aug_assign.py::TestAugmentedAssignment::test_literal_lhs"), [5](test/fpy/test_aug_assign.py#L134 "test/fpy/test_aug_assign.py::TestAugmentedAssignment::test_same_typing_as_plain_assign")
+
 ## Variable evaluation
 
 The value produced by [evaluating](#expressions) a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
