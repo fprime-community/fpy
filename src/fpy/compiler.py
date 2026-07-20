@@ -55,7 +55,7 @@ from fpy.semantics import (
     WarnRangesAreNotEmpty,
 )
 from fpy.imports import (
-    BindImports,
+    DefineImports,
     LoadImports,
     WarnImportUnderscore,
 )
@@ -142,7 +142,7 @@ def _build_root_block(program: AstBlock, state: CompileState):
     library_ast = _get_builtin_library_ast()
 
     # The program block, as parsed, is the main block; the main sequence's
-    # context points at it so BindImports can reach its scope.
+    # context points at it so DefineImports can reach its scope.
     state.main_block = program
     state.main_sequence.block = program
 
@@ -188,8 +188,8 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     """
     # Load every transitively imported sequence first, on the raw program AST:
     # this removes each import statement and collects its target sequence as a
-    # sibling block in state.imported_blocks, recording an ImportBinding for
-    # BindImports.
+    # sibling block in state.imported_blocks, recording an ImportAnalysis for
+    # DefineImports.
     LoadImports().run(body, state)
     if len(state.errors) != 0:
         raise state.errors[0]
@@ -220,7 +220,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         DefineVariables(),
         # now that every sequence's definitions are registered, bind the
         # modules / names each import introduces into the importer's scopes
-        BindImports(),
+        DefineImports(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
@@ -386,7 +386,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
         CreateScopes(),
         DefineFunctions(),
         DefineVariables(),
-        BindImports(),
+        DefineImports(),
         AssignNameGroups(),
         ResolveQualifiedIdentifiers(),
     ]

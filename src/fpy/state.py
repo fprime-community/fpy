@@ -215,13 +215,17 @@ class CompileState:
 
     main_sequence: object = None
     """the SequenceContext for the main (top-level) sequence being compiled."""
-    import_bindings: list = field(default_factory=list, repr=False)
-    """recorded imports (ImportBinding) to bind into scopes once every sequence's
-    definitions have been registered (by DefineFunctions / DefineVariables)."""
+    import_analyses: list = field(default_factory=list, repr=False)
+    """recorded imports (ImportAnalysis), whose definitions DefineImports
+    enters into scopes once every sequence's own definitions have been
+    registered (by DefineFunctions / DefineVariables)."""
     loaded_sequences: dict = field(default_factory=dict, repr=False)
-    """maps a resolved sequence file (realpath) -> its SequenceContext. A sequence
-    is loaded and compiled once; every import that resolves to the same file
-    reuses this context, so its definitions are shared, never duplicated."""
+    """maps a resolved sequence file (realpath) -> its SequenceContext. A file
+    is loaded and compiled once, however many imports name it; later imports
+    reuse this context. Sequence
+    definitions naming one file hold the same definition objects (one sequence
+    symbol, members pooling idempotently), and alias definitions reached by
+    different import routes name the identical definition (diamonds fold)."""
 
     next_anon_var_id: int = 0
 

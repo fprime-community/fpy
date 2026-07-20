@@ -1,28 +1,32 @@
 """Import statement support.
 
-Importing sequence S imports sequence T by compiling T's definitions alongside
-S's and exposing them to S under a module (or, for `from` imports, directly). An
+The importer sequence S imports sequence T by compiling T's definitions alongside
+S's and exposing them to S under T's name (or, for `from` imports, directly). An
 imported sequence may contain only function definitions and imports -- nothing
 that executes -- so importing runs no code, and order does not matter. Nor do
 cycles: a sequence may transitively import itself.
 
-Isolation is by construction. Each imported sequence is compiled as its own
-block, a sibling of the main program under the shared library root; its callable
-and value scopes are children of the base/universe scopes the library root owns.
-A sequence's own functions live in its own scopes, so they are invisible to any
-other sequence except through the modules an import binds, while dictionary and
-builtin names still resolve up the parent chain.
+Each imported sequence is compiled as its own block, a sibling of the main
+program under the shared library root; its scope is a child of the base scopes
+the library root owns.
 
 The work is split into two passes:
 
 * `LoadImports` runs first, on the raw AST. It resolves each import to a file,
   recursively parses it, collects its statements as a sibling block in
-  state.imported_blocks, and records an `ImportBinding` for each import.
+  state.imported_blocks, and records an `ImportAnalysis` for each import.
   _build_root_block then installs those blocks under the library root.
 
-* `BindImports` runs after `DefineFunctions`/`DefineVariables` have registered
-  every sequence's definitions. It creates the module chains / direct bindings
-  each recorded import calls for, handling module merging and name collisions.
+* `DefineImports` runs after `DefineFunctions`/`DefineVariables` have registered
+  every sequence's definitions. It expands each recorded import into the
+  syntactic definitions the statement makes -- a module definition per
+  enclosing directory on its sequence path, a sequence definition for the
+  file, or alias definitions for `from`/aliased-member forms -- and combines
+  them, per qualified name, into the semantic symbols the importer's scope
+  holds. Two definitions of one qualified name in a shared name group
+  collide unless they are semantically equivalent: module definitions always
+  are (varying only by name), sequence definitions are iff they name one
+  file, and alias definitions iff they name one definition.
 """
 
 from __future__ import annotations
@@ -36,9 +40,9 @@ from fpy.symbols import (
     CallableSymbol,
     ModuleSymbol,
     NameGroup,
-    PackageModule,
     Scope,
-    SequenceModule,
+    SequenceSymbol,
+    Symbol,
     VariableSymbol,
 )
 from fpy.syntax import (
@@ -79,7 +83,8 @@ class ResolvedImport:
 
     seq_path: list[str]
     """the sequence path segments (leading dots already stripped) that name the
-    file; the module chain an `import` introduces."""
+    file; the dotted path a plain `import` binds (modules for the
+    directories, the sequence at the leaf)."""
     member: str | None
     """the trailing member name for `import a.b.c.foo`, else None."""
     file_path: str
@@ -87,16 +92,17 @@ class ResolvedImport:
 
 
 @dataclass
-class ImportBinding:
-    """A resolved import, recorded for `BindImports` to bind once every
-    sequence's definitions exist."""
+class ImportAnalysis:
+    """A resolved import, recorded for `DefineImports` to turn into scope
+    definitions once every sequence's own definitions exist."""
 
     node: AstImport
     importer: SequenceContext
     target: SequenceContext
     seq_path: list[str]
     """the sequence path segments (leading dots already stripped) that name the
-    imported file; the module chain an `import` introduces."""
+    imported file; the dotted path a plain `import` binds (modules for the
+    directories, the sequence at the leaf)."""
     member: str | None
     """the trailing member name for `import a.b.c.foo`, else None."""
 
@@ -137,7 +143,7 @@ class LoadImports:
         state: CompileState,
     ) -> None:
         """Load the sequence *node* names (if it is not already loaded) and record
-        an ImportBinding for BindImports."""
+        an ImportAnalysis for DefineImports."""
         resolved = self._resolve(node, importer, state)
         if resolved is None:
             return
@@ -146,7 +152,7 @@ class LoadImports:
         # installs its block; later imports of the same file (in this sequence or
         # any other) reuse that one SequenceContext, so its definitions are shared,
         # never duplicated. Whether importing the same sequence more than once is
-        # allowed then falls to the ordinary name-collision rule in BindImports.
+        # allowed then falls to the ordinary name-collision rule in DefineImports.
         target = state.loaded_sequences.get(resolved.file_path)
         if target is None:
             target = self._load_sequence(resolved.file_path, node.meta, state)
@@ -154,8 +160,8 @@ class LoadImports:
                 return
             assert target is not None
 
-        state.import_bindings.append(
-            ImportBinding(node, importer, target, resolved.seq_path, resolved.member)
+        state.import_analyses.append(
+            ImportAnalysis(node, importer, target, resolved.seq_path, resolved.member)
         )
 
     def _load_sequence(self, file_path: str, meta, state) -> SequenceContext | None:
@@ -203,7 +209,7 @@ class LoadImports:
         # is what lets an import cycle resolve: an import that comes back around
         # to this file finds the context above and binds against it, instead of
         # loading the file a second time forever. Nothing about a cycle needs
-        # rejecting -- an import binds names and runs nothing, and BindImports
+        # rejecting -- an import binds names and runs nothing, and DefineImports
         # does not run until every sequence's definitions exist.
         ctx.block.stmts = self._load_imports_in(parsed.stmts, ctx, state)
         return ctx
@@ -338,7 +344,7 @@ class LoadImports:
 
     def _file_for(self, d: Path, segments) -> str | None:
         """The resolved path of `<d>/<segments...>.fpy`, or None if it is not a
-        file. Every segment but the last names a package directory."""
+        file. Every segment but the last names a directory."""
         assert segments, "an import path always has at least one segment"
         *dirs, leaf = segments
         p = d.joinpath(*dirs, leaf + ".fpy")
@@ -347,94 +353,252 @@ class LoadImports:
         return None
 
 
-class BindImports:
-    """Bind each recorded import into its importer's scopes.
+@dataclass
+class ModuleDef:
+    """A syntactic module definition: one enclosing directory on an import's
+    sequence path, defining the module symbol at qualified name *path* in the
+    importer's global scope.
 
-    Every import form is first *expanded* (_expand) to a flat list of
-    (name, sym, mergeable) actions, each installing one definition or one
-    synthesized module under a name in the importer's scope."""
+    Module definitions merge: every syntactic module definition with one
+    qualified name defines the same one semantic module symbol, whose members
+    are everything the definitions' statements put there."""
+
+    path: tuple[str, ...]
+
+
+@dataclass
+class SequenceDef:
+    """A syntactic sequence definition: the sequence file an import statement
+    names, defining the sequence symbol at qualified name *path* that holds
+    *members* of the file's global scope (all of them, or only the one a
+    member import names).
+
+    Syntactic sequence definitions with one qualified name that name the same
+    *file* define the same one semantic sequence symbol: the file is compiled
+    once, so their members are the same objects and pool idempotently. Two
+    that name different files collide."""
+
+    path: tuple[str, ...]
+    file: str
+    members: dict[str, Symbol]
+
+
+@dataclass
+class AliasDef:
+    """A syntactic alias definition: an existing definition, defined again
+    under a bare (possibly aliased) name in the importer's global scope --
+    what each member of a `from` import and an aliased member import make.
+
+    An alias definition is identified by the definition it names: two with
+    one qualified name that name the SAME definition define the same one
+    semantic alias and fold idempotently, so one definition reached by two
+    import routes (a diamond) binds once. Two that name DIFFERENT
+    definitions collide."""
+
+    name: str
+    sym: Symbol
+
+
+class DefineImports:
+    """Enter each recorded import's definitions into its importer's scope.
+
+    One import statement is processed in three steps:
+
+    1. `_expand` turns the statement into the syntactic definitions it makes:
+       a ModuleDef per directory on its sequence path plus a SequenceDef for
+       the file, or AliasDefs for `from`/aliased-member forms.
+    2. `_define` installs each definition by combining it with whatever its
+       qualified name already denotes: the same semantic definition folds in,
+       a different one is a conflict.
+    3. `_define_name` enters a symbol into the scope under its name, in every
+       name group it resides in. Alias definitions reach it directly from
+       `_define`; a dotted import's root symbol reaches it only after the
+       whole statement is defined, because the name groups a module or
+       sequence symbol resides in derive from the members steps 1-2 give
+       it."""
 
     def run(self, body, state):
-        for binding in state.import_bindings:
-            self._bind(binding, state)
+        for analysis in state.import_analyses:
+            self._define_import(analysis, state)
             if state.errors:
                 return
 
-    def _bind(self, binding: ImportBinding, state):
-        importer_scope = state.enclosing_scope[binding.importer.block]
-        for name, sym, mergeable in self._expand(binding, state):
+    def _define_import(self, analysis: ImportAnalysis, state):
+        importer_scope = state.enclosing_scope[analysis.importer.block]
+        defs = self._expand(analysis, state)
+        if state.errors:
+            return
+        # The module/sequence symbol the statement's chain root defines, by
+        # name -- held here, off the scope, until every definition of the
+        # statement has combined into it (the name groups it binds in derive
+        # from the members they contribute).
+        roots: dict[str, ModuleSymbol] = {}
+        for d in defs:
+            self._define(d, importer_scope, roots, analysis.node, state)
             if state.errors:
                 return
-            self._bind_one(importer_scope, name, sym, mergeable, binding.node, state)
+        for name, sym in roots.items():
+            self._define_name(importer_scope, name, sym, analysis.node, state)
             if state.errors:
                 return
 
-    def _expand(self, binding: ImportBinding, state):
-        """Expand an import into a flat list of (name, sym, mergeable) tuples,
-        each of which installs one thing under *name* in the importer's scope:
+    def _expand(self, analysis: ImportAnalysis, state) -> list:
+        """Expand an import statement into the flat list of syntactic
+        definitions it makes, ordered so that every ModuleDef precedes the
+        definitions at longer paths it encloses:
 
-          * a synthesized package/sequence module (mergeable=True) -- what a
-            plain `import a.b.c` or an aliased `import a.b.c as x` binds; or
-          * a single looked-up definition (mergeable=False) -- what a member
-            import, an aliased member, or any `from` binds.
+          * `from` forms and `import a.b.c.member as x` make AliasDefs;
+          * `import a.b.c as x` makes one SequenceDef at path (x,);
+          * `import a.b.c[.member]` makes a ModuleDef per proper prefix of the
+            sequence path and a SequenceDef at the full path.
 
-        On error, reports it via state.err and returns whatever actions were
-        built so far. The caller checks state.errors before installing any of
-        them, so a partial list is never bound."""
-        node = binding.node
-        target_scope = state.enclosing_scope[binding.target.block]
+        On error, reports it via state.err and returns whatever definitions
+        were built so far. The caller checks state.errors before installing
+        any of them, so a partial list is never bound."""
+        node = analysis.node
+        target_scope = state.enclosing_scope[analysis.target.block]
 
-        # `from a.b.c import *` binds the sequence's public definitions, each
-        # under its own name. A star import takes only the
+        # `from a.b.c import *` aliases the sequence's public definitions,
+        # each under its own name. A star import takes only the
         # public surface: underscore definitions are internal and stay unbound
         if node.is_from and node.is_star:
             return [
-                (name, sym, False)
+                AliasDef(name, sym)
                 for name, sym in target_scope.own_symbols().items()
                 if not name.startswith("_")
             ]
 
-        # `from a.b.c import m [as n], ...` binds looked-up definitions under
-        # bare names, introducing no module chain.
+        # `from a.b.c import m [as n], ...` aliases looked-up definitions
+        # under bare names, introducing no modules.
         if node.is_from:
-            # FIXME don't use the action jargon, use a direct, simple name
-            actions = []
+            results = []
+            bound: dict[str, Symbol] = {}
             for member_name, alias in node.members:
                 sym = self._lookup_definition(target_scope, member_name, node, state)
                 if sym is None:
-                    return actions
+                    return results
                 self._maybe_underscore_warn(member_name, node, state)
-                actions.append((alias or member_name, sym, False))
-            return actions
+                name = alias or member_name
+                # One member list defining the same alias twice is legal (it
+                # folds like any two aliases of one definition) but almost
+                # certainly a typo: warn. One name for two DIFFERENT
+                # definitions is left to the ordinary collision error.
+                if bound.get(name) is sym:
+                    state.warn(
+                        WarningType.IMPORT_DUPLICATE,
+                        f"'{name}' is imported more than once by this statement",
+                        node,
+                    )
+                bound[name] = sym
+                results.append(AliasDef(name, sym))
+            return results
 
-        # `import a.b.c[.member] [as alias]`.
-        # FIXME I wonder if this code for the next like 20-30 lines can
-        # be a lot more simple. if condition: do thing, return result, or something
-        # like that
-        if binding.member is not None:
-            sym = self._lookup_definition(target_scope, binding.member, node, state)
+        # `import a.b.c.member [as alias]`: a single looked-up definition.
+        if analysis.member is not None:
+            sym = self._lookup_definition(target_scope, analysis.member, node, state)
             if sym is None:
                 return []
-            self._maybe_underscore_warn(binding.member, node, state)
+            self._maybe_underscore_warn(analysis.member, node, state)
             if node.alias is not None:
-                # `import a.b.c.member as x` binds the definition directly under x.
-                return [(node.alias, sym, False)]
-            # `import a.b.c.member` binds a.b.c as a module holding just `member`.
-            leaf = SequenceModule()
-            leaf[binding.member] = sym
-        else:
-            # Whole sequence: a module of all its definitions.
-            leaf = SequenceModule()
-            for name, sym in target_scope.own_symbols().items():
-                leaf[name] = sym
-            if node.alias is not None:
-                # `import a.b.c as x` binds the whole module under x (no chain).
-                return [(node.alias, leaf, True)]
+                # `import a.b.c.member as x` aliases the definition directly
+                # under x.
+                return [AliasDef(node.alias, sym)]
+            # `import a.b.c.member` defines sequence a.b.c holding just `member`.
+            return self._chain_defs(analysis, {analysis.member: sym})
 
-        # Plain `import a.b.c[.member]`: wrap the leaf in its package chain and
-        # bind the chain's root name.
-        root_name, root = self._build_chain(binding.seq_path, leaf)
-        return [(root_name, root, True)]
+        # `import a.b.c [as alias]`: the whole sequence.
+        members = target_scope.own_symbols()
+        if node.alias is not None:
+            # `import a.b.c as x` defines the sequence at path (x,): no
+            # enclosing directories are named, so no module definitions.
+            return [SequenceDef((node.alias,), analysis.target.file_path, members)]
+        return self._chain_defs(analysis, members)
+
+    def _chain_defs(self, analysis: ImportAnalysis, members) -> list:
+        """The definitions a chain-introducing import makes: a module
+        definition per enclosing directory on the sequence path (each proper,
+        non-empty prefix), then the sequence definition at the full path."""
+        path = tuple(analysis.seq_path)
+        defs = [ModuleDef(path[:i]) for i in range(1, len(path))]
+        defs.append(SequenceDef(path, analysis.target.file_path, members))
+        return defs
+
+    def _define(self, d, scope: Scope, roots, node, state):
+        """Install one syntactic definition.
+
+        An AliasDef binds directly into the importer's scope. A module or
+        sequence definition combines with the symbol its qualified name
+        already denotes: a root-level name denotes what the scope binds (with
+        the result held in *roots* for the caller to bind last), and a deeper
+        name denotes a member of the module at its path prefix -- which this
+        same statement defined just before it, prefixes first."""
+        if is_instance_compat(d, AliasDef):
+            self._define_name(scope, d.name, d.sym, node, state)
+            return
+        name = d.path[-1]
+        if len(d.path) == 1:
+            combined = self._combine(d, self._existing_module(scope, name), node, state)
+            if combined is None:
+                return
+            roots[name] = combined
+            return
+        container = roots[d.path[0]]
+        for seg in d.path[1:-1]:
+            container = container[seg]
+            assert is_instance_compat(
+                container, ModuleSymbol
+            ) and not is_instance_compat(
+                container, SequenceSymbol
+            ), f"prefix {seg} was defined as a module by an earlier ModuleDef"
+        combined = self._combine(d, container.get(name), node, state)
+        if combined is None:
+            return
+        container[name] = combined
+
+    def _combine(self, d, existing, node, state):
+        """Combine one syntactic module/sequence definition *d* with
+        *existing*, the symbol its qualified name already denotes (None if
+        unclaimed), and return the semantic symbol the name denotes after it:
+
+          * an unclaimed name: the definition creates its symbol;
+          * module definition meets module symbol: they define the same one
+            semantic module, so the existing symbol stands unchanged;
+          * sequence definition meets sequence symbol naming the SAME file:
+            they define the same one semantic sequence, and this occurrence
+            pools its members into it (idempotently -- same objects);
+          * sequence definition meets sequence symbol naming a DIFFERENT
+            file: a collision;
+          * one name claimed as both a module and a sequence: forbidden,
+            whichever came first.
+
+        Returns None with the error reported on conflict."""
+        if existing is not None:
+            assert is_instance_compat(existing, ModuleSymbol), existing
+        name = d.path[-1]
+        is_seq_def = is_instance_compat(d, SequenceDef)
+        if existing is None:
+            if not is_seq_def:
+                return ModuleSymbol()
+            sym = SequenceSymbol(d.file)
+            sym.update(d.members)
+            return sym
+        if is_instance_compat(existing, SequenceSymbol) != is_seq_def:
+            state.err(
+                f"'{name}' is imported both as a module and as a sequence",
+                node,
+            )
+            return None
+        if not is_seq_def:
+            return existing
+        if existing.source_file != d.file:
+            state.err(
+                f"Import of '{name}' collides with an existing imported "
+                f"sequence of the same name",
+                node,
+            )
+            return None
+        existing.update(d.members)
+        return existing
 
     def _lookup_definition(self, target_scope: Scope, name: str, node, state):
         sym = target_scope.own_symbols().get(name)
@@ -454,19 +618,15 @@ class BindImports:
                 node,
             )
 
-    def _build_chain(self, seq_path, leaf):
-        """Wrap *leaf* in package modules for a dotted sequence path, returning
-        (root_name, root_module)."""
-        current = leaf
-        for i in range(len(seq_path) - 2, -1, -1):
-            parent = PackageModule()
-            parent[seq_path[i + 1]] = current
-            current = parent
-        return seq_path[0], current
-
     def _symbol_groups(self, sym) -> set:
+        """The name groups *sym* resides in: a module or sequence symbol
+        resides in the groups of the definitions it (transitively) holds, and
+        so exists exactly where its members can collide."""
         if is_instance_compat(sym, ModuleSymbol):
-            return self._module_groups(sym)
+            groups = set()
+            for member in sym.values():
+                groups |= self._symbol_groups(member)
+            return groups
         if is_instance_compat(sym, CallableSymbol):
             return {NameGroup.CALLABLE}
         if is_instance_compat(sym, VariableSymbol):
@@ -474,73 +634,28 @@ class BindImports:
         # Any other value-like definition resolves in the value name group.
         return {NameGroup.VALUE}
 
-    def _module_groups(self, module) -> set:
-        groups = set()
-        for sym in module.values():
-            groups |= self._symbol_groups(sym)
-        return groups
+    def _define_name(self, scope: Scope, name, sym, node, state):
+        """Bind *sym* under *name* in the importer's scope, in each name group
+        *sym* resides in. A symbol holding no definitions resides in no group
+        and binds nothing (importing an empty sequence introduces nothing).
 
-    def _bind_one(self, scope: Scope, name, sym, mergeable, node, state):
-        """Install *sym* under *name* into *scope* (the importer's).
-
-        *sym* is either a single definition (mergeable=False -- a function, a
-        # FIXME what does bound opaquely mean
-        variable, or a re-exported module bound opaquely) or a synthesized
-        package/sequence module (mergeable=True). A mergeable module merges with
-        a package module THIS sequence already built under *name*; two sequence
-        modules on one name collide.
-        """
-        # FIXME: like with the other function i just commented on, I'd really like
-        # to transform this into a more simple flow. condition, do something, return
+        This is the scope-level conflict rule: an occupant that IS *sym* is
+        the same semantic definition arriving again -- the chain root this
+        statement merged into, or a definition this name already aliases (two
+        import routes to one definition) -- and stands, folding idempotently.
+        Any other occupant is a second definition of the name in that group:
+        a collision. A name that is instead taken only up the parent chain,
+        in a base (dictionary/builtin) scope, is shadowed: a warning, not an
+        error."""
         groups = self._symbol_groups(sym)
-        if not groups:
-            # An empty sequence's module holds nothing and belongs to no name
-            # group; there is nothing to bind.
-            return
-
-        # A mergeable module folds into a package module already built here.
-        merged_into = None
-        if mergeable:
-            existing = None
-            for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
-                candidate = scope.get(ng, name)
-                if is_instance_compat(candidate, ModuleSymbol):
-                    existing = candidate
-                    break
-            if existing is not None:
-                if is_instance_compat(existing, SequenceModule) and is_instance_compat(
-                    sym, SequenceModule
-                ):
-                    # Two sequence modules on one name are two distinct files
-                    # claiming it; merging would silently union unrelated
-                    # definitions. Only package intermediates (path segments)
-                    # merge -- hence the class distinction.
-                    state.err(
-                        f"Import of '{name}' collides with an existing imported "
-                        f"sequence of the same name",
-                        node,
-                    )
-                    return
-                self._merge_modules(existing, sym, node, state)
-                if state.errors:
-                    return
-                sym = existing
-                merged_into = existing
-                groups = self._symbol_groups(sym)
-
-        # A name occupied in the importer's own scope collides -- unless it is
-        # the very module we just merged into.
         for ng in groups:
-            own = scope.get(ng, name)
-            if own is not None and own is not merged_into:
+            existing = scope.get(ng, name)
+            if existing is not None and existing is not sym:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
                 )
                 return
-        # The name is free (or holds the just-merged module). If it still
-        # resolves up the parent chain to a base (dictionary) definition, the
-        # import shadows it: a warning, not an error.
         for ng in groups:
             outer = scope.lookup(ng, name)
             if outer is not None and outer is not sym:
@@ -556,49 +671,25 @@ class BindImports:
                 )
             scope.define(ng, name, sym)
 
-    def _merge_modules(self, existing, incoming, node, state):
-        """Merge *incoming* module's members into *existing*."""
-        for key, sym in incoming.items():
-            if key in existing:
-                ex = existing[key]
-                if (
-                    is_instance_compat(ex, ModuleSymbol)
-                    and is_instance_compat(sym, ModuleSymbol)
-                    and not (
-                        is_instance_compat(ex, SequenceModule)
-                        and is_instance_compat(sym, SequenceModule)
-                    )
-                ):
-                    self._merge_modules(ex, sym, node, state)
-                    if state.errors:
-                        return
-                else:
-                    state.err(
-                        f"Imported module member '{key}' collides on merge",
-                        node,
-                    )
-                    return
-            else:
-                existing[key] = sym
-        # Merging a sequence module into a package module makes the result the
-        # sequence: `import pkg.mod` builds package `pkg`, then `import pkg`
-        # (pkg.fpy) merges in, and `pkg` now IS the pkg.fpy sequence, still
-        # holding submodule `mod`. Promoting in place keeps the identity already
-        # bound under the name.
-        if is_instance_compat(incoming, SequenceModule) and not is_instance_compat(
-            existing, SequenceModule
-        ):
-            existing.__class__ = SequenceModule
+    def _existing_module(self, scope: Scope, name):
+        """The semantic module/sequence symbol *name* already denotes in
+        *scope*'s own groups, or None. A module can be bound in the callable
+        and/or value group; either does -- one name denotes one symbol."""
+        for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
+            candidate = scope.get(ng, name)
+            if is_instance_compat(candidate, ModuleSymbol):
+                return candidate
+        return None
 
 
 class WarnImportUnderscore(Visitor):
     """Warn when the importer *uses* an underscore-prefixed imported definition
-    via `module._helper` member access.
+    via qualified member access (`lib._helper`).
 
     A bare name never needs this: the only import form that binds a definition
     under a bare name without naming it is `from ... import *`, and that one
     does not bind underscore names at all. Import statements that DO name an
-    underscore member warn at bind time in `BindImports`."""
+    underscore member warn as `DefineImports` processes the statement."""
 
     def visit_AstGetAttr(self, node: AstGetAttr, state):
         if not node.attr.startswith("_"):

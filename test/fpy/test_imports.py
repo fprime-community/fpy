@@ -1,11 +1,12 @@
 """Tests for the `import` statement (spec / TDD).
 
 `import foo` inlines the definitions of a sibling `foo.fpy` sequence into the
-importing sequence and sections its symbols off under a module named `foo`, so
+importing sequence and sections its symbols off under the name `foo`, so
 a function `bar` defined in `foo.fpy` is called as `foo.bar()`.
 
-Terminology: a *sequence* is an importable `.fpy` file; a *module* is the
-name-to-symbol mapping an import introduces to hold a sequence's symbols.
+Terminology: a *sequence* is an importable `.fpy` file, which an import binds
+as a *sequence symbol* holding its definitions; each directory on an import's
+path defines a *module*.
 
 Design decisions encoded here:
   * Imports come in two disjoint resolution styles (PEP-328-like).  An
@@ -26,14 +27,14 @@ Design decisions encoded here:
     AMBIGUOUS -- a hard error, even if the candidates agree -- so adding a
     file to one search dir can never silently rebind another sequence's
     import.  There is no shadowing order among the search dirs.
-  * Dotted sequence paths resolve through package directories, Pythonically:
-    `import a.b.c` -> `a/b/c.fpy`.  Package directories need no
-    `__init__.fpy` marker.  The imported symbols live under a module chain,
-    reached by the full path: `import a.b.c` makes `a.b.c.bar()` callable
+  * Dotted sequence paths resolve through directories, Pythonically:
+    `import a.b.c` -> `a/b/c.fpy`.  Directories need no
+    `__init__.fpy` marker.  The imported symbols are reached by the full
+    path: `import a.b.c` makes `a.b.c.bar()` callable
     (and `import foo` makes `foo.bar()` callable).  A relative import binds
     the path after its dots: `import .sub.mod` -> `sub.mod.f()`, and
     `import ..util` -> `util.f()`.
-  * Unlike Python, `import .foo` is legal (binding module `foo`) and
+  * Unlike Python, `import .foo` is legal (binding `foo`) and
     `from . import foo` is not: `from` members are always definitions, never
     sequences.
   * File/directory precedence: at an import's leaf segment a sequence file
@@ -54,19 +55,23 @@ Design decisions encoded here:
     references to it never warn, and an alias silences later uses.
   * Importing a sequence that declares sequence arguments (`sequence(x: U32)`)
     is a hard error.
-  * A module obeys name groups: it exists only in the name groups of the
-    symbols the sequence defines.  So `import lib` of a functions-only sequence
+  * A sequence symbol obeys name groups: it exists only in the name groups
+    of the definitions it holds.  So `import lib` of a functions-only sequence
     collides with a local function `lib` (callable name group) but coexists
     with a local variable `lib` (value name group).
-  * Package modules (non-leaf chain segments) merge when paths overlap
-    (`import pkg.a` + `import pkg.b` share `pkg`), but two SEQUENCE modules
-    (a module holding a file's definitions, whether chain leaf or alias)
-    never merge: binding two different files' modules to one name is a
-    collision.
-  * Importing the same sequence more than once in one file is a hard error,
-    across every form (`import seq`, `import seq.foo`, `from seq import bar`).
-    The rule is per-file: a file and a sequence it imports may each import the
-    same sequence.
+  * Modules (the directories an import path names) merge when paths overlap
+    (`import pkg.a` + `import pkg.b` share module `pkg`). A sequence symbol (a
+    file's definitions, whether path leaf or alias) and a module on the same
+    name are forbidden -- one name cannot be both. Two DIFFERENT files'
+    sequence symbols on one name collide; the SAME file, imported more than
+    one way, folds together idempotently.
+  * Imports fold by semantic identity rather than colliding blindly: the SAME
+    file imported more than one way is one sequence, and the SAME definition
+    aliased more than once under one name (`from seq import bar` twice, or a
+    facade re-export plus a direct import -- a diamond) binds once.  Only two
+    different things meeting on one name collide.  A single member list that
+    binds one name to one definition twice additionally warns
+    (`import-duplicate`): legal, but a near-certain typo.
 
 Beyond the plain `import seq` form, this file also covers member imports
 (`import seq.func`), aliases (`import seq as x`, `... as y`), and `from` imports
@@ -89,8 +94,7 @@ def _write_sequence(search_dir: Path, dotted_name: str, src: str) -> None:
     """Write an importable sequence for `import <dotted_name>` into *search_dir*.
 
     A bare name `foo` becomes `<search_dir>/foo.fpy`; a dotted name `a.b.c`
-    becomes `<search_dir>/a/b/c.fpy`, creating the intervening package
-    directories."""
+    becomes `<search_dir>/a/b/c.fpy`, creating the intervening directories."""
     rel = Path(*dotted_name.split(".")).with_suffix(".fpy")
     path = search_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,7 +103,7 @@ def _write_sequence(search_dir: Path, dotted_name: str, src: str) -> None:
 
 class TestImportInlining:
     """An imported function is inlined and callable under the sequence's
-    module name."""
+    name."""
 
     def test_call_imported_function(self, fprime_test_api, tmp_path):
         _write_sequence(
@@ -522,7 +526,7 @@ import directory
         )
 
     def test_empty_sequence_compiles_without_warning(self, fprime_test_api, tmp_path):
-        """An empty module has no definitions and no side effects."""
+        """An empty sequence has no definitions and no side effects."""
         _write_sequence(tmp_path, "empty", "")
         main = """\
 import empty
@@ -533,10 +537,10 @@ CdhCore.cmdDisp.CMD_NO_OP()
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
-class TestImportModuleIsolation:
-    """Imported symbols are sectioned under the module name and isolated."""
+class TestImportIsolation:
+    """Imported symbols are sectioned under the sequence's name and isolated."""
 
-    def test_imported_symbol_requires_module_prefix(self, fprime_test_api, tmp_path):
+    def test_imported_symbol_requires_qualification(self, fprime_test_api, tmp_path):
         """`add_one` is only reachable as `lib.add_one`, never bare."""
         _write_sequence(
             tmp_path,
@@ -555,8 +559,8 @@ y: U32 = add_one(1)
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
         )
 
-    def test_module_name_not_usable_as_value(self, fprime_test_api, tmp_path):
-        """A module name resolves to a module, not a value, so it is not usable as an expression."""
+    def test_sequence_name_not_usable_as_value(self, fprime_test_api, tmp_path):
+        """A sequence's name resolves to its sequence symbol, not a value, so it is not usable as an expression."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -570,7 +574,7 @@ import lib
 
 y: U32 = lib
 """
-        # An import module binds only in the callable group, so a value-context
+        # A functions-only sequence symbol binds only in the callable group, so a value-context
         # use fails at name resolution ("Unknown value") before the more general
         # module-as-value check (see test_return_nothing_expr_in_void_func).
         assert_compile_failure(
@@ -580,7 +584,7 @@ y: U32 = lib
             import_search_dirs=[str(tmp_path)],
         )
 
-    def test_same_function_name_in_two_modules_no_collision(
+    def test_same_function_name_in_two_sequences_no_collision(
         self, fprime_test_api, tmp_path
     ):
         _write_sequence(
@@ -613,7 +617,7 @@ assert b == 2
     def test_imported_function_cannot_see_importer_globals(
         self, fprime_test_api, tmp_path
     ):
-        """An imported function is analyzed in its own module scope: a name
+        """An imported function is analyzed in its own sequence's scope: a name
         defined only in the importing sequence must NOT resolve inside it."""
         _write_sequence(
             tmp_path,
@@ -635,13 +639,13 @@ x: U32 = iso.uses_outside()
 
 
 class TestImportNameCollisions:
-    """An imported module collides with existing top-level names per name
-    group: the module exists only in the name groups of the symbols the
-    sequence defines."""
+    """An imported sequence symbol collides with existing top-level names
+    per name group: it exists only in the name groups of the definitions it
+    holds."""
 
     def test_import_collides_with_local_function(self, fprime_test_api, tmp_path):
-        """A functions-only module occupies the callable name group, so a
-        local function with the module's name collides."""
+        """A functions-only sequence symbol occupies the callable name
+        group, so a local function with the sequence's name collides."""
         _write_sequence(
             tmp_path,
             "dup",
@@ -661,8 +665,8 @@ def dup() -> U32:
         )
 
     def test_import_collides_with_local_variable(self, fprime_test_api, tmp_path):
-        """A module with a top-level variable occupies the value name group,
-        so a local variable with the module's name collides."""
+        """A sequence symbol with a top-level variable occupies the value
+        name group, so a local variable with the sequence's name collides."""
         _write_sequence(
             tmp_path,
             "dup",
@@ -680,9 +684,9 @@ dup: U32 = 3
         )
 
     def test_import_coexists_with_local_variable(self, fprime_test_api, tmp_path):
-        """A functions-only module does NOT occupy the value name group, so a
-        local variable with the module's name is legal, and both remain
-        usable in their respective name groups."""
+        """A functions-only sequence symbol does NOT occupy the value name
+        group, so a local variable with the sequence's name is legal, and both
+        remain usable in their respective name groups."""
         _write_sequence(
             tmp_path,
             "dup",
@@ -705,7 +709,7 @@ assert dup == 3
 class TestImportedSequenceShadowingBuiltins:
     """An imported sequence's own scope layers on top of the shared dictionary /
     builtin base scope. Binding a name already taken by that base (a cast like
-    `U32`, a type constructor, a dictionary namespace) does not collide -- the
+    `U32`, a type constructor, a dictionary module) does not collide -- the
     base name lives in an ENCLOSING scope, so it is shadowed, with a warning,
     like any other shadow. A same-scope collision or a side effect stays a hard
     error. These also guard the child-of-base scope shape: a child scope resolves
@@ -764,12 +768,12 @@ flags: U32 = 5
             import_search_dirs=[str(tmp_path)],
         )
 
-    def test_nested_import_of_module_named_after_dictionary_namespace_warns(
+    def test_nested_import_shadowing_dictionary_module_warns(
         self, fprime_test_api, tmp_path
     ):
-        """An imported sequence that itself imports a module whose name matches
-        a dictionary namespace (`Ref`) shadows that base namespace. Bound through
-        `_bind_module`, so the shadow is detected up the parent chain. Allowed
+        """An imported sequence that itself imports a sequence whose name
+        matches a dictionary module (`Ref`) shadows that base module. Bound
+        through `_define_name`, so the shadow is detected up the parent chain. Allowed
         with a warning (it does change what `Ref.*` names in that sequence)."""
         _write_sequence(
             tmp_path,
@@ -802,9 +806,9 @@ class TestImportShadowsBuiltins:
     they warn as `shadow-callable`, and still compile and run. A same-scope
     collision stays an error."""
 
-    def test_import_module_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
+    def test_import_shadowing_builtin_warns(self, fprime_test_api, tmp_path):
         # A sequence file named after the builtin library function `time_add`;
-        # `import time_add` binds module `time_add` over the builtin callable.
+        # `import time_add` binds `time_add` over the builtin callable.
         _write_sequence(
             tmp_path,
             "time_add",
@@ -887,12 +891,13 @@ from lib import public
 
 
 class TestImportDuplicates:
-    """A sequence is compiled once however many import statements name it, and
-    importing it more than once in one file is governed by the ordinary
-    collision rule: two `import lib` statements bind the module `lib` twice and
-    collide."""
+    """A sequence is compiled once however many import statements name it;
+    two `import lib` statements define the same sequence symbol and fold
+    idempotently."""
 
-    def test_import_same_sequence_twice_collides(self, fprime_test_api, tmp_path):
+    def test_import_same_sequence_twice_is_idempotent(self, fprime_test_api, tmp_path):
+        """Importing the same file twice binds the same definitions both times,
+        so the second import merges idempotently rather than colliding."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -904,13 +909,10 @@ def add_one(x: U32) -> U32:
         main = """\
 import lib
 import lib
+x: U32 = lib.add_one(4)
+assert x == 5
 """
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="collides with an existing imported sequence",
-            import_search_dirs=[str(tmp_path)],
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_duplicate_across_files_is_allowed(self, fprime_test_api, tmp_path):
         """main imports both `a` and `c`; `a` also imports `c` internally. `c`
@@ -1047,7 +1049,7 @@ class TestImportCycles:
 
     def test_self_import(self, fprime_test_api, tmp_path):
         """The tightest cycle: a sequence importing itself, and reaching its own
-        definitions back through the module it binds."""
+        definitions back through the symbol it binds."""
         _write_sequence(
             tmp_path,
             "self_import",
@@ -1185,7 +1187,7 @@ assert x == 3
 
 
 class TestImportDottedPaths:
-    """Dotted sequence paths resolve through package directories, Pythonically."""
+    """Dotted sequence paths resolve through directories, Pythonically."""
 
     def test_single_dotted_import(self, fprime_test_api, tmp_path):
         """`import pkg.mod` resolves `pkg/mod.fpy` and binds `pkg.mod`."""
@@ -1244,8 +1246,10 @@ y: U32 = mod.f()
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
         )
 
-    def test_missing_leaf_in_existing_package_is_error(self, fprime_test_api, tmp_path):
-        """The package dir exists but the leaf sequence file does not."""
+    def test_missing_leaf_in_existing_directory_is_error(
+        self, fprime_test_api, tmp_path
+    ):
+        """The directory exists but the leaf sequence file does not."""
         _write_sequence(
             tmp_path,
             "pkg.other",
@@ -1261,10 +1265,8 @@ import pkg.missing
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
         )
 
-    def test_two_sequences_in_same_package_no_collision(
-        self, fprime_test_api, tmp_path
-    ):
-        """Sibling sequences under one package get independent modules."""
+    def test_two_sequences_in_same_module_no_collision(self, fprime_test_api, tmp_path):
+        """Sibling sequences under one directory get independent sequence symbols."""
         _write_sequence(tmp_path, "pkg.a", "def f() -> U32:\n    return 1\n")
         _write_sequence(tmp_path, "pkg.b", "def f() -> U32:\n    return 2\n")
         main = """\
@@ -1279,7 +1281,7 @@ assert y == 2
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
 
-class TestImportPackagePrecedence:
+class TestImportDirectoryPrecedence:
     """File-vs-directory precedence: a sequence file outranks a same-named
     (init-less) directory at a leaf, but non-leaf segments always descend into
     the directory."""
@@ -1298,8 +1300,8 @@ assert x == 1
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_package_dir_used_for_dotted_descent(self, fprime_test_api, tmp_path):
-        """A `pkg.fpy` module does not block `import pkg.mod` from descending
+    def test_directory_used_for_dotted_descent(self, fprime_test_api, tmp_path):
+        """A `pkg.fpy` sequence does not block `import pkg.mod` from descending
         into the `pkg/` directory to reach `pkg/mod.fpy`."""
         _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
         _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
@@ -1311,7 +1313,7 @@ assert x == 5
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_bare_package_import_is_error(self, fprime_test_api, tmp_path):
+    def test_bare_directory_import_is_error(self, fprime_test_api, tmp_path):
         """`import pkg` where only a `pkg/` directory exists (no `pkg.fpy`) is
         an error -- a directory has no sequence file to inline."""
         # Creates `pkg/mod.fpy`, so `pkg/` exists as a directory but `pkg.fpy`
@@ -1324,7 +1326,7 @@ import pkg
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
         )
 
-    def test_dotted_leaf_package_import_is_error(self, fprime_test_api, tmp_path):
+    def test_dotted_leaf_directory_import_is_error(self, fprime_test_api, tmp_path):
         """`import a.b` where `a/b/` is a directory but `a/b.fpy` does not exist
         is likewise an error at the dotted leaf."""
         _write_sequence(tmp_path, "a.b.c", "def f() -> U32:\n    return 1\n")
@@ -1343,7 +1345,7 @@ class TestImportSearchDirs:
     ambiguity error.  There is no shadowing order."""
 
     def test_sequence_found_in_later_search_dir(self, fprime_test_api, tmp_path):
-        """A module present in only one search dir is found, wherever that
+        """A sequence present in only one search dir is found, wherever that
         dir sits in the list."""
         d1 = tmp_path / "d1"
         d2 = tmp_path / "d2"
@@ -1359,7 +1361,7 @@ assert x == 9
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(d1), str(d2)])
 
     def test_same_name_in_two_dirs_is_ambiguous(self, fprime_test_api, tmp_path):
-        """A module name that resolves in two search dirs is ambiguous and
+        """A sequence name that resolves in two search dirs is ambiguous and
         fails, even though either candidate alone would compile."""
         d1 = tmp_path / "d1"
         d2 = tmp_path / "d2"
@@ -1430,8 +1432,8 @@ import lib
 
 class TestImportVariables:
     """A sequence's top-level variable is a side effect (its assignment runs at
-    sequence start), so an imported sequence may not declare one -- there is no
-    module-level variable, only functions."""
+    sequence start), so an imported sequence may not declare one -- there is
+    no imported variable, only functions."""
 
     def test_top_level_variable_is_error(self, fprime_test_api, tmp_path):
         _write_sequence(
@@ -1563,13 +1565,13 @@ import lib.nope
 
 
 class TestImportAlias:
-    """An `as` clause introduces no module chain: the alias is bound to the
-    leaf of the import -- the imported sequence's module (empty member path) or
-    the imported symbol (non-empty member path)."""
+    """An `as` clause introduces no modules: the alias is bound to the leaf
+    of the import -- the imported sequence's symbol (empty member path) or the
+    imported definition (non-empty member path)."""
 
     def test_import_sequence_as_alias(self, fprime_test_api, tmp_path):
-        """`import lib as L` binds `L` to `lib`'s module; members are reached as
-        `L.member`."""
+        """`import lib as L` binds `L` to `lib`'s sequence symbol; members are
+        reached as `L.member`."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -1587,7 +1589,7 @@ assert result == 42
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_dotted_import_as_alias(self, fprime_test_api, tmp_path):
-        """`import pkg.mod as m` binds `m` to the leaf module `mod`."""
+        """`import pkg.mod as m` binds `m` to the sequence `mod`'s symbol."""
         _write_sequence(
             tmp_path,
             "pkg.mod",
@@ -1666,7 +1668,7 @@ def dup() -> U32:
 
 class TestImportFrom:
     """A `from` statement binds its imported symbols directly in the importing
-    sequence's global scope, introducing no module chain."""
+    sequence's global scope, introducing no modules."""
 
     def test_from_import_function(self, fprime_test_api, tmp_path):
         """`from lib import add_one` binds the bare name `add_one`."""
@@ -1687,10 +1689,10 @@ assert result == 42
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_from_import_reexported_module(self, fprime_test_api, tmp_path):
-        """A `from` member may name a module the imported sequence itself
-        imported (a re-export). `lib` imports `sub`, so `sub` is a module in
-        lib's own scope; `from lib import sub` binds that whole module, and
-        `sub.f()` resolves through it."""
+        """A `from` member may name a symbol the imported sequence itself
+        imported (a re-export). `lib` imports `sub`, so `sub`'s sequence symbol
+        is in lib's own scope; `from lib import sub` binds that whole symbol,
+        and `sub.f()` resolves through it."""
         _write_sequence(tmp_path, "sub", "def f() -> U32:\n    return 7\n")
         _write_sequence(tmp_path, "lib", "import sub\n")
         main = """\
@@ -1851,8 +1853,10 @@ assert x == 6
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_from_import_duplicate_member_is_error(self, fprime_test_api, tmp_path):
-        """Binding the same name twice in one member list is a collision."""
+    def test_from_import_duplicate_member_warns(self, fprime_test_api, tmp_path):
+        """One member list binding the same name to the same definition twice
+        folds like any two aliases of one definition, but it is a near-certain
+        typo: the `import-duplicate` warning, emitted once."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -1863,15 +1867,55 @@ def a() -> U32:
         )
         main = """\
 from lib import a, a
+
+x: U32 = a()
+assert x == 1
+"""
+        expected = {WarningType.IMPORT_DUPLICATE}
+        state, _, _ = compile_seq(
+            main, import_search_dirs=[str(tmp_path)], expected_warnings=expected
+        )
+        duplicate_warnings = [
+            w for w in state.warnings if w.type == WarningType.IMPORT_DUPLICATE
+        ]
+        assert (
+            len(duplicate_warnings) == 1
+        ), f"expected exactly one import-duplicate warning, got {state.warnings}"
+        assert_run_success(
+            fprime_test_api,
+            main,
+            import_search_dirs=[str(tmp_path)],
+            expected_warnings=expected,
+        )
+
+    def test_from_import_one_name_two_members_is_error(self, fprime_test_api, tmp_path):
+        """One member list binding the same name to two DIFFERENT definitions
+        is a collision, not a duplicate warning."""
+        _write_sequence(
+            tmp_path,
+            "lib",
+            """\
+def a() -> U32:
+    return 1
+
+def b() -> U32:
+    return 2
+""",
+        )
+        main = """\
+from lib import a as x, b as x
 """
         assert_compile_failure(
-            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="collides with an existing definition",
+            import_search_dirs=[str(tmp_path)],
         )
 
     def test_from_import_does_not_introduce_sequence_name(
         self, fprime_test_api, tmp_path
     ):
-        """`from lib import add_one` introduces no module chain, so `lib.add_one`
+        """`from lib import add_one` binds no `lib` at all, so `lib.add_one`
         is not reachable."""
         _write_sequence(
             tmp_path,
@@ -1929,8 +1973,9 @@ def f() -> U32:
         )
 
     def test_from_star_collides_across_sequences(self, fprime_test_api, tmp_path):
-        """Two `from ... import *` statements that both define `f` collide;
-        unlike module chains, these names do not merge."""
+        """Two `from ... import *` statements deliver `f` from two DIFFERENT
+        files: two different definitions on one name collide (only the same
+        definition folds)."""
         _write_sequence(tmp_path, "a", "def f() -> U32:\n    return 1\n")
         _write_sequence(tmp_path, "b", "def f() -> U32:\n    return 2\n")
         main = """\
@@ -1973,8 +2018,8 @@ class TestImportDuplicateSequence:
     the sequence is compiled just once regardless."""
 
     def test_import_and_from_same_sequence_coexist(self, fprime_test_api, tmp_path):
-        """`import lib` binds the module `lib`; `from lib import b` binds `b`.
-        The names differ, so they coexist."""
+        """`import lib` binds the sequence symbol `lib`; `from lib import b`
+        binds `b`. The names differ, so they coexist."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -1996,9 +2041,10 @@ assert x == 3
         # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_two_members_same_sequence_collides(self, fprime_test_api, tmp_path):
-        """`import lib.a` and `import lib.b` both bind the sequence module `lib`,
-        which collides."""
+    def test_two_members_same_sequence_merge(self, fprime_test_api, tmp_path):
+        """`import lib.a` and `import lib.b` each define sequence symbol `lib`
+        holding one member; the definitions fold, so both members are reachable
+        under `lib`."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -2013,17 +2059,14 @@ def b() -> U32:
         main = """\
 import lib.a
 import lib.b
+assert lib.a() == 1
+assert lib.b() == 2
 """
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="collides with an existing imported sequence",
-            import_search_dirs=[str(tmp_path)],
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_whole_and_member_same_sequence_collides(self, fprime_test_api, tmp_path):
-        """`import lib` and `import lib.a` both bind the sequence module `lib`,
-        which collides."""
+    def test_whole_and_member_same_sequence_merge(self, fprime_test_api, tmp_path):
+        """`import lib` and `import lib.a` both bind `lib` and share the same
+        definition `a`, so the second merges idempotently."""
         _write_sequence(
             tmp_path,
             "lib",
@@ -2035,13 +2078,9 @@ def a() -> U32:
         main = """\
 import lib
 import lib.a
+assert lib.a() == 1
 """
-        assert_compile_failure(
-            fprime_test_api,
-            main,
-            match="collides with an existing imported sequence",
-            import_search_dirs=[str(tmp_path)],
-        )
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
     def test_two_from_same_sequence_coexist(self, fprime_test_api, tmp_path):
         """Two `from lib import ...` statements that name distinct members bind
@@ -2067,13 +2106,76 @@ assert x == 3
         # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
+    def test_from_import_repeated_across_statements_folds(
+        self, fprime_test_api, tmp_path
+    ):
+        """Two statements aliasing the same definition under the same name are
+        the same semantic alias definition: the second folds silently."""
+        _write_sequence(
+            tmp_path,
+            "lib",
+            """\
+def a() -> U32:
+    return 1
+""",
+        )
+        main = """\
+from lib import a
+from lib import a
+
+x: U32 = a()
+assert x == 1
+"""
+        # No expected_warnings: any warning at all would fail the test.
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+
+class TestImportDiamond:
+    """One definition reaching a scope by two import routes binds once.
+
+    An alias definition is identified by the definition it names, so a facade
+    sequence that re-exports a base sequence's definitions composes with a
+    direct import of the base: both routes deliver the same definitions, and
+    they fold silently. (Definitions from two DIFFERENT files stay a
+    collision -- see TestImportFrom::test_from_star_collides_across_sequences.)"""
+
+    def test_star_import_diamond_folds(self, fprime_test_api, tmp_path):
+        """main star-imports both a facade (which star-imports base) and base
+        itself; base's definitions arrive twice but bind once."""
+        _write_sequence(tmp_path, "base", "def f() -> U32:\n    return 7\n")
+        _write_sequence(tmp_path, "facade", "from base import *\n")
+        main = """\
+from facade import *
+from base import *
+
+x: U32 = f()
+assert x == 7
+"""
+        # No expected_warnings: any warning at all would fail the test.
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
+    def test_member_import_diamond_folds(self, fprime_test_api, tmp_path):
+        """The same diamond through named members: `from facade import f` and
+        `from base import f` alias one definition."""
+        _write_sequence(tmp_path, "base", "def f() -> U32:\n    return 7\n")
+        _write_sequence(tmp_path, "facade", "from base import *\n")
+        main = """\
+from facade import f
+from base import f
+
+x: U32 = f()
+assert x == 7
+"""
+        # No expected_warnings: any warning at all would fail the test.
+        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
+
 
 class TestImportRelative:
     """Leading dots make an import relative: one dot anchors at the importing
     sequence's own directory, each extra dot one parent up, and the base
     search path is never consulted.  Absolute imports, conversely, never see
     the importing sequence's own directory.  The dots affect resolution only;
-    the bound module chain is the path after them."""
+    the bound path is the one after them."""
 
     def test_relative_import_of_sibling(self, fprime_test_api, tmp_path):
         """`pkg/helper.fpy` imports its sibling `pkg/sibling.fpy` with
@@ -2169,7 +2271,7 @@ assert x == 3
 
     def test_parent_relative_import(self, fprime_test_api, tmp_path):
         """`import ..util` in `lib/sub/inner.fpy` anchors one parent up,
-        resolving `lib/util.fpy` and binding module `util`."""
+        resolving `lib/util.fpy` and binding `util`."""
         _write_sequence(tmp_path, "lib.util", "def v() -> U32:\n    return 4\n")
         _write_sequence(
             tmp_path,
@@ -2348,93 +2450,85 @@ import .util
             fprime_test_api, main, import_search_dirs=[str(tmp_path)]
         )
 
-    def test_relative_and_absolute_same_file_collides(self, fprime_test_api, tmp_path):
-        """An absolute and a relative import that resolve to the same file import
-        the same sequence; both bind the sequence module `util`, which collides
-        (the shared file is still compiled only once)."""
+    def test_relative_and_absolute_same_file_idempotent(
+        self, fprime_test_api, tmp_path
+    ):
+        """An absolute and a relative import resolving to the same file bind the
+        same definitions; the second merges idempotently (the file is compiled
+        once)."""
         _write_sequence(tmp_path, "util", "def v() -> U32:\n    return 6\n")
         main = """\
 import util
 import .util
+assert util.v() == 6
 """
-        assert_compile_failure(
+        assert_run_success(
             fprime_test_api,
             main,
-            match="collides with an existing imported sequence",
             import_search_dirs=[str(tmp_path)],
             main_file_dir=str(tmp_path),
         )
 
 
 class TestImportModuleMerging:
-    """Package modules (non-leaf chain segments) merge freely; sequence
-    modules (a module holding a file's definitions -- chain leaf or alias)
-    never merge with each other.
+    """How modules and sequence symbols that meet on one name in a
+    sequence's scope combine.
 
-    So this covers both sides: the one case that merges (a sequence module and
-    a package module on the same name), and the two that look like merges but
-    collide instead -- two files aliased to one name, and a relative and an
-    absolute import naming two different files under one leaf name. The
-    same-file collisions are TestImportDuplicateSequence's; these are all two
-    DISTINCT files meeting on one name."""
+    Modules (the directories an import path names) merge freely, so sibling
+    sequences in one directory coexist. A sequence symbol (a file's
+    definitions) and a module on the same name are forbidden -- one name
+    cannot be both. And two DIFFERENT sequence files on one name collide.
+    (Same-file imports, which fold together idempotently, are
+    TestImportDuplicateSequence's.)"""
 
-    def test_sequence_and_package_module_merge(self, fprime_test_api, tmp_path):
-        """`import pkg` (the file `pkg.fpy`) and `import pkg.mod` (the file
-        `pkg/mod.fpy`) share the name `pkg`: the sequence module and the
-        package module merge, holding `pkg.fpy`'s definitions alongside
-        module `mod`."""
-        _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
-        _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
+    def test_sibling_modules_merge(self, fprime_test_api, tmp_path):
+        """`import pkg.a` and `import pkg.b` both define module `pkg`; the two
+        definitions merge, so both sequences are reachable under it."""
+        _write_sequence(tmp_path, "pkg.a", "def f() -> U32:\n    return 1\n")
+        _write_sequence(tmp_path, "pkg.b", "def g() -> U32:\n    return 2\n")
         main = """\
-import pkg
-import pkg.mod
-
-x: U32 = U32(pkg.top() + pkg.mod.f())
-assert x == 6
+import pkg.a
+import pkg.b
+assert pkg.a.f() == 1
+assert pkg.b.g() == 2
 """
         assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
 
-    def test_package_then_sequence_module_merge(self, fprime_test_api, tmp_path):
-        """The same merge with the imports reversed: `import pkg.mod` builds
-        `pkg` as a package module first, then `import pkg` merges the `pkg.fpy`
-        sequence module INTO it, promoting `pkg` to the sequence. Both members
-        stay reachable regardless of order."""
+    def test_sequence_and_module_same_name_forbidden(self, fprime_test_api, tmp_path):
+        """`import pkg` (the file `pkg.fpy`) and `import pkg.mod` want `pkg` to
+        be both a sequence and a module -- forbidden."""
         _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
         _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
         main = """\
-import pkg.mod
 import pkg
-
-x: U32 = U32(pkg.top() + pkg.mod.f())
-assert x == 6
-"""
-        assert_run_success(fprime_test_api, main, import_search_dirs=[str(tmp_path)])
-
-    def test_promoted_package_then_collides_as_sequence(
-        self, fprime_test_api, tmp_path
-    ):
-        """Once `import pkg.mod` + `import pkg` has promoted `pkg` to a sequence
-        module, a third import binding another file's sequence module to `pkg`
-        collides -- proof the promotion took effect (a mere package module would
-        have merged instead)."""
-        _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
-        _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
-        _write_sequence(tmp_path, "other", "def g() -> U32:\n    return 2\n")
-        main = """\
 import pkg.mod
-import pkg
-import other as pkg
 """
         assert_compile_failure(
             fprime_test_api,
             main,
-            match="collides with an existing imported sequence",
+            match="imported both as a module and as a sequence",
+            import_search_dirs=[str(tmp_path)],
+        )
+
+    def test_module_then_sequence_same_name_forbidden(self, fprime_test_api, tmp_path):
+        """The same clash with the imports reversed: `import pkg.mod` makes
+        `pkg` a module, then `import pkg` wants it to be a sequence too."""
+        _write_sequence(tmp_path, "pkg", "def top() -> U32:\n    return 1\n")
+        _write_sequence(tmp_path, "pkg.mod", "def f() -> U32:\n    return 5\n")
+        main = """\
+import pkg.mod
+import pkg
+"""
+        assert_compile_failure(
+            fprime_test_api,
+            main,
+            match="imported both as a module and as a sequence",
             import_search_dirs=[str(tmp_path)],
         )
 
     def test_two_aliases_same_name_collide(self, fprime_test_api, tmp_path):
-        """Two different sequences aliased to one name are two sequence
-        modules on the same name: a collision, not a merge."""
+        """Two DIFFERENT sequences aliased to one name are two sequence symbols
+        naming different files: a collision, even with no member overlap."""
         _write_sequence(tmp_path, "a", "def f() -> U32:\n    return 1\n")
         _write_sequence(tmp_path, "b", "def g() -> U32:\n    return 2\n")
         main = """\
@@ -2442,13 +2536,15 @@ import a as m
 import b as m
 """
         assert_compile_failure(
-            fprime_test_api, main, import_search_dirs=[str(tmp_path)]
+            fprime_test_api,
+            main,
+            match="collides with an existing imported sequence",
+            import_search_dirs=[str(tmp_path)],
         )
 
     def test_relative_and_absolute_leaf_collision(self, fprime_test_api, tmp_path):
         """An absolute `import util` and a relative `import .util` naming two
-        DIFFERENT files both bind a sequence module `util`: a collision, even
-        though the two files' definitions do not overlap."""
+        DIFFERENT files both define sequence symbol `util`: a collision."""
         d_base = tmp_path / "base"
         d_main = tmp_path / "main"
         d_base.mkdir()
@@ -2462,6 +2558,7 @@ import .util
         assert_compile_failure(
             fprime_test_api,
             main,
+            match="collides with an existing imported sequence",
             import_search_dirs=[str(d_base)],
             main_file_dir=str(d_main),
         )

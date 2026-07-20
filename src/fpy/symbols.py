@@ -151,8 +151,8 @@ class SymbolTable(dict):
         return isinstance(value, SymbolTable) and value.id == self.id
 
     def copy(self):
-        """Return a shallow copy that preserves the table's concrete class
-        (SymbolTable, or a PackageModule/SequenceModule) and metadata."""
+        """Return a shallow copy that preserves the table's concrete class and
+        metadata."""
         new = self.__class__(parent=self.parent)
         new.in_function = self.in_function
         new.update(self)
@@ -164,9 +164,9 @@ class Scope:
 
     Name resolution is name-group-directed: a use site knows whether it wants a
     type, a callable, or a value, and the same identifier text may name a
-    different symbol in each group. A Scope therefore holds three independent
-    namespaces (one per NameGroup) plus a parent link; a lookup consults the
-    requested group, walking the parent chain."""
+    different symbol in each group. A Scope therefore holds an independent
+    SymbolTable table per NameGroup plus a parent link; a lookup consults
+    the requested group, walking the parent chain."""
 
     def __init__(self, parent: "Scope | None" = None, in_function: bool | None = None):
         self.parent = parent
@@ -288,21 +288,21 @@ def is_symbol_an_expr(symbol: "Symbol") -> bool:
 
 
 ModuleSymbol = SymbolTable
-"""a table on which qualified member access (`a.b`) is valid: an F' dictionary
-namespace, or one of the module kinds an `import` builds below."""
+"""a table which may contain sub definitions. Every module definition with one qualified name defines the
+same semantic module symbol."""
 
 
-class PackageModule(SymbolTable):
-    """A chain intermediate of a dotted import -- `a` and `a.b` in
-    `import a.b.c`. Package modules that meet on one name merge freely, since
-    each only contributes its slice of the path."""
+class SequenceSymbol(SymbolTable):
+    """The symbol a sequence definition of an import statement defines, which
+    may contain sub definitions, namely (some of) the named sequence file's definitions
 
+    Sequence definitions with one qualified name define the same one semantic
+    sequence symbol iff they name the SAME file (a file imported more than one
+    way is idempotent), and collide if they name DIFFERENT files."""
 
-class SequenceModule(SymbolTable):
-    """A module holding one imported file's definitions: a chain leaf, or the
-    target of an `as` alias. Two sequence modules on one name are two different
-    files claiming one name -- a collision, never a merge. A package module that
-    a sequence module merges into is promoted to a SequenceModule."""
+    def __init__(self, source_file=None, parent=None):
+        super().__init__(parent=parent)
+        self.source_file = source_file
 
 
 Symbol = typing.Union[

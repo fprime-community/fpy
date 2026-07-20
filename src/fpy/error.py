@@ -196,6 +196,7 @@ class WarningType(str, Enum):
     """The set of diagnostics the compiler may warn about."""
 
     EMPTY_RANGE = "empty-range"
+    IMPORT_DUPLICATE = "import-duplicate"
     IMPORT_UNDERSCORE = "import-underscore"
     SHADOW_VALUE = "shadow-value"
     SHADOW_CALLABLE = "shadow-callable"

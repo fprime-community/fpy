@@ -576,8 +576,8 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
     def may_contain_sub_definitions(self, sym: Symbol) -> bool:
         """return True if a symbol may contain other definitions reachable by
-        member access. At the moment, only a module does -- an import module or a dictionary
-        namespace."""
+        member access. At the moment, only a module does -- a dictionary
+        module, or a module or sequence symbol an import defines."""
         return is_instance_compat(sym, ModuleSymbol)
 
     def get_sub_definition(self, parent_sym: Symbol, name: str) -> Symbol | None:
@@ -694,7 +694,7 @@ def is_type_constant_size(type: FpyType) -> bool:
 class CheckResolvedSymbolKinds(Visitor):
     """Verify each resolved identifier is the KIND its name group requires: a
     callee must be callable, a type annotation must be a type, and a value must
-    be a value -- not a module/namespace, which is legal only as a member-access
+    be a value -- not a module, which is legal only as a member-access
     qualifier (`Fw` in `Fw.Time`, never bare `Fw`).
 
     The name group comes from AssignNameGroups, so no parent lookup is needed;

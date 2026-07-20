@@ -266,7 +266,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, true)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, True)
 """
             assert_compile_failure(
                 fprime_test_api, parent_seq, ground_binary_dir=tmpdir
