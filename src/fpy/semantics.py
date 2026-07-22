@@ -2962,9 +2962,8 @@ class CheckSequenceArgs(Visitor):
         # Svc.Fpy.MAX_SEQUENCE_ARG_COUNT (TooManySequenceArgs)
         if len(node.parameters) > state.max_seq_arg_count:
             state.err(
-                f"Too many sequence arguments ({len(node.parameters)}); the "
-                f"FpySequencer accepts at most {state.max_seq_arg_count} "
-                f"(Svc.Fpy.MAX_SEQUENCE_ARG_COUNT)",
+                f"Too many sequence arguments ({len(node.parameters)}); max is "
+                f"{state.max_seq_arg_count} (Svc.Fpy.MAX_SEQUENCE_ARG_COUNT)",
                 node,
             )
             return

@@ -12,7 +12,7 @@ from lark.tree import Meta
 from fpy.bytecode.directives import Directive, StackOpDirective, StackSizeType
 from fpy.types import FpyType, FpyValue, INTERNAL_STRING
 
-from fpy.error import BackendError, CompileError
+from fpy.error import BackendError
 
 fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text(encoding="utf-8")
 
@@ -421,7 +421,8 @@ def serialize_directives(
         dir_bytes = dir.serialize()
         if len(dir_bytes) > max_directive_size:
             raise BackendError(
-                f"Directive {dir} in sequence too large (expected at most {max_directive_size} bytes, was {len(dir_bytes)})"
+                f"Directive {dir.opcode.name} in sequence too large (expected at most {max_directive_size} bytes, was {len(dir_bytes)})",
+                dir.source_node,
             )
         body_bytes += dir_bytes
 

@@ -659,6 +659,8 @@ def test_directive_size_exceeding_custom_limit_fails():
         with pytest.raises(fpy.error.BackendError) as exc_info:
             _compile(dict_path, f'CdhCore.cmdDisp.CMD_NO_OP_STRING("{arg}")\n')
         assert "too large" in str(exc_info.value)
+        # the error must point at the source line that generated the directive
+        assert "<test>:1" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -677,6 +679,7 @@ def test_cmd_args_exceeding_cmd_arg_buffer_fails():
             _compile(dict_path, f'CdhCore.cmdDisp.CMD_NO_OP_STRING("{arg}")\n')
         assert "FW_CMD_ARG_BUFFER_MAX_SIZE" in str(exc_info.value)
         assert "CdhCore.cmdDisp.CMD_NO_OP_STRING" in str(exc_info.value)
+        assert "<test>:1" in str(exc_info.value)
 
         # a command with no args is fine
         _compile(dict_path, "CdhCore.cmdDisp.CMD_NO_OP()\n")

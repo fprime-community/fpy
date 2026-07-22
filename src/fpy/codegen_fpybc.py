@@ -1423,8 +1423,9 @@ class FinalChecks(IrPass):
             dir_size = len(dir.serialize())
             if dir_size > state.max_directive_size:
                 return BackendError(
-                    f"Directive {dir} in sequence too large (expected at most "
-                    f"{state.max_directive_size} bytes, was {dir_size})"
+                    f"Directive {dir.opcode.name} in sequence too large (expected at most "
+                    f"{state.max_directive_size} bytes, was {dir_size})",
+                    dir.source_node,
                 )
 
             # commands are serialized into an Fw::ComBuffer as
@@ -1446,7 +1447,8 @@ class FinalChecks(IrPass):
             ):
                 return BackendError(
                     f"{cmd_desc} has {cmd_args_size} bytes of arguments, which "
-                    f"exceeds FW_CMD_ARG_BUFFER_MAX_SIZE ({state.cmd_arg_buffer_max_size})"
+                    f"exceeds FW_CMD_ARG_BUFFER_MAX_SIZE ({state.cmd_arg_buffer_max_size})",
+                    dir.source_node,
                 )
 
             cmd_packet_size = (
@@ -1459,7 +1461,8 @@ class FinalChecks(IrPass):
                 return BackendError(
                     f"{cmd_desc} serializes to a {cmd_packet_size} byte packet "
                     f"(packet descriptor + opcode + {cmd_args_size} bytes of arguments), "
-                    f"which exceeds FW_COM_BUFFER_MAX_SIZE ({state.com_buffer_max_size})"
+                    f"which exceeds FW_COM_BUFFER_MAX_SIZE ({state.com_buffer_max_size})",
+                    dir.source_node,
                 )
 
         return ir

@@ -277,4 +277,12 @@ class Emitter:
         _emitter_cache[cls] = class_cache
 
     def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
-        return self.emitters[type(node)](node, state)
+        dirs = self.emitters[type(node)](node, state)
+        # Stamp each directive with the node that emitted it. Nested emit
+        # calls run first, so an existing stamp is the more specific node.
+        # (Ir instances are frozen and are skipped; the directives they
+        # become carry no arguments worth locating.)
+        for dir in dirs:
+            if isinstance(dir, Directive) and dir.source_node is None:
+                dir.source_node = node
+        return dirs

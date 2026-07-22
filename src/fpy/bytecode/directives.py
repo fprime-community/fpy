@@ -194,6 +194,12 @@ class Directive:
     opcode: ClassVar[DirectiveId] = DirectiveId.INVALID
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
+    # The AST node whose emission produced this directive, stamped by
+    # Emitter.emit so backend errors can point at a source line.
+    # Deliberately not an annotated dataclass field: it must not participate
+    # in serialization or equality.
+    source_node = None
+
     def serialize(self) -> bytes:
         arg_bytes = self.serialize_args()
         output = FpyValue(U8, self.opcode.value).serialize()
