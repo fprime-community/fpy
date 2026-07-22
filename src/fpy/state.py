@@ -43,6 +43,8 @@ from fpy.types import (
     DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
+    DEFAULT_MAX_SEQ_ARG_COUNT,
+    DEFAULT_MAX_STACK_SIZE,
     FLAGS_TYPE,
     I64,
     LOG_SEVERITY,
@@ -84,6 +86,14 @@ class CompileState:
     # Sequence limits loaded from dictionary (or defaults if not specified)
     max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT
     max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
+    max_seq_arg_count: int = DEFAULT_MAX_SEQ_ARG_COUNT
+    max_stack_size: int = DEFAULT_MAX_STACK_SIZE
+    # Command transport limits loaded from dictionary. None means the constant
+    # is not in the dictionary, in which case the corresponding check is skipped.
+    com_buffer_max_size: int | None = None
+    cmd_arg_buffer_max_size: int | None = None
+    cmd_names_by_opcode: dict[int, str] = field(default_factory=dict)
+    """Map of command opcode to fully-qualified command name, for error messages."""
 
     next_node_id: int = 0
     root: AstBlock = None
@@ -594,7 +604,7 @@ def get_base_compile_state(
     )
     constants = load_dictionary(dictionary)["constants"]
 
-    def _const_int(key: str, default: int) -> int:
+    def _const_int(key: str, default: int | None) -> int | None:
         """Extract an integer constant value, falling back to *default*."""
         val = constants.get(key)
         if val is None:
@@ -628,6 +638,16 @@ def get_base_compile_state(
         max_directive_size=_const_int(
             "Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE
         ),
+        max_seq_arg_count=_const_int(
+            "Svc.Fpy.MAX_SEQUENCE_ARG_COUNT", DEFAULT_MAX_SEQ_ARG_COUNT
+        ),
+        max_stack_size=_const_int("Svc.Fpy.MAX_STACK_SIZE", DEFAULT_MAX_STACK_SIZE),
+        com_buffer_max_size=_const_int("FW_COM_BUFFER_MAX_SIZE", None),
+        cmd_arg_buffer_max_size=_const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        cmd_names_by_opcode={
+            opcode: cmd.name
+            for opcode, cmd in load_dictionary(dictionary)["cmd_id_dict"].items()
+        },
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
         import_search_dirs=list(import_search_dirs) if import_search_dirs else [],

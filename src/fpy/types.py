@@ -27,6 +27,8 @@ except ImportError:
 # Default values for sequence limits - may be overridden by dictionary constants
 DEFAULT_MAX_DIRECTIVES_COUNT = 1024
 DEFAULT_MAX_DIRECTIVE_SIZE = 2048
+DEFAULT_MAX_SEQ_ARG_COUNT = 16
+DEFAULT_MAX_STACK_SIZE = 65535
 
 # Keep old names as aliases for backward compatibility
 MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT

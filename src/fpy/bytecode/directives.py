@@ -38,6 +38,7 @@ from fpy.syntax import (
 FwChanIdType = FpyType(TypeKind.U32, "U32")
 FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
+FwPacketDescriptorType = FpyType(TypeKind.U32, "U32")
 
 
 ArrayIndexType = I64
@@ -69,6 +70,9 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+    _update_configurable_type(
+        FwPacketDescriptorType, type_defs, "FwPacketDescriptorType"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

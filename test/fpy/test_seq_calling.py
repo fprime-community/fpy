@@ -665,9 +665,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
         compile_seq(seq)
 
 
-def _dict_with_seq_args_buffer_size(buffer_size: int, tmpdir: Path) -> str:
+def _dict_with_seq_args_buffer_size(
+    buffer_size: int, tmpdir: Path, max_arg_count: int | None = None
+) -> str:
     """Copy the default dictionary into *tmpdir* with Svc.SeqArgs buffer
-    resized to *buffer_size*.  Returns the path to the new dict."""
+    resized to *buffer_size* (and optionally Svc.Fpy.MAX_SEQUENCE_ARG_COUNT
+    raised to *max_arg_count*).  Returns the path to the new dict."""
     with open(default_dictionary, "r") as f:
         data = json.load(f)
     for type_def in data["typeDefinitions"]:
@@ -677,6 +680,15 @@ def _dict_with_seq_args_buffer_size(buffer_size: int, tmpdir: Path) -> str:
             break
     else:
         raise AssertionError("Svc.SeqArgs not found in default dictionary")
+    if max_arg_count is not None:
+        for constant in data["constants"]:
+            if constant.get("qualifiedName") == "Svc.Fpy.MAX_SEQUENCE_ARG_COUNT":
+                constant["value"] = max_arg_count
+                break
+        else:
+            raise AssertionError(
+                "MAX_SEQUENCE_ARG_COUNT not found in default dictionary"
+            )
     out_path = tmpdir / "ResizedDict.json"
     out_path.write_text(json.dumps(data))
     return str(out_path)
@@ -714,7 +726,11 @@ class TestSeqArgsBufferSizeFromDictionary:
         buffer should compile cleanly under a dictionary that defines the
         larger capacity."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dict_path = _dict_with_seq_args_buffer_size(1024, Path(tmpdir))
+            # a deployment with a bigger SeqArgs buffer would raise the arg
+            # count limit alongside it
+            dict_path = _dict_with_seq_args_buffer_size(
+                1024, Path(tmpdir), max_arg_count=64
+            )
             _build_global_scopes.cache_clear()
             load_dictionary.cache_clear()
 
@@ -732,15 +748,12 @@ class TestSeqArgsBufferSizeFromDictionary:
         """Args larger than the dictionary's buffer must still be rejected,
         and the diagnostic should report the dictionary capacity."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            dict_path = _dict_with_seq_args_buffer_size(64, Path(tmpdir))
-            _build_global_scopes.cache_clear()
-            load_dictionary.cache_clear()
-
             child_path = str(Path(tmpdir).resolve() / "child.bin")
-            # 10 U64s = 80 bytes — overflows the 64-byte buffer.
+            # 10 U64s = 80 bytes — fits the default 255-byte buffer the child
+            # is compiled against, but overflows the caller's 64-byte buffer.
             params = ", ".join(f"x{i}: U64" for i in range(10))
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
-            state = get_base_compile_state(dict_path)
+            state = get_base_compile_state(default_dictionary)
             body = text_to_ast(child_seq)
             assert body is not None
             state = analyze_ast(body, state)
@@ -748,6 +761,10 @@ class TestSeqArgsBufferSizeFromDictionary:
             arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
             data, _ = serialize_directives(directives, arg_specs=arg_specs)
             Path(child_path).write_bytes(data)
+
+            dict_path = _dict_with_seq_args_buffer_size(64, Path(tmpdir))
+            _build_global_scopes.cache_clear()
+            load_dictionary.cache_clear()
 
             args = ", ".join("0" for _ in range(10))
             parent_seq = (

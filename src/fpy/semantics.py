@@ -2958,6 +2958,17 @@ class CheckSequenceArgs(Visitor):
             )
             return
 
+        # mirrors the sequencer's load-time check against
+        # Svc.Fpy.MAX_SEQUENCE_ARG_COUNT (TooManySequenceArgs)
+        if len(node.parameters) > state.max_seq_arg_count:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); the "
+                f"FpySequencer accepts at most {state.max_seq_arg_count} "
+                f"(Svc.Fpy.MAX_SEQUENCE_ARG_COUNT)",
+                node,
+            )
+            return
+
         for arg_name_var, arg_type_name in node.parameters:
             arg_var = state.resolved_symbols[arg_name_var]
             arg_type = state.resolved_symbols[arg_type_name]
@@ -2979,6 +2990,33 @@ class CheckSequenceArgs(Visitor):
                     arg_type_name,
                 )
                 return
+
+        total_arg_size = sum(
+            state.resolved_symbols[arg_type_name].max_size
+            for _, arg_type_name in node.parameters
+        )
+
+        # sequence arguments only ever arrive through a Svc.SeqArgs buffer
+        # (RUN_ARGS/VALIDATE_ARGS from the ground, or a seq-run command from
+        # another sequence), so they must fit in its buffer
+        seq_args_capacity = SEQ_ARGS.members[1].type.length
+        if total_arg_size > seq_args_capacity:
+            state.err(
+                f"Total size of sequence arguments ({total_arg_size} bytes) "
+                f"exceeds Svc.SeqArgs buffer capacity ({seq_args_capacity} bytes)",
+                node,
+            )
+            return
+
+        # mirrors the sequencer's load-time check against
+        # Svc.Fpy.MAX_STACK_SIZE (ArgTotalSizeExceedsStackLimit)
+        if total_arg_size > state.max_stack_size:
+            state.err(
+                f"Total size of sequence arguments ({total_arg_size} bytes) "
+                f"exceeds Svc.Fpy.MAX_STACK_SIZE ({state.max_stack_size} bytes)",
+                node,
+            )
+            return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)

@@ -71,6 +71,7 @@ from fpy.bytecode.directives import (
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
     FwOpcodeType,
+    FwPacketDescriptorType,
     GotoDirective,
     IfDirective,
     IntegerSignedExtend16To64Directive,
@@ -1410,11 +1411,55 @@ class FinalChecks(IrPass):
     def run(self, ir, state):
         if len(ir) > state.max_directives_count:
             return BackendError(
-                f"Too many directives in sequence (expected less than {state.max_directives_count}, had {len(ir)})"
+                f"Too many directives in sequence (expected at most {state.max_directives_count}, had {len(ir)})"
             )
 
         for dir in ir:
             # double check we've got rid of all the IR
             assert is_instance_compat(dir, Directive), dir
+
+            # mirrors the sequencer's statement deserialization limit
+            # (Svc.Fpy.MAX_DIRECTIVE_SIZE)
+            dir_size = len(dir.serialize())
+            if dir_size > state.max_directive_size:
+                return BackendError(
+                    f"Directive {dir} in sequence too large (expected at most "
+                    f"{state.max_directive_size} bytes, was {dir_size})"
+                )
+
+            # commands are serialized into an Fw::ComBuffer as
+            # (packet descriptor, opcode, args) and their args are copied into
+            # an Fw::CmdArgBuffer by the command dispatcher; a sequence whose
+            # commands exceed either capacity always fails at runtime
+            if is_instance_compat(dir, ConstCmdDirective):
+                cmd_args_size = len(dir.args)
+                cmd_desc = f"Command {state.cmd_names_by_opcode.get(dir.cmd_opcode, hex(dir.cmd_opcode))}"
+            elif is_instance_compat(dir, StackCmdDirective):
+                cmd_args_size = dir.args_size
+                cmd_desc = "Command with runtime-computed arguments"
+            else:
+                continue
+
+            if (
+                state.cmd_arg_buffer_max_size is not None
+                and cmd_args_size > state.cmd_arg_buffer_max_size
+            ):
+                return BackendError(
+                    f"{cmd_desc} has {cmd_args_size} bytes of arguments, which "
+                    f"exceeds FW_CMD_ARG_BUFFER_MAX_SIZE ({state.cmd_arg_buffer_max_size})"
+                )
+
+            cmd_packet_size = (
+                FwPacketDescriptorType.max_size + FwOpcodeType.max_size + cmd_args_size
+            )
+            if (
+                state.com_buffer_max_size is not None
+                and cmd_packet_size > state.com_buffer_max_size
+            ):
+                return BackendError(
+                    f"{cmd_desc} serializes to a {cmd_packet_size} byte packet "
+                    f"(packet descriptor + opcode + {cmd_args_size} bytes of arguments), "
+                    f"which exceeds FW_COM_BUFFER_MAX_SIZE ({state.com_buffer_max_size})"
+                )
 
         return ir
