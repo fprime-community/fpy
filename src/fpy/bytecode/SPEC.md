@@ -1139,7 +1139,7 @@ If this is called without the seed being manually set beforehand, then the seed 
 ## POP_SERIALIZABLE (78)
 Pops `size` bytes of serialized data from the stack and sends them to an external component via the sequencer's `serialOut` output port array.
 
-Exposed to sequences via the `pop(port, value)` builtin, where `port` is a compile-time constant (typically a `Svc.Fpy.SerialPortIndex` enum constant) and `value` is any constant-size expression. The compiler pushes `value` onto the stack and emits `POP_SERIALIZABLE` with `size` set to the serialized size of `value`'s type.
+Exposed to sequences via the `write_to_port(port, value)` builtin, where `port` is a compile-time constant that coerces to `FwIndexType` and `value` is any serializable, statically-sized expression (including a constant string literal). The compiler pushes `value` onto the stack and emits `POP_SERIALIZABLE` with `size` set to the serialized size of `value`'s type. (The directive, mnemonic, and opcode retain the `POP_SERIALIZABLE` / `pop_serializable` names for wire-format stability.)
 
 **Preconditions:**
 - `port_index < MAX_SERIAL_PORTS` (from the `Svc.Fpy.SerialPortIndex` enum in `FpySequencerCfg`)

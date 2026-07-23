@@ -1,0 +1,23 @@
+# Test write_to_port feature with various types and port indices
+
+# Basic U32 write to port 0
+value1: U32 = 42
+write_to_port(0, value1)
+
+# U8 write to port 1
+value2: U8 = 100
+write_to_port(1, value2)
+
+# F64 write to port 2
+value3: F64 = 3.14159
+write_to_port(2, value3)
+
+# Struct write to port 3
+signal_pair: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
+write_to_port(3, signal_pair)
+
+# Expression value to port 4 (must be wrapped in concrete type)
+write_to_port(4, U32(100 + 200))
+
+# Constant string to port 0 (constant strings have a known size)
+write_to_port(0, "asdf")

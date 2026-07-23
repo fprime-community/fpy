@@ -14,7 +14,8 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, SIZETYPE, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.bytecode.directives import FwIndexType
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
@@ -212,12 +213,11 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         ],
         const_arg_indices=frozenset({0, 1}),
     ),
-    # Serial pop builtin — compile-time port index, any constant-size value
-    # The generate function is a placeholder; codegen.py handles this specially
-    "pop": BuiltinFuncSymbol(
-        "pop", NOTHING, [
-            ("port", None, None),  # None means "any constant-size type"
-            ("value", None, None),  # None means "any constant-size type"
+    # Serial write: port typed FwIndexType, value typed SIZETYPE so the normal machinery validates both; codegen.py emits the directive.
+    "write_to_port": BuiltinFuncSymbol(
+        "write_to_port", NOTHING, [
+            ("port", FwIndexType, None),
+            ("value", SIZETYPE, None),
         ],
         lambda n, c: [],  # Placeholder; codegen.py emits the directive
         const_arg_indices=frozenset({0}),  # port must be compile-time constant

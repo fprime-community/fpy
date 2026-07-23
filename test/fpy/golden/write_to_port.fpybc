@@ -18,3 +18,5 @@ load_rel 14 8
 pop_serializable 3 8
 push_val 0 0 1 44
 pop_serializable 4 4
+push_val 0 4 97 115 100 102
+pop_serializable 0 6

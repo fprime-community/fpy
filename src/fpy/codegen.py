@@ -1061,29 +1061,19 @@ class GenerateFunctionBody(Emitter):
                 assert const_val is not None, f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
-            # Special case for pop: push value arg, then emit directive
-            if func.name == "pop":
+            # Residual hook: only the size/port directive params need emitting; validation is handled by the SIZETYPE/FwIndexType signature.
+            if func.name == "write_to_port":
                 value_arg = node_args[1]
+                # Push the value for the directive to pop and send.
                 dirs.extend(self._emit_func_arg(value_arg, state))
-                value_type = state.contextual_types[value_arg]
-
-                # Get the port index from const args
-                # Semantics has already validated this is int or enum
+                # Value is coerced to a concrete sized type, so max_size is the exact size to pop.
+                size = state.contextual_types[value_arg].max_size
+                # Port is coerced to FwIndexType and const, so its value is a plain int.
                 port_val = const_arg_values[0]
-                if isinstance(port_val.val, int):
-                    port_int = port_val.val
-                elif isinstance(port_val.val, str) and port_val.type.kind == TypeKind.ENUM:
-                    # Enum constant: look up the integer value
-                    port_int = port_val.type.enum_dict[port_val.val]
-                else:
-                    # This should never happen - semantics validates port type
-                    assert False, f"Invariant violation: port should be int or enum after semantics validation, got {port_val}"
-
-                # Get size from the value's type
-                # Semantics has validated this is a concrete type with computable max_size
-                size = value_type.max_size
-
-                dirs.append(PopSerializableDirective(portIndex=port_int, size=size))
+                assert isinstance(port_val.val, int), port_val
+                dirs.append(
+                    PopSerializableDirective(portIndex=port_val.val, size=size)
+                )
             else:
                 # put non-const arg values on stack
                 for i, arg_node in enumerate(node_args):

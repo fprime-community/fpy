@@ -27,6 +27,7 @@ from fpy.types import (
     INTERNAL_STRING,
     RANGE,
     NOTHING,
+    SIZETYPE,
     BOOL,
     TIME,
     TIME_BASE,
@@ -687,6 +688,13 @@ def is_type_constant_size(type: FpyType) -> bool:
     return True
 
 
+def is_sized_type(type: FpyType) -> bool:
+    """True if serializable with a statically-known size: a string literal, or a concrete constant-size type."""
+    if type.kind == TypeKind.INTERNAL_STRING:
+        return True
+    return type.is_concrete and is_type_constant_size(type)
+
+
 class CheckAllTypesAndCallablesResolved(Visitor):
 
     def check_resolved(self, node: AstExpr, ng: NameGroup, state: CompileState) -> bool:
@@ -1161,6 +1169,9 @@ class PickTypesAndResolveFields(Visitor):
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
         """
+        # The SIZETYPE sentinel accepts any serializable, statically-sized argument.
+        if target.kind == TypeKind.SIZETYPE:
+            return is_sized_type(source)
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -1182,6 +1193,18 @@ class PickTypesAndResolveFields(Visitor):
                 node,
             )
             return False
+
+        # SIZETYPE is a sentinel; resolve it to the argument's own concrete sized type.
+        if type.kind == TypeKind.SIZETYPE:
+            if unconverted_type.kind == TypeKind.INTERNAL_STRING:
+                # A string literal gets a concrete String[N] sized to the literal.
+                assert is_instance_compat(node, AstString), node
+                str_len = len(node.value.encode("utf-8"))
+                type = FpyType(
+                    TypeKind.STRING, f"String_{str_len}", max_length=str_len
+                )
+            else:
+                type = unconverted_type
 
         # For anon structs/arrays, recursively coerce children and build resolved_args
         if unconverted_type.kind == TypeKind.ANON_STRUCT:
@@ -1943,11 +1966,6 @@ class PickTypesAndResolveFields(Visitor):
                 if value_expr not in state.synthesized_types:
                     continue
 
-                # Skip type check if arg_type is None (sentinel for "any type")
-                # Used by builtins like pop that accept any constant-size type
-                if arg_type is None:
-                    continue
-
                 unconverted_type = state.synthesized_types[value_expr]
                 if not self.can_coerce_type(unconverted_type, arg_type):
                     return CompileError(
@@ -2006,9 +2024,6 @@ class PickTypesAndResolveFields(Visitor):
                 # Skip coercion for default values from forward-called functions.
                 # These will be coerced when the function definition is visited.
                 if value_expr not in state.synthesized_types:
-                    continue
-                # Skip coercion if target_type is None (sentinel for "any type")
-                if target_type is None:
                     continue
                 assert self.coerce_expr_type(value_expr, target_type, state)
 
@@ -2533,150 +2548,6 @@ class CalculateConstExprValues(Visitor):
                         CompileError(
                             f"Argument '{func.args[i][0]}' of '{func.name}' must be a compile-time constant",
                             resolved_args[i],
-                        )
-                    )
-                    return
-
-            # Special validation for pop after confirming args are const
-            if func.name == "pop":
-                port_val = arg_values[0]
-                value_arg = resolved_args[1]
-
-                # Extract integer value from port_val
-                # Validate port value type - must be integer (reject float, Decimal, bool)
-                # Python bool is a subclass of int, so check bool first
-                if isinstance(port_val.val, bool):
-                    state.errors.append(
-                        CompileError(
-                            "pop port argument must be an integer or enum constant, not bool",
-                            resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                        )
-                    )
-                    return
-                elif isinstance(port_val.val, (Decimal, float)):
-                    state.errors.append(
-                        CompileError(
-                            f"pop port argument must be an integer or enum constant, not float/Decimal",
-                            resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                        )
-                    )
-                    return
-                elif isinstance(port_val.val, int):
-                    # Integer value - OK (includes abstract INTEGER type from literals)
-                    port_int = port_val.val
-                elif isinstance(port_val.val, str):
-                    # Enum constant: look up the integer value from the enum dict
-                    if port_val.type.kind == TypeKind.ENUM and hasattr(port_val.type, 'enum_dict'):
-                        port_int = port_val.type.enum_dict.get(port_val.val)
-                        if port_int is None:
-                            state.errors.append(
-                                CompileError(
-                                    f"Unknown enum value '{port_val.val}' in {port_val.type.name}",
-                                    resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                                )
-                            )
-                            return
-                    else:
-                        state.errors.append(
-                            CompileError(
-                                "pop port argument must be an integer or enum constant",
-                                resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                            )
-                        )
-                        return
-                else:
-                    # Reject any other type
-                    state.errors.append(
-                        CompileError(
-                            f"pop port argument must be an integer or enum constant, got {type(port_val.val).__name__}",
-                            resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                        )
-                    )
-                    return
-
-                # Get MAX_SERIAL_PORTS from the dictionary enum
-                serial_port_enum = state.type_defs.get("Svc.Fpy.SerialPortIndex")
-                if serial_port_enum is None:
-                    state.errors.append(
-                        CompileError(
-                            "Svc.Fpy.SerialPortIndex enum not found in dictionary",
-                            node,
-                        )
-                    )
-                    return
-
-                max_ports = serial_port_enum.enum_dict.get("MAX_SERIAL_PORTS")
-                if max_ports is None:
-                    state.errors.append(
-                        CompileError(
-                            "MAX_SERIAL_PORTS not found in Svc.Fpy.SerialPortIndex enum",
-                            node,
-                        )
-                    )
-                    return
-
-                if not (0 <= port_int < max_ports):
-                    state.errors.append(
-                        CompileError(
-                            f"pop port index {port_int} out of range [0, {max_ports})",
-                            resolved_args[0] if is_instance_compat(resolved_args[0], Ast) else node,
-                        )
-                    )
-                    return
-
-                # Validate value is constant-sized
-                if is_instance_compat(value_arg, FpyValue):
-                    value_type = value_arg.type
-                else:
-                    value_type = state.synthesized_types.get(value_arg)
-                    if value_type is None:
-                        state.errors.append(
-                            CompileError(
-                                "Cannot determine type of pop value argument",
-                                value_arg,
-                            )
-                        )
-                        return
-
-                # Reject abstract INTEGER/FLOAT types (bare literals without a concrete type)
-                # These have no computable max_size and would crash codegen
-                if value_type.kind in (TypeKind.INTEGER, TypeKind.FLOAT):
-                    state.errors.append(
-                        CompileError(
-                            f"pop value must have a concrete type (e.g., U32(42) not 42). "
-                            f"Bare numeric literals are not allowed.",
-                            value_arg if is_instance_compat(value_arg, Ast) else node,
-                        )
-                    )
-                    return
-
-                # Reject anonymous/void kinds that are not serializable and would
-                # crash codegen (anon struct/array literals, ranges, void values).
-                # INTERNAL_STRING is intentionally excluded here so that bare
-                # string literals fall through to the constant-size gate below and
-                # produce the "constant-sized" error message users expect.
-                if value_type.kind in (
-                    TypeKind.ANON_STRUCT,
-                    TypeKind.ANON_ARRAY,
-                    TypeKind.RANGE,
-                    TypeKind.NOTHING,
-                ):
-                    state.errors.append(
-                        CompileError(
-                            "pop value must be a concrete, serializable value "
-                            "(a variable, a type constructor like Ref.SignalPair(...), "
-                            "or a cast); anonymous literals, ranges, and void "
-                            "expressions are not allowed.",
-                            value_arg if is_instance_compat(value_arg, Ast) else node,
-                        )
-                    )
-                    return
-
-                if not is_type_constant_size(value_type):
-                    state.errors.append(
-                        CompileError(
-                            f"pop value must be constant-sized (no strings), found {value_type.display_name}",
-                            value_arg if is_instance_compat(value_arg, Ast) else node,
                         )
                     )
                     return

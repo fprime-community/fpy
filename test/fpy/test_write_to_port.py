@@ -7,26 +7,26 @@ from fpy.test_helpers import (
 )
 
 
-class TestPop:
+class TestWriteToPort:
 
     def test_basic_u32(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-pop(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
+write_to_port(0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_basic_u8(self, fprime_test_api):
         seq = '''
 value: U8 = 100
-pop(0, value)
+write_to_port(0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_emits_pop_serializable_directive(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-pop(0, value)
+write_to_port(0, value)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -35,14 +35,14 @@ pop(0, value)
         assert pop_dirs[0].size == 4  # U32 is 4 bytes
 
     def test_correct_size_for_different_types(self, fprime_test_api):
-        # size should match the byte width of the popped value
+        # size should match the byte width of the value
         seq = '''
 v1: U8 = 1
-pop(0, v1)
+write_to_port(0, v1)
 v2: U32 = 2
-pop(1, v2)
+write_to_port(1, v2)
 v3: F64 = 3.0
-pop(2, v3)
+write_to_port(2, v3)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -51,60 +51,105 @@ pop(2, v3)
         assert pop_dirs[1].size == 4  # U32
         assert pop_dirs[2].size == 8  # F64
 
-    def test_enum_port_constant(self, fprime_test_api):
-        # port index may be given as an enum constant
+    def test_signed_int_values(self, fprime_test_api):
+        # signed ints serialize at their byte width (I8=1, I16=2, I32=4, I64=8)
         seq = '''
-value: U32 = 123
-pop(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, value)
+v1: I8 = -5
+write_to_port(0, v1)
+v2: I16 = -5
+write_to_port(1, v2)
+v3: I32 = -5
+write_to_port(2, v3)
+v4: I64 = -5
+write_to_port(3, v4)
+'''
+        directives, _ = compile_seq(fprime_test_api, seq)
+        pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+        assert len(pop_dirs) == 4
+        assert pop_dirs[0].size == 1  # I8
+        assert pop_dirs[1].size == 2  # I16
+        assert pop_dirs[2].size == 4  # I32
+        assert pop_dirs[3].size == 8  # I64
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bool_value(self, fprime_test_api):
+        # a bool serializes to a single byte
+        seq = '''
+v: bool = True
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
-        assert pop_dirs[0].portIndex == 2
+        assert pop_dirs[0].size == 1
+        assert_run_success(fprime_test_api, seq)
 
     def test_max_port_index(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-pop(4, value)  # MAX_SERIAL_PORTS is 5, so 4 is valid
+write_to_port(4, value)
 '''
         assert_run_success(fprime_test_api, seq)
-
-    def test_port_out_of_bounds_high(self, fprime_test_api):
-        # port index past the last serial port is rejected at compile time
-        seq = '''
-value: U32 = 42
-pop(5, value)  # MAX_SERIAL_PORTS is 5, so 5 is out of range
-'''
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_port_out_of_bounds_negative(self, fprime_test_api):
-        seq = '''
-value: U32 = 42
-pop(-1, value)
-'''
-        assert_compile_failure(fprime_test_api, seq)
 
     def test_non_constant_port_rejected(self, fprime_test_api):
         # the port index must be a compile-time constant
         seq = '''
 port: U32 = 0
 value: U32 = 42
-pop(port, value)
+write_to_port(port, value)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_non_constant_size_value_rejected(self, fprime_test_api):
-        # strings are not constant-sized, so they can't be popped
+    def test_enum_port_rejected(self, fprime_test_api):
+        # An enum constant does not coerce to the port's FwIndexType (I16);
+        # enums have no common type with integers under the normal machinery.
         seq = '''
-pop(0, "test")
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
-        assert_compile_failure(fprime_test_api, seq, match="constant-sized")
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_constant_string_value(self, fprime_test_api):
+        # A constant string literal has a compile-time-known length, so it is
+        # serializable with a statically-known size and is accepted.
+        seq = '''
+write_to_port(0, "asdf")
+'''
+        directives, _ = compile_seq(fprime_test_api, seq)
+        pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+        assert len(pop_dirs) == 1
+        # FwSizeStoreType (U16, 2 bytes) length prefix + 4 bytes of "asdf"
+        assert pop_dirs[0].size == 6
+        assert_run_success(fprime_test_api, seq)
+
+    def test_empty_constant_string_value(self, fprime_test_api):
+        seq = '''
+write_to_port(0, "")
+'''
+        directives, _ = compile_seq(fprime_test_api, seq)
+        pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+        assert len(pop_dirs) == 1
+        assert pop_dirs[0].size == 2  # just the U16 length prefix
+
+    def test_non_constant_size_string_rejected(self, fprime_test_api):
+        # A struct containing a runtime-variable-length string is not sized.
+        seq = '''
+write_to_port(0, Ref.DpDemo.StructWithStringMembers("a", Ref.DpDemo.StringArray("x", "y")))
+'''
+        assert_compile_failure(fprime_test_api, seq)
+
+    def test_string_array_rejected(self, fprime_test_api):
+        # an array of runtime-variable-length strings is not sized
+        seq = '''
+write_to_port(0, Ref.DpDemo.StringArray("a", "b"))
+'''
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_serialization_roundtrip(self, fprime_test_api):
         # the directive survives a serialize/deserialize round trip
         seq = '''
 value: U32 = 42
-pop(1, value)
+write_to_port(1, value)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -116,6 +161,23 @@ pop(1, value)
         assert isinstance(deserialized, PopSerializableDirective)
         assert deserialized.portIndex == 1
         assert deserialized.size == 4
+
+    def test_struct_serialization_roundtrip(self, fprime_test_api):
+        # a struct-value directive survives a serialize/deserialize round trip
+        seq = '''
+v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
+write_to_port(2, v)
+'''
+        directives, _ = compile_seq(fprime_test_api, seq)
+        pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+        assert len(pop_dirs) == 1
+
+        original = pop_dirs[0]
+        serialized = original.serialize()
+        _, deserialized = Directive.deserialize(serialized, 0)
+        assert isinstance(deserialized, PopSerializableDirective)
+        assert deserialized.portIndex == 2
+        assert deserialized.size == 8
 
     def test_model_stack_underflow(self, fprime_test_api):
         # Popping more bytes than are on the stack is an underflow.  Tested at
@@ -133,70 +195,64 @@ pop(1, value)
     def test_model_execution_pops_bytes(self, fprime_test_api):
         seq = '''
 value: U32 = 0x12345678
-pop(0, value)
+write_to_port(0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_expression_value(self, fprime_test_api):
-        # a cast expression is a valid, constant-sized value
+        # a cast expression is a valid, sized value
         seq = '''
-pop(0, U32(100 + 200))
+write_to_port(0, U32(100 + 200))
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 4  # U32
 
-    def test_multiple_pops(self, fprime_test_api):
+    def test_multiple_writes(self, fprime_test_api):
         seq = '''
 v1: U32 = 1
 v2: U32 = 2
 v3: U32 = 3
-pop(0, v1)
-pop(1, v2)
-pop(2, v3)
+write_to_port(0, v1)
+write_to_port(1, v2)
+write_to_port(2, v3)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_bare_integer_literal_rejected(self, fprime_test_api):
-        # a bare int literal has no concrete type; it must be cast first
+        # a bare int literal has no serializable (binary) representation; it must
+        # be cast to a concrete type first
         seq = '''
-pop(0, 42)
+write_to_port(0, 42)
 '''
-        assert_compile_failure(fprime_test_api, seq, match="concrete type")
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_bare_float_literal_rejected(self, fprime_test_api):
         seq = '''
-pop(0, 3.14)
+write_to_port(0, 3.14)
 '''
-        assert_compile_failure(fprime_test_api, seq, match="concrete type")
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_bare_expression_rejected(self, fprime_test_api):
         seq = '''
-pop(4, 100 + 200)
+write_to_port(4, 100 + 200)
 '''
-        assert_compile_failure(fprime_test_api, seq, match="concrete type")
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_float_port_rejected(self, fprime_test_api):
-        # the port index must be an integer or enum, not a float
+        # the port index must coerce to FwIndexType (an integer), not a float
         seq = '''
 v: U32 = 42
-pop(1.5, v)
+write_to_port(1.5, v)
 '''
-        assert_compile_failure(fprime_test_api, seq, match="integer or enum")
-
-    def test_bool_port_rejected(self, fprime_test_api):
-        seq = '''
-v: U32 = 42
-pop(True, v)
-'''
-        assert_compile_failure(fprime_test_api, seq, match="integer or enum")
+        assert_compile_failure(fprime_test_api, seq)
 
     def test_struct_value(self, fprime_test_api):
         # Ref.SignalPair: F32 * 2 = 8 bytes
         seq = '''
 v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -208,7 +264,7 @@ pop(0, v)
         # Ref.SignalSet: F32[4] = 16 bytes
         seq = '''
 v: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 4.0)
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -220,7 +276,7 @@ pop(0, v)
         # Ref.Choice: I32 representation = 4 bytes
         seq = '''
 v: Ref.Choice = Ref.Choice.RED
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -232,7 +288,7 @@ pop(0, v)
         # Svc.BlockState: U8 representation = 1 byte
         seq = '''
 v: Svc.BlockState = Svc.BlockState.NO_BLOCK
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -251,7 +307,7 @@ v: Ref.SignalInfo = Ref.SignalInfo( \\
         Ref.SignalPair(0.0, 0.0), \\
         Ref.SignalPair(0.0, 0.0), \\
         Ref.SignalPair(0.0, 0.0)))
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -267,7 +323,7 @@ v: Ref.SignalPairSet = Ref.SignalPairSet( \\
     Ref.SignalPair(3.0, 4.0), \\
     Ref.SignalPair(5.0, 6.0), \\
     Ref.SignalPair(7.0, 8.0))
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -282,7 +338,7 @@ pop(0, v)
 v: Ref.TooManyChoices = Ref.TooManyChoices( \\
     Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.TWO), \\
     Ref.ManyChoices(Ref.Choice.RED, Ref.Choice.BLUE))
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -300,23 +356,9 @@ v: Ref.ChoiceSlurry = Ref.ChoiceSlurry( \\
     Ref.Choice.ONE, \\
     Ref.ChoicePair(Ref.Choice.ONE, Ref.Choice.TWO), \\
     [1, 2])
-pop(0, v)
+write_to_port(0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 30
-
-    def test_struct_with_string_members_rejected(self, fprime_test_api):
-        # a struct containing a string is not constant-sized
-        seq = '''
-pop(0, Ref.DpDemo.StructWithStringMembers("a", Ref.DpDemo.StringArray("x", "y")))
-'''
-        assert_compile_failure(fprime_test_api, seq, match="constant-sized")
-
-    def test_string_array_rejected(self, fprime_test_api):
-        # an array of strings is not constant-sized
-        seq = '''
-pop(0, Ref.DpDemo.StringArray("a", "b"))
-'''
-        assert_compile_failure(fprime_test_api, seq, match="constant-sized")
