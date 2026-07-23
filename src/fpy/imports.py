@@ -1,6 +1,6 @@
 """The import statement.
 
-This module implements IMPORTS.md and is written to mirror it: passes,
+This module implements SPEC.md's Imports section and is written to mirror it: passes,
 methods, and checks are named with the spec's terms, and each carries the
 spec text it implements (quoted). Where code must go beyond the spec's words
 -- diagnostics such as warnings, or plumbing such as recording work between
@@ -111,7 +111,7 @@ class _DirectoryDefinition:
 
 
 class ConstructAst:
-    """Constructing the AST (IMPORTS.md, Semantics).
+    """Constructing the AST (SPEC.md Imports, Semantics).
 
     "For each import statement in the AST, including statements added by
     this process:
@@ -498,7 +498,7 @@ class ConstructAst:
 
 
 class BindImports:
-    """Binding (IMPORTS.md, Semantics).
+    """Binding (SPEC.md Imports, Semantics).
 
     "An import statement associates one or more qualified names with
     definitions in the importing scope."
@@ -589,7 +589,7 @@ class BindImports:
             # 2. Otherwise, let D be that definition.
             self._underscore_warning(member_name, node, state)
             name = alias if alias is not None else member_name
-            # Diagnostic beyond IMPORTS.md: one members list importing one
+            # Diagnostic beyond the Imports spec: one members list importing one
             # member under one name more than once folds like any
             # re-association, but is a near-certain typo.
             if associated.get(name) == member_name:
@@ -804,7 +804,8 @@ class BindImports:
         just extended -- and stands; any other occupant in a shared name
         group errors.
 
-        Name groups are beyond IMPORTS.md (see SPEC.md): a name is
+        Name groups are beyond the Imports spec (see SPEC.md "Names and
+        scopes"): a name is
         associated per name group, and a module or sequence symbol resides
         in the groups of the definitions it (transitively) holds -- a symbol
         holding no definitions resides in no group, and associating it binds
@@ -856,7 +857,7 @@ class BindImports:
         return {NameGroup.VALUE}
 
     def _underscore_warning(self, name: str, node: AstImport, state: CompileState):
-        """Diagnostic beyond IMPORTS.md (see SPEC.md): an importing sequence
+        """Diagnostic beyond the Imports spec: an importing sequence
         naming a definition of an imported sequence by a name that begins
         with an underscore emits the import-underscore warning."""
         if name.startswith("_"):
@@ -869,7 +870,7 @@ class BindImports:
 
 
 class WarnImportUnderscore(Visitor):
-    """Diagnostic beyond IMPORTS.md (see SPEC.md): warn when the importing
+    """Diagnostic beyond the Imports spec: warn when the importing
     sequence *uses* an underscore-prefixed imported definition via a
     qualified name (`lib._helper`).
 

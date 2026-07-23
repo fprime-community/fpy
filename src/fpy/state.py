@@ -200,7 +200,7 @@ class CompileState:
     import_directories: list[str] = field(default_factory=list)
     """"The import directories are an ordered list of absolute paths of
     directories provided by the environment in which the compiler is
-    invoked." (IMPORTS.md) An absolute import statement's first identifier is
+    invoked." (SPEC.md Imports) An absolute import statement's first identifier is
     resolved in each of them in order until it succeeds. Populated from
     `-i/--imports` in the CLI."""
 

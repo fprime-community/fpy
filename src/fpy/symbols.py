@@ -293,7 +293,7 @@ import-bound directory or sequence symbol)."""
 
 
 class SequenceSymbol(SymbolTable):
-    """A sequence definition: a sequence file, as a definition (IMPORTS.md
+    """A sequence definition: a sequence file, as a definition (SPEC.md
     "File system definitions").
 
     One file is one definition, so there is one SequenceSymbol per sequence
@@ -308,7 +308,7 @@ class SequenceSymbol(SymbolTable):
 
 class DirectorySymbol(SymbolTable):
     """A directory definition -- a directory, as a definition -- as
-    associated in one importing scope (IMPORTS.md "File system
+    associated in one importing scope (SPEC.md "File system
     definitions").
 
     One directory is one definition, so two directory symbols stand for the

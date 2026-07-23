@@ -186,7 +186,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     Returns the populated CompileState. Raises the first CompileError encountered.
     """
-    # Constructing the AST (IMPORTS.md): resolve every import statement, on
+    # Constructing the AST (SPEC.md Imports): resolve every import statement, on
     # the raw program AST, including each imported sequence file's block in
     # state.imported_blocks and recording a ResolvedImport for BindImports.
     ConstructAst().run(body, state)
@@ -217,7 +217,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
         DefineVariables(),
-        # Binding (IMPORTS.md): now that every sequence's definitions are
+        # Binding (SPEC.md Imports): now that every sequence's definitions are
         # registered, each import statement associates one or more qualified
         # names with definitions in the importing scope
         BindImports(),

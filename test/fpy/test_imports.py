@@ -4,12 +4,12 @@
 importing sequence and sections its symbols off under the name `foo`, so
 a function `bar` defined in `foo.fpy` is called as `foo.bar()`.
 
-Terminology (per IMPORTS.md): files and directories are *definitions* -- each
+Terminology (per SPEC.md's Imports section): files and directories are *definitions* -- each
 `.fpy` file a *sequence definition* holding the definitions of its sequence,
 each directory a *directory definition*. One file or directory is one
 definition, and an import associates names with definitions.
 
-Design decisions encoded here (per IMPORTS.md):
+Design decisions encoded here (per SPEC.md's Imports section):
   * Imports come in two disjoint resolution styles (PEP-328-like).  An
     ABSOLUTE import (`import foo`, `import a.b.c`) resolves only against the
     import directories (`state.import_directories`, the `-i/--imports`
