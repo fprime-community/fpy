@@ -165,12 +165,11 @@ def compile_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
 
-    # absolute imports resolve against the -i/--imports directories only; the
-    # input file's own directory anchors its relative imports but is not on
-    # the base search path. Exact duplicate directories are dropped: a
-    # repeated -i flag carries no information and must not manufacture an
-    # ambiguity error.
-    import_search_dirs = list(
+    # The import directories are the -i/--imports directories, in order; the
+    # input file's own directory anchors its relative imports but is not
+    # among them. Exact duplicate directories are dropped: a repeated -i
+    # flag carries no information.
+    import_directories = list(
         dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
     )
 
@@ -181,8 +180,9 @@ def compile_main(args: list[str] = None):
             str(ground_binary_dir.resolve()),
             ignored_warnings=ignored_warnings,
             error_warnings=error_warnings,
-            import_search_dirs=import_search_dirs,
+            import_directories=import_directories,
             main_file_dir=str(parsed_args.input.parent.resolve()),
+            main_file_path=str(parsed_args.input.resolve()),
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
@@ -648,7 +648,7 @@ def depend_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
 
-    import_search_dirs = list(
+    import_directories = list(
         dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
     )
 
@@ -656,8 +656,9 @@ def depend_main(args: list[str] = None):
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
             str(ground_binary_dir.resolve()),
-            import_search_dirs=import_search_dirs,
+            import_directories=import_directories,
             main_file_dir=str(parsed_args.input.parent.resolve()),
+            main_file_path=str(parsed_args.input.resolve()),
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)

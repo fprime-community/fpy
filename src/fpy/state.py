@@ -89,9 +89,10 @@ class CompileState:
     frame layout and directive stream are generated from this block, not `root`
     (which also contains the builtin library and the imported sequences)."""
     imported_blocks: list = field(default_factory=list, repr=False)
-    """every imported sequence's block, collected by LoadImports. They are
-    installed as children of the library `root` (siblings of `main_block`), so
-    each imported sequence is an isolated scope block that does not execute inline."""
+    """every imported sequence file's block B, collected by ConstructAst.
+    _build_root_block installs them as children of the library `root`
+    (siblings of `main_block`), making each "a sibling of the main sequence's
+    block": an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
     """map of each node to its parent node in the AST"""
     enclosing_scope: dict[Ast, Scope] = field(default_factory=dict, repr=False)
@@ -196,15 +197,22 @@ class CompileState:
     error_warnings: set[WarningType] = field(default_factory=set)
     """warning types to promote to hard compile errors (`--error`)"""
 
-    import_search_dirs: list[str] = field(default_factory=list)
-    """the base import search path: directories searched to resolve absolute
-    `import` statements to source files. Resolving in more than one of them is
-    an ambiguity error. Populated from `-i/--imports` in the CLI."""
+    import_directories: list[str] = field(default_factory=list)
+    """"The import directories are an ordered list of absolute paths of
+    directories provided by the environment in which the compiler is
+    invoked." (IMPORTS.md) An absolute import statement's first identifier is
+    resolved in each of them in order until it succeeds. Populated from
+    `-i/--imports` in the CLI."""
 
     main_file_dir: str | None = None
-    """directory containing the main sequence, used to anchor its relative
-    imports. None when compiling from a stream (a relative import in the main
-    sequence is then an error)."""
+    """directory containing the main sequence's file, from which a relative
+    import statement's anchor directory is counted. None when compiling from
+    a stream (a relative import in the main sequence is then an error)."""
+
+    main_file_path: str | None = None
+    """the absolute path of the main sequence's file, so that an import path
+    resolving to it is recognized as the main sequence and skipped rather
+    than included again. None when compiling from a stream."""
 
     base_scope: Scope = None
     """the dictionary/builtin scope: dictionary types, commands/casts/type
@@ -215,17 +223,18 @@ class CompileState:
 
     main_sequence: object = None
     """the SequenceContext for the main (top-level) sequence being compiled."""
-    import_analyses: list = field(default_factory=list, repr=False)
-    """recorded imports (ImportAnalysis), whose definitions DefineImports
-    enters into scopes once every sequence's own definitions have been
+    resolved_imports: list = field(default_factory=list, repr=False)
+    """each import statement whose import path has resolved to a sequence
+    definition (a ResolvedImport), in inner-first order. BindImports
+    associates their names once every sequence's definitions have been
     registered (by DefineFunctions / DefineVariables)."""
     loaded_sequences: dict = field(default_factory=dict, repr=False)
-    """maps a resolved sequence file (realpath) -> its SequenceContext. A file
-    is loaded and compiled once, however many imports name it; later imports
-    reuse this context. Sequence
-    definitions naming one file hold the same definition objects (one sequence
-    symbol, members pooling idempotently), and alias definitions reached by
-    different import routes name the identical definition (diamonds fold)."""
+    """maps a sequence file (absolute path) -> its SequenceContext: every
+    imported sequence file included in the program's AST, plus the main
+    sequence when its file is known. An import path resolving to a file in
+    this map is skipped rather than included again, so a file is lexed,
+    parsed and included once, however many import statements name it, and
+    its definitions are shared, never duplicated."""
 
     next_anon_var_id: int = 0
 
@@ -623,8 +632,9 @@ def get_base_compile_state(
     ground_binary_dir: str | None = None,
     ignored_warnings: set[WarningType] | None = None,
     error_warnings: set[WarningType] | None = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     main_file_dir: str | None = None,
+    main_file_path: str | None = None,
 ) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(
@@ -669,8 +679,9 @@ def get_base_compile_state(
         ),
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
-        import_search_dirs=list(import_search_dirs) if import_search_dirs else [],
+        import_directories=list(import_directories) if import_directories else [],
         main_file_dir=main_file_dir,
+        main_file_path=main_file_path,
     )
     state.base_scope = base_scope
 

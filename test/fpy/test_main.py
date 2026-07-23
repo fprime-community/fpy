@@ -126,10 +126,10 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
     return captured_kwargs
 
 
-def test_compile_main_include_dirs_are_base_search_path(monkeypatch, tmp_path):
-    """The base search path is exactly the resolved -i/--imports dirs; the
-    input file's own dir is NOT on it (it anchors relative imports instead,
-    via main_file_dir)."""
+def test_compile_main_include_dirs_are_import_directories(monkeypatch, tmp_path):
+    """The import directories are exactly the resolved -i/--imports dirs, in
+    order; the input file's own dir is NOT among them (it anchors relative
+    imports instead, via main_file_dir)."""
     input_path = tmp_path / "sub" / "seq.fpy"
     input_path.parent.mkdir()
     input_path.write_text("content")
@@ -153,7 +153,7 @@ def test_compile_main_include_dirs_are_base_search_path(monkeypatch, tmp_path):
         ],
     )
 
-    assert captured_kwargs["import_search_dirs"] == [
+    assert captured_kwargs["import_directories"] == [
         str(inc_a.resolve()),
         str(inc_b.resolve()),
     ]
@@ -162,8 +162,7 @@ def test_compile_main_include_dirs_are_base_search_path(monkeypatch, tmp_path):
 
 def test_compile_main_duplicate_includes_are_deduped(monkeypatch, tmp_path):
     """A repeated -i directory (even spelled differently) collapses to one
-    search-path entry after resolution, so it cannot manufacture an
-    ambiguity error."""
+    import-directory entry after resolution: it carries no information."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
     dict_path = tmp_path / "dict.json"
@@ -184,12 +183,12 @@ def test_compile_main_duplicate_includes_are_deduped(monkeypatch, tmp_path):
         ],
     )
 
-    assert captured_kwargs["import_search_dirs"] == [str(inc.resolve())]
+    assert captured_kwargs["import_directories"] == [str(inc.resolve())]
 
 
-def test_compile_main_no_includes_means_empty_search_path(monkeypatch, tmp_path):
-    """With no -i flags, the base search path is empty; the input file's own
-    dir still anchors its relative imports."""
+def test_compile_main_no_includes_means_no_import_directories(monkeypatch, tmp_path):
+    """With no -i flags, there are no import directories; the input file's
+    own dir still anchors its relative imports."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
     dict_path = tmp_path / "dict.json"
@@ -204,7 +203,7 @@ def test_compile_main_no_includes_means_empty_search_path(monkeypatch, tmp_path)
         ],
     )
 
-    assert captured_kwargs["import_search_dirs"] == []
+    assert captured_kwargs["import_directories"] == []
     assert captured_kwargs["main_file_dir"] == str(input_path.parent.resolve())
 
 

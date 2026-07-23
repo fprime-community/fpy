@@ -1,32 +1,23 @@
-"""Import statement support.
+"""The import statement.
 
-The importer sequence S imports sequence T by compiling T's definitions alongside
-S's and exposing them to S under T's name (or, for `from` imports, directly). An
-imported sequence may contain only function definitions and imports -- nothing
-that executes -- so importing runs no code, and order does not matter. Nor do
-cycles: a sequence may transitively import itself.
+This module implements IMPORTS.md and is written to mirror it: passes,
+methods, and checks are named with the spec's terms, and each carries the
+spec text it implements (quoted). Where code must go beyond the spec's words
+-- diagnostics such as warnings, or plumbing such as recording work between
+compiler passes -- it says so.
 
-Each imported sequence is compiled as its own block, a sibling of the main
-program under the shared library root; its scope is a child of the base scopes
-the library root owns.
+The spec's semantics sections map onto two compiler passes:
 
-The work is split into two passes:
+* `ConstructAst` implements "Constructing the AST" and "Import path
+  resolution". It runs on the raw AST, before scopes exist: it resolves each
+  import path to a sequence definition (a sequence file in the file system),
+  includes that file in the program's AST as a sibling of the main
+  sequence's block, and records each import statement for `BindImports`.
 
-* `LoadImports` runs first, on the raw AST. It resolves each import to a file,
-  recursively parses it, collects its statements as a sibling block in
-  state.imported_blocks, and records an `ImportAnalysis` for each import.
-  _build_root_block then installs those blocks under the library root.
-
-* `DefineImports` runs after `DefineFunctions`/`DefineVariables` have registered
-  every sequence's definitions. It expands each recorded import into the
-  syntactic definitions the statement makes -- a module definition per
-  enclosing directory on its sequence path, a sequence definition for the
-  file, or alias definitions for `from`/aliased-member forms -- and combines
-  them, per qualified name, into the semantic symbols the importer's scope
-  holds. Two definitions of one qualified name in a shared name group
-  collide unless they are semantically equivalent: module definitions always
-  are (varying only by name), sequence definitions are iff they name one
-  file, and alias definitions iff they name one definition.
+* `BindImports` implements "Binding". It runs after `DefineFunctions` /
+  `DefineVariables`, once every sequence's definitions exist: each recorded
+  import statement associates one or more qualified names with definitions
+  in the importing scope.
 """
 
 from __future__ import annotations
@@ -38,11 +29,11 @@ import fpy.error
 from fpy.error import WarningType
 from fpy.symbols import (
     CallableSymbol,
+    DirectorySymbol,
     ModuleSymbol,
     NameGroup,
     Scope,
     SequenceSymbol,
-    Symbol,
     VariableSymbol,
 )
 from fpy.syntax import (
@@ -59,165 +50,208 @@ from fpy.visitors import Visitor
 
 @dataclass
 class SequenceContext:
-    """A single sequence taking part in a compilation.
-
-    Holds only what an import needs: where the sequence came from (for resolving
-    its own relative imports) and the AST block it was compiled into.."""
+    """A sequence taking part in the program: the main sequence ("the
+    sequence defined by the input file the user passes into the compiler"),
+    or the sequence defined by an imported sequence file."""
 
     file_path: str | None
-    """the sequence's resolved file path (realpath), or None for the main
-    sequence when it was compiled from a stream."""
+    """the absolute path of the sequence's file, or None for a main sequence
+    that was not read from a file."""
     dir_path: str | None
-    """the directory the sequence lives in, anchoring its relative imports.
-    None when the sequence has no location."""
+    """the directory containing the sequence's file: the 1st parent
+    directory of its absolute path, from which a relative import statement's
+    anchor directory is counted. None when the sequence has no location."""
     block: AstBlock = None
-    """the sequence's AST block (the main block, or an imported sequence's
-    sibling block). Set once the block exists (_build_root_block for the
-    main sequence; at construction for an imported one)."""
+    """the sequence's block in the program's AST: the block B its file was
+    parsed to for an imported sequence (set here at inclusion), or the main
+    sequence's block (set by _build_root_block)."""
+    definition: SequenceSymbol = None
+    """the sequence's file as a sequence definition: one file, one
+    definition, so every scope that imports the file is associated with this
+    one symbol. None for a main sequence that was not read from a file."""
 
 
 @dataclass
 class ResolvedImport:
-    """The sequence file an import statement names, and how its import path split
-    to name it."""
+    """An import statement whose import path has resolved to a sequence
+    definition ("Import path resolution"), recorded by `ConstructAst` for
+    `BindImports`. Each proper, non-empty prefix of the import path refers
+    to a directory definition; the whole path refers to the imported
+    sequence definition."""
 
-    seq_path: list[str]
-    """the sequence path segments (leading dots already stripped) that name the
-    file; the dotted path a plain `import` binds (modules for the
-    directories, the sequence at the leaf)."""
-    member: str | None
-    """the trailing member name for `import a.b.c.foo`, else None."""
-    file_path: str
-    """the named sequence's file (realpath)."""
+    node: AstImport
+    importing_sequence: SequenceContext
+    """"The importing sequence is the sequence containing the import
+    statement.\""""
+    imported_sequence: SequenceContext
+    """the sequence of the imported sequence definition's file."""
 
 
 @dataclass
-class ImportAnalysis:
-    """A resolved import, recorded for `DefineImports` to turn into scope
-    definitions once every sequence's own definitions exist."""
+class _SequenceDefinition:
+    """A sequence definition, as import path resolution refers to it: "Each
+    file whose name is of the form `<name>.fpy` is a sequence definition
+    with name `name`." One file is one definition, so the file's path is the
+    definition's identity; binding realizes the definition as the file's one
+    shared SequenceSymbol."""
 
-    node: AstImport
-    importer: SequenceContext
-    target: SequenceContext
-    seq_path: list[str]
-    """the sequence path segments (leading dots already stripped) that name the
-    imported file; the dotted path a plain `import` binds (modules for the
-    directories, the sequence at the leaf)."""
-    member: str | None
-    """the trailing member name for `import a.b.c.foo`, else None."""
+    path: Path
+    """the sequence file."""
 
 
-class LoadImports:
-    """Load every sequence the program transitively imports, and strip the import
-    statements naming them out of the AST."""
+@dataclass
+class _DirectoryDefinition:
+    """A directory definition, as import path resolution refers to it:
+    "Each directory is a directory definition with the directory's name."
+    One directory is one definition, so the directory's path is the
+    definition's identity."""
+
+    path: Path
+    """the directory."""
+
+
+class ConstructAst:
+    """Constructing the AST (IMPORTS.md, Semantics).
+
+    "For each import statement in the AST, including statements added by
+    this process:
+
+    1. The import path must resolve to a sequence definition D, otherwise
+       an error is raised.
+    2. If D has previously been included in the program's AST, or if its
+       sequence is the main sequence, skip it.
+    3. Otherwise, D is lexed and parsed according to this specification,
+       producing a new block B.
+    4. If B has top-level statements which may have side effects, an error
+       is raised.
+    5. B is included in the program's AST as a sibling of the main
+       sequence's block."
+
+    "A sequence metadata statement with one or more formal parameters is a
+    statement which may have side effects."
+
+    "Cyclical imports are allowed. This is not an issue because import
+    statements cannot have side effects."
+    """
 
     def run(self, body: AstBlock, state: CompileState):
-        main_ctx = SequenceContext(
-            file_path=None,
+        # "Let the main sequence refer to the sequence defined by the input
+        # file the user passes into the compiler."
+        main_sequence = SequenceContext(
+            file_path=state.main_file_path,
             dir_path=state.main_file_dir,
         )
-        state.main_sequence = main_ctx
+        state.main_sequence = main_sequence
+        # Register the main sequence's file so that an import path resolving
+        # to it is skipped by step 2 ("or if its sequence is the main
+        # sequence") and binds against the main sequence itself.
+        if main_sequence.file_path is not None:
+            main_sequence.definition = SequenceSymbol(main_sequence.file_path)
+            state.loaded_sequences[main_sequence.file_path] = main_sequence
 
-        body.stmts = self._load_imports_in(body.stmts, main_ctx, state)
+        body.stmts = self._for_each_import_statement(body.stmts, main_sequence, state)
 
-    def _load_imports_in(self, stmts, ctx: SequenceContext, state):
-        """Load every sequence the imports in *stmts* name, and return *stmts*
-        with those import statements removed. Each named sequence is collected as
-        a sibling block in state.imported_blocks.
+    def _for_each_import_statement(
+        self, stmts, containing_sequence: SequenceContext, state: CompileState
+    ):
+        """Apply steps 1-5 to each import statement among *stmts*, and
+        return *stmts* with the import statements removed.
 
-        On error we stop and hand back the statements stripped so far."""
-        result = []
+        Removing them is not in the spec but changes nothing observable: an
+        import statement only associates names ("Binding"), so it
+        contributes nothing at its position, and `BindImports` works from
+        the ResolvedImport records made here. Statements added by this
+        process (an included block B) are reached through _include's
+        recursion back into this method.
+
+        On an error, stop and hand back the statements processed so far."""
+        remaining = []
         for stmt in stmts:
             if is_instance_compat(stmt, AstImport):
-                self._load_import(stmt, ctx, state)
+                self._import_statement(stmt, containing_sequence, state)
                 if state.errors:
-                    return result
+                    return remaining
             else:
-                result.append(stmt)
-        return result
+                remaining.append(stmt)
+        return remaining
 
-    def _load_import(
-        self,
-        node: AstImport,
-        importer: SequenceContext,
-        state: CompileState,
-    ) -> None:
-        """Load the sequence *node* names (if it is not already loaded) and record
-        an ImportAnalysis for DefineImports."""
-        resolved = self._resolve(node, importer, state)
-        if resolved is None:
+    def _import_statement(
+        self, node: AstImport, containing_sequence: SequenceContext, state: CompileState
+    ):
+        # 1. The import path must resolve to a sequence definition D,
+        #    otherwise an error is raised.
+        file_path = self._resolve_import_path(node, containing_sequence, state)
+        if file_path is None:
             return
 
-        # A sequence is compiled once. The first import of a file loads it and
-        # installs its block; later imports of the same file (in this sequence or
-        # any other) reuse that one SequenceContext, so its definitions are shared,
-        # never duplicated. Whether importing the same sequence more than once is
-        # allowed then falls to the ordinary name-collision rule in DefineImports.
-        target = state.loaded_sequences.get(resolved.file_path)
-        if target is None:
-            target = self._load_sequence(resolved.file_path, node.meta, state)
+        # 2. If D has previously been included in the program's AST, or if
+        #    its sequence is the main sequence, skip it.
+        imported_sequence = state.loaded_sequences.get(file_path)
+        if imported_sequence is None:
+            imported_sequence = self._include(file_path, node.meta, state)
             if state.errors:
                 return
-            assert target is not None
+            assert imported_sequence is not None
 
-        state.import_analyses.append(
-            ImportAnalysis(node, importer, target, resolved.seq_path, resolved.member)
+        state.resolved_imports.append(
+            ResolvedImport(node, containing_sequence, imported_sequence)
         )
 
-    def _load_sequence(self, file_path: str, meta, state) -> SequenceContext | None:
-        """Parse the sequence at *file_path*, check it, register it, and load
-        every sequence it imports in turn. Returns its SequenceContext, or None
-        with an error reported.
+    def _include(
+        self, file_path: str, meta, state: CompileState
+    ) -> SequenceContext | None:
+        """Steps 3-5, for a sequence definition that has not previously
+        been included in the program's AST.
 
-        *meta* is the position of the import that first named the file, used for
-        the block we build from it."""
+        *meta* is the position of the import statement that first named the
+        file, carried onto the block built from it."""
+        # 3. Otherwise, D is lexed and parsed according to this
+        #    specification, producing a new block B.
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 text = f.read()
         except OSError as e:
-            state.err(f"Cannot read imported sequence '{file_path}': {e}", None)
+            state.err(f"Cannot read imported sequence file '{file_path}': {e}", None)
             return None
-
-        parsed = self._parse(file_path, text, state)
+        parsed = self._lex_and_parse(file_path, text, state)
         if parsed is None:
             return None
+        block = AstBlock(meta, parsed.stmts)
 
-        self._check_metadata(parsed.stmts, state)
+        # 4. If B has top-level statements which may have side effects, an
+        #    error is raised.
+        self._check_side_effects(block, state)
         if state.errors:
             return None
 
-        self._check_no_side_effects(parsed.stmts, state)
-        if state.errors:
-            return None
-
-        # Collect the imported sequence's statements as a sibling block of the
-        # main program (installed under the library root by
-        # _build_root_block). CreateScopes gives this block its own
-        # isolated scope; the sequence's context points at it via .block. The
-        # import statement itself contributes nothing at its position -- an
-        # imported sequence has only definitions (no side effects), so it
-        # never executes inline.
-        ctx = SequenceContext(
+        # 5. B is included in the program's AST as a sibling of the main
+        #    sequence's block. (The blocks collected here are installed as
+        #    siblings by _build_root_block; CreateScopes then gives the
+        #    block its own scope, isolated from every other sequence's.)
+        imported_sequence = SequenceContext(
             file_path=file_path,
             dir_path=str(Path(file_path).parent),
-            block=AstBlock(meta, parsed.stmts),
+            block=block,
+            definition=SequenceSymbol(file_path),
         )
-        state.loaded_sequences[file_path] = ctx
-        state.imported_blocks.append(ctx.block)
+        state.loaded_sequences[file_path] = imported_sequence
+        state.imported_blocks.append(block)
 
-        # Only now descend into this sequence's own imports. Registering it first
-        # is what lets an import cycle resolve: an import that comes back around
-        # to this file finds the context above and binds against it, instead of
-        # loading the file a second time forever. Nothing about a cycle needs
-        # rejecting -- an import binds names and runs nothing, and DefineImports
-        # does not run until every sequence's definitions exist.
-        ctx.block.stmts = self._load_imports_in(parsed.stmts, ctx, state)
-        return ctx
+        # "For each import statement in the AST, including statements added
+        # by this process": the block's own import statements are processed
+        # in turn. The file is registered above BEFORE this descent, so a
+        # cyclical import arriving back at it is skipped by step 2 instead
+        # of included again.
+        block.stmts = self._for_each_import_statement(
+            block.stmts, imported_sequence, state
+        )
+        return imported_sequence
 
-    def _parse(self, file_path: str, text: str, state):
-        """Parse *text* under its own diagnostic context, so its parse errors
-        point into *file_path* rather than into the importing file. Restores the
-        caller's context before returning."""
+    def _lex_and_parse(self, file_path: str, text: str, state: CompileState):
+        """Lex and parse the text of the imported sequence file under its
+        own diagnostic context, so that errors in it point into that file
+        rather than into the importing file. Restores the caller's context
+        before returning."""
         from fpy.compiler import text_to_ast
 
         old_file, old_text, old_lines = (
@@ -234,423 +268,552 @@ class LoadImports:
             fpy.error.input_lines = old_lines
 
         if parsed is None:
-            state.err(f"Failed to parse imported sequence '{file_path}'", None)
+            state.err(f"Failed to parse imported sequence file '{file_path}'", None)
         return parsed
 
-    def _check_no_side_effects(self, stmts, state):
-        """An imported sequence may contain only function definitions and import
-        statements. Any other top-level statement is a side effect that would
-        have to execute at the importer's position; since an imported sequence is
-        a sibling scope block (it does not run inline), such a statement has no
-        place to execute and is an error."""
-        for stmt in stmts:
-            if not is_instance_compat(stmt, (AstDef, AstImport, AstSequenceMetadata)):
+    def _check_side_effects(self, block: AstBlock, state: CompileState):
+        """4. "If B has top-level statements which may have side effects, an
+        error is raised."
+
+        A function definition, an import statement, and a sequence metadata
+        statement with no formal parameters are the top-level statements
+        that cannot have side effects; every other statement may. "A
+        sequence metadata statement with one or more formal parameters is a
+        statement which may have side effects": it binds argument values,
+        which nothing would supply at an import."""
+        for stmt in block.stmts:
+            if is_instance_compat(stmt, AstSequenceMetadata):
+                if stmt.parameters:
+                    state.err(
+                        "Cannot import a sequence with sequence arguments",
+                        stmt,
+                    )
+                    return
+            elif not is_instance_compat(stmt, (AstDef, AstImport)):
                 state.err(
                     "An imported sequence may contain only function definitions "
-                    "and imports, not statements that execute",
+                    "and imports",
                     stmt,
                 )
                 return
 
-    def _check_metadata(self, stmts, state):
-        """Sequence arguments make a sequence un-importable: nothing would supply
-        them at the import."""
-        for stmt in stmts:
-            if is_instance_compat(stmt, AstSequenceMetadata) and stmt.parameters:
-                state.err(
-                    "Cannot import a sequence that declares sequence arguments",
-                    stmt,
-                )
-                return
+    # -- Import path resolution --
 
-    def _resolve(
-        self, node: AstImport, importer: SequenceContext, state
-    ) -> ResolvedImport | None:
-        """Resolve *node* against its candidate directories. Reports an error and
-        returns None if it names no file, or a file in more than one directory."""
-        candidate_dirs = self._candidate_dirs(node, importer, state)
-        if candidate_dirs is None:
+    def _resolve_import_path(
+        self, node: AstImport, containing_sequence: SequenceContext, state: CompileState
+    ) -> str | None:
+        """Import path resolution: "the process by which the qualified
+        identifier `import_path` is resolved to a definition."
+
+        "These rules are applied to `import_path`. It must refer to a
+        sequence definition; if it refers to a directory definition, an
+        error is raised."
+
+        Returns the sequence definition's file as an absolute path, or None
+        with the error reported."""
+        # These rules (_resolve_qualified_identifier) are applied to
+        # import_path.
+        definition = self._resolve_qualified_identifier(
+            list(node.path), node, containing_sequence, state
+        )
+        if definition is None:
             return None
-
-        splits = []
-        for d in candidate_dirs:
-            s = self._split_in_dir(d, node.path, node.is_from)
-            if s is not None:
-                splits.append(s)
-
-        if len(splits) == 0:
+        # "It must refer to a sequence definition; if it refers to a
+        # directory definition, an error is raised."
+        if is_instance_compat(definition, _DirectoryDefinition):
             state.err(
-                f"Cannot resolve import '{'.'.join(node.path)}'; no matching sequence found",
+                f"Import path '{'.'.join(node.path)}' refers to the directory "
+                f"'{definition.path}', not a sequence file",
                 node,
             )
             return None
-        if len(splits) > 1:
-            state.err(
-                f"Ambiguous import '{'.'.join(node.path)}': it resolves in more than "
-                f"one search directory",
-                node,
-            )
-            return None
-        return splits[0]
+        assert is_instance_compat(definition, _SequenceDefinition), definition
+        return str(definition.path.resolve())
 
-    def _candidate_dirs(
-        self, node: AstImport, importer: SequenceContext, state
-    ) -> list[Path] | None:
-        """The directories *node* is searched in: the anchor of a relative import,
-        or the base search path of an absolute one. None on error."""
-        if node.num_dots > 0:
-            if importer.dir_path is None:
+    def _resolve_qualified_identifier(
+        self,
+        path: list[str],
+        node: AstImport,
+        containing_sequence: SequenceContext,
+        state: CompileState,
+    ):
+        """ "To resolve qualified identifier Q.I:
+        1. Recursively resolve Q.
+        2. If Q refers to a directory definition, resolution of I is
+           attempted in its directory. An error is raised if I could not be
+           resolved.
+        3. Otherwise, Q refers to a sequence definition, and an error is
+           raised."
+
+        *path* is the qualified identifier's identifiers. A single
+        identifier is the recursion's base case, resolved in the import
+        directories or the anchor directory (_resolve_first_identifier).
+
+        Returns the definition the qualified identifier refers to, or None
+        with the error reported."""
+        if len(path) == 1:
+            return self._resolve_first_identifier(
+                path[0], node, containing_sequence, state
+            )
+        identifier = path[-1]  # I
+        # 1. Recursively resolve Q.
+        definition = self._resolve_qualified_identifier(
+            path[:-1], node, containing_sequence, state
+        )
+        if definition is None:
+            return None
+        # 2. If Q refers to a directory definition, resolution of I is
+        #    attempted in its directory.
+        if is_instance_compat(definition, _DirectoryDefinition):
+            resolved = self._refers_to(definition.path, identifier, node, state)
+            if state.errors:
+                return None
+            #    An error is raised if I could not be resolved.
+            if resolved is None:
                 state.err(
-                    "Relative import in a sequence with no containing directory",
+                    f"'{identifier}' could not be resolved in directory "
+                    f"'{definition.path}'",
                     node,
                 )
                 return None
-            # Each dot past the first moves the anchor one directory up. .parent
-            # saturates at the root, so an over-deep relative import lands there
-            # and simply finds no file.
-            anchor = Path(importer.dir_path)
-            for _ in range(node.num_dots - 1):
-                anchor = anchor.parent
-            return [anchor]
-        return self._dedupe(state.import_search_dirs)
-
-    def _dedupe(self, dirs) -> list[Path]:
-        """Drop duplicate search directories, comparing them resolved. Duplicates
-        are dropped rather than rejected: only a path resolving in two DISTINCT
-        directories is the ambiguity the error is for, so a doubled `-i` flag must
-        not manufacture one."""
-        seen = set()
-        deduped = []
-        for d in dirs:
-            path = Path(d)
-            if path.resolve() not in seen:
-                seen.add(path.resolve())
-                deduped.append(path)
-        return deduped
-
-    def _split_in_dir(self, d: Path, path, is_from) -> ResolvedImport | None:
-        """Return how *path* splits into a sequence path and an optional member in
-        *d*, or None if it does not resolve there."""
-        whole = self._file_for(d, path)
-        if whole is not None:
-            return ResolvedImport(list(path), None, whole)
-        # `from` paths are always the whole sequence path; only plain/alias
-        # imports may split a trailing member off.
-        if not is_from and len(path) > 1:
-            f = self._file_for(d, path[:-1])
-            if f is not None:
-                return ResolvedImport(list(path[:-1]), path[-1], f)
+            return resolved
+        # 3. Otherwise, Q refers to a sequence definition, and an error is
+        #    raised.
+        assert is_instance_compat(definition, _SequenceDefinition), definition
+        qualifier = ".".join(path[:-1])
+        state.err(
+            f"'{qualifier}' is a sequence; an import path cannot name the "
+            f"definitions in it. Write 'from {'.' * node.num_dots}{qualifier} "
+            f"import {identifier}'",
+            node,
+        )
         return None
 
-    def _file_for(self, d: Path, segments) -> str | None:
-        """The resolved path of `<d>/<segments...>.fpy`, or None if it is not a
-        file. Every segment but the last names a directory."""
-        assert segments, "an import path always has at least one segment"
-        *dirs, leaf = segments
-        p = d.joinpath(*dirs, leaf + ".fpy")
-        if p.is_file():
-            return str(p.resolve())
+    def _resolve_first_identifier(
+        self,
+        identifier: str,
+        node: AstImport,
+        containing_sequence: SequenceContext,
+        state: CompileState,
+    ):
+        """Resolve a single identifier: the import path's first, the
+        recursion's base case.
+
+        "If the import statement is an absolute import statement, resolution
+        of I is attempted in each import directory in order until it
+        succeeds. If I cannot be resolved in any import directory, an error
+        is raised."
+
+        "If the import statement is a relative import statement, resolution
+        of I is attempted in the anchor directory. An error is raised if I
+        cannot be resolved."
+        """
+        if node.num_dots > 0:  # a relative import statement
+            anchor_directory = self._anchor_directory(node, containing_sequence, state)
+            if anchor_directory is None:
+                return None
+            resolved = self._refers_to(anchor_directory, identifier, node, state)
+            if state.errors:
+                return None
+            if resolved is None:
+                state.err(
+                    f"'{identifier}' could not be resolved in "
+                    f"directory '{anchor_directory}'",
+                    node,
+                )
+            return resolved
+        # an absolute import statement: "The import directories are an
+        # ordered list of absolute paths of directories provided by the
+        # environment in which the compiler is invoked."
+        for import_directory in state.import_directories:
+            resolved = self._refers_to(Path(import_directory), identifier, node, state)
+            if state.errors:
+                return None
+            if resolved is not None:
+                return resolved
+        state.err(
+            f"'{identifier}' could not be resolved in any import directory",
+            node,
+        )
+        return None
+
+    def _anchor_directory(
+        self, node: AstImport, containing_sequence: SequenceContext, state: CompileState
+    ) -> Path | None:
+        """ "Relative import statements have an anchor directory, which is
+        the Nth parent directory of the absolute path of the sequence file
+        containing the statement, where N is the number of dots preceding
+        `import_path`. If the sequence was not read from a file, or if there
+        is no Nth parent directory, an error is raised."
+        """
+        if containing_sequence.dir_path is None:
+            state.err(
+                "Relative import statement in a sequence that was not read "
+                "from a file",
+                node,
+            )
+            return None
+        # The 1st parent directory of the sequence file is the directory
+        # containing it; each dot past the first moves one more parent up.
+        anchor_directory = Path(containing_sequence.dir_path)
+        for _ in range(node.num_dots - 1):
+            parent = anchor_directory.parent
+            if parent == anchor_directory:
+                state.err(
+                    f"Relative import statement has no anchor directory: "
+                    f"there is no {node.num_dots}th parent directory",
+                    node,
+                )
+                return None
+            anchor_directory = parent
+        return anchor_directory
+
+    def _refers_to(
+        self, directory: Path, identifier: str, node: AstImport, state: CompileState
+    ):
+        """ "In a directory D, an identifier I refers to the definition in
+        D named I. If D contains two definitions named I (a sequence file
+        and a subdirectory of one name), an error is raised."
+
+        Returns the definition, or None either when the directory contains
+        none (the caller words its "could not be resolved" error) or on the
+        two-definitions error (reported here; the caller distinguishes the
+        two by state.errors)."""
+        sequence_file = directory / (identifier + ".fpy")
+        subdirectory = directory / identifier
+        has_sequence_file = sequence_file.is_file()
+        has_subdirectory = subdirectory.is_dir()
+        if has_sequence_file and has_subdirectory:
+            state.err(
+                f"'{identifier}' refers to both a sequence file and a directory "
+                f"in '{directory}'",
+                node,
+            )
+            return None
+        if has_sequence_file:
+            return _SequenceDefinition(sequence_file)
+        if has_subdirectory:
+            return _DirectoryDefinition(subdirectory)
         return None
 
 
-@dataclass
-class ModuleDef:
-    """A syntactic module definition: one enclosing directory on an import's
-    sequence path, defining the module symbol at qualified name *path* in the
-    importer's global scope.
+class BindImports:
+    """Binding (IMPORTS.md, Semantics).
 
-    Module definitions merge: every syntactic module definition with one
-    qualified name defines the same one semantic module symbol, whose members
-    are everything the definitions' statements put there."""
+    "An import statement associates one or more qualified names with
+    definitions in the importing scope."
 
-    path: tuple[str, ...]
+    Runs on the ResolvedImport records after `DefineFunctions` /
+    `DefineVariables`, so that every sequence's definitions exist to be
+    associated. The records are in inner-first order: a sequence's own
+    import statements bind before an import statement naming that sequence,
+    so a definition it re-exports is in its scope by the time an importer
+    asks for it.
+    """
 
-
-@dataclass
-class SequenceDef:
-    """A syntactic sequence definition: the sequence file an import statement
-    names, defining the sequence symbol at qualified name *path* that holds
-    *members* of the file's global scope (all of them, or only the one a
-    member import names).
-
-    Syntactic sequence definitions with one qualified name that name the same
-    *file* define the same one semantic sequence symbol: the file is compiled
-    once, so their members are the same objects and pool idempotently. Two
-    that name different files collide."""
-
-    path: tuple[str, ...]
-    file: str
-    members: dict[str, Symbol]
-
-
-@dataclass
-class AliasDef:
-    """A syntactic alias definition: an existing definition, defined again
-    under a bare (possibly aliased) name in the importer's global scope --
-    what each member of a `from` import and an aliased member import make.
-
-    An alias definition is identified by the definition it names: two with
-    one qualified name that name the SAME definition define the same one
-    semantic alias and fold idempotently, so one definition reached by two
-    import routes (a diamond) binds once. Two that name DIFFERENT
-    definitions collide."""
-
-    name: str
-    sym: Symbol
-
-
-class DefineImports:
-    """Enter each recorded import's definitions into its importer's scope.
-
-    One import statement is processed in three steps:
-
-    1. `_expand` turns the statement into the syntactic definitions it makes:
-       a ModuleDef per directory on its sequence path plus a SequenceDef for
-       the file, or AliasDefs for `from`/aliased-member forms.
-    2. `_define` installs each definition by combining it with whatever its
-       qualified name already denotes: the same semantic definition folds in,
-       a different one is a conflict.
-    3. `_define_name` enters a symbol into the scope under its name, in every
-       name group it resides in. Alias definitions reach it directly from
-       `_define`; a dotted import's root symbol reaches it only after the
-       whole statement is defined, because the name groups a module or
-       sequence symbol resides in derive from the members steps 1-2 give
-       it."""
-
-    def run(self, body, state):
-        for analysis in state.import_analyses:
-            self._define_import(analysis, state)
+    def run(self, body, state: CompileState):
+        for resolved in state.resolved_imports:
+            self._import_statement(resolved, state)
             if state.errors:
                 return
 
-    def _define_import(self, analysis: ImportAnalysis, state):
-        importer_scope = state.enclosing_scope[analysis.importer.block]
-        defs = self._expand(analysis, state)
-        if state.errors:
-            return
-        # The module/sequence symbol the statement's chain root defines, by
-        # name -- held here, off the scope, until every definition of the
-        # statement has combined into it (the name groups it binds in derive
-        # from the members they contribute).
-        roots: dict[str, ModuleSymbol] = {}
-        for d in defs:
-            self._define(d, importer_scope, roots, analysis.node, state)
+    def _import_statement(self, resolved: ResolvedImport, state: CompileState):
+        node = resolved.node
+        # "The importing sequence is the sequence containing the import
+        # statement; the importing scope is its scope."
+        importing_scope = state.enclosing_scope[resolved.importing_sequence.block]
+        # "The imported sequence definition is the sequence definition the
+        # import statement's import path refers to; the imported sequence
+        # is its sequence." This is the imported sequence's scope.
+        imported_scope = state.enclosing_scope[resolved.imported_sequence.block]
+
+        if node.is_star:
+            self._import_star_statement(node, importing_scope, imported_scope, state)
+        elif node.is_from:
+            self._import_from_statement(node, importing_scope, imported_scope, state)
+        else:
+            self._direct_import_statement(
+                resolved, importing_scope, imported_scope, state
+            )
+
+    def _import_star_statement(
+        self,
+        node: AstImport,
+        importing_scope: Scope,
+        imported_scope: Scope,
+        state: CompileState,
+    ):
+        """ "For an import-star statement:
+        For each definition D with name N in the imported sequence's scope:
+        1. If N begins with an underscore, skip it.
+        2. Otherwise, associate N with D in the importing scope."
+        """
+        for name, definition in imported_scope.own_symbols().items():
+            # 1. If N begins with an underscore, skip it.
+            if name.startswith("_"):
+                continue
+            # 2. Otherwise, associate N with D in the importing scope.
+            self._associate(importing_scope, name, definition, node, state)
             if state.errors:
                 return
-        for name, sym in roots.items():
-            self._define_name(importer_scope, name, sym, analysis.node, state)
+
+    def _import_from_statement(
+        self,
+        node: AstImport,
+        importing_scope: Scope,
+        imported_scope: Scope,
+        state: CompileState,
+    ):
+        """ "For other import-from statements:
+        For each member with name N and optional alias A in the `members`
+        list:
+        1. If there is no definition named N in the imported sequence's
+           scope, an error is raised.
+        2. Otherwise, let D be that definition.
+        3. If the optional alias A is provided, associate A with D in the
+           importing scope.
+        4. Otherwise, associate N with D in the importing scope."
+        """
+        associated: dict[str, str] = {}
+        for member_name, alias in node.members:
+            # 1. If there is no definition named N in the imported
+            #    sequence's scope, an error is raised.
+            definition = imported_scope.own_symbols().get(member_name)
+            if definition is None:
+                state.err(
+                    f"The imported sequence has no definition named "
+                    f"'{member_name}'",
+                    node,
+                )
+                return
+            # 2. Otherwise, let D be that definition.
+            self._underscore_warning(member_name, node, state)
+            name = alias if alias is not None else member_name
+            # Diagnostic beyond IMPORTS.md: one members list importing one
+            # member under one name more than once folds like any
+            # re-association, but is a near-certain typo.
+            if associated.get(name) == member_name:
+                state.warn(
+                    WarningType.IMPORT_DUPLICATE,
+                    f"'{member_name}' is imported more than once by this statement",
+                    node,
+                )
+            associated[name] = member_name
+            # 3. If the optional alias A is provided, associate A with D in
+            #    the importing scope.
+            # 4. Otherwise, associate N with D in the importing scope.
+            self._associate(importing_scope, name, definition, node, state)
             if state.errors:
                 return
 
-    def _expand(self, analysis: ImportAnalysis, state) -> list:
-        """Expand an import statement into the flat list of syntactic
-        definitions it makes, ordered so that every ModuleDef precedes the
-        definitions at longer paths it encloses:
-
-          * `from` forms and `import a.b.c.member as x` make AliasDefs;
-          * `import a.b.c as x` makes one SequenceDef at path (x,);
-          * `import a.b.c[.member]` makes a ModuleDef per proper prefix of the
-            sequence path and a SequenceDef at the full path.
-
-        On error, reports it via state.err and returns whatever definitions
-        were built so far. The caller checks state.errors before installing
-        any of them, so a partial list is never bound."""
-        node = analysis.node
-        target_scope = state.enclosing_scope[analysis.target.block]
-
-        # `from a.b.c import *` aliases the sequence's public definitions,
-        # each under its own name. A star import takes only the
-        # public surface: underscore definitions are internal and stay unbound
-        if node.is_from and node.is_star:
-            return [
-                AliasDef(name, sym)
-                for name, sym in target_scope.own_symbols().items()
-                if not name.startswith("_")
-            ]
-
-        # `from a.b.c import m [as n], ...` aliases looked-up definitions
-        # under bare names, introducing no modules.
-        if node.is_from:
-            results = []
-            bound: dict[str, Symbol] = {}
-            for member_name, alias in node.members:
-                sym = self._lookup_definition(target_scope, member_name, node, state)
-                if sym is None:
-                    return results
-                self._maybe_underscore_warn(member_name, node, state)
-                name = alias or member_name
-                # One member list defining the same alias twice is legal (it
-                # folds like any two aliases of one definition) but almost
-                # certainly a typo: warn. One name for two DIFFERENT
-                # definitions is left to the ordinary collision error.
-                if bound.get(name) is sym:
-                    state.warn(
-                        WarningType.IMPORT_DUPLICATE,
-                        f"'{name}' is imported more than once by this statement",
-                        node,
-                    )
-                bound[name] = sym
-                results.append(AliasDef(name, sym))
-            return results
-
-        # `import a.b.c.member [as alias]`: a single looked-up definition.
-        if analysis.member is not None:
-            sym = self._lookup_definition(target_scope, analysis.member, node, state)
-            if sym is None:
-                return []
-            self._maybe_underscore_warn(analysis.member, node, state)
-            if node.alias is not None:
-                # `import a.b.c.member as x` aliases the definition directly
-                # under x.
-                return [AliasDef(node.alias, sym)]
-            # `import a.b.c.member` defines sequence a.b.c holding just `member`.
-            return self._chain_defs(analysis, {analysis.member: sym})
-
-        # `import a.b.c [as alias]`: the whole sequence.
-        members = target_scope.own_symbols()
+    def _direct_import_statement(
+        self,
+        resolved: ResolvedImport,
+        importing_scope: Scope,
+        imported_scope: Scope,
+        state: CompileState,
+    ):
+        """ "Otherwise, the import statement is a direct import statement.
+        Let D be the imported sequence definition:
+        1. If the optional alias A is provided, A is associated with D in
+           the importing scope.
+        2. Otherwise, `import_path` is the qualified name of D in the
+           importing sequence: each proper, non-empty prefix of
+           `import_path` is associated with the directory definition it
+           refers to, and `import_path` is associated with D."
+        """
+        node = resolved.node
         if node.alias is not None:
-            # `import a.b.c as x` defines the sequence at path (x,): no
-            # enclosing directories are named, so no module definitions.
-            return [SequenceDef((node.alias,), analysis.target.file_path, members)]
-        return self._chain_defs(analysis, members)
-
-    def _chain_defs(self, analysis: ImportAnalysis, members) -> list:
-        """The definitions a chain-introducing import makes: a module
-        definition per enclosing directory on the sequence path (each proper,
-        non-empty prefix), then the sequence definition at the full path."""
-        path = tuple(analysis.seq_path)
-        defs = [ModuleDef(path[:i]) for i in range(1, len(path))]
-        defs.append(SequenceDef(path, analysis.target.file_path, members))
-        return defs
-
-    def _define(self, d, scope: Scope, roots, node, state):
-        """Install one syntactic definition.
-
-        An AliasDef binds directly into the importer's scope. A module or
-        sequence definition combines with the symbol its qualified name
-        already denotes: a root-level name denotes what the scope binds (with
-        the result held in *roots* for the caller to bind last), and a deeper
-        name denotes a member of the module at its path prefix -- which this
-        same statement defined just before it, prefixes first."""
-        if is_instance_compat(d, AliasDef):
-            self._define_name(scope, d.name, d.sym, node, state)
-            return
-        name = d.path[-1]
-        if len(d.path) == 1:
-            combined = self._combine(d, self._existing_module(scope, name), node, state)
-            if combined is None:
+            # 1. If the optional alias A is provided, A is associated with D
+            #    in the importing scope.
+            existing = self._module_or_sequence_associated(importing_scope, node.alias)
+            definition = self._sequence_definition(
+                existing, node.alias, resolved, imported_scope, state
+            )
+            if definition is None:
                 return
-            roots[name] = combined
+            self._associate(importing_scope, node.alias, definition, node, state)
             return
-        container = roots[d.path[0]]
-        for seg in d.path[1:-1]:
-            container = container[seg]
-            assert is_instance_compat(
-                container, ModuleSymbol
-            ) and not is_instance_compat(
-                container, SequenceSymbol
-            ), f"prefix {seg} was defined as a module by an earlier ModuleDef"
-        combined = self._combine(d, container.get(name), node, state)
-        if combined is None:
-            return
-        container[name] = combined
+        # 2. Otherwise, `import_path` is the qualified name of D in the
+        #    importing sequence.
+        self._associate_qualified_name(resolved, importing_scope, imported_scope, state)
 
-    def _combine(self, d, existing, node, state):
-        """Combine one syntactic module/sequence definition *d* with
-        *existing*, the symbol its qualified name already denotes (None if
-        unclaimed), and return the semantic symbol the name denotes after it:
+    def _associate_qualified_name(
+        self,
+        resolved: ResolvedImport,
+        importing_scope: Scope,
+        imported_scope: Scope,
+        state: CompileState,
+    ):
+        """ "`import_path` is the qualified name of D in the importing
+        sequence: each proper, non-empty prefix of `import_path` is
+        associated with the directory definition it refers to, and
+        `import_path` is associated with D." (step 2 of a direct import
+        statement)
 
-          * an unclaimed name: the definition creates its symbol;
-          * module definition meets module symbol: they define the same one
-            semantic module, so the existing symbol stands unchanged;
-          * sequence definition meets sequence symbol naming the SAME file:
-            they define the same one semantic sequence, and this occurrence
-            pools its members into it (idempotently -- same objects);
-          * sequence definition meets sequence symbol naming a DIFFERENT
-            file: a collision;
-          * one name claimed as both a module and a sequence: forbidden,
-            whichever came first.
+        Resolution descended the import path through directories, so the
+        prefix of length k refers to the directory k levels below the root:
+        the (n-k)th parent of the sequence definition's file, for a path of
+        n identifiers."""
+        node = resolved.node
+        path = node.path
+        file_path = resolved.imported_sequence.file_path
 
-        Returns None with the error reported on conflict."""
-        if existing is not None:
-            assert is_instance_compat(existing, ModuleSymbol), existing
-        name = d.path[-1]
-        is_seq_def = is_instance_compat(d, SequenceDef)
+        # The first identifier reuses what the importing scope already
+        # associates its name with, if that is a directory or sequence
+        # symbol (any other occupant is the collision _associate reports
+        # below).
+        existing = self._module_or_sequence_associated(importing_scope, path[0])
+        first_symbol = None
+        container = None
+        for i, identifier in enumerate(path):
+            if i > 0:
+                existing = container.get(identifier)
+            if i == len(path) - 1:
+                symbol = self._sequence_definition(
+                    existing, identifier, resolved, imported_scope, state
+                )
+            else:
+                # The prefix ending at this identifier (length i + 1) refers
+                # to the directory len(path) - (i + 1) levels above F's own.
+                directory = Path(file_path).parents[len(path) - i - 2]
+                symbol = self._directory_definition(
+                    existing, identifier, directory, node, state
+                )
+            if symbol is None:
+                return
+            if container is None:
+                first_symbol = symbol
+            else:
+                container[identifier] = symbol
+            container = symbol
+
+        # Associate the first identifier's name in the importing scope, now
+        # that the chain below it is complete (the name groups it resides in
+        # derive from the definitions it holds -- see _associate).
+        self._associate(importing_scope, path[0], first_symbol, node, state)
+
+    def _directory_definition(
+        self,
+        existing,
+        name: str,
+        directory: Path,
+        node: AstImport,
+        state: CompileState,
+    ):
+        """The symbol for an import-path prefix's name: the directory
+        definition the prefix refers to, as associated in the importing
+        scope.
+
+        One directory is one definition: an existing symbol for the same
+        directory is the same association again and is reused (`import
+        pkg.a` and `import pkg.b` share `pkg`); one for a different
+        directory, for a sequence, or for any other definition is a
+        different definition for the name -- an error."""
         if existing is None:
-            if not is_seq_def:
-                return ModuleSymbol()
-            sym = SequenceSymbol(d.file)
-            sym.update(d.members)
-            return sym
-        if is_instance_compat(existing, SequenceSymbol) != is_seq_def:
+            return DirectorySymbol(str(directory))
+        if is_instance_compat(existing, SequenceSymbol):
             state.err(
-                f"'{name}' is imported both as a module and as a sequence",
+                f"'{name}' is imported both as a directory and as a sequence file",
                 node,
             )
             return None
-        if not is_seq_def:
+        if is_instance_compat(existing, DirectorySymbol):
+            if existing.directory != str(directory):
+                state.err(
+                    f"Import of '{name}' collides with an existing imported "
+                    f"directory of the same name",
+                    node,
+                )
+                return None
             return existing
-        if existing.source_file != d.file:
-            state.err(
-                f"Import of '{name}' collides with an existing imported "
-                f"sequence of the same name",
-                node,
-            )
+        state.err(
+            f"Import of '{name}' collides with an existing definition",
+            node,
+        )
+        return None
+
+    def _sequence_definition(
+        self,
+        existing,
+        name: str,
+        resolved: ResolvedImport,
+        imported_scope: Scope,
+        state: CompileState,
+    ):
+        """ "Let D be the imported sequence definition": the symbol for the
+        name the import statement associates with it (the import path's last
+        identifier, or the alias).
+
+        One file is one definition, so D is the imported sequence's one
+        shared SequenceSymbol: an existing occupant that IS that symbol is
+        the same association again and stands; a different sequence, a
+        directory, or any other definition is a different definition for
+        the name -- an error.
+
+        The symbol's entries are the definitions in the imported sequence's
+        scope, copied in here and refreshed on each association so that
+        definitions bound into that scope by earlier bindings (its own
+        imports) are carried over."""
+        node = resolved.node
+        definition = resolved.imported_sequence.definition
+        assert definition is not None, "an imported sequence always has a file"
+        if existing is not None and existing is not definition:
+            if is_instance_compat(existing, SequenceSymbol):
+                state.err(
+                    f"Import of '{name}' collides with an existing imported "
+                    f"sequence of the same name",
+                    node,
+                )
+            elif is_instance_compat(existing, ModuleSymbol):
+                state.err(
+                    f"'{name}' is imported both as a directory and as a "
+                    f"sequence file",
+                    node,
+                )
+            else:
+                state.err(
+                    f"Import of '{name}' collides with an existing definition",
+                    node,
+                )
             return None
-        existing.update(d.members)
-        return existing
+        definition.update(imported_scope.own_symbols())
+        return definition
 
-    def _lookup_definition(self, target_scope: Scope, name: str, node, state):
-        sym = target_scope.own_symbols().get(name)
-        if sym is None:
-            state.err(
-                f"Imported sequence has no definition named '{name}'",
-                node,
-            )
-        return sym
+    def _module_or_sequence_associated(self, scope: Scope, name: str):
+        """The directory or sequence symbol *name* is already associated
+        with in *scope* itself, or None. Such a symbol may be bound in the
+        callable and/or value group; either will do -- one name denotes one
+        symbol."""
+        for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
+            candidate = scope.get(ng, name)
+            if is_instance_compat(candidate, ModuleSymbol):
+                return candidate
+        return None
 
-    def _maybe_underscore_warn(self, name: str, node, state):
-        if name.startswith("_"):
-            state.warn(
-                WarningType.IMPORT_UNDERSCORE,
-                f"'{name}' is a library-internal definition (its name begins "
-                f"with an underscore)",
-                node,
-            )
+    def _associate(
+        self, scope: Scope, name: str, definition, node: AstImport, state: CompileState
+    ):
+        """Associate *name* with *definition* in the importing scope.
 
-    def _symbol_groups(self, sym) -> set:
-        """The name groups *sym* resides in: a module or sequence symbol
-        resides in the groups of the definitions it (transitively) holds, and
-        so exists exactly where its members can collide."""
-        if is_instance_compat(sym, ModuleSymbol):
-            groups = set()
-            for member in sym.values():
-                groups |= self._symbol_groups(member)
-            return groups
-        if is_instance_compat(sym, CallableSymbol):
-            return {NameGroup.CALLABLE}
-        if is_instance_compat(sym, VariableSymbol):
-            return {NameGroup.VALUE}
-        # Any other value-like definition resolves in the value name group.
-        return {NameGroup.VALUE}
+        "Associating a name with a definition it is already associated with
+        changes nothing. Associating a name with a definition different from
+        the one it is associated with is an error." An occupant that IS
+        *definition* is the same association arriving again -- the same
+        definition reached by two import routes, or the chain this statement
+        just extended -- and stands; any other occupant in a shared name
+        group errors.
 
-    def _define_name(self, scope: Scope, name, sym, node, state):
-        """Bind *sym* under *name* in the importer's scope, in each name group
-        *sym* resides in. A symbol holding no definitions resides in no group
-        and binds nothing (importing an empty sequence introduces nothing).
-
-        This is the scope-level conflict rule: an occupant that IS *sym* is
-        the same semantic definition arriving again -- the chain root this
-        statement merged into, or a definition this name already aliases (two
-        import routes to one definition) -- and stands, folding idempotently.
-        Any other occupant is a second definition of the name in that group:
-        a collision. A name that is instead taken only up the parent chain,
-        in a base (dictionary/builtin) scope, is shadowed: a warning, not an
-        error."""
-        groups = self._symbol_groups(sym)
+        Name groups are beyond IMPORTS.md (see SPEC.md): a name is
+        associated per name group, and a module or sequence symbol resides
+        in the groups of the definitions it (transitively) holds -- a symbol
+        holding no definitions resides in no group, and associating it binds
+        nothing. A name that is taken only in an enclosing (base) scope is
+        shadowed rather than collided with: a warning, not an error."""
+        groups = self._name_groups(definition)
         for ng in groups:
             existing = scope.get(ng, name)
-            if existing is not None and existing is not sym:
+            if existing is not None and existing is not definition:
                 state.err(
                     f"Import of '{name}' collides with an existing definition",
                     node,
@@ -658,7 +821,7 @@ class DefineImports:
                 return
         for ng in groups:
             outer = scope.lookup(ng, name)
-            if outer is not None and outer is not sym:
+            if outer is not None and outer is not definition:
                 warning = (
                     WarningType.SHADOW_CALLABLE
                     if ng is NameGroup.CALLABLE
@@ -669,27 +832,52 @@ class DefineImports:
                     f"Import of '{name}' shadows an existing definition",
                     node,
                 )
-            scope.define(ng, name, sym)
+            scope.define(ng, name, definition)
 
-    def _existing_module(self, scope: Scope, name):
-        """The semantic module/sequence symbol *name* already denotes in
-        *scope*'s own groups, or None. A module can be bound in the callable
-        and/or value group; either does -- one name denotes one symbol."""
-        for ng in (NameGroup.CALLABLE, NameGroup.VALUE):
-            candidate = scope.get(ng, name)
-            if is_instance_compat(candidate, ModuleSymbol):
-                return candidate
-        return None
+    def _name_groups(self, definition, visited: set | None = None) -> set:
+        """The name groups *definition* resides in (see _associate). The
+        *visited* set guards against a sequence symbol reached through
+        itself (a sequence importing itself re-exports its own symbol)."""
+        if is_instance_compat(definition, ModuleSymbol):
+            if visited is None:
+                visited = set()
+            if id(definition) in visited:
+                return set()
+            visited.add(id(definition))
+            groups = set()
+            for held in definition.values():
+                groups |= self._name_groups(held, visited)
+            return groups
+        if is_instance_compat(definition, CallableSymbol):
+            return {NameGroup.CALLABLE}
+        if is_instance_compat(definition, VariableSymbol):
+            return {NameGroup.VALUE}
+        # Any other definition resolves in the value name group.
+        return {NameGroup.VALUE}
+
+    def _underscore_warning(self, name: str, node: AstImport, state: CompileState):
+        """Diagnostic beyond IMPORTS.md (see SPEC.md): an importing sequence
+        naming a definition of an imported sequence by a name that begins
+        with an underscore emits the import-underscore warning."""
+        if name.startswith("_"):
+            state.warn(
+                WarningType.IMPORT_UNDERSCORE,
+                f"'{name}' is a library-internal definition (its name begins "
+                f"with an underscore)",
+                node,
+            )
 
 
 class WarnImportUnderscore(Visitor):
-    """Warn when the importer *uses* an underscore-prefixed imported definition
-    via qualified member access (`lib._helper`).
+    """Diagnostic beyond IMPORTS.md (see SPEC.md): warn when the importing
+    sequence *uses* an underscore-prefixed imported definition via a
+    qualified name (`lib._helper`).
 
-    A bare name never needs this: the only import form that binds a definition
-    under a bare name without naming it is `from ... import *`, and that one
-    does not bind underscore names at all. Import statements that DO name an
-    underscore member warn as `DefineImports` processes the statement."""
+    A bare name never needs this: the only import form that associates a
+    definition under a bare name without naming it is an import-star
+    statement, and that one skips underscore names entirely. Import
+    statements that DO name an underscore definition warn as `BindImports`
+    processes the statement."""
 
     def visit_AstGetAttr(self, node: AstGetAttr, state):
         if not node.attr.startswith("_"):

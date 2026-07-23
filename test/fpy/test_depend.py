@@ -20,7 +20,7 @@ from fpy.test_helpers import default_dictionary
 def _collect(
     seq: str,
     ground_binary_dir: str = None,
-    import_search_dirs: list[str] = None,
+    import_directories: list[str] = None,
     main_file_dir: str = None,
 ) -> list[str]:
     """Run ast_to_dependencies on a sequence string; return the dependency list."""
@@ -28,7 +28,7 @@ def _collect(
     state = get_base_compile_state(
         default_dictionary,
         ground_binary_dir,
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         main_file_dir=main_file_dir,
     )
     body = text_to_ast(seq)
@@ -162,7 +162,7 @@ class TestImports:
             "def add_one(x: U32) -> U32:\n    return U32(x + 1)\n"
         )
         seq = "import lib\n\nresult: U32 = lib.add_one(41)\n"
-        deps = _collect(seq, import_search_dirs=[str(tmp_path)])
+        deps = _collect(seq, import_directories=[str(tmp_path)])
         assert deps == []
 
     def test_seq_run_dep_inside_imported_sequence_is_discovered(self, tmp_path):
@@ -174,7 +174,7 @@ class TestImports:
         )
         seq = "import lib\n\nlib.run_child()\n"
         deps = _collect(
-            seq, ground_binary_dir="/tmp/bins", import_search_dirs=[str(tmp_path)]
+            seq, ground_binary_dir="/tmp/bins", import_directories=[str(tmp_path)]
         )
         assert deps == ["/tmp/bins/child.bin"]
 

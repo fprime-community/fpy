@@ -288,21 +288,38 @@ def is_symbol_an_expr(symbol: "Symbol") -> bool:
 
 
 ModuleSymbol = SymbolTable
-"""a table which may contain sub definitions. Every module definition with one qualified name defines the
-same semantic module symbol."""
+"""a table which may contain sub definitions (a dictionary module, or an
+import-bound directory or sequence symbol)."""
 
 
 class SequenceSymbol(SymbolTable):
-    """The symbol a sequence definition of an import statement defines, which
-    may contain sub definitions, namely (some of) the named sequence file's definitions
+    """A sequence definition: a sequence file, as a definition (IMPORTS.md
+    "File system definitions").
 
-    Sequence definitions with one qualified name define the same one semantic
-    sequence symbol iff they name the SAME file (a file imported more than one
-    way is idempotent), and collide if they name DIFFERENT files."""
+    One file is one definition, so there is one SequenceSymbol per sequence
+    file, shared by every scope that imports it. Its entries are the
+    definitions in the scope of its sequence, filled in by BindImports once
+    the sequence is compiled."""
 
     def __init__(self, source_file=None, parent=None):
         super().__init__(parent=parent)
         self.source_file = source_file
+
+
+class DirectorySymbol(SymbolTable):
+    """A directory definition -- a directory, as a definition -- as
+    associated in one importing scope (IMPORTS.md "File system
+    definitions").
+
+    One directory is one definition, so two directory symbols stand for the
+    same definition iff their `directory` is the same path. Each importing
+    scope holds its own DirectorySymbol per bound name, whose entries are
+    only the associations that scope's import statements made at longer
+    qualified names -- not every definition in the directory."""
+
+    def __init__(self, directory=None, parent=None):
+        super().__init__(parent=parent)
+        self.directory = directory
 
 
 Symbol = typing.Union[

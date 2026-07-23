@@ -75,8 +75,9 @@ def compile_seq(
     ignored_warnings=None,
     error_warnings=None,
     expected_warnings=None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     main_file_dir: str | None = None,
+    main_file_path: str | None = None,
 ) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
     """Compile a sequence string and return (state, directives, arg_types).
 
@@ -91,8 +92,9 @@ def compile_seq(
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
         ),
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         main_file_dir=main_file_dir,
+        main_file_path=main_file_path,
     )
 
     try:
@@ -109,7 +111,7 @@ def compile_seq(
 def compile_seq_wasm(
     seq: str,
     ground_binary_dir: str = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
     expected_warnings=None,
@@ -128,7 +130,7 @@ def compile_seq_wasm(
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
         ),
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         main_file_dir=main_file_dir,
     )
 
@@ -146,7 +148,7 @@ def compile_seq_wasm(
 def run_seq_wasm(
     seq: str,
     ground_binary_dir: str = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
 ) -> int:
@@ -163,7 +165,7 @@ def run_seq_wasm(
     wasm = compile_seq_wasm(
         seq,
         ground_binary_dir,
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
@@ -316,19 +318,19 @@ def run_seq(
 def assert_compile_success(
     fprime_test_api,
     seq: str,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     expected_warnings=None,
 ):
     if USE_WASM:
         compile_seq_wasm(
             seq,
-            import_search_dirs=import_search_dirs,
+            import_directories=import_directories,
             expected_warnings=expected_warnings,
         )
         return
     compile_seq(
         seq,
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         expected_warnings=expected_warnings,
     )
 
@@ -345,7 +347,7 @@ def assert_run_success(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
 ):
@@ -353,7 +355,7 @@ def assert_run_success(
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
-            import_search_dirs=import_search_dirs,
+            import_directories=import_directories,
             expected_warnings=expected_warnings,
             main_file_dir=main_file_dir,
         )
@@ -363,7 +365,7 @@ def assert_run_success(
     _, directives, arg_name_types = compile_seq(
         seq,
         ground_binary_dir=ground_binary_dir,
-        import_search_dirs=import_search_dirs,
+        import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
@@ -396,7 +398,7 @@ def assert_compile_failure(
     seq: str,
     match: str = None,
     ground_binary_dir: str = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
     expected_warnings=None,
@@ -407,7 +409,7 @@ def assert_compile_failure(
             compile_seq_wasm(
                 seq,
                 ground_binary_dir=ground_binary_dir,
-                import_search_dirs=import_search_dirs,
+                import_directories=import_directories,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
                 expected_warnings=expected_warnings,
@@ -417,7 +419,7 @@ def assert_compile_failure(
             compile_seq(
                 seq,
                 ground_binary_dir=ground_binary_dir,
-                import_search_dirs=import_search_dirs,
+                import_directories=import_directories,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
                 expected_warnings=expected_warnings,
@@ -446,7 +448,7 @@ def assert_run_failure(
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
 ):
     assert not (
         error_code is not None and validation_error
@@ -461,7 +463,7 @@ def assert_run_failure(
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
-            import_search_dirs=import_search_dirs,
+            import_directories=import_directories,
         )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
@@ -475,7 +477,7 @@ def assert_run_failure(
         return
 
     _, directives, arg_name_types = compile_seq(
-        seq, ground_binary_dir=ground_binary_dir, import_search_dirs=import_search_dirs
+        seq, ground_binary_dir=ground_binary_dir, import_directories=import_directories
     )
     arg_types = [t for _, t in arg_name_types]
     args_bytes = None

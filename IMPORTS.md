@@ -36,32 +36,40 @@ Let the **main sequence** refer to the sequence defined by the input file the us
 
 For each import statement in the AST, including statements added by this process:
 
-1. The import path must [resolve](#import-path-resolution) to an imported sequence file F, otherwise an error is raised.
+1. The import path must [resolve](#import-path-resolution) to a [sequence definition](#file-system-definitions) D, otherwise an error is raised.
 
-2. If F has previously been included in the program's AST, or if it is the main sequence, skip it.
+2. If D has previously been included in the program's AST, or if its sequence is the main sequence, skip it.
 
-3. Otherwise, F is lexed and parsed according to this specification, producing a new block B.
+3. Otherwise, D is lexed and parsed according to this specification, producing a new block B.
 
 4. If B has top-level statements which may have side effects, an error is raised.
 
-5. If B has a sequence metadata statement with one or more formal parameters, an error is raised.
+5. B is included in the program's AST as a sibling of the main sequence's block.
 
-6. B is included in the program's AST as a sibling of the main sequence's block.
+A sequence metadata statement with one or more formal parameters is a statement which may have side effects.
 
 > Cyclical imports are allowed. This is not an issue because import statements cannot have side effects.
 
-#### Import path resolution
-
-Import path resolution is the process by which the qualified identifier `import_path` is resolved to a sequence file.
-
-Each file in the filesystem whose name (without a preceding path) is of the form `<name>.fpy` is a **sequence file**, associated with name `name`.
+#### File system definitions
 
 The **import directories** are an ordered list of absolute paths of directories provided by the environment in which the compiler is invoked.
 > In the command-line compiler, the import directories are passed with `-i`/`--imports`.
 
+Files and directories are definitions:
+* Each file whose name is of the form `<name>.fpy` is a **sequence definition** with name `name`. Its sequence is the sequence the file defines.
+* Each directory is a **directory definition** with the directory's name.
+
+Import paths that resolve to the same file or directory refer to the same definition. Different files or directories are different definitions, whatever their names.
+
+The file system is read only as resolution requires it: an error -- such as a directory containing two definitions with one name -- is raised only when resolution encounters it.
+
+#### Import path resolution
+
+Import path resolution is the process by which the qualified identifier `import_path` is resolved to a definition.
+
 Relative import statements have an **anchor directory**, which is the Nth parent directory of the absolute path of the sequence file containing the statement, where N is the number of dots preceding `import_path`. If the sequence was not read from a file, or if there is no Nth parent directory, an error is raised.
 
-In a directory D, an identifier I refers to the sequence file or directory in D named I, if one exists. If D contains both, an error is raised.
+In a directory D, an identifier I refers to the definition in D named I. If D contains two definitions named I (a sequence file and a subdirectory of one name), an error is raised.
 
 If the import statement is an absolute import statement, resolution of I is attempted in each import directory in order until it succeeds. If I cannot be resolved in any import directory, an error is raised.
 
@@ -69,11 +77,12 @@ If the import statement is a relative import statement, resolution of I is attem
 
 To resolve qualified identifier Q.I:
 1. Recursively resolve Q.
-2. If Q resolves to a sequence file: if the import statement is an import-from statement, an error is raised. Otherwise, I refers to the definition with name I in Q; if none exists, an error is raised.
-3. Otherwise, if Q resolves to a directory, resolution of I is attempted in Q. If I could not be resolved, an error is raised.
-4. Otherwise, Q resolved to neither a directory nor a sequence file, and an error is raised.
+2. If Q refers to a directory definition, resolution of I is attempted in its directory. An error is raised if I could not be resolved.
+3. Otherwise, Q refers to a sequence definition, and an error is raised.
 
-These rules are applied to `import_path`. If it refers to a directory, an error is raised. Otherwise, it refers to a sequence file, or to a definition in one; that file is the **imported sequence file** F.
+These rules are applied to `import_path`. It must refer to a sequence definition; if it refers to a directory definition, an error is raised.
+
+> Unlike Python, an import path cannot reach inside a sequence: `import lib.func` is an error. Write `from lib import func`.
 
 ### Binding
 
@@ -81,23 +90,22 @@ The **importing sequence** is the sequence containing the import statement; the 
 
 An import statement associates one or more qualified names with definitions in the importing scope.
 
-The **imported scope** is the scope of the sequence defined by the imported sequence file.
+Associating a name with a definition it is already associated with changes nothing. Associating a name with a definition different from the one it is associated with is an error.
+
+The **imported sequence definition** is the sequence definition the import statement's import path refers to; the **imported sequence** is its sequence.
 
 For an import-star statement:
-For each name N which refers to a definition D in the imported scope:
+For each definition D with name N in the imported sequence's scope:
 1. If N begins with an underscore, skip it.
 2. Otherwise, associate N with D in the importing scope.
 
 For other import-from statements:
 For each member with name N and optional alias A in the `members` list:
-1. If N is not associated with a definition in the imported scope, an error is raised.
-2. Otherwise, let D be the definition associated with N.
+1. If there is no definition named N in the imported sequence's scope, an error is raised.
+2. Otherwise, let D be that definition.
 3. If the optional alias A is provided, associate A with D in the importing scope.
 4. Otherwise, associate N with D in the importing scope.
 
-Otherwise, the import statement is a direct import statement:
-1. If `import_path` refers to a sequence file, let D be the sequence defined by that file.
-2. Otherwise, `import_path` refers to a definition D in a sequence file.
-3. If the optional alias A is provided, A is associated with D in the importing scope.
-4. Otherwise, `import_path` is the qualified name of D in the importing sequence.
-
+Otherwise, the import statement is a direct import statement. Let D be the imported sequence definition:
+1. If the optional alias A is provided, A is associated with D in the importing scope.
+2. Otherwise, `import_path` is the qualified name of D in the importing sequence: each proper, non-empty prefix of `import_path` is associated with the directory definition it refers to, and `import_path` is associated with D.
