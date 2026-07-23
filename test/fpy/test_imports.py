@@ -11,7 +11,7 @@ path defines a *module*.
 Design decisions encoded here:
   * Imports come in two disjoint resolution styles (PEP-328-like).  An
     ABSOLUTE import (`import foo`, `import a.b.c`) resolves only against the
-    shared base search path `state.import_search_dirs` (the `-i/--include`
+    shared base search path `state.import_search_dirs` (the `-i/--imports`
     directories); the importing file's own location plays no role, so an
     absolute path names the same file in every sequence of a compilation.  A
     RELATIVE import (leading dots: `import .foo`, `import ..util`,

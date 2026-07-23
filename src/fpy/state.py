@@ -199,7 +199,7 @@ class CompileState:
     import_search_dirs: list[str] = field(default_factory=list)
     """the base import search path: directories searched to resolve absolute
     `import` statements to source files. Resolving in more than one of them is
-    an ambiguity error. Populated from `-i/--include` in the CLI."""
+    an ambiguity error. Populated from `-i/--imports` in the CLI."""
 
     main_file_dir: str | None = None
     """directory containing the main sequence, used to anchor its relative

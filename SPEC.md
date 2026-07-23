@@ -701,7 +701,7 @@ An import statement is only valid outside an indentation block.
 
 The **base import search path** is a list of directories provided by the environment in which the compiler is invoked. It is the same for every sequence in a compilation.
 
-> In the command-line compiler, the base import search path is each directory passed with `-i`/`--include`; exact duplicates (after path resolution) are dropped, so a repeated `-i` flag cannot manufacture an ambiguity error. The main sequence's own directory is not implicitly added: a sequence reaches its own siblings with relative imports.
+> In the command-line compiler, the base import search path is each directory passed with `-i`/`--imports`; exact duplicates (after path resolution) are dropped, so a repeated `-i` flag cannot manufacture an ambiguity error. The main sequence's own directory is not implicitly added: a sequence reaches its own siblings with relative imports.
 
 An import statement is resolved against **candidate directories**:
 * The candidate directories of an absolute import are the base import search path. The location of the importing sequence plays no role, so an absolute import path names the same file in every sequence of a compilation.

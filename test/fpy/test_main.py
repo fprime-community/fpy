@@ -127,7 +127,7 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
 
 
 def test_compile_main_include_dirs_are_base_search_path(monkeypatch, tmp_path):
-    """The base search path is exactly the resolved -i/--include dirs; the
+    """The base search path is exactly the resolved -i/--imports dirs; the
     input file's own dir is NOT on it (it anchors relative imports instead,
     via main_file_dir)."""
     input_path = tmp_path / "sub" / "seq.fpy"
@@ -148,7 +148,7 @@ def test_compile_main_include_dirs_are_base_search_path(monkeypatch, tmp_path):
             str(dict_path),
             "-i",
             str(inc_a),
-            "--include",
+            "--imports",
             str(inc_b),
         ],
     )

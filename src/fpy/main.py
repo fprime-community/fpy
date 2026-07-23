@@ -109,15 +109,15 @@ def compile_main(args: list[str] = None):
     )
     arg_parser.add_argument(
         "-i",
-        "--include",
+        "--imports",
         type=Path,
         action="append",
         default=[],
         metavar="DIR",
-        dest="include",
+        dest="imports",
         help=(
             "Directory to search when resolving absolute `import` statements "
-            "(repeatable). An import that resolves in more than one --include "
+            "(repeatable). An import that resolves in more than one --imports "
             "directory is ambiguous and an error."
         ),
     )
@@ -165,13 +165,13 @@ def compile_main(args: list[str] = None):
     if ground_binary_dir is None:
         ground_binary_dir = parsed_args.input.parent
 
-    # absolute imports resolve against the -i/--include directories only; the
+    # absolute imports resolve against the -i/--imports directories only; the
     # input file's own directory anchors its relative imports but is not on
     # the base search path. Exact duplicate directories are dropped: a
     # repeated -i flag carries no information and must not manufacture an
     # ambiguity error.
     import_search_dirs = list(
-        dict.fromkeys(str(d.resolve()) for d in parsed_args.include)
+        dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
     )
 
     # reading dictionary
@@ -626,12 +626,12 @@ def depend_main(args: list[str] = None):
     )
     arg_parser.add_argument(
         "-i",
-        "--include",
+        "--imports",
         type=Path,
         action="append",
         default=[],
         metavar="DIR",
-        dest="include",
+        dest="imports",
         help="Directory to search when resolving absolute `import` statements (repeatable)",
     )
     if args is not None:
@@ -649,7 +649,7 @@ def depend_main(args: list[str] = None):
         ground_binary_dir = parsed_args.input.parent
 
     import_search_dirs = list(
-        dict.fromkeys(str(d.resolve()) for d in parsed_args.include)
+        dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
     )
 
     try:
