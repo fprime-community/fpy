@@ -200,6 +200,7 @@ class WarningType(str, Enum):
     IMPORT_UNDERSCORE = "import-underscore"
     SHADOW_VALUE = "shadow-value"
     SHADOW_CALLABLE = "shadow-callable"
+    UNREACHABLE_TIMEOUT_BODY = "unreachable-timeout-body"
 
     @classmethod
     def from_value(cls, value: str) -> "WarningType":

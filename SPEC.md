@@ -602,29 +602,37 @@ Rule:
 
 `check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]`
 
-`check_clause: "timeout" expr | "persist" expr | "freq" expr`
+`check_clause: "timeout" timeout_value | "persist" expr | "freq" expr`
 
-The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause).
+`timeout_value: expr | "never"`
+
+The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause). Exactly one `timeout` clause is required.
 
 Name:
 
 `check_stmt: "check" condition "timeout" timeout "persist" persist "freq" freq ":" body "timeout" ":" timeout_body`
 
-`condition`, `timeout`, `persist`, and `freq` are resolved in the value name group.
+`condition`, `persist`, and `freq` are resolved in the value name group. `timeout` is either resolved in the value name group or is the keyword `never`.
 
 ## Semantics
 
 If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), an error is raised.
 
-If `timeout` is provided, and cannot be coerced to [`Fw.Time`](todo), an error is raised.
+A `timeout` clause is required. If no `timeout` clause is provided, an error is raised. This forces the author to make an explicit choice about how long the check may run.
+
+The `timeout` clause is either an expression or the keyword `never`:
+* If it is an expression, and it cannot be coerced to [`Fw.TimeIntervalValue`](todo), an error is raised. The expression is a relative interval, measured from the moment the check is entered.
+* If it is `never`, the check never times out.
+
+If `timeout` is `never` and a `timeout_body` is provided, the `unreachable-timeout-body` warning is emitted.
 
 If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeIntervalValue`](todo), an error is raised.
 
 At execution:
-1. If provided, `timeout`, `persist` and `freq` are evaluated and stored.
+1. `persist` and `freq` are evaluated and stored. If `timeout` is not `never`, it is evaluated as a relative interval and the timeout deadline is stored as that interval added to the current time.
 2. If `persist` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
 3. If `freq` is not provided, its stored value is a one-second `Fw.TimeIntervalValue`.
-4. If `timeout` was provided and the current time is [greater](todo) than `timeout`'s stored value, the check times out.
+4. If `timeout` is not `never` and the current time is [greater](todo) than the stored timeout deadline, the check times out.
 5. Evaluate `condition`.
 6. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.
 7. Otherwise, [sleep](todo) for `freq`'s stored duration.
@@ -635,7 +643,8 @@ If the check times out during execution:
 2. Execution continues after the check statement.
 
 > Not providing `persist`, or providing a zero-duration `persist`, means the `condition` only needs to evaluate to `True` once.
-> The timeout defaults to never, and the frequency defaults to once per second.
+> A `timeout` of `never` means the check runs until `condition` persists, however long that takes.
+> The frequency defaults to once per second.
 
 If at any point during execution, two times which are [incomparable](todo) are attempted to be compared, the check statement will halt the program as if by an [assertion](#assert-statement), and display an error code.
 

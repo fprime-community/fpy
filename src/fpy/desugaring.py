@@ -34,6 +34,7 @@ from fpy.state import (
     CompileState,
     ForLoopAnalysis,
 )
+from fpy.error import WarningType
 from fpy.symbols import (
     FieldAccess,
     NameGroup,
@@ -466,8 +467,17 @@ class DesugarCheckStatements(Transformer):
         timed_out_name = self.new_var_name()
         succeeded_name = self.new_var_name()
 
-        # Check if timeout is specified (None means no timeout)
+        # Check if timeout is specified. `never` and an absent clause both leave
+        # node.timeout as None, so the per-iteration timeout check is skipped.
         has_timeout = node.timeout is not None
+
+        # `timeout never` can never time out, so a timeout body is dead code.
+        if node.timeout_never and node.timeout_body is not None:
+            state.warn(
+                WarningType.UNREACHABLE_TIMEOUT_BODY,
+                "This check has 'timeout never', so its timeout body can never run",
+                node.timeout_body,
+            )
 
         # Helper to reference check_state members
         def cs(attr: str):

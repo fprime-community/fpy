@@ -141,7 +141,7 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 
 
-check CdhCore.cmdDisp.CommandsDispatched > 1 persist {seconds: 1}:
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout never persist {seconds: 1}:
     log("more than 30 commands for 15 seconds!")
 check CdhCore.cmdDisp.CommandsDispatched > 1 timeout {seconds: 60} persist {seconds: 1}:
     log("more than 30 commands for 2 seconds!")
@@ -149,7 +149,7 @@ check CdhCore.cmdDisp.CommandsDispatched > 1 timeout {seconds: 60} persist {seco
     log("more than 30 commands for 2 seconds!")
 timeout:
     log("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 1 period {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout never period {seconds: 1}: # check every 1 second
     log("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
     timeout {seconds: 60}

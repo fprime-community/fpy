@@ -14,12 +14,14 @@ capsys
 cbranch
 Ccsds
 Cdh
+cfgv
 chans
 cls
 codegen
 CSPRNG
 ctx
 cuz
+dedenting
 Deframer
 downcasted
 downcasting

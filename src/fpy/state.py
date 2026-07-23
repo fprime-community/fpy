@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Union
 from dataclasses import dataclass, field
 
+import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
 from fpy.ir import Ir, IrLabel
@@ -39,6 +40,8 @@ from fpy.types import (
     BOOL,
     CHECK_STATE,
     CMD_RESPONSE,
+    DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+    DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
     FLAGS_TYPE,
@@ -651,6 +654,14 @@ def get_base_compile_state(
             val.val, int
         ), f"Expected int for constant {key}, got {type(val.val)}"
         return val.val
+
+    # Override the live boolean wire-format constants (read directly by the stateless FpyValue.serialize()) from the dictionary.
+    fpy.types.FW_SERIALIZE_TRUE_VALUE = _const_int(
+        "FW_SERIALIZE_TRUE_VALUE", DEFAULT_FW_SERIALIZE_TRUE_VALUE
+    )
+    fpy.types.FW_SERIALIZE_FALSE_VALUE = _const_int(
+        "FW_SERIALIZE_FALSE_VALUE", DEFAULT_FW_SERIALIZE_FALSE_VALUE
+    )
 
     # The base scope holds the dictionary/builtin names, split by name group:
     # types in the type group; commands, casts, type constructors and macros in
