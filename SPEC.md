@@ -22,8 +22,6 @@ In a syntactic rule:
 * A star suffix `*` means zero or more instances of its preceding rule
 * A question mark suffix `?` means zero or one instances of its preceding rule
 
-A line of the specification may be followed by an italicized *Tests:* line. Each bracketed number links to a test that verifies the behavior; hover over a number to see the test's full `file::class::name`. These links are checked and kept up to date by `verify/spec_links.py`.
-
 # Names and scopes
 
 ## Names
@@ -57,7 +55,7 @@ The list of reserved words is:
 A **symbol** is a language construct that can be referred to by a name in the program. 
 
 The following language constructs may be symbols:
-* [namespaces](#namespaces)
+* [modules](#modules)
 * [variables](#variables)
 * [callables](#callables)
 * [types](#types)
@@ -91,7 +89,7 @@ The list of name groups is:
 * The **[type](#types) name group**
 * The **[callable](#callables) name group**
 
-Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+Each name group only contains names which map to their particular language construct, or modules with the same property, recursively.
 TODO Maybe could remove this line
 
 TODO explain why we need this
@@ -112,9 +110,17 @@ TODO Does it refer to something that has a scope, or does it refer to something 
 
 The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
 
-## Namespaces
+## Shadowing
 
-A **namespace** is a mapping of names to symbols, associated with a name.
+A [definition](#definitions) **shadows** an outer name when it introduces a name into its [resolving scope](#scopes)'s [name group](#name-groups) that is *not* already defined in that scope, but *does* resolve to a symbol in an enclosing scope's same name group.
+
+Each shadowing definition emits a warning named for the name group it shadows:
+* Shadowing a name in the [value name group](#name-groups) emits the `shadow-value` warning.
+* Shadowing a name in the [callable name group](#name-groups) emits the `shadow-callable` warning.
+
+## Modules
+
+A **module** is a mapping of names to symbols, associated with a name.
 
 ## Qualified names
 
@@ -131,32 +137,31 @@ To resolve a qualified name in a name group:
 2. Otherwise:
     1. Resolve the qualifier.
     2. If the qualifier is an expression, resolution is handled by the rules of [member access](#member-access-expression).
-    3. If the qualifier is not a namespace, an error is raised.
-    4. Resolve the name in the qualifier namespace.
+    3. If the qualifier is not a module, an error is raised.
+    4. Resolve the name in the qualifier module.
 
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
 A **fully-qualified name** is a qualified name which is not itself a qualifier.
 TODO names are semantic, ident is syntactic
 TODO you can't actually tell at syntax level what is a fqn
-If a fully-qualified name resolves to a namespace, an error is raised.
-
-*Tests:* [1](test/fpy/test_imports.py#L343 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_module_name_not_usable_as_value")
+If a fully-qualified name resolves to a module, an error is raised.
 
 TODO you can think of the dict as "importing definitions"
 
 
-> Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"
+> Module symbols cannot be used anywhere, so this forces names to resolve to something "useful"
 
 TODO I'm not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING--cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.
 
 ## Definitions
 
-A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as apart of a [scope](#scopes) and [name group](#name-groups).
+A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as a part of a [scope](#scopes) and [name group](#name-groups).
 
 The list of definitions is:
 * [Variable definitions](#variable-definition)
 * [Function definitions](#function-definition)
+* Directory and sequence definitions, associated with names by [import statements](#imports)
 
 # Variables
 
@@ -185,9 +190,11 @@ Name:
 
 ### Semantics
 
-If `lhs` resolves to a previously-defined symbol, an error is raised.
+If `lhs` is already defined in the resolving scope's [value name group](#name-groups), an error is raised.
 
-> This prevents redefining a variable.
+> This prevents redefining a variable in the same scope.
+
+If `lhs` is not defined in the resolving scope, but resolves to a symbol in an enclosing scope's value name group, the definition [shadows](#shadowing) that outer name, and emits the `shadow-value` warning.
 
 If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
@@ -389,7 +396,11 @@ The parameter `name`s are resolved in the value name group.
 
 ### Semantics
 
-If `name` resolves to a previously-defined callable, an error is raised.
+If `name` is already defined in the resolving scope's [callable name group](#name-groups), an error is raised.
+
+> This prevents redefining a function in the same scope.
+
+If `name` is not defined in the resolving scope, but resolves to a callable in an enclosing scope's callable name group, the definition [shadows](#shadowing) that outer callable, and emits the `shadow-callable` warning.
 
 A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
 
@@ -639,107 +650,117 @@ If at any point during execution, two times which are [incomparable](todo) are a
 
 # Imports
 
-> **Note:** The import statement is not yet implemented.
-
-An **import statement** compiles another Fpy source file, called a **module**, and makes the module's [definitions](#definitions) available in the importing file under a [namespace](#namespaces).
+An **import statement** makes another sequence's [function definitions](#function-definition) available in the importing sequence.
 
 ## Syntax
 
 Rule:
 
-`import_stmt: "import" name ("." name)*`
+`import_stmt: import_direct | import_from`
+`import_direct: "import" "."* name ("." name)* ["as" name]`
+`import_from: "from" "."* name ("." name)* "import" ("*" | import_members | "(" import_members [","] ")")`
+`import_members: name ["as" name] ("," name ["as" name])*`
 
 Name:
 
-`import_stmt: "import" module_path`
+`import_direct: "import" [dots] import_path ["as" alias]`
+`import_from: "from" [dots] import_path "import" ("*" | members | "(" members [","] ")")`
+`members: member ["as" alias] ("," member ["as" alias])*`
+`dots: "."+`
 
-The **module path** is the entire dotted sequence of names. The first name of a module path is its **root segment**, and the last is its **leaf segment**.
+In the parenthesized form, the member list may span multiple lines.
 
 An import statement is only valid outside an indentation block.
 
-*Tests:* [1](test/fpy/test_imports.py#L535 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_if_block_fails"), [2](test/fpy/test_imports.py#L552 "test/fpy/test_imports.py::TestImportOnlyAtTopLevel::test_import_inside_function_fails")
+An import statement with one or more leading dots is a **relative import statement**, otherwise it is an **absolute import statement**.
 
-## Module resolution
+> Unlike Python, `import .util` is valid and `from . import util` is not.
 
-The **import search path** is an ordered list of directories provided by the environment in which the compiler is invoked.
+If the `import_from` syntax is used, the import statement is an **import-from statement**. If the `*` syntax is used in an import-from statement, it is an **import-star statement**.
 
-> In the command-line compiler, the import search path is the directory containing the file being compiled, followed by each directory passed with `-i`/`--include`, in order.
-
-A module path `s_0.s_1. ... .s_n` **resolves** in a directory `dir` if the file `dir/s_0/s_1/.../s_n.fpy` exists.
-
-*Tests:* [1](test/fpy/test_imports.py#L705 "test/fpy/test_imports.py::TestImportDottedPaths::test_single_dotted_import"), [2](test/fpy/test_imports.py#L725 "test/fpy/test_imports.py::TestImportDottedPaths::test_deeply_nested_dotted_import"), [3](test/fpy/test_imports.py#L801 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_module_file_beats_namespace_directory"), [4](test/fpy/test_imports.py#L815 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_package_dir_used_for_dotted_descent")
-
-The module path of an import statement is resolved in each directory of the import search path, in order. The file from the first directory in which it resolves is the imported module.
-
-*Tests:* [1](test/fpy/test_imports.py#L856 "test/fpy/test_imports.py::TestImportSearchDirs::test_module_found_in_later_search_dir"), [2](test/fpy/test_imports.py#L871 "test/fpy/test_imports.py::TestImportSearchDirs::test_first_search_dir_shadows_later"), [3](test/fpy/test_imports.py#L887 "test/fpy/test_imports.py::TestImportSearchDirs::test_search_order_respects_dir_order"), [4](test/fpy/test_imports.py#L903 "test/fpy/test_imports.py::TestImportSearchDirs::test_dotted_module_resolved_across_search_dirs")
-
-If the module path resolves in no directory of the import search path, an error is raised.
-
-*Tests:* [1](test/fpy/test_imports.py#L246 "test/fpy/test_imports.py::TestImportErrors::test_missing_module_is_an_error"), [2](test/fpy/test_imports.py#L919 "test/fpy/test_imports.py::TestImportSearchDirs::test_no_search_dirs_cannot_resolve"), [3](test/fpy/test_imports.py#L763 "test/fpy/test_imports.py::TestImportDottedPaths::test_missing_leaf_in_existing_package_is_error"), [4](test/fpy/test_imports.py#L828 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_bare_package_import_is_error"), [5](test/fpy/test_imports.py#L841 "test/fpy/test_imports.py::TestImportPackagePrecedence::test_dotted_leaf_package_import_is_error"), [6](test/fpy/test_imports.py#L297 "test/fpy/test_imports.py::TestImportFileErrors::test_import_path_is_a_directory_fails")
-
-> Every segment except the leaf names a plain directory; no `__init__.fpy`-style marker file is required. Because only the leaf's `.fpy` file satisfies an import, a file `foo.fpy` always takes precedence over a sibling directory `foo/` for `import foo`, while `import foo.bar` descends into the directory `foo/` regardless of whether `foo.fpy` exists. Importing a name that resolves only to a directory is an error: a directory has no code to import.
+If the `import_direct` syntax is used, it is a **direct import statement**.
 
 ## Semantics
 
-If the imported module fails to parse or compile, an error is raised.
+### Constructing the AST
 
-*Tests:* [1](test/fpy/test_imports.py#L279 "test/fpy/test_imports.py::TestImportFileErrors::test_parse_error_in_imported_file_fails")
+Let the **main sequence** refer to the sequence defined by the input file the user passes into the compiler.
 
-> The diagnostic should point into the imported file, not at the import statement.
+For each import statement in the AST, including statements added by this process:
 
-If the imported module declares one or more [sequence arguments](todo), an error is raised.
+1. The import path must [resolve](#import-path-resolution) to a [sequence definition](#file-system-definitions) D, otherwise an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L228 "test/fpy/test_imports.py::TestImportErrors::test_cannot_import_sequence_with_arguments")
+2. If D has previously been included in the program's AST, or if its sequence is the main sequence, skip it.
 
-> A `sequence()` directive with no arguments does not prevent a file from being imported.
+3. Otherwise, D is lexed and parsed according to this specification, producing a new block B.
 
-*Tests:* [1](test/fpy/test_imports.py#L254 "test/fpy/test_imports.py::TestImportErrors::test_no_arg_sequence_is_importable")
+4. If B has top-level statements which may have side effects, an error is raised.
 
-An imported module may itself contain import statements. The semantics of this section apply to them recursively, with the module in the role of the importing file. All import statements in a compilation resolve against the same import search path.
+5. B is included in the program's AST as a sibling of the main sequence's block.
 
-*Tests:* [1](test/fpy/test_imports.py#L574 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_import_works")
+A sequence metadata statement with one or more formal parameters is a statement which may have side effects.
 
-If a module transitively imports itself, an error is raised.
+> Cyclical imports are allowed. This is not an issue because import statements cannot have side effects.
 
-*Tests:* [1](test/fpy/test_imports.py#L635 "test/fpy/test_imports.py::TestImportCycles::test_self_import_is_cycle_error"), [2](test/fpy/test_imports.py#L656 "test/fpy/test_imports.py::TestImportCycles::test_mutual_import_is_cycle_error"), [3](test/fpy/test_imports.py#L687 "test/fpy/test_imports.py::TestImportCycles::test_three_way_cycle_error")
+#### File system definitions
 
-The import statement introduces the module path as a chain of namespaces in the global scope. Each [definition](#definitions) at the top level of the module adds its symbol to the leaf namespace: a symbol `x` defined in module `a.b.c` is named `a.b.c.x` in the importing file, and is not accessible under any shorter name.
+The **import directories** are an ordered list of absolute paths of directories provided by the environment in which the compiler is invoked.
+> In the command-line compiler, the import directories are passed with `-i`/`--imports`.
 
-*Tests:* [1](test/fpy/test_imports.py#L85 "test/fpy/test_imports.py::TestImportInlining::test_call_imported_function"), [2](test/fpy/test_imports.py#L123 "test/fpy/test_imports.py::TestImportInlining::test_local_and_imported_names_coexist"), [3](test/fpy/test_imports.py#L324 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_symbol_requires_module_prefix"), [4](test/fpy/test_imports.py#L362 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_same_function_name_in_two_modules_no_collision"), [5](test/fpy/test_imports.py#L743 "test/fpy/test_imports.py::TestImportDottedPaths::test_dotted_symbol_requires_full_path")
+Files and directories are definitions:
+* Each file whose name is of the form `<name>.fpy` is a **sequence definition** with name `name`. Its sequence is the sequence the file defines.
+* Each directory is a **directory definition** with the directory's name.
 
-Per the [name group](#name-groups) rules, these namespaces exist only in the name groups of the symbols they contain.
+Import paths that resolve to the same file or directory refer to the same definition. Different files or directories are different definitions, whatever their names.
 
-*Tests:* [1](test/fpy/test_imports.py#L461 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_coexists_with_local_variable")
+The file system is read only as resolution requires it: an error -- such as a directory containing two definitions with one name -- is raised only when resolution encounters it.
 
-If a name introduced by an import statement is already mapped, in the same name group and the same scope or namespace, to anything other than a namespace introduced by another import statement, an error is raised.
+#### Import path resolution
 
-*Tests:* [1](test/fpy/test_imports.py#L421 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_function"), [2](test/fpy/test_imports.py#L442 "test/fpy/test_imports.py::TestImportNameCollisions::test_import_collides_with_local_variable")
+Import path resolution is the process by which the qualified identifier `import_path` is resolved to a definition.
 
-> Namespaces introduced by imports merge: after `import pkg.a` and `import pkg.b`, the namespace `pkg` contains both `a` and `b`. Because name groups do not intersect, an imported module conflicts only with names in the groups it occupies: a variable `lib` may coexist with an imported module `lib` that defines only functions.
+Relative import statements have an **anchor directory**, which is the Nth parent directory of the absolute path of the sequence file containing the statement, where N is the number of dots preceding `import_path`. If the sequence was not read from a file, or if there is no Nth parent directory, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L780 "test/fpy/test_imports.py::TestImportDottedPaths::test_two_modules_in_same_package_no_collision")
+In a directory D, an identifier I refers to the definition in D named I. If D contains two definitions named I (a sequence file and a subdirectory of one name), an error is raised.
 
-Names within the module are resolved in the module's own global scope. Symbols of the importing file are not visible in the module, and modules imported by the module are not visible in the importing file.
+If the import statement is an absolute import statement, resolution of I is attempted in each import directory in order until it succeeds. If I cannot be resolved in any import directory, an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L392 "test/fpy/test_imports.py::TestImportNamespaceIsolation::test_imported_function_cannot_see_importer_globals"), [2](test/fpy/test_imports.py#L602 "test/fpy/test_imports.py::TestImportTransitive::test_transitive_dependency_is_private")
+If the import statement is a relative import statement, resolution of I is attempted in the anchor directory. An error is raised if I cannot be resolved.
 
-If the same module path is imported more than once in the same file, an error is raised.
+To resolve qualified identifier Q.I:
+1. Recursively resolve Q.
+2. If Q refers to a directory definition, resolution of I is attempted in its directory. An error is raised if I could not be resolved.
+3. Otherwise, Q refers to a sequence definition, and an error is raised.
 
-*Tests:* [1](test/fpy/test_imports.py#L489 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_import_is_error")
+These rules are applied to `import_path`. It must refer to a sequence definition; if it refers to a directory definition, an error is raised.
 
-> This rule is per-file: a file and a module it imports may each import the same module.
+> Unlike Python, an import path cannot reach inside a sequence: `import lib.func` is an error. Write `from lib import func`.
 
-*Tests:* [1](test/fpy/test_imports.py#L506 "test/fpy/test_imports.py::TestImportDuplicates::test_duplicate_across_files_is_allowed")
+### Binding
 
-If the imported module contains top-level statements other than function definitions and import statements, the `import-side-effects` warning is emitted.
+The **importing sequence** is the sequence containing the import statement; the **importing scope** is its scope.
 
-*Tests:* [1](test/fpy/test_imports.py#L158 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effecting_import_warns"), [2](test/fpy/test_imports.py#L172 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_ignored"), [3](test/fpy/test_imports.py#L187 "test/fpy/test_imports.py::TestImportSideEffects::test_side_effect_warning_can_be_escalated"), [4](test/fpy/test_imports.py#L202 "test/fpy/test_imports.py::TestImportSideEffects::test_functions_only_module_does_not_warn"), [5](test/fpy/test_imports.py#L308 "test/fpy/test_imports.py::TestImportFileErrors::test_empty_module_compiles_without_warning")
+An import statement associates one or more qualified names with definitions in the importing scope.
 
-At execution, the imported module's top-level statements execute as part of the importing sequence, at the position of the import statement, in order.
+Associating a name with a definition it is already associated with changes nothing. Associating a name with a definition different from the one it is associated with is an error.
 
-*Tests:* [1](test/fpy/test_imports.py#L106 "test/fpy/test_imports.py::TestImportInlining::test_imported_function_runs"), [2](test/fpy/test_imports.py#L932 "test/fpy/test_imports.py::TestImportVariables::test_top_level_variable_is_side_effect_and_namespaced")
+The **imported sequence definition** is the sequence definition the import statement's import path refers to; the **imported sequence** is its sequence.
 
-> Importing is compile-time source inlining: the imported module does not exist in the compiled output, and no files are resolved or loaded at run time. This is what motivates the `import-side-effects` warning: a file written to run as a standalone sequence typically has top-level commands, and importing it splices that code into the importing sequence, which is rarely intended. A file meant to be imported should contain only definitions. Note that a top-level variable definition is such a side effect (its initialization executes at the import site), while still defining a namespaced symbol: `counter: U32 = 5` in module `m` warns, and is thereafter accessible as `m.counter`.
+For an import-star statement:
+For each definition D with name N in the imported sequence's scope:
+1. If N begins with an underscore, skip it.
+2. Otherwise, associate N with D in the importing scope.
+
+For other import-from statements:
+For each member with name N and optional alias A in the `members` list:
+1. If there is no definition named N in the imported sequence's scope, an error is raised.
+2. Otherwise, let D be that definition.
+3. If the optional alias A is provided, associate A with D in the importing scope.
+4. Otherwise, associate N with D in the importing scope.
+
+Otherwise, the import statement is a direct import statement. Let D be the imported sequence definition:
+1. If the optional alias A is provided, A is associated with D in the importing scope.
+2. Otherwise, `import_path` is the qualified name of D in the importing sequence: each proper, non-empty prefix of `import_path` is associated with the directory definition it refers to, and `import_path` is associated with D.
 
 # Callables
 
@@ -1128,7 +1149,7 @@ Name:
 
 If `parent` is not an expression, an error is raised.
 
-> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
+> Modules, type names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
 
 If the type of `parent` is not a [struct](#structs), an error is raised.
 

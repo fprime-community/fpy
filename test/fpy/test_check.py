@@ -291,14 +291,20 @@ timeout:
 """
 
     def test_never_with_timeout_body_warns(self):
-        state, _, _ = compile_seq(self.NEVER_WITH_TIMEOUT_BODY_SEQ)
+        state, _, _ = compile_seq(
+            self.NEVER_WITH_TIMEOUT_BODY_SEQ,
+            expected_warnings={WarningType.UNREACHABLE_TIMEOUT_BODY},
+        )
         assert any(
             w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
         ), f"expected an unreachable-timeout-body warning, got {state.warnings}"
 
     def test_never_with_timeout_body_still_compiles(self):
         # The warning is non-fatal: compilation succeeds.
-        compile_seq(self.NEVER_WITH_TIMEOUT_BODY_SEQ)
+        compile_seq(
+            self.NEVER_WITH_TIMEOUT_BODY_SEQ,
+            expected_warnings={WarningType.UNREACHABLE_TIMEOUT_BODY},
+        )
 
     def test_never_without_timeout_body_does_not_warn(self):
         state, _, _ = compile_seq("check True timeout never:\n    pass\n")

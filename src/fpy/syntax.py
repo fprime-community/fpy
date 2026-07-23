@@ -330,6 +330,29 @@ class AstSequenceMetadata(Ast):
     parameters: Union[list[tuple[AstIdent, AstExpr]], None]
 
 
+@dataclass
+class AstImport(Ast):
+    """An import statement. Only valid as a top-level statement.
+
+    `import [dots] a.b.c [as alias]` and
+    `from [dots] a.b.c import (* | m1 [as x], ...)`.
+    """
+
+    is_from: bool
+    """True for a `from` import, False for a plain `import`."""
+    num_dots: int
+    """Number of leading dots. 0 means absolute; >0 means relative."""
+    path: list[str]
+    """The dotted path segments after any leading dots (at least one)."""
+    alias: Union[str, None]
+    """The `as` alias for a plain `import ... as alias`, else None."""
+    members: Union[list[tuple[str, Union[str, None]]], None]
+    """For a `from` import: list of (member_name, alias_or_None). None for a
+    plain import. Empty/None when `is_star` is True."""
+    is_star: bool
+    """True for `from ... import *`."""
+
+
 AstStmt = Union[
     AstExpr,
     AstAssign,
@@ -559,6 +582,67 @@ def handle_sequence_argument(meta, args):
     return (name, type_expr)
 
 
+# Sentinel marking a `from ... import *` target.
+_IMPORT_STAR = object()
+
+
+def handle_import_dots(meta, children):
+    """Count the leading dots of a relative import (the DOTS token)."""
+    return len(children[0])
+
+
+def handle_dotted_name(meta, children):
+    """Collect a dotted path's segment names (the `name` children are AstIdent)."""
+    return [str(c.name) for c in children]
+
+
+def handle_import_member(meta, children):
+    """Parse a `from` import member: (name, alias_or_None)."""
+    name = children[0]
+    alias = children[1] if len(children) > 1 else None
+    return (str(name.name), str(alias.name) if alias is not None else None)
+
+
+def handle_import_stmt(meta, children):
+    """Build an AstImport for `import [dots] a.b.c [as alias]`."""
+    dots, path, alias = children
+    num_dots = dots if dots is not None else 0
+    return AstImport(
+        meta,
+        is_from=False,
+        num_dots=num_dots,
+        path=path,
+        alias=(str(alias.name) if alias is not None else None),
+        members=None,
+        is_star=False,
+    )
+
+
+def handle_import_from_stmt(meta, children):
+    """Build an AstImport for `from [dots] a.b.c import (* | members)`."""
+    dots, path, targets = children
+    num_dots = dots if dots is not None else 0
+    if targets is _IMPORT_STAR:
+        return AstImport(
+            meta,
+            is_from=True,
+            num_dots=num_dots,
+            path=path,
+            alias=None,
+            members=None,
+            is_star=True,
+        )
+    return AstImport(
+        meta,
+        is_from=True,
+        num_dots=num_dots,
+        path=path,
+        alias=None,
+        members=targets,
+        is_star=False,
+    )
+
+
 @v_args(meta=True, inline=True)
 class FpyTransformer(Transformer):
     input = no_inline(AstBlock)
@@ -631,6 +715,17 @@ class FpyTransformer(Transformer):
     meta_stmt = AstSequenceMetadata
     sequence_stmt_parameters = no_inline_or_meta(list)
     sequence_stmt_parameter = no_inline(handle_sequence_argument)
+
+    import_stmt = no_inline(handle_import_stmt)
+    import_from_stmt = no_inline(handle_import_from_stmt)
+    import_dots = no_inline(handle_import_dots)
+    dotted_name = no_inline(handle_dotted_name)
+    import_member = no_inline(handle_import_member)
+    import_members = no_inline_or_meta(list)
+
+    @v_args(meta=True, inline=True)
+    def import_star(self, meta):
+        return _IMPORT_STAR
 
     NAME = lambda self, token: token[1:] if token.startswith("$") else token
     DEC_NUMBER = int

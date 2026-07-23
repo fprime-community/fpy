@@ -37,6 +37,7 @@ from fpy.state import (
 from fpy.error import WarningType
 from fpy.symbols import (
     FieldAccess,
+    NameGroup,
     Symbol,
 )
 from fpy.visitors import Transformer
@@ -750,7 +751,15 @@ class DesugarTimeOperators(Transformer):
         state: CompileState,
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
-        func_symbol = state.global_callable_scope.get(func_name)
+        # These operators desugar to compiler-chosen library builtins
+        # (time_add, time_sub, time_cmp, ...), which live in the base scope: the
+        # shared library scope that is the parent of every sequence's scope.
+        # Resolve there directly rather than from any one sequence's scope -- the
+        # target is the same builtin no matter which sequence the operator
+        # appears in, and a sequence-local function that happens to share the
+        # name must not hijack the desugaring (see
+        # test_sequence_function_does_not_hijack_time_desugaring).
+        func_symbol = state.base_scope.lookup(NameGroup.CALLABLE, func_name)
         assert (
             func_symbol is not None
         ), f"Function {func_name} not found in callable scope"
