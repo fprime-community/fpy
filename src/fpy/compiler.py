@@ -446,7 +446,8 @@ def _build_global_scopes(dictionary: str) -> tuple:
     dict_type_name_dict = d["type_defs"]
 
     # Update user-configurable bytecode types (FwChanIdType, FwOpcodeType,
-    # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
+    # FwPrmIdType, FwSizeStoreType, Svc.Fpy.SerialPortIndex) from the dictionary
+    # before they are used.
     update_configurable_types_from_dict(dict_type_name_dict)
 
     # Validate required dictionary types

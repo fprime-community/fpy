@@ -27,7 +27,7 @@ from fpy.types import (
     INTERNAL_STRING,
     RANGE,
     NOTHING,
-    SIZETYPE,
+    SIZED,
     BOOL,
     TIME,
     TIME_BASE,
@@ -1169,8 +1169,8 @@ class PickTypesAndResolveFields(Visitor):
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
         """
-        # The SIZETYPE sentinel accepts any serializable, statically-sized argument.
-        if target.kind == TypeKind.SIZETYPE:
+        # The SIZED sentinel accepts any serializable, statically-sized argument.
+        if target.kind == TypeKind.SIZED:
             return is_sized_type(source)
         return self.find_common_type(source, target) == target
 
@@ -1194,8 +1194,8 @@ class PickTypesAndResolveFields(Visitor):
             )
             return False
 
-        # SIZETYPE is a sentinel; resolve it to the argument's own concrete sized type.
-        if type.kind == TypeKind.SIZETYPE:
+        # SIZED is a sentinel; resolve it to the argument's own concrete sized type.
+        if type.kind == TypeKind.SIZED:
             if unconverted_type.kind == TypeKind.INTERNAL_STRING:
                 # A string literal gets a concrete String[N] sized to the literal.
                 assert is_instance_compat(node, AstString), node

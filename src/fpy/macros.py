@@ -14,8 +14,8 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir, IrIf, IrLabel
 from fpy.syntax import Ast
-from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, SIZETYPE, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
-from fpy.bytecode.directives import FwIndexType
+from fpy.types import INTERNAL_STRING, LOG_SEVERITY, NOTHING, SIZED, TIME, TIME_BASE, BOOL, U8, U16, U32, I64, F64, FpyValue, FpyType
+from fpy.bytecode.directives import SerialPortIndex
 from fpy.state import BuiltinFuncSymbol
 from fpy.bytecode.directives import (
     FloatLessThanDirective,
@@ -213,11 +213,11 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         ],
         const_arg_indices=frozenset({0, 1}),
     ),
-    # Serial write: port typed FwIndexType, value typed SIZETYPE so the normal machinery validates both; codegen.py emits the directive.
+    # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.
     "write_to_port": BuiltinFuncSymbol(
         "write_to_port", NOTHING, [
-            ("port", FwIndexType, None),
-            ("value", SIZETYPE, None),
+            ("port", SerialPortIndex, None),
+            ("value", SIZED, None),
         ],
         lambda n, c: [],  # Placeholder; codegen.py emits the directive
         const_arg_indices=frozenset({0}),  # port must be compile-time constant

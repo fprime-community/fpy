@@ -61,7 +61,7 @@ class TypeKind(str, Enum):
     NOTHING = "Nothing"  # void / no-value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
-    SIZETYPE = "SizeType"  # internal: matches any serializable, statically-sized argument
+    SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
 
 
 # struct format for each primitive kind
@@ -142,7 +142,7 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.NOTHING,
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
-        TypeKind.SIZETYPE,
+        TypeKind.SIZED,
     }
 )
 
@@ -273,7 +273,7 @@ class FpyType:
             return "anonymous struct"
         if self.kind == TypeKind.ANON_ARRAY:
             return "anonymous array"
-        if self.kind == TypeKind.SIZETYPE:
+        if self.kind == TypeKind.SIZED:
             return "a serializable, statically-sized value"
         return self.name
 
@@ -390,7 +390,7 @@ RANGE = FpyType(TypeKind.RANGE, "Range")
 NOTHING = FpyType(TypeKind.NOTHING, "Nothing")
 
 # Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_sized_type).
-SIZETYPE = FpyType(TypeKind.SIZETYPE, "SizeType")
+SIZED = FpyType(TypeKind.SIZED, "Sized")
 
 # Tuples of concrete types for iteration / membership tests
 SPECIFIC_NUMERIC_TYPES = (U32, U16, U64, U8, I16, I32, I64, I8, F32, F64)

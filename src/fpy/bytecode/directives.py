@@ -40,6 +40,9 @@ FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
 FwIndexType = FpyType(TypeKind.I16, "I16")
 
+# write_to_port's port param type; matched by name+kind, constants come from the dictionary at compile time.
+SerialPortIndex = FpyType(TypeKind.ENUM, "Svc.Fpy.SerialPortIndex", enum_dict={}, rep_type=U8)
+
 
 ArrayIndexType = I64
 StackSizeType = U32
@@ -62,6 +65,22 @@ def _update_configurable_type(
     target.name = resolved.name
 
 
+def _update_configurable_enum(
+    target: FpyType, type_defs: dict[str, FpyType], name: str
+) -> None:
+    """Update *target* enum in place from the dictionary; leave placeholder if absent."""
+    if name not in type_defs:
+        return
+    resolved = type_defs[name]
+    assert resolved.kind == TypeKind.ENUM, (
+        f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
+    )
+    target.kind = resolved.kind
+    target.name = resolved.name
+    target.enum_dict = resolved.enum_dict
+    target.rep_type = resolved.rep_type
+
+
 def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     """Update the user-configurable Fw* bytecode types in place from the dictionary."""
     _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
@@ -69,6 +88,7 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
     _update_configurable_type(FwIndexType, type_defs, "FwIndexType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+    _update_configurable_enum(SerialPortIndex, type_defs, "Svc.Fpy.SerialPortIndex")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

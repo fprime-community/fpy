@@ -1,9 +1,16 @@
+import json
+import tempfile
+from pathlib import Path
+
+import fpy.error
 from fpy.bytecode.directives import Directive, PopSerializableDirective
+from fpy.compiler import ast_to_directives, text_to_ast, _build_global_scopes
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_success,
     compile_seq,
+    default_dictionary,
 )
 
 
@@ -12,21 +19,21 @@ class TestWriteToPort:
     def test_basic_u32(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-write_to_port(0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_basic_u8(self, fprime_test_api):
         seq = '''
 value: U8 = 100
-write_to_port(0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_emits_pop_serializable_directive(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-write_to_port(0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -38,11 +45,11 @@ write_to_port(0, value)
         # size should match the byte width of the value
         seq = '''
 v1: U8 = 1
-write_to_port(0, v1)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v1)
 v2: U32 = 2
-write_to_port(1, v2)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, v2)
 v3: F64 = 3.0
-write_to_port(2, v3)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v3)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -55,13 +62,13 @@ write_to_port(2, v3)
         # signed ints serialize at their byte width (I8=1, I16=2, I32=4, I64=8)
         seq = '''
 v1: I8 = -5
-write_to_port(0, v1)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v1)
 v2: I16 = -5
-write_to_port(1, v2)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, v2)
 v3: I32 = -5
-write_to_port(2, v3)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v3)
 v4: I64 = -5
-write_to_port(3, v4)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, v4)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -76,7 +83,7 @@ write_to_port(3, v4)
         # a bool serializes to a single byte
         seq = '''
 v: bool = True
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -87,25 +94,38 @@ write_to_port(0, v)
     def test_max_port_index(self, fprime_test_api):
         seq = '''
 value: U32 = 42
-write_to_port(4, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_non_constant_port_rejected(self, fprime_test_api):
-        # the port index must be a compile-time constant
+        # the port index must be a compile-time constant; an enum-typed variable
+        # has the right type but is not const, so it is rejected
         seq = '''
-port: U32 = 0
+port: Svc.Fpy.SerialPortIndex = Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0
 value: U32 = 42
 write_to_port(port, value)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_enum_port_rejected(self, fprime_test_api):
-        # An enum constant does not coerce to the port's FwIndexType (I16);
-        # enums have no common type with integers under the normal machinery.
+    def test_enum_port_accepted(self, fprime_test_api):
+        # the port is typed Svc.Fpy.SerialPortIndex; the enum constant resolves
+        # to its integer index for the emitted directive
         seq = '''
 value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, value)
+'''
+        directives, _ = compile_seq(fprime_test_api, seq)
+        pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+        assert len(pop_dirs) == 1
+        assert pop_dirs[0].portIndex == 2
+        assert_run_success(fprime_test_api, seq)
+
+    def test_bare_integer_port_rejected(self, fprime_test_api):
+        # a bare integer no longer coerces to the SerialPortIndex enum port type
+        seq = '''
+value: U32 = 42
+write_to_port(0, value)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
@@ -113,7 +133,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
         # A constant string literal has a compile-time-known length, so it is
         # serializable with a statically-known size and is accepted.
         seq = '''
-write_to_port(0, "asdf")
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "asdf")
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -124,7 +144,7 @@ write_to_port(0, "asdf")
 
     def test_empty_constant_string_value(self, fprime_test_api):
         seq = '''
-write_to_port(0, "")
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "")
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -134,14 +154,14 @@ write_to_port(0, "")
     def test_non_constant_size_string_rejected(self, fprime_test_api):
         # A struct containing a runtime-variable-length string is not sized.
         seq = '''
-write_to_port(0, Ref.DpDemo.StructWithStringMembers("a", Ref.DpDemo.StringArray("x", "y")))
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, Ref.DpDemo.StructWithStringMembers("a", Ref.DpDemo.StringArray("x", "y")))
 '''
         assert_compile_failure(fprime_test_api, seq)
 
     def test_string_array_rejected(self, fprime_test_api):
         # an array of runtime-variable-length strings is not sized
         seq = '''
-write_to_port(0, Ref.DpDemo.StringArray("a", "b"))
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, Ref.DpDemo.StringArray("a", "b"))
 '''
         assert_compile_failure(fprime_test_api, seq)
 
@@ -149,7 +169,7 @@ write_to_port(0, Ref.DpDemo.StringArray("a", "b"))
         # the directive survives a serialize/deserialize round trip
         seq = '''
 value: U32 = 42
-write_to_port(1, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, value)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -166,7 +186,7 @@ write_to_port(1, value)
         # a struct-value directive survives a serialize/deserialize round trip
         seq = '''
 v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
-write_to_port(2, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -195,14 +215,14 @@ write_to_port(2, v)
     def test_model_execution_pops_bytes(self, fprime_test_api):
         seq = '''
 value: U32 = 0x12345678
-write_to_port(0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
         assert_run_success(fprime_test_api, seq)
 
     def test_expression_value(self, fprime_test_api):
         # a cast expression is a valid, sized value
         seq = '''
-write_to_port(0, U32(100 + 200))
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, U32(100 + 200))
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -214,9 +234,9 @@ write_to_port(0, U32(100 + 200))
 v1: U32 = 1
 v2: U32 = 2
 v3: U32 = 3
-write_to_port(0, v1)
-write_to_port(1, v2)
-write_to_port(2, v3)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v1)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, v2)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v3)
 '''
         assert_run_success(fprime_test_api, seq)
 
@@ -224,24 +244,24 @@ write_to_port(2, v3)
         # a bare int literal has no serializable (binary) representation; it must
         # be cast to a concrete type first
         seq = '''
-write_to_port(0, 42)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, 42)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
     def test_bare_float_literal_rejected(self, fprime_test_api):
         seq = '''
-write_to_port(0, 3.14)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, 3.14)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
     def test_bare_expression_rejected(self, fprime_test_api):
         seq = '''
-write_to_port(4, 100 + 200)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, 100 + 200)
 '''
         assert_compile_failure(fprime_test_api, seq)
 
     def test_float_port_rejected(self, fprime_test_api):
-        # the port index must coerce to FwIndexType (an integer), not a float
+        # the port must be a Svc.Fpy.SerialPortIndex enum constant, not a float
         seq = '''
 v: U32 = 42
 write_to_port(1.5, v)
@@ -252,7 +272,7 @@ write_to_port(1.5, v)
         # Ref.SignalPair: F32 * 2 = 8 bytes
         seq = '''
 v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -264,7 +284,7 @@ write_to_port(0, v)
         # Ref.SignalSet: F32[4] = 16 bytes
         seq = '''
 v: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 4.0)
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -276,7 +296,7 @@ write_to_port(0, v)
         # Ref.Choice: I32 representation = 4 bytes
         seq = '''
 v: Ref.Choice = Ref.Choice.RED
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -288,7 +308,7 @@ write_to_port(0, v)
         # Svc.BlockState: U8 representation = 1 byte
         seq = '''
 v: Svc.BlockState = Svc.BlockState.NO_BLOCK
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -307,7 +327,7 @@ v: Ref.SignalInfo = Ref.SignalInfo( \\
         Ref.SignalPair(0.0, 0.0), \\
         Ref.SignalPair(0.0, 0.0), \\
         Ref.SignalPair(0.0, 0.0)))
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -323,7 +343,7 @@ v: Ref.SignalPairSet = Ref.SignalPairSet( \\
     Ref.SignalPair(3.0, 4.0), \\
     Ref.SignalPair(5.0, 6.0), \\
     Ref.SignalPair(7.0, 8.0))
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -338,7 +358,7 @@ write_to_port(0, v)
 v: Ref.TooManyChoices = Ref.TooManyChoices( \\
     Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.TWO), \\
     Ref.ManyChoices(Ref.Choice.RED, Ref.Choice.BLUE))
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
@@ -356,9 +376,58 @@ v: Ref.ChoiceSlurry = Ref.ChoiceSlurry( \\
     Ref.Choice.ONE, \\
     Ref.ChoicePair(Ref.Choice.ONE, Ref.Choice.TWO), \\
     [1, 2])
-write_to_port(0, v)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
         directives, _ = compile_seq(fprime_test_api, seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 30
+
+    def test_port_enum_sourced_from_dictionary(self, fprime_test_api, tmp_path):
+        # The SerialPortIndex enum is project-customizable: a dictionary that
+        # renames EXAMPLE_PORT_0 must compile using the new name (and reject the
+        # old one), proving the port type is not hardcoded in the compiler.
+        d = json.loads(Path(default_dictionary).read_text())
+        for t in d["typeDefinitions"]:
+            if t.get("qualifiedName") == "Svc.Fpy.SerialPortIndex":
+                for c in t["enumeratedConstants"]:
+                    if c["name"] == "EXAMPLE_PORT_0":
+                        c["name"] = "TIME_SYNC_PORT"
+                t["default"] = "Svc.Fpy.SerialPortIndex.TIME_SYNC_PORT"
+        custom_dict = tmp_path / "RenamedPort.json"
+        custom_dict.write_text(json.dumps(d))
+
+        def compile_with(dict_path: str, seq: str):
+            fpy.error.file_name = "<custom-dict-test>"
+            fpy.error.input_text = seq
+            fpy.error.input_lines = seq.splitlines()
+            _build_global_scopes.cache_clear()
+            body = text_to_ast(seq)
+            assert body is not None
+            return ast_to_directives(body, dict_path)
+
+        try:
+            renamed = compile_with(
+                str(custom_dict),
+                "value: U32 = 42\n"
+                "write_to_port(Svc.Fpy.SerialPortIndex.TIME_SYNC_PORT, value)\n",
+            )
+            assert not isinstance(
+                renamed, (fpy.error.CompileError, fpy.error.BackendError)
+            ), renamed
+            directives, _ = renamed
+            pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
+            assert len(pop_dirs) == 1 and pop_dirs[0].portIndex == 0
+
+            old_name = compile_with(
+                str(custom_dict),
+                "value: U32 = 42\n"
+                "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n",
+            )
+            assert isinstance(
+                old_name, (fpy.error.CompileError, fpy.error.BackendError)
+            ), "renamed dictionary must reject the old EXAMPLE_PORT_0 name"
+        finally:
+            # Drop cached scopes built from the custom dict so other tests see
+            # the standard dictionary again.
+            _build_global_scopes.cache_clear()
