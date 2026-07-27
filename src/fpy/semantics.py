@@ -670,10 +670,17 @@ class CheckAllUnqualifiedIdentifiersResolved(Visitor):
 def is_type_constant_size(type: FpyType) -> bool:
     """Return true if the type has a statically known size.
 
-    Types with strings (directly or nested) don't have constant size because
-    strings can vary in length.
+    Internal Strings have constant sizes, but runtime strings don't -> They 
+    can vary in length.
+    Also allow concrete constant-size types.
     """
-    if type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+    if type.kind == TypeKind.INTERNAL_STRING:
+        return True
+
+    if not type.is_concrete:
+        return False
+
+    if type.kind == TypeKind.STRING:
         return False
 
     if type.kind == TypeKind.ARRAY:
@@ -686,13 +693,6 @@ def is_type_constant_size(type: FpyType) -> bool:
         return True
 
     return True
-
-
-def is_sized_type(type: FpyType) -> bool:
-    """True if serializable with a statically-known size: a string literal, or a concrete constant-size type."""
-    if type.kind == TypeKind.INTERNAL_STRING:
-        return True
-    return type.is_concrete and is_type_constant_size(type)
 
 
 class CheckAllTypesAndCallablesResolved(Visitor):
@@ -1171,7 +1171,7 @@ class PickTypesAndResolveFields(Visitor):
         """
         # The SIZED sentinel accepts any serializable, statically-sized argument.
         if target.kind == TypeKind.SIZED:
-            return is_sized_type(source)
+            return is_type_constant_size(source)
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -1567,15 +1567,15 @@ class PickTypesAndResolveFields(Visitor):
             state.contextual_types[node] = parent_type.elem_type
             return
 
+        if parent_type.kind != TypeKind.ARRAY:
+            state.err(f"{parent_type.display_name} is not an array", node)
+            return
+
         if not is_type_constant_size(parent_type):
             state.err(
                 f"{parent_type.display_name} is not constant-sized (contains strings), cannot access items",
                 node,
             )
-            return
-
-        if parent_type.kind != TypeKind.ARRAY:
-            state.err(f"{parent_type.display_name} is not an array", node)
             return
 
         # coerce the index expression to array index type

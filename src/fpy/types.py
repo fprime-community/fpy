@@ -389,7 +389,7 @@ INTERNAL_STRING = FpyType(TypeKind.INTERNAL_STRING, "InternalString")
 RANGE = FpyType(TypeKind.RANGE, "Range")
 NOTHING = FpyType(TypeKind.NOTHING, "Nothing")
 
-# Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_sized_type).
+# Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_type_constant_size).
 SIZED = FpyType(TypeKind.SIZED, "Sized")
 
 # Tuples of concrete types for iteration / membership tests
