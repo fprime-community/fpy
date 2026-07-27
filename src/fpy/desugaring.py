@@ -6,6 +6,7 @@ from fpy.syntax import (
     Ast,
     AstAssert,
     AstAssign,
+    AstAugAssign,
     AstBinaryOp,
     AstBreak,
     AstCheck,
@@ -338,6 +339,29 @@ class DesugarDefaultArgs(Transformer):
         node.args = resolved_args
 
         return node
+
+
+class DesugarAugmentedAssignments(Transformer):
+    """
+    Desugars augmented assignments (+=, -=, *=, /=, %=, **=, //=) into plain
+    assignments BEFORE semantic analysis:
+
+        <lhs> <op>= <rhs>   becomes   <lhs> = <lhs> <op> <rhs>
+
+    This runs before AssignIds, so we don't need to worry about node IDs.
+    The generated AST nodes go through normal semantic analysis, which also
+    validates that <lhs> is a valid assignment target.
+    """
+
+    def visit_AstAugAssign(self, node: AstAugAssign, state: CompileState):
+        # stripping the trailing "=" from the token yields the binary operator
+        op = BinaryStackOp(node.op[:-1])
+        # the lhs appears both as the assignment target and as the left
+        # operand; they must be distinct node objects so each gets its own
+        # id and semantic info
+        lhs_operand = copy.deepcopy(node.lhs)
+        binop = AstBinaryOp(node.meta, lhs_operand, op, node.rhs)
+        return AstAssign(node.meta, node.lhs, None, binop)
 
 
 class DesugarCheckStatements(Transformer):

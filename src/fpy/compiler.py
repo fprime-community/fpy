@@ -20,6 +20,7 @@ from fpy.codegen_llvm import (
     llvm_module_to_wasm_text,
 )
 from fpy.desugaring import (
+    DesugarAugmentedAssignments,
     DesugarDefaultArgs,
     DesugarForLoops,
     DesugarCheckStatements,
@@ -221,7 +222,10 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     # children. All later passes run on state.root_block.
     _build_root_block(body, state)
 
-    pre_semantic_desugaring_passes = [DesugarCheckStatements()]
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
+    ]
 
     semantics_passes: list[Visitor] = [
         # sequence() metadata, if present, must be the first statement of
@@ -405,6 +409,7 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
     discovery_passes: list[Visitor] = [
         CheckSequenceMetadataDefinedAtTop(),
         DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
         AssignIds(),
         CreateScopes(),
         DefineFunctions(),

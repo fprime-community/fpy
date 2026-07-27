@@ -257,6 +257,16 @@ class AstAssign(Ast):
 
 
 @dataclass
+class AstAugAssign(Ast):
+    """An augmented assignment (lhs op= rhs). Desugared into
+    AstAssign(lhs, None, AstBinaryOp(lhs, op, rhs)) before semantic analysis."""
+
+    lhs: AstExpr
+    op: str
+    rhs: AstExpr
+
+
+@dataclass
 class AstElif(Ast):
     condition: AstExpr
     body: "AstBlock"
@@ -356,6 +366,7 @@ class AstImport(Ast):
 AstStmt = Union[
     AstExpr,
     AstAssign,
+    AstAugAssign,
     AstPass,
     AstIf,
     AstElif,
@@ -372,6 +383,7 @@ AstStmt = Union[
 AstStmtWithExpr = Union[
     AstExpr,
     AstAssign,
+    AstAugAssign,
     AstIf,
     AstElif,
     AstFor,
@@ -384,6 +396,7 @@ AstStmtWithExpr = Union[
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
+    AstAugAssign,
     AstIf,
     AstElif,
     AstFor,
@@ -649,6 +662,7 @@ class FpyTransformer(Transformer):
     pass_stmt = AstPass
 
     assign_stmt = AstAssign
+    aug_assign_stmt = AstAugAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -732,6 +746,7 @@ class FpyTransformer(Transformer):
     FLOAT_NUMBER = Decimal
     HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
+    AUG_ASSIGN_OP = str
     RANGE_OP = str
     STRING = handle_str
     CONST_TRUE = lambda a, b: True
