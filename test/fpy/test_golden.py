@@ -35,7 +35,7 @@ def compile_to_fpybc(source: str) -> str:
     assert body is not None, "Parsing failed"
 
     state = analyze_ast(body, state)
-    directives, _ = analysis_to_fpybc_directives(body, state)
+    directives, _ = analysis_to_fpybc_directives(state)
     return fpybc_directives_to_fpyasm(directives)
 
 

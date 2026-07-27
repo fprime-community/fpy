@@ -486,8 +486,15 @@ class GenerateLlvmModule:
     its storage, then lowers the root block's statements with EmitLlvmStmt.
     """
 
-    def emit(self, body: AstBlock, state: CompileState) -> ir.Module:
-        assert body is state.root, "module generator must be run on the root block"
+    def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
+        assert (
+            root_block is state.root_block
+        ), "module generator must be run on the root block"
+        # The entry function is the main sequence -- the main block -- not the
+        # library root (which also holds the builtin library and the imported
+        # sequences, all definition-only). Functions are lowered on demand at
+        # their call sites, so they need no separate walk here.
+        program = state.main_block
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
 
@@ -499,11 +506,11 @@ class GenerateLlvmModule:
         self._declare_flags(module, state)
         # Declare storage for every variable in this frame up front.
         collector = CollectFrameVariables()
-        collector.run(body, state)
+        collector.run(program, state)
         for sym in collector.symbols:
             self._declare_variable(module, builder, sym)
 
-        EmitLlvmStmt(builder).emit(body, state)
+        EmitLlvmStmt(builder).emit(program, state)
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
