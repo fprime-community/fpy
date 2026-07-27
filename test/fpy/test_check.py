@@ -51,8 +51,8 @@ assert eval_count >= 3
     def test_check_condition_must_persist(self, fprime_test_api):
         """Test that condition must remain true for the full persist duration.
 
-    If condition becomes false before persist duration, the timer resets.
-    """
+        If condition becomes false before persist duration, the timer resets.
+        """
         seq = """
 # Condition returns true twice, then false, then true forever
 call_count: I64 = 0
@@ -97,6 +97,7 @@ timeout:
 """
         assert_run_success(fprime_test_api, seq, timeout_s=6)
 
+
 class TestCheckBodies:
 
     def test_check_body_runs_on_success(self, fprime_test_api):
@@ -120,6 +121,7 @@ timeout:
 assert timeout_body_ran
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestCheckClauses:
 
@@ -163,6 +165,7 @@ timeout:
 assert result
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestCheckNesting:
 
@@ -256,6 +259,7 @@ assert checks_passed == 3
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestCheckTypeErrors:
 
     def test_check_timeout_wrong_type(self, fprime_test_api):
@@ -314,6 +318,7 @@ check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0)
 """
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestCheckDuplicateClauses:
 
     def test_check_duplicate_timeout(self, fprime_test_api):
@@ -339,6 +344,7 @@ check True period Fw.TimeIntervalValue(1, 0) period Fw.TimeIntervalValue(2, 0):
     pass
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestCheckMultilineSyntax:
 
@@ -484,6 +490,7 @@ assert check_passed
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestCheckControlFlow:
 
     def test_check_break_not_allowed(self, fprime_test_api):
@@ -579,7 +586,8 @@ def check_needs_return() -> I64:
 
     def test_check_no_timeout_clause_still_needs_return(self, fprime_test_api):
         """Test that a check with no timeout clause still needs a trailing return
-    because the desugared if/else has an implicit else branch that doesn't return."""
+        because the desugared if/else has an implicit else branch that doesn't return.
+        """
         seq = """
 def check_no_timeout() -> I64:
     check True:

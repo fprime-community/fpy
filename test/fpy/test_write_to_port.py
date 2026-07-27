@@ -2,9 +2,12 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 import fpy.error
 from fpy.bytecode.directives import Directive, PopSerializableDirective
-from fpy.compiler import ast_to_directives, text_to_ast, _build_global_scopes
+from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
+from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -35,7 +38,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 value: U32 = 42
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].portIndex == 0
@@ -51,7 +54,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, v2)
 v3: F64 = 3.0
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v3)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 3
         assert pop_dirs[0].size == 1  # U8
@@ -70,7 +73,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v3)
 v4: I64 = -5
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, v4)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 4
         assert pop_dirs[0].size == 1  # I8
@@ -85,7 +88,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, v4)
 v: bool = True
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 1
@@ -115,7 +118,7 @@ write_to_port(port, value)
 value: U32 = 42
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, value)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].portIndex == 2
@@ -135,7 +138,7 @@ write_to_port(0, value)
         seq = '''
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "asdf")
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         # FwSizeStoreType (U16, 2 bytes) length prefix + 4 bytes of "asdf"
@@ -146,7 +149,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "asdf")
         seq = '''
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "")
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 2  # just the U16 length prefix
@@ -171,7 +174,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, Ref.DpDemo.StringArray("a"
 value: U32 = 42
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, value)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
 
@@ -188,7 +191,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, value)
 v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
 
@@ -224,7 +227,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
         seq = '''
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, U32(100 + 200))
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 4  # U32
@@ -274,7 +277,7 @@ write_to_port(1.5, v)
 v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 8
@@ -286,7 +289,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 v: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 4.0)
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 16
@@ -298,7 +301,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 v: Ref.Choice = Ref.Choice.RED
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 4
@@ -310,7 +313,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 v: Svc.BlockState = Svc.BlockState.NO_BLOCK
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 1
@@ -329,7 +332,7 @@ v: Ref.SignalInfo = Ref.SignalInfo( \\
         Ref.SignalPair(0.0, 0.0)))
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 52
@@ -345,7 +348,7 @@ v: Ref.SignalPairSet = Ref.SignalPairSet( \\
     Ref.SignalPair(7.0, 8.0))
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 32
@@ -360,7 +363,7 @@ v: Ref.TooManyChoices = Ref.TooManyChoices( \\
     Ref.ManyChoices(Ref.Choice.RED, Ref.Choice.BLUE))
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 16
@@ -378,7 +381,7 @@ v: Ref.ChoiceSlurry = Ref.ChoiceSlurry( \\
     [1, 2])
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
 '''
-        directives, _ = compile_seq(fprime_test_api, seq)
+        _, directives, _ = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
         assert len(pop_dirs) == 1
         assert pop_dirs[0].size == 30
@@ -402,31 +405,28 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
             fpy.error.input_text = seq
             fpy.error.input_lines = seq.splitlines()
             _build_global_scopes.cache_clear()
+            state = get_base_compile_state(dict_path)
             body = text_to_ast(seq)
             assert body is not None
-            return ast_to_directives(body, dict_path)
+            state = analyze_ast(body, state)
+            return analysis_to_fpybc_directives(body, state)
 
         try:
-            renamed = compile_with(
+            directives, _ = compile_with(
                 str(custom_dict),
                 "value: U32 = 42\n"
                 "write_to_port(Svc.Fpy.SerialPortIndex.TIME_SYNC_PORT, value)\n",
             )
-            assert not isinstance(
-                renamed, (fpy.error.CompileError, fpy.error.BackendError)
-            ), renamed
-            directives, _ = renamed
             pop_dirs = [d for d in directives if isinstance(d, PopSerializableDirective)]
             assert len(pop_dirs) == 1 and pop_dirs[0].portIndex == 0
 
-            old_name = compile_with(
-                str(custom_dict),
-                "value: U32 = 42\n"
-                "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n",
-            )
-            assert isinstance(
-                old_name, (fpy.error.CompileError, fpy.error.BackendError)
-            ), "renamed dictionary must reject the old EXAMPLE_PORT_0 name"
+            # The renamed dictionary must reject the old EXAMPLE_PORT_0 name.
+            with pytest.raises((fpy.error.CompileError, fpy.error.BackendError)):
+                compile_with(
+                    str(custom_dict),
+                    "value: U32 = 42\n"
+                    "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n",
+                )
         finally:
             # Drop cached scopes built from the custom dict so other tests see
             # the standard dictionary again.

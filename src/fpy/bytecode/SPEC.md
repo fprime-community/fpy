@@ -1162,4 +1162,41 @@ Exposed to sequences via the `write_to_port(port, value)` builtin, where `port` 
 | port_index | FwIndexType   | hardcoded  | Index of the `serialOut` port array to use. |
 | size       | StackSizeType | hardcoded  | Number of bytes to pop and send. |
 | value      | bytes         | stack      | Serialized data to send (popped from stack). |
+Reserved for a future directive that pops a serializable value off the stack. Not yet implemented — the opcode is reserved so its id stays stable for future use.
+
+## FFLOOR (79)
+Floors a float toward negative infinity, pushes result to stack. Infinity and NaN values pass through unchanged, consistent with wasm's `f64.floor`. Used to lower float floor division (`//`).
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| value    | F64      | stack  | Value to floor |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| F64 | The floored value |
+
+**Requirement:**  FPY-SEQ-002
+
+## IABS (80)
+Pops a signed `I64`, pushes its absolute value to the stack. The absolute value of `I64` min (`-2**63`) wraps back to `I64` min rather than trapping, matching libm's `llabs` and LLVM's `llvm.abs`.
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| value    | I64      | stack  | Value to take the absolute value of |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| I64 | The absolute value |
+
+**Requirement:**  FPY-SEQ-002
+
+## FABS (81)
+Pops an `F64`, pushes its absolute value to the stack, consistent with `llvm.fabs`. The sign bit is cleared, so negative zero becomes positive zero and NaN/infinity magnitudes pass through.
+| Arg Name | Arg Type | Source | Description |
+|----------|----------|--------|-------------|
+| value    | F64      | stack  | Value to take the absolute value of |
+
+| Stack Result Type | Description |
+| ------------------|-------------|
+| F64 | The absolute value |
+
+**Requirement:**  FPY-SEQ-002
 

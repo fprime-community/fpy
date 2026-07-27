@@ -24,7 +24,6 @@ from fpy.types import (
     BOOL,
 )
 
-
 # Map of representation type name -> expected by enum rep_type
 ENUM_REP_TYPES = {"U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64"}
 

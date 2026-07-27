@@ -1,0 +1,3 @@
+[submodule "test/spacewasm"]
+	path = test/spacewasm
+	url = https://github.com/nasa/spacewasm

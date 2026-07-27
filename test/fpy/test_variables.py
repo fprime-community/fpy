@@ -58,6 +58,7 @@ var: Fw.Time.asdf = 0
 
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestAssignment:
 
     def test_create_after_assign_var(self, fprime_test_api):
@@ -150,6 +151,7 @@ Svc.ComQueueDepth = 55
 CdhCore.cmdDisp.CMD_NO_OP = 55
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestScoping:
 

@@ -13,16 +13,14 @@ import pytest
 from pathlib import Path
 
 import fpy.error
-from fpy.compiler import text_to_ast, ast_to_directives
-from fpy.bytecode.assembler import directives_to_fpybc
-
+from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
+from fpy.state import get_base_compile_state
+from fpy.bytecode.assembler import fpybc_directives_to_fpyasm
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 # Path to the test dictionary
-DEFAULT_DICTIONARY = str(
-    Path(__file__).parent / "RefTopologyDictionary.json"
-)
+DEFAULT_DICTIONARY = str(Path(__file__).parent / "RefTopologyDictionary.json")
 
 
 def compile_to_fpybc(source: str) -> str:
@@ -30,23 +28,22 @@ def compile_to_fpybc(source: str) -> str:
     fpy.error.file_name = "<golden-test>"
     fpy.error.input_text = source
     fpy.error.input_lines = source.splitlines()
-    
+
+    state = get_base_compile_state(DEFAULT_DICTIONARY)
+
     body = text_to_ast(source)
     assert body is not None, "Parsing failed"
-    
-    result = ast_to_directives(body, DEFAULT_DICTIONARY)
-    assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
-        f"Compilation failed: {result}"
-    
-    directives, _ = result
-    return directives_to_fpybc(directives)
+
+    state = analyze_ast(body, state)
+    directives, _ = analysis_to_fpybc_directives(body, state)
+    return fpybc_directives_to_fpyasm(directives)
 
 
 def get_golden_test_cases():
     """Find all golden test cases (pairs of .fpy and .fpybc files)."""
     if not GOLDEN_DIR.exists():
         return []
-    
+
     test_cases = []
     for fpy_file in sorted(GOLDEN_DIR.glob("*.fpy")):
         fpybc_file = fpy_file.with_suffix(".fpybc")
@@ -62,12 +59,12 @@ def test_golden(test_name: str):
     """
     fpy_file = GOLDEN_DIR / f"{test_name}.fpy"
     fpybc_file = GOLDEN_DIR / f"{test_name}.fpybc"
-    
+
     source = fpy_file.read_text()
     expected = fpybc_file.read_text()
-    
+
     actual = compile_to_fpybc(source)
-    
+
     assert actual == expected, (
         f"Golden test '{test_name}' failed.\n"
         f"Expected:\n{expected}\n"
@@ -81,10 +78,10 @@ def update_golden(test_name: str):
     """
     fpy_file = GOLDEN_DIR / f"{test_name}.fpy"
     fpybc_file = GOLDEN_DIR / f"{test_name}.fpybc"
-    
+
     source = fpy_file.read_text()
     actual = compile_to_fpybc(source)
-    
+
     fpybc_file.write_text(actual)
     print(f"Updated {fpybc_file}")
 

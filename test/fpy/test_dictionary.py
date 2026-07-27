@@ -1,4 +1,3 @@
-
 import json
 import os
 import tempfile
@@ -394,12 +393,18 @@ class TestTypeDefArray:
                 "kind": "array",
                 "qualifiedName": "M.Single",
                 "size": 1,
-                "elementType": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                "elementType": {
+                    "name": "U32",
+                    "kind": "integer",
+                    "size": 32,
+                    "signed": False,
+                },
                 "default": [0],
             }
         ]
         result = _parse_type_definitions(raw)
         assert result["M.Single"].length == 1
+
 
 class TestTypeDefEnum:
     """Spec §Type Definitions / Enumeration Type Definition."""
@@ -437,7 +442,12 @@ class TestTypeDefEnum:
             {
                 "kind": "enum",
                 "qualifiedName": "M.E",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
                 "enumeratedConstants": [{"name": "A", "value": 0}],
                 "default": "M.E.A",
             }
@@ -445,7 +455,9 @@ class TestTypeDefEnum:
         result = _parse_type_definitions(raw)
         assert result["M.E"].rep_type is U8
 
-    @pytest.mark.parametrize("rep", ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64"])
+    @pytest.mark.parametrize(
+        "rep", ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64"]
+    )
     def test_all_valid_enum_rep_types(self, rep):
         """Spec allows U8-U64, I8-I64 as representation types."""
         signed = rep.startswith("I")
@@ -454,7 +466,12 @@ class TestTypeDefEnum:
             {
                 "kind": "enum",
                 "qualifiedName": f"M.E_{rep}",
-                "representationType": {"name": rep, "kind": "integer", "size": size, "signed": signed},
+                "representationType": {
+                    "name": rep,
+                    "kind": "integer",
+                    "size": size,
+                    "signed": signed,
+                },
                 "enumeratedConstants": [{"name": "X", "value": 0}],
                 "default": f"M.E_{rep}.X",
             }
@@ -468,7 +485,12 @@ class TestTypeDefEnum:
             {
                 "kind": "enum",
                 "qualifiedName": "M.Big",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
                 "enumeratedConstants": consts,
                 "default": "M.Big.C0",
             }
@@ -490,13 +512,23 @@ class TestTypeDefStruct:
                 "annotation": "Struct",
                 "members": {
                     "w": {
-                        "type": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "signed": False,
+                            "size": 32,
+                        },
                         "index": 0,
                         "size": 3,
                         "annotation": "This is an array",
                     },
                     "x": {
-                        "type": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "signed": False,
+                            "size": 32,
+                        },
                         "format": "the count is {}",
                         "index": 1,
                     },
@@ -529,9 +561,33 @@ class TestTypeDefStruct:
                 "kind": "struct",
                 "qualifiedName": "M.Rev",
                 "members": {
-                    "z": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 2},
-                    "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
-                    "m": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 1},
+                    "z": {
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
+                        "index": 2,
+                    },
+                    "a": {
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
+                        "index": 0,
+                    },
+                    "m": {
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
+                        "index": 1,
+                    },
                 },
                 "default": {"z": 0, "a": 0, "m": 0},
             }
@@ -545,16 +601,35 @@ class TestTypeDefStruct:
             {
                 "kind": "enum",
                 "qualifiedName": "M.Status",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                "enumeratedConstants": [{"name": "OK", "value": 0}, {"name": "ERR", "value": 1}],
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
+                "enumeratedConstants": [
+                    {"name": "OK", "value": 0},
+                    {"name": "ERR", "value": 1},
+                ],
                 "default": "M.Status.OK",
             },
             {
                 "kind": "struct",
                 "qualifiedName": "M.Result",
                 "members": {
-                    "code": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
-                    "status": {"type": {"name": "M.Status", "kind": "qualifiedIdentifier"}, "index": 1},
+                    "code": {
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
+                        "index": 0,
+                    },
+                    "status": {
+                        "type": {"name": "M.Status", "kind": "qualifiedIdentifier"},
+                        "index": 1,
+                    },
                 },
                 "default": {"code": 0, "status": "M.Status.OK"},
             },
@@ -569,7 +644,15 @@ class TestTypeDefStruct:
                 "kind": "struct",
                 "qualifiedName": "M.One",
                 "members": {
-                    "only": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
+                    "only": {
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
+                        "index": 0,
+                    },
                 },
                 "default": {"only": 0},
             }
@@ -591,8 +674,14 @@ class TestTypeDefStruct:
                 "kind": "struct",
                 "qualifiedName": "M.Pose",
                 "members": {
-                    "position": {"type": {"name": "M.Vec3", "kind": "qualifiedIdentifier"}, "index": 0},
-                    "heading": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
+                    "position": {
+                        "type": {"name": "M.Vec3", "kind": "qualifiedIdentifier"},
+                        "index": 0,
+                    },
+                    "heading": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 1,
+                    },
                 },
                 "default": {"position": [0.0, 0.0, 0.0], "heading": 0.0},
             },
@@ -613,7 +702,12 @@ class TestTypeDefAlias:
                 "kind": "alias",
                 "qualifiedName": "M1.A1",
                 "type": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
-                "underlyingType": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
+                "underlyingType": {
+                    "name": "U32",
+                    "kind": "integer",
+                    "signed": False,
+                    "size": 32,
+                },
                 "annotation": "Alias of type U32",
             }
         ]
@@ -627,13 +721,23 @@ class TestTypeDefAlias:
                 "kind": "alias",
                 "qualifiedName": "M1.A1",
                 "type": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
-                "underlyingType": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
+                "underlyingType": {
+                    "name": "U32",
+                    "kind": "integer",
+                    "signed": False,
+                    "size": 32,
+                },
             },
             {
                 "kind": "alias",
                 "qualifiedName": "M1.A2",
                 "type": {"name": "M1.A1", "kind": "qualifiedIdentifier"},
-                "underlyingType": {"name": "U32", "kind": "integer", "signed": False, "size": 32},
+                "underlyingType": {
+                    "name": "U32",
+                    "kind": "integer",
+                    "signed": False,
+                    "size": 32,
+                },
             },
         ]
         result = _parse_type_definitions(raw)
@@ -645,7 +749,12 @@ class TestTypeDefAlias:
             {
                 "kind": "enum",
                 "qualifiedName": "M.E",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
                 "enumeratedConstants": [{"name": "A", "value": 0}],
                 "default": "M.E.A",
             },
@@ -672,7 +781,12 @@ class TestTypeDefAlias:
                 "kind": "alias",
                 "qualifiedName": "M.B",
                 "type": {"name": "U32", "kind": "integer"},
-                "underlyingType": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                "underlyingType": {
+                    "name": "U32",
+                    "kind": "integer",
+                    "size": 32,
+                    "signed": False,
+                },
             },
         ]
         result = _parse_type_definitions(raw)
@@ -714,8 +828,14 @@ class TestTypeDefAlias:
                 "kind": "struct",
                 "qualifiedName": "M.Point",
                 "members": {
-                    "x": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 0},
-                    "y": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
+                    "x": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 0,
+                    },
+                    "y": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 1,
+                    },
                 },
                 "default": {"x": 0.0, "y": 0.0},
             },
@@ -732,7 +852,12 @@ class TestTypeDefAlias:
                 "kind": "array",
                 "qualifiedName": "M.Inner",
                 "size": 2,
-                "elementType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "elementType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
                 "default": [0, 0],
             },
             {
@@ -777,7 +902,15 @@ class TestTypeDefCrossReferences:
                 "kind": "struct",
                 "qualifiedName": "M.Inner",
                 "members": {
-                    "a": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 0},
+                    "a": {
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
+                        "index": 0,
+                    },
                 },
                 "default": {"a": 0},
             },
@@ -785,7 +918,10 @@ class TestTypeDefCrossReferences:
                 "kind": "struct",
                 "qualifiedName": "M.Outer",
                 "members": {
-                    "inner": {"type": {"name": "M.Inner", "kind": "qualifiedIdentifier"}, "index": 0},
+                    "inner": {
+                        "type": {"name": "M.Inner", "kind": "qualifiedIdentifier"},
+                        "index": 0,
+                    },
                     "flag": {"type": {"name": "bool", "kind": "bool"}, "index": 1},
                 },
                 "default": {"inner": {"a": 0}, "flag": False},
@@ -800,7 +936,12 @@ class TestTypeDefCrossReferences:
             {
                 "kind": "enum",
                 "qualifiedName": "M.Dir",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
                 "enumeratedConstants": [
                     {"name": "UP", "value": 0},
                     {"name": "DOWN", "value": 1},
@@ -824,8 +965,14 @@ class TestTypeDefCrossReferences:
                 "kind": "struct",
                 "qualifiedName": "M.Point",
                 "members": {
-                    "x": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 0},
-                    "y": {"type": {"name": "F32", "kind": "float", "size": 32}, "index": 1},
+                    "x": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 0,
+                    },
+                    "y": {
+                        "type": {"name": "F32", "kind": "float", "size": 32},
+                        "index": 1,
+                    },
                 },
                 "default": {"x": 0.0, "y": 0.0},
             },
@@ -863,7 +1010,16 @@ class TestValuePrimitiveInteger:
 
     @pytest.mark.parametrize(
         "typ,val",
-        [(U8, 2), (U16, 1000), (U32, 100000), (U64, 2**60), (I8, -2), (I16, -100), (I32, -100000), (I64, -(2**60))],
+        [
+            (U8, 2),
+            (U16, 1000),
+            (U32, 100000),
+            (U64, 2**60),
+            (I8, -2),
+            (I16, -100),
+            (I32, -100000),
+            (I64, -(2**60)),
+        ],
     )
     def test_integer_values(self, typ, val):
         result = json_default_to_fpy_value(val, typ)
@@ -1043,9 +1199,7 @@ class TestValueNested:
             "M.Pose",
             members=(StructMember("pos", arr), StructMember("heading", F32)),
         )
-        result = json_default_to_fpy_value(
-            {"pos": [1.0, 2.0, 3.0], "heading": 0.5}, st
-        )
+        result = json_default_to_fpy_value({"pos": [1.0, 2.0, 3.0], "heading": 0.5}, st)
         assert len(result.val["pos"].val) == 3
         assert result.val["heading"].val == 0.5
 
@@ -1086,9 +1240,7 @@ class TestValueNested:
             members=(StructMember("x", I32), StructMember("y", I32)),
         )
         arr = FpyType(TypeKind.ARRAY, "M.Pts", elem_type=point, length=2)
-        result = json_default_to_fpy_value(
-            [{"x": 1, "y": 2}, {"x": 3, "y": 4}], arr
-        )
+        result = json_default_to_fpy_value([{"x": 1, "y": 2}, {"x": 3, "y": 4}], arr)
         assert len(result.val) == 2
         assert result.val[0].val["x"] == FpyValue(I32, 1)
         assert result.val[1].val["y"] == FpyValue(I32, 4)
@@ -1114,7 +1266,12 @@ class TestCommands:
                     {
                         "name": "param1",
                         "annotation": "Param 1",
-                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
                         "ref": False,
                     },
                     {
@@ -1230,7 +1387,12 @@ class TestCommands:
         assert id_dict[55].arguments[0][2].kind == TypeKind.ENUM
 
     def test_command_with_array_arg(self):
-        arr = FpyType(TypeKind.ARRAY, "M.StringArray", elem_type=FpyType(TypeKind.STRING, "String_80", max_length=80), length=2)
+        arr = FpyType(
+            TypeKind.ARRAY,
+            "M.StringArray",
+            elem_type=FpyType(TypeKind.STRING, "String_80", max_length=80),
+            length=2,
+        )
         raw = [
             {
                 "name": "M.c1.CommandString",
@@ -1239,7 +1401,10 @@ class TestCommands:
                 "formalParams": [
                     {
                         "name": "arg1",
-                        "type": {"name": "M.StringArray", "kind": "qualifiedIdentifier"},
+                        "type": {
+                            "name": "M.StringArray",
+                            "kind": "qualifiedIdentifier",
+                        },
                         "ref": False,
                         "annotation": "description for argument 1",
                     }
@@ -1254,7 +1419,12 @@ class TestCommands:
         raw = [
             {"name": "A.CMD1", "commandKind": "async", "opcode": 1, "formalParams": []},
             {"name": "A.CMD2", "commandKind": "sync", "opcode": 2, "formalParams": []},
-            {"name": "B.CMD3", "commandKind": "guarded", "opcode": 3, "formalParams": []},
+            {
+                "name": "B.CMD3",
+                "commandKind": "guarded",
+                "opcode": 3,
+                "formalParams": [],
+            },
         ]
         id_dict, name_dict = _parse_commands(raw, {})
         assert len(id_dict) == 3
@@ -1360,7 +1530,9 @@ class TestTelemetryChannels:
         assert ch.ch_type.max_length == 256
 
     def test_channel_enum_type(self):
-        e = FpyType(TypeKind.ENUM, "M.Status", enum_dict={"OK": 0, "ERR": 1}, rep_type=U8)
+        e = FpyType(
+            TypeKind.ENUM, "M.Status", enum_dict={"OK": 0, "ERR": 1}, rep_type=U8
+        )
         raw = [
             {
                 "name": "M.c1.Status",
@@ -1373,9 +1545,21 @@ class TestTelemetryChannels:
 
     def test_multiple_channels(self):
         raw = [
-            {"name": "A.Ch1", "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "id": 1},
-            {"name": "A.Ch2", "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False}, "id": 2},
-            {"name": "B.Ch3", "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "id": 3},
+            {
+                "name": "A.Ch1",
+                "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "id": 1,
+            },
+            {
+                "name": "A.Ch2",
+                "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False},
+                "id": 2,
+            },
+            {
+                "name": "B.Ch3",
+                "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                "id": 3,
+            },
         ]
         id_dict, name_dict = _parse_channels(raw, {})
         assert len(id_dict) == 3
@@ -1460,8 +1644,16 @@ class TestParameters:
 
     def test_multiple_parameters(self):
         raw = [
-            {"name": "A.P1", "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "id": 1},
-            {"name": "A.P2", "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False}, "id": 2},
+            {
+                "name": "A.P1",
+                "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                "id": 1,
+            },
+            {
+                "name": "A.P2",
+                "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False},
+                "id": 2,
+            },
         ]
         id_dict, name_dict = _parse_parameters(raw, {})
         assert len(id_dict) == 2
@@ -1552,7 +1744,12 @@ class TestDictionaryContent:
                 {
                     "kind": "enum",
                     "qualifiedName": "M.StatusEnum",
-                    "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                    "representationType": {
+                        "name": "U8",
+                        "kind": "integer",
+                        "size": 8,
+                        "signed": False,
+                    },
                     "enumeratedConstants": [
                         {"name": "YES", "value": 0},
                         {"name": "NO", "value": 1},
@@ -1565,7 +1762,12 @@ class TestDictionaryContent:
                     "qualifiedName": "M.A",
                     "members": {
                         "x": {
-                            "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                            "type": {
+                                "name": "U32",
+                                "kind": "integer",
+                                "size": 32,
+                                "signed": False,
+                            },
                             "index": 0,
                             "format": "The value of x is {}",
                         },
@@ -1586,7 +1788,10 @@ class TestDictionaryContent:
                     "formalParams": [
                         {
                             "name": "arg1",
-                            "type": {"name": "M.StringArray", "kind": "qualifiedIdentifier"},
+                            "type": {
+                                "name": "M.StringArray",
+                                "kind": "qualifiedIdentifier",
+                            },
                             "ref": False,
                             "annotation": "description for argument 1",
                         }
@@ -1630,7 +1835,10 @@ class TestDictionaryContent:
                     "formalParams": [
                         {
                             "name": "arg1",
-                            "type": {"name": "M.StatusEnum", "kind": "qualifiedIdentifier"},
+                            "type": {
+                                "name": "M.StatusEnum",
+                                "kind": "qualifiedIdentifier",
+                            },
                             "ref": False,
                             "annotation": "Description of arg1 formal param",
                         }
@@ -1643,7 +1851,12 @@ class TestDictionaryContent:
             telemetryChannels=[
                 {
                     "name": "M.c1.Channel1",
-                    "type": {"name": "I32", "kind": "integer", "size": 32, "signed": True},
+                    "type": {
+                        "name": "I32",
+                        "kind": "integer",
+                        "size": 32,
+                        "signed": True,
+                    },
                     "id": 260,
                     "telemetryUpdate": "on change",
                     "annotation": "Telemetry channel 1 of type I32",
@@ -1687,14 +1900,42 @@ class TestDictionaryContent:
         """Every entry in name_dict should appear in id_dict and vice versa."""
         data = _minimal_dict(
             commands=[
-                {"name": "A.CMD1", "commandKind": "async", "opcode": 1, "formalParams": []},
-                {"name": "A.CMD2", "commandKind": "sync", "opcode": 2, "formalParams": []},
+                {
+                    "name": "A.CMD1",
+                    "commandKind": "async",
+                    "opcode": 1,
+                    "formalParams": [],
+                },
+                {
+                    "name": "A.CMD2",
+                    "commandKind": "sync",
+                    "opcode": 2,
+                    "formalParams": [],
+                },
             ],
             telemetryChannels=[
-                {"name": "A.Ch1", "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "id": 10},
+                {
+                    "name": "A.Ch1",
+                    "type": {
+                        "name": "U32",
+                        "kind": "integer",
+                        "size": 32,
+                        "signed": False,
+                    },
+                    "id": 10,
+                },
             ],
             parameters=[
-                {"name": "A.P1", "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "id": 20},
+                {
+                    "name": "A.P1",
+                    "type": {
+                        "name": "U8",
+                        "kind": "integer",
+                        "size": 8,
+                        "signed": False,
+                    },
+                    "id": 20,
+                },
             ],
         )
         path = _write_dict(data)
@@ -1727,7 +1968,12 @@ class TestFormalParameters:
                 "formalParams": [
                     {
                         "name": "param1",
-                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
                         "ref": False,
                         "annotation": "This is param1",
                     }
@@ -1750,7 +1996,12 @@ class TestFormalParameters:
                 "formalParams": [
                     {
                         "name": "p",
-                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
                         "ref": False,
                     }
                 ],
@@ -1769,7 +2020,14 @@ class TestFormalParameters:
             }
             for i in range(5)
         ]
-        raw = [{"name": "M.Cmd", "commandKind": "async", "opcode": 10, "formalParams": params}]
+        raw = [
+            {
+                "name": "M.Cmd",
+                "commandKind": "async",
+                "opcode": 10,
+                "formalParams": params,
+            }
+        ]
         id_dict, _ = _parse_commands(raw, {})
         assert len(id_dict[10].arguments) == 5
 
@@ -1891,12 +2149,22 @@ class TestStructMemberArrays:
                 "qualifiedName": "M.WithArr",
                 "members": {
                     "data": {
-                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
                         "index": 0,
                         "size": 5,
                     },
                     "count": {
-                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
                         "index": 1,
                     },
                 },
@@ -1921,12 +2189,22 @@ class TestStructMemberArrays:
                 "qualifiedName": "M.TwoArrays",
                 "members": {
                     "a": {
-                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
                         "index": 0,
                         "size": 3,
                     },
                     "b": {
-                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
                         "index": 1,
                         "size": 3,
                     },
@@ -1952,7 +2230,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_u8(self):
         """A struct member array [2] U8 with default 0 → [FpyValue(U8,0), FpyValue(U8,0)]."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -1960,7 +2238,12 @@ class TestSingleValueArrayInit:
                 "qualifiedName": "M.WithSingleInit",
                 "members": {
                     "data": {
-                        "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
+                        "type": {
+                            "name": "U8",
+                            "kind": "integer",
+                            "size": 8,
+                            "signed": False,
+                        },
                         "index": 0,
                         "size": 3,
                     },
@@ -1984,7 +2267,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_f32(self):
         """A struct member array [4] F32 with default 1.5 → four copies of FpyValue(F32,1.5)."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2012,14 +2295,22 @@ class TestSingleValueArrayInit:
 
     def test_member_array_single_value_enum(self):
         """A member array of enums with a single enum string default."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
                 "kind": "enum",
                 "qualifiedName": "M.Dir",
-                "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                "enumeratedConstants": [{"name": "UP", "value": 0}, {"name": "DOWN", "value": 1}],
+                "representationType": {
+                    "name": "U8",
+                    "kind": "integer",
+                    "size": 8,
+                    "signed": False,
+                },
+                "enumeratedConstants": [
+                    {"name": "UP", "value": 0},
+                    {"name": "DOWN", "value": 1},
+                ],
                 "default": "M.Dir.UP",
             },
             {
@@ -2047,7 +2338,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_list_default_NOT_replicated(self):
         """When the default is already a properly-sized list, it's used as-is."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2055,7 +2346,12 @@ class TestSingleValueArrayInit:
                 "qualifiedName": "M.Normal",
                 "members": {
                     "data": {
-                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
                         "index": 0,
                         "size": 3,
                     },
@@ -2076,7 +2372,7 @@ class TestSingleValueArrayInit:
 
     def test_member_array_scalar_alongside_normal_members(self):
         """Struct mixing single-value member array and normal scalar members."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         raw = [
             {
@@ -2084,12 +2380,22 @@ class TestSingleValueArrayInit:
                 "qualifiedName": "M.Mixed",
                 "members": {
                     "arr": {
-                        "type": {"name": "I32", "kind": "integer", "size": 32, "signed": True},
+                        "type": {
+                            "name": "I32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": True,
+                        },
                         "index": 0,
                         "size": 2,
                     },
                     "x": {
-                        "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                        "type": {
+                            "name": "U32",
+                            "kind": "integer",
+                            "size": 32,
+                            "signed": False,
+                        },
                         "index": 1,
                     },
                     "y": {
@@ -2117,7 +2423,7 @@ class TestSingleValueArrayInit:
 
     def test_regular_array_elem_defaults(self):
         """Regular (non-member) array _populate_type_defaults sets elem_defaults from list."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U32, length=3)
         arr.json_default = [10, 20, 30]
@@ -2131,7 +2437,7 @@ class TestSingleValueArrayInit:
 
     def test_regular_array_no_json_default_derives_from_elem_type(self):
         """Array without json_default derives elem_defaults from element type."""
-        from fpy.compiler import _populate_type_defaults
+        from fpy.state import _populate_type_defaults
 
         arr = FpyType(TypeKind.ARRAY, "M.A", elem_type=U8, length=4)
         _populate_type_defaults(arr)
@@ -2147,39 +2453,47 @@ class TestSingleValueArrayInitIntegration:
     @pytest.fixture(autouse=True)
     def clear_caches(self):
         load_dictionary.cache_clear()
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         _build_global_scopes.cache_clear()
         yield
         load_dictionary.cache_clear()
         _build_global_scopes.cache_clear()
 
     def _get_type_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
     def _get_callable_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _lookup_type(self, name: str) -> FpyType:
         scope = self._get_type_scope()
         for part in name.split("."):
-            assert part in scope, f"'{part}' not found in scope while looking up '{name}'"
+            assert (
+                part in scope
+            ), f"'{part}' not found in scope while looking up '{name}'"
             scope = scope[part]
         return scope
 
     def _lookup_callable(self, name: str):
         scope = self._get_callable_scope()
         for part in name.split("."):
-            assert part in scope, f"'{part}' not found in scope while looking up '{name}'"
+            assert (
+                part in scope
+            ), f"'{part}' not found in scope while looking up '{name}'"
             scope = scope[part]
         return scope
 
     def test_choice_slurry_member_array_replicated(self):
         """Ref.ChoiceSlurry.choiceAsMemberArray has size=2, default=0.
-        _populate_type_defaults should replicate 0 → [FpyValue(U8,0), FpyValue(U8,0)]."""
+        _populate_type_defaults should replicate 0 → [FpyValue(U8,0), FpyValue(U8,0)].
+        """
         typ = self._lookup_type("Ref.ChoiceSlurry")
         assert typ.kind == TypeKind.STRUCT
 
@@ -2490,7 +2804,9 @@ class TestLoadDictionary:
     def test_constants_values(self):
         """Spot-check known constants from the Ref dictionary."""
         d = load_dictionary(REF_DICT_PATH)
-        assert d["constants"]["Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT"] == FpyValue(U64, 2048)
+        assert d["constants"]["Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT"] == FpyValue(
+            U64, 2048
+        )
         assert d["constants"]["Svc.Fpy.MAX_DIRECTIVE_SIZE"] == FpyValue(U64, 2048)
 
     def test_metadata_present(self):
@@ -2558,13 +2874,21 @@ class TestSyntheticDictionary:
                     "kind": "alias",
                     "qualifiedName": "Synth.AliasA",
                     "type": {"name": "Synth.AliasB", "kind": "qualifiedIdentifier"},
-                    "underlyingType": {"name": "Synth.AliasB", "kind": "qualifiedIdentifier"},
+                    "underlyingType": {
+                        "name": "Synth.AliasB",
+                        "kind": "qualifiedIdentifier",
+                    },
                 },
                 {
                     "kind": "alias",
                     "qualifiedName": "Synth.AliasB",
                     "type": {"name": "U32", "kind": "integer"},
-                    "underlyingType": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
+                    "underlyingType": {
+                        "name": "U32",
+                        "kind": "integer",
+                        "size": 32,
+                        "signed": False,
+                    },
                 },
             ]
         )
@@ -2582,16 +2906,38 @@ class TestSyntheticDictionary:
                 {
                     "kind": "enum",
                     "qualifiedName": "Synth.Compass",
-                    "representationType": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                    "enumeratedConstants": [{"name": "N", "value": 0}, {"name": "S", "value": 1}],
+                    "representationType": {
+                        "name": "U8",
+                        "kind": "integer",
+                        "size": 8,
+                        "signed": False,
+                    },
+                    "enumeratedConstants": [
+                        {"name": "N", "value": 0},
+                        {"name": "S", "value": 1},
+                    ],
                     "default": "Synth.Compass.N",
                 },
                 {
                     "kind": "struct",
                     "qualifiedName": "Synth.Move",
                     "members": {
-                        "dir": {"type": {"name": "Synth.Compass", "kind": "qualifiedIdentifier"}, "index": 0},
-                        "dist": {"type": {"name": "U32", "kind": "integer", "size": 32, "signed": False}, "index": 1},
+                        "dir": {
+                            "type": {
+                                "name": "Synth.Compass",
+                                "kind": "qualifiedIdentifier",
+                            },
+                            "index": 0,
+                        },
+                        "dist": {
+                            "type": {
+                                "name": "U32",
+                                "kind": "integer",
+                                "size": 32,
+                                "signed": False,
+                            },
+                            "index": 1,
+                        },
                     },
                     "default": {"dir": "Synth.Compass.N", "dist": 0},
                 },
@@ -2617,8 +2963,24 @@ class TestSyntheticDictionary:
                     "kind": "struct",
                     "qualifiedName": "Synth.Pair",
                     "members": {
-                        "a": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 0},
-                        "b": {"type": {"name": "U8", "kind": "integer", "size": 8, "signed": False}, "index": 1},
+                        "a": {
+                            "type": {
+                                "name": "U8",
+                                "kind": "integer",
+                                "size": 8,
+                                "signed": False,
+                            },
+                            "index": 0,
+                        },
+                        "b": {
+                            "type": {
+                                "name": "U8",
+                                "kind": "integer",
+                                "size": 8,
+                                "signed": False,
+                            },
+                            "index": 1,
+                        },
                     },
                     "default": {"a": 0, "b": 0},
                 }
@@ -2631,7 +2993,10 @@ class TestSyntheticDictionary:
                     "formalParams": [
                         {
                             "name": "pair",
-                            "type": {"name": "Synth.Pair", "kind": "qualifiedIdentifier"},
+                            "type": {
+                                "name": "Synth.Pair",
+                                "kind": "qualifiedIdentifier",
+                            },
                             "ref": False,
                         }
                     ],
@@ -2669,9 +3034,24 @@ class TestSyntheticDictionary:
     def test_multiple_commands_unique_opcodes(self):
         data = _minimal_dict(
             commands=[
-                {"name": "A.b.CMD1", "commandKind": "async", "opcode": 1, "formalParams": []},
-                {"name": "A.b.CMD2", "commandKind": "async", "opcode": 2, "formalParams": []},
-                {"name": "A.c.CMD3", "commandKind": "async", "opcode": 3, "formalParams": []},
+                {
+                    "name": "A.b.CMD1",
+                    "commandKind": "async",
+                    "opcode": 1,
+                    "formalParams": [],
+                },
+                {
+                    "name": "A.b.CMD2",
+                    "commandKind": "async",
+                    "opcode": 2,
+                    "formalParams": [],
+                },
+                {
+                    "name": "A.c.CMD3",
+                    "commandKind": "async",
+                    "opcode": 3,
+                    "formalParams": [],
+                },
             ]
         )
         path = _write_dict(data)
@@ -2750,19 +3130,22 @@ class TestTypeCtorDefaults:
     @pytest.fixture(autouse=True)
     def clear_caches(self):
         load_dictionary.cache_clear()
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         _build_global_scopes.cache_clear()
         yield
         load_dictionary.cache_clear()
         _build_global_scopes.cache_clear()
 
     def _get_callable_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         _, callable_scope, _, _ = _build_global_scopes(REF_DICT_PATH)
         return callable_scope
 
     def _get_type_scope(self):
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
+
         type_scope, _, _, _ = _build_global_scopes(REF_DICT_PATH)
         return type_scope
 
@@ -2772,7 +3155,9 @@ class TestTypeCtorDefaults:
         parts = name.split(".")
         current = scope
         for part in parts:
-            assert part in current, f"'{part}' not found in scope while looking up '{name}'"
+            assert (
+                part in current
+            ), f"'{part}' not found in scope while looking up '{name}'"
             current = current[part]
         return current
 
@@ -2782,7 +3167,9 @@ class TestTypeCtorDefaults:
         parts = name.split(".")
         current = scope
         for part in parts:
-            assert part in current, f"'{part}' not found in scope while looking up '{name}'"
+            assert (
+                part in current
+            ), f"'{part}' not found in scope while looking up '{name}'"
             current = current[part]
         return current
 
@@ -2792,8 +3179,12 @@ class TestTypeCtorDefaults:
         assert typ.kind == TypeKind.STRUCT
         assert typ.member_defaults is not None
         for m in typ.members:
-            assert m.name in typ.member_defaults, f"Struct member '{m.name}' should have a default"
-            assert isinstance(typ.member_defaults[m.name], FpyValue), f"Default for '{m.name}' should be FpyValue"
+            assert (
+                m.name in typ.member_defaults
+            ), f"Struct member '{m.name}' should have a default"
+            assert isinstance(
+                typ.member_defaults[m.name], FpyValue
+            ), f"Default for '{m.name}' should be FpyValue"
 
     def test_struct_member_default_values_correct(self):
         typ = self._lookup_type("Ref.SignalPair")
@@ -2839,11 +3230,16 @@ class TestTypeCtorDefaults:
     def test_struct_ctor_has_defaults(self):
         """Type ctor args should reflect the member defaults."""
         from fpy.state import TypeCtorSymbol
+
         ctor = self._lookup_callable("Ref.SignalPair")
         assert isinstance(ctor, TypeCtorSymbol)
         for arg_name, arg_type, arg_default in ctor.args:
-            assert arg_default is not None, f"Struct member '{arg_name}' should have a default"
-            assert isinstance(arg_default, FpyValue), f"Default for '{arg_name}' should be FpyValue"
+            assert (
+                arg_default is not None
+            ), f"Struct member '{arg_name}' should have a default"
+            assert isinstance(
+                arg_default, FpyValue
+            ), f"Default for '{arg_name}' should be FpyValue"
 
     def test_struct_ctor_default_values_correct(self):
         ctor = self._lookup_callable("Ref.SignalPair")
@@ -2866,6 +3262,7 @@ class TestTypeCtorDefaults:
     def test_array_ctor_has_defaults(self):
         """Array type constructors should have FpyValue defaults for each element."""
         from fpy.state import TypeCtorSymbol
+
         ctor = self._lookup_callable("Svc.BuffQueueDepth")
         assert isinstance(ctor, TypeCtorSymbol)
         assert len(ctor.args) == 1
@@ -2912,7 +3309,7 @@ class TestTypeAliasesFromDict:
         clear the dictionary/scope caches around each test."""
         from fpy import types as types_mod
         from fpy.bytecode import directives as dir_mod
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
 
         targets = [
             dir_mod.FwOpcodeType,
@@ -2972,7 +3369,7 @@ class TestTypeAliasesFromDict:
         """A custom dictionary that redefines the Fw* aliases is picked up by the
         full compile pipeline (_build_global_scopes), and directives serialize
         accordingly."""
-        from fpy.compiler import _build_global_scopes
+        from fpy.state import _build_global_scopes
         from fpy.bytecode.directives import (
             FwOpcodeType,
             FwChanIdType,

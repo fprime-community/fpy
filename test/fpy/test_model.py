@@ -111,8 +111,9 @@ class TestStackAllocation:
     def test_allocate_stack_overflow(self):
         """Test that allocating more than max stack size returns STACK_OVERFLOW."""
         model = FpySequencerModel(stack_size=100)
-        result = model.run([AllocateDirective(200)])
-        assert result == DirectiveErrorCode.STACK_OVERFLOW
+        error_code, trap = model.run([AllocateDirective(200)])
+        assert trap == DirectiveErrorCode.STACK_OVERFLOW
+        assert error_code == 0
 
     def test_discard_out_of_bounds(self):
         """Test discarding more bytes than on stack."""
@@ -201,6 +202,7 @@ class TestStoreDirectives:
         result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
+
 class TestPushDirectives:
     """Tests for push directive error conditions."""
 
@@ -270,6 +272,7 @@ class TestPushDirectives:
         model.stack = bytearray(3)
         result = model.dispatch(SetSeedDirective())
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
 
 class TestWaitDirectives:
     """Tests for wait directive error conditions."""
@@ -621,7 +624,7 @@ class TestArithmeticDirectives:
         model.push(-1)
         result = model.dispatch(SignedIntDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR or result is None
-        ret = model.pop() 
+        ret = model.pop()
         assert ret == MIN_INT64
 
     def test_float_add_stack_underflow(self):
@@ -895,7 +898,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('-inf')
+        assert val == float("-inf")
 
     def test_fdiv_negative_by_neg_zero(self):
         """(-1.0) / (-0.0) should be +inf."""
@@ -905,7 +908,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_positive_by_pos_zero(self):
         """1.0 / 0.0 should be +inf."""
@@ -915,7 +918,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_zero_by_zero(self):
         """0.0 / 0.0 should be NaN."""
@@ -937,30 +940,33 @@ class TestArgPassing:
     def test_no_args_no_types(self):
         """Running with no args and no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run([NoOpDirective()])
-        assert result == DirectiveErrorCode.NO_ERROR
+        error_code, trap = model.run([NoOpDirective()])
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_single_arg(self):
         """Passing correct-size bytes for a single U32 arg should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # 42 as big-endian U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=4), NoOpDirective()],
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_multiple_args(self):
         """Passing correct-size bytes for multiple args should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x01" + b"\x00\x2a" + b"\x00\x00\x00\x03"  # U8 + U16 + U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=7), NoOpDirective()],
             arg_types=[U8, U16, U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_too_short(self):
         """Should raise ValidationError if args bytes are shorter than expected."""
@@ -994,12 +1000,13 @@ class TestArgPassing:
     def test_args_none_with_no_types(self):
         """Passing args=None with no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run(
+        error_code, trap = model.run(
             [NoOpDirective()],
             arg_types=[],
             args=None,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_pushed_to_stack_before_allocate(self):
         """Args should be on the stack at offset 0, before AllocateDirective runs."""
@@ -1017,7 +1024,7 @@ class TestArgPassing:
         """Sequence should be able to read arg values from the stack."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # U32 = 42
-        result = model.run(
+        error_code, trap = model.run(
             [
                 AllocateDirective(size=8),  # 4 for arg + 4 for working space
                 LoadAbsDirective(global_offset=0, size=4),  # push arg value onto stack
@@ -1026,13 +1033,16 @@ class TestArgPassing:
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_multiple_arg_types_size_mismatch(self):
         """Size mismatch with multiple arg types should report correct totals."""
         model = FpySequencerModel()
         # U8(1) + U32(4) + F64(8) = 13 bytes expected
-        with pytest.raises(ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"):
+        with pytest.raises(
+            ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"
+        ):
             model.run(
                 [NoOpDirective()],
                 arg_types=[U8, U32, F64],
