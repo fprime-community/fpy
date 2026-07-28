@@ -7,12 +7,12 @@
 //! to stdout and exits 0. The code comes from `env.exit` when the sequence
 //! calls exit() or fails an assert, or from `env.fault` when it hits an
 //! implicit runtime trap (array index out of bounds, zero divisor). The entry
-//! itself is a wasm Basic-C-ABI no-arg `main() -> i32` -- which the fpy
-//! backend only ever returns 0 from, since every failure leaves through
-//! exit/fault instead of returning. The caller reads the printed code; the
-//! process exit status only distinguishes "ran cleanly" (0) from
-//! "harness/runtime fault" (2), so a nonzero error code is not conflated
-//! with a trap.
+//! itself is a wasm Basic-C-ABI `main(argc, argv) -> i32` (we pass 0, 0 like
+//! a crt with no argument plumbing) -- which the fpy backend only ever
+//! returns 0 from, since every failure leaves through exit/fault instead of
+//! returning. The caller reads the printed code; the process exit status only
+//! distinguishes "ran cleanly" (0) from "harness/runtime fault" (2), so a
+//! nonzero error code is not conflated with a trap.
 //!
 //! The `env.{pow,fmod,log}` host imports the fpy LLVM backend may emit are
 //! provided here, backed by libm so they match the C/IEEE semantics the LLVM
@@ -27,9 +27,9 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use spacewasm::{
-    AllocError, Allocator, CodeBuilder, CompilerOptions, ExportDesc, HostFunction, HostFunctionBreak,
-    HostModule, InitializeResult, InnerVec, InterpreterBreak, InterpreterResult, InterpreterRunner,
-    Module, ModuleRef, ReaderError, Ref, Value, WasmMemoryAllocator, WasmRef, WasmStream,
+    AllocError, Allocator, CodeBuilder, CompilerOptions, Engine, ExportDesc, HostFunction,
+    HostFunctionBreak, HostModule, InnerVec, Interpreter, InterpreterResult, InterpreterRunner,
+    Module, ModuleRef, Ref, StartInvocation, Value, WasmMemoryAllocator, WasmRef, WasmStream,
     global_allocator,
 };
 
@@ -37,6 +37,14 @@ use spacewasm::{
 /// failed instantiation, trap, missing export). Distinct from a clean run so
 /// the Python side can tell a sequencer error code from a runtime fault.
 const FAULT: u8 = 2;
+
+/// Validation limits for decoding, matching spacewasm's own test harness.
+const MAX_CONTROL_FRAMES: usize = 128;
+const MAX_STACK_DEPTH: usize = 256;
+const MAX_CODE_PAGES: u32 = 256;
+
+/// Instruction budget per interpreter run, to catch infinite loops.
+const FUEL: usize = 10_000_000;
 
 // ---------------------------------------------------------------------------
 // Allocator plumbing (mirrors spacewasm's own test harness). spacewasm is
@@ -103,7 +111,7 @@ impl ByteStream {
 }
 
 impl WasmStream for ByteStream {
-    fn read(&mut self) -> Result<Option<InnerVec<u8>>, ReaderError> {
+    fn read(&mut self) -> Result<Option<InnerVec<u8>>, u8> {
         if self.consumed {
             return Ok(None);
         }
@@ -162,7 +170,7 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
     }
     let fault_code = exit_code.clone();
     HostModule {
-        name: "env",
+        name: "env".into(),
         globals: spacewasm::vec![],
         functions: spacewasm::vec![
             HostFunction::new("pow", "dd".into(), "d".into(), |_, args| {
@@ -198,40 +206,48 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     // exit/fault write the sequence's error code here and unwind the interpreter.
     let exit_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
-    let mut store = spacewasm::Store::new(256, [fpy_host_module(exit_code.clone())])
-        .map_err(|e| format!("store: {e:?}"))?;
-    let mut code_builder = CodeBuilder::<256>::default();
+    let mut engine = Engine::new(1024, 256, spacewasm::vec![fpy_host_module(exit_code.clone())])
+        .map_err(|e| format!("engine: {e:?}"))?;
+    let mut code_builder = CodeBuilder::new(CompilerOptions {
+        allow_memory_grow: true,
+        max_backpatch_iterations: 0,
+        max_code_pages: MAX_CODE_PAGES,
+    })
+    .map_err(|e| format!("code builder: {e:?}"))?;
 
-    let mut stream: ByteStream = ByteStream::new(&wasm);
-    let module = Module::new::<256>(
+    let mut stream = ByteStream::new(&wasm);
+    let module = Module::new::<MAX_CONTROL_FRAMES, MAX_STACK_DEPTH>(
         "seq",
         &mut stream,
-        &mut store,
+        &mut engine.store,
         &mut code_builder,
         wasm_alloc(),
-        CompilerOptions {
-            allow_memory_grow: true,
-        },
     )
     .map_err(|e| format!("decode: {e:?}"))?;
 
-    let (text, _) = code_builder.clone().finish().unwrap();
-
-    // Instantiate the module (runs any start function); it is pushed onto the
-    // store so we can look up its exports afterwards.
-    {
-        let mut state = store.allocate(1024).map_err(|e| format!("allocate: {e:?}"))?;
-        match state.initialize_module(spacewasm::Box::new(module).unwrap(), &text, usize::MAX) {
-            InitializeResult::Ok => {}
-            other => return Err(format!("initialize: {other:?}")),
-        }
+    // Instantiate: push the module onto the store and drive its start function
+    // (if any) to completion before touching the exports.
+    let module_ref = engine
+        .push_module(module)
+        .map_err(|e| format!("push module: {e:?}"))?;
+    let start_result = match engine.invoke_start(module_ref) {
+        StartInvocation::Finished => InterpreterResult::Finished,
+        StartInvocation::Trap(t) => InterpreterResult::Trap(t),
+        StartInvocation::Pause => InterpreterResult::Pause,
+        StartInvocation::Running => Interpreter.run(code_builder.pages(), &mut engine, FUEL),
+    };
+    // exit/fault during the start function is still the sequence's verdict.
+    if let Some(code) = exit_code.get() {
+        return Ok(code);
+    }
+    if start_result != InterpreterResult::Finished {
+        return Err(format!("initialize: {start_result:?}"));
     }
 
-    // Resolve the entry export to a WasmRef (immutable borrows finish before we
-    // re-borrow the store mutably to allocate the interpreter state).
-    let module_index = store.modules().len() - 1;
+    // Resolve the entry export to a WasmRef.
+    let module_index = module_ref.0 as usize;
     let f_ref = {
-        let module = &store.modules()[module_index];
+        let module = &engine.store.modules()[module_index];
         let export = module
             .exports
             .iter()
@@ -254,11 +270,12 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
         }
     };
 
-    let mut state = store.allocate(1024).map_err(|e| format!("allocate: {e:?}"))?;
-    state.invoke(f_ref, &[]).map_err(|e| format!("invoke: {e:?}"))?;
-
-    let interpreter = spacewasm::Interpreter::default();
-    let result = interpreter.run(&text, &mut state, 10_000_000);
+    // The entry is a Basic-C-ABI main(argc, argv); it ignores both, so pass
+    // the (0, 0) a crt with no argument plumbing would.
+    engine
+        .invoke(f_ref, &[Value::I32(0), Value::I32(0)])
+        .map_err(|e| format!("invoke: {e:?}"))?;
+    let result = Interpreter.run(code_builder.pages(), &mut engine, FUEL);
 
     // If exit/fault ran, the recorded code is authoritative -- they unwind via
     // a host trap, so the interpreter result is a trap we must not treat as a
@@ -272,16 +289,16 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
         // main returned its i32 status without calling exit/fault. The fpy
         // backend only ever returns 0 here, but report whatever came back
         // rather than assuming.
-        InterpreterResult::Instruction(InterpreterBreak::Finished) => {
-            let raw: spacewasm::RawValue = state.result.ok_or("entry returned no value")?;
+        InterpreterResult::Finished => {
+            let raw: spacewasm::RawValue = engine.result.ok_or("entry returned no value")?;
             match raw.to_value(spacewasm::ValType::I32) {
                 Value::I32(code) => Ok(code),
                 other => Err(format!("entry returned non-i32: {other:?}")),
             }
         }
-        InterpreterResult::Instruction(brk) => Err(format!("trap/break: {brk:?}")),
+        InterpreterResult::Trap(t) => Err(format!("trap: {t:?}")),
+        InterpreterResult::Pause => Err("interpreter paused unexpectedly".into()),
         InterpreterResult::OutOfFuel => Err("out of fuel (infinite loop?)".into()),
-        InterpreterResult::ReaderError(e) => Err(format!("reader: {e:?}")),
     }
 }
 

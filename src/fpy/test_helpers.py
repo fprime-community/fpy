@@ -153,8 +153,8 @@ def run_seq_wasm(
     main_file_dir: str | None = None,
 ) -> int:
     """Compile *seq* to wasm and run it, returning the sequence's error code
-    (reported via the exit/fault host imports, or the entrypoint's returned
-    status -- always 0 -- when it falls off its end without failing).
+    (reported via the exit/fault host imports; 0 when the void entrypoint
+    falls off its end without failing).
 
     Runs the compiled module through the NASA spacewasm interpreter (the
     on-board target runtime) via the runner harness built by conftest."""

@@ -547,33 +547,16 @@ class EmitLlvmExpr(Emitter):
         return self.builder.call(fn, [value])
 
 
-# The symbol and wasm export name of the user entrypoint, per the Basic C
-# ABI: a `main` taking no arguments and returning an i32 status.
-# https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md#user-entrypoint
+# The symbol and wasm export name of the user entrypoint: `void main()`, no
+# arguments and no return value. Every failure (and explicit exit) reports
+# its code through the exit/fault host imports and never comes back, so
+# returning at all means success and there is no status to return. This
+# deliberately diverges from the Basic C ABI's `int main` user-entrypoint
+# shape -- and the void return is also what keeps LLVM's wasm backend
+# (WebAssemblyFixFunctionBitcasts) from touching the function: that pass only
+# rewrites a zero-arg `main` that returns i32, renaming it `__original_main`
+# and synthesizing a canonical main(argc, argv) wrapper around it.
 FPY_ENTRY_POINT = "main"
-
-# The IR *function* holding the entry's body. It can't itself be named
-# `main`: LLVM's wasm backend special-cases a zero-arg function of that exact
-# name by renaming it `__original_main` and synthesizing a canonical
-# `main(argc, argv)` wrapper around it, with no flag to turn that off. An IR
-# *alias* named `main` is exempt (the pass only rewrites functions), so the
-# body is a private function exported through the alias; being private, this
-# name never reaches the wasm binary -- its one symbol is `main`, with the
-# body's true no-arg signature.
-FPY_ENTRY_IMPL = "main_impl"
-
-
-class SequenceModule(ir.Module):
-    """An ir.Module whose textual IR ends with the entry-point alias
-    `@main = alias ...` (see FPY_ENTRY_IMPL). The alias must ride along
-    textually because llvmlite cannot express aliases as IR objects; LLVM
-    proper parses it with the rest of the module."""
-
-    def __repr__(self):
-        return (
-            super().__repr__()
-            + f'\n@{FPY_ENTRY_POINT} = alias i32 (), ptr @"{FPY_ENTRY_IMPL}"\n'
-        )
 
 
 class CollectFrameVariables(TopDownVisitor):
@@ -715,18 +698,14 @@ class GenerateLlvmModule:
         # sequences, all definition-only). Functions are lowered on demand at
         # their call sites, so they need no separate walk here.
         program = state.main_block
-        module = SequenceModule(name="seq")
+        module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
         declare_host_imports(module)
 
-        # The Basic C ABI user entrypoint: a no-arg main returning an i32
-        # status, reached through the `main` alias SequenceModule appends. It
-        # only ever returns 0: every failure (and explicit exit) reports its
-        # code through the exit/fault host imports and never comes back, so
+        # The user entrypoint (see FPY_ENTRY_POINT): void main(), where
         # returning at all means success.
-        func_type = ir.FunctionType(ir.IntType(32), [])
-        func = ir.Function(module, func_type, name=FPY_ENTRY_IMPL)
-        func.linkage = "private"
+        func_type = ir.FunctionType(ir.VoidType(), [])
+        func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
         # The built-in flags struct (a global with no declaring statement).
@@ -741,7 +720,7 @@ class GenerateLlvmModule:
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
-            builder.ret(ir.Constant(ir.IntType(32), 0))
+            builder.ret_void()
         return module
 
     def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
