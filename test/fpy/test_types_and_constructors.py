@@ -476,6 +476,15 @@ exit(1)
 
 class TestTypeErrors:
 
+    def test_enum_constant_as_type(self, fprime_test_api):
+        """An enum constant is a value, not a type. A type annotation resolves in
+        the type name group, where `Fw.TimeComparison` is the enum type (which
+        holds no sub-definitions), so `.GT` never resolves to a type."""
+        seq = """
+x: Fw.TimeComparison.GT = 0
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown type")
+
     def test_u8_too_large(self, fprime_test_api):
         seq = """
 var: U8 = 123
