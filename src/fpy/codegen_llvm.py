@@ -63,34 +63,35 @@ ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 HOST_EXIT_FUNC_NAME = "exit"
 HOST_FAULT_FUNC_NAME = "fault"
 
+# Every host function the backend itself imports, name -> signature. They are
+# all declared up front on each module (declare_host_imports); emit sites just
+# look them up. Both current entries are sequence terminators, so they never
+# return to wasm (the host unwinds the interpreter) -- if a returning import
+# is ever added, the blanket noreturn below needs to become per-entry. The
+# float libcalls (env.pow/fmod/log) are deliberately absent: LLVM materializes
+# those itself when lowering llvm.pow/llvm.log/frem.
+HOST_IMPORT_SIGNATURES: dict[str, ir.FunctionType] = {
+    HOST_EXIT_FUNC_NAME: ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
+    HOST_FAULT_FUNC_NAME: ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
+}
 
-# TODO this adhoc emit and declare stuff is not super nice. should probably
-# clean it up, have a list of the expected host module signature funcs, declare them
-# all at the start.
-def _declare_host_terminator(module: ir.Module, name: str) -> ir.Function:
-    """Get-or-declare the noreturn `void(code)` host import *name* on *module*."""
-    existing = module.globals.get(name)
-    if existing is not None:
-        return existing
-    fn = ir.Function(
-        module,
-        ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-        name=name,
-    )
-    # It never returns to wasm: the host unwinds the interpreter.
-    fn.attributes.add("noreturn")
-    return fn
+
+def declare_host_imports(module: ir.Module) -> None:
+    """Declare the full expected host interface on *module*."""
+    for name, fn_type in HOST_IMPORT_SIGNATURES.items():
+        fn = ir.Function(module, fn_type, name=name)
+        fn.attributes.add("noreturn")
 
 
 def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
     """Emit a call to the host exit(code) and terminate the current block."""
-    builder.call(_declare_host_terminator(builder.module, HOST_EXIT_FUNC_NAME), [code])
+    builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
     builder.unreachable()
 
 
 def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
     """Emit a call to the host fault(code) and terminate the current block."""
-    builder.call(_declare_host_terminator(builder.module, HOST_FAULT_FUNC_NAME), [code])
+    builder.call(builder.module.globals[HOST_FAULT_FUNC_NAME], [code])
     builder.unreachable()
 
 
@@ -276,7 +277,21 @@ class EmitLlvmExpr(Emitter):
         VM. (fcmp `==` treats -0.0 as zero, like the VM's `rhs == 0.0`.)"""
         b = self.builder
         zero = ir.Constant(rhs.type, 0)
-        # FIXME can you explain why ordered vs unordered here? also why is signed okay? i guess signed eq is same as unsigned?
+        # A hardware float compare of a NaN operand against anything has no
+        # meaningful true/false answer, so every fcmp predicate must pick one
+        # up front, and that's the whole ordered/unordered split: *ordered*
+        # predicates answer false when an operand is NaN, *unordered* ones
+        # answer true. Concretely, with rhs = NaN:
+        #   fcmp_ordered("==", NaN, 0.0)   -> false  (what we want: no fault)
+        #   fcmp_unordered("==", NaN, 0.0) -> true   (would fault on NaN!)
+        # A NaN divisor must not fault here because the VM doesn't: Python's
+        # `NaN == 0.0` is false, so the VM skips DOMAIN_ERROR and computes
+        # `lhs % nan` == nan -- and nan is exactly what frem/fmod return too.
+        # On the int side, signedness doesn't exist for equality: LLVM has a
+        # single `icmp eq` (signed/unsigned variants exist only for order
+        # predicates like slt/ult), so icmp_signed("==") and
+        # icmp_unsigned("==") emit the same instruction and unsigned operands
+        # are fine here.
         is_zero = (
             b.fcmp_ordered("==", rhs, zero)
             if is_float
@@ -532,7 +547,33 @@ class EmitLlvmExpr(Emitter):
         return self.builder.call(fn, [value])
 
 
-FPY_ENTRY_POINT = "fpy_main"
+# The symbol and wasm export name of the user entrypoint, per the Basic C
+# ABI: a `main` taking no arguments and returning an i32 status.
+# https://github.com/WebAssembly/tool-conventions/blob/main/BasicCABI.md#user-entrypoint
+FPY_ENTRY_POINT = "main"
+
+# The IR *function* holding the entry's body. It can't itself be named
+# `main`: LLVM's wasm backend special-cases a zero-arg function of that exact
+# name by renaming it `__original_main` and synthesizing a canonical
+# `main(argc, argv)` wrapper around it, with no flag to turn that off. An IR
+# *alias* named `main` is exempt (the pass only rewrites functions), so the
+# body is a private function exported through the alias; being private, this
+# name never reaches the wasm binary -- its one symbol is `main`, with the
+# body's true no-arg signature.
+FPY_ENTRY_IMPL = "main_impl"
+
+
+class SequenceModule(ir.Module):
+    """An ir.Module whose textual IR ends with the entry-point alias
+    `@main = alias ...` (see FPY_ENTRY_IMPL). The alias must ride along
+    textually because llvmlite cannot express aliases as IR objects; LLVM
+    proper parses it with the rest of the module."""
+
+    def __repr__(self):
+        return (
+            super().__repr__()
+            + f'\n@{FPY_ENTRY_POINT} = alias i32 (), ptr @"{FPY_ENTRY_IMPL}"\n'
+        )
 
 
 class CollectFrameVariables(TopDownVisitor):
@@ -667,11 +708,18 @@ class GenerateLlvmModule:
 
     def emit(self, body: AstBlock, state: CompileState) -> ir.Module:
         assert body is state.root, "module generator must be run on the root block"
-        module = ir.Module(name="seq")
+        module = SequenceModule(name="seq")
         module.triple = LLVM_TRIPLE
+        declare_host_imports(module)
 
-        func_type = ir.FunctionType(ERROR_CODE_TYPE, [])
-        func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
+        # The Basic C ABI user entrypoint: a no-arg main returning an i32
+        # status, reached through the `main` alias SequenceModule appends. It
+        # only ever returns 0: every failure (and explicit exit) reports its
+        # code through the exit/fault host imports and never comes back, so
+        # returning at all means success.
+        func_type = ir.FunctionType(ir.IntType(32), [])
+        func = ir.Function(module, func_type, name=FPY_ENTRY_IMPL)
+        func.linkage = "private"
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
         # The built-in flags struct (a global with no declaring statement).
@@ -686,7 +734,7 @@ class GenerateLlvmModule:
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
-            builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
+            builder.ret(ir.Constant(ir.IntType(32), 0))
         return module
 
     def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
@@ -810,7 +858,8 @@ def backend_version_str() -> str:
 def _link_wasm_object(obj: bytes) -> bytes:
     """Link a relocatable wasm object into a runnable module with wasm-ld."""
     flags = [
-        # No C-style _start entry point; we call fpy_main directly.
+        # No C-style _start crt wrapper; the host invokes the exported
+        # entrypoint directly.
         "--no-entry",
         # Undefined symbols become host imports (for future host calls like
         # commands/telemetry); harmless while there are none.

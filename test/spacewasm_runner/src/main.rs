@@ -1,18 +1,18 @@
 //! Runs a single compiled fpy `.wasm` sequence through the NASA spacewasm
-//! interpreter and reports the result of its `fpy_main` export.
+//! interpreter and reports the result of its `main` export.
 //!
 //! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]`
 //!
 //! On success it prints the sequence's i32 error code as a single decimal line
 //! to stdout and exits 0. The code comes from `env.exit` when the sequence
-//! calls exit() or fails an assert, from `env.fault` when it hits an implicit
-//! runtime trap (array index out of bounds, zero divisor), or from
-//! `fpy_main`'s return value when the sequence falls off its end (0 ==
-//! success). The caller reads the printed code; the process exit status only
-//! distinguishes "ran cleanly" (0) from "harness/runtime fault" (2), so a
-//! nonzero error code is not conflated with a trap.
-// FIXME we should have the main function be a void return. if it returns without
-// calling a host exit or fault, then we should consider it a success
+//! calls exit() or fails an assert, or from `env.fault` when it hits an
+//! implicit runtime trap (array index out of bounds, zero divisor). The entry
+//! itself is a wasm Basic-C-ABI no-arg `main() -> i32` -- which the fpy
+//! backend only ever returns 0 from, since every failure leaves through
+//! exit/fault instead of returning. The caller reads the printed code; the
+//! process exit status only distinguishes "ran cleanly" (0) from
+//! "harness/runtime fault" (2), so a nonzero error code is not conflated
+//! with a trap.
 //!
 //! The `env.{pow,fmod,log}` host imports the fpy LLVM backend may emit are
 //! provided here, backed by libm so they match the C/IEEE semantics the LLVM
@@ -263,12 +263,15 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     // If exit/fault ran, the recorded code is authoritative -- they unwind via
     // a host trap, so the interpreter result is a trap we must not treat as a
     // harness fault. exit()/assert/implicit traps take this path; falling off
-    // the end of fpy_main does not (it returns normally below).
+    // the end of main does not (it returns normally below).
     if let Some(code) = exit_code.get() {
         return Ok(code);
     }
 
     match result {
+        // main returned its i32 status without calling exit/fault. The fpy
+        // backend only ever returns 0 here, but report whatever came back
+        // rather than assuming.
         InterpreterResult::Instruction(InterpreterBreak::Finished) => {
             let raw: spacewasm::RawValue = state.result.ok_or("entry returned no value")?;
             match raw.to_value(spacewasm::ValType::I32) {
@@ -288,7 +291,7 @@ fn main() -> ExitCode {
         eprintln!("usage: fpy-spacewasm-runner <path-to.wasm> [entry-name]");
         return ExitCode::from(FAULT);
     };
-    let entry = args.next().unwrap_or_else(|| "fpy_main".to_string());
+    let entry = args.next().unwrap_or_else(|| "main".to_string());
 
     match run(&wasm_path, &entry) {
         Ok(code) => {

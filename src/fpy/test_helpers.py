@@ -104,7 +104,9 @@ def compile_seq_wasm(
 def run_seq_wasm(
     seq: str, ground_binary_dir: str = None, import_search_dirs: list[str] | None = None
 ) -> int:
-    """Compile *seq* to wasm and run it, returning fpy_main's error code.
+    """Compile *seq* to wasm and run it, returning the sequence's error code
+    (reported via the exit/fault host imports, or the entrypoint's returned
+    status -- always 0 -- when it falls off its end without failing).
 
     Runs the compiled module through the NASA spacewasm interpreter (the
     on-board target runtime) via the runner harness built by conftest."""
@@ -382,7 +384,8 @@ def assert_run_failure(
 
     if USE_WASM:
         # The wasm backend has no separate validation step or VM-internal
-        # faults: a failed sequence is one whose entry point returns nonzero.
+        # faults: a failed sequence is one that reports a nonzero code
+        # through the exit/fault host imports.
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,

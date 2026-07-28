@@ -1,15 +1,13 @@
 """End-to-end tests for the LLVM/wasm backend.
 
 These compile a sequence all the way to a runnable wasm module, run it through
-the NASA spacewasm interpreter, and assert on the error code that ``fpy_main``
-returns.
+the NASA spacewasm interpreter, and assert on the sequence's error code (what
+the exit/fault host imports report, or the entrypoint's returned status --
+always 0 -- when it falls off its end without failing).
 
-The backend currently only supports ``assert`` over compile-time-constant
-conditions (all-literal expressions fold at compile time). Testing *runtime*
-arithmetic needs a runtime operand -- i.e. variables -- which the backend
-doesn't have yet, so that's deferred. What's meaningfully exercised here is the
-wasm round-trip and the assert/exit-code semantics: a failed assert returns its
-exit code verbatim, or EXIT_WITH_ERROR by default.
+Runtime behavior is exercised through variables: an all-literal expression
+folds at compile time, so tests that want the wasm to actually compute
+something route one operand through a variable.
 """
 
 import pytest
