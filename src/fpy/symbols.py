@@ -151,11 +151,62 @@ class SymbolTable(dict):
         return isinstance(value, SymbolTable) and value.id == self.id
 
     def copy(self):
-        """Return a shallow copy that preserves SymbolTable metadata."""
-        new = SymbolTable(parent=self.parent)
+        """Return a shallow copy that preserves the table's concrete class and
+        metadata."""
+        new = self.__class__(parent=self.parent)
         new.in_function = self.in_function
         new.update(self)
         return new
+
+
+class Scope:
+    """A lexical scope.
+
+    Name resolution is name-group-directed: a use site knows whether it wants a
+    type, a callable, or a value, and the same identifier text may name a
+    different symbol in each group. A Scope therefore holds an independent
+    SymbolTable table per NameGroup plus a parent link; a lookup consults
+    the requested group, walking the parent chain."""
+
+    def __init__(self, parent: "Scope | None" = None, in_function: bool | None = None):
+        self.parent = parent
+        if in_function is None:
+            in_function = parent.in_function if parent is not None else False
+        self.in_function = in_function
+        self._groups: dict[NameGroup, dict[str, "Symbol"]] = {
+            ng: {} for ng in NameGroup
+        }
+
+    def group(self, ng: NameGroup) -> dict[str, "Symbol"]:
+        """The name->symbol dict for one name group (mutable)."""
+        return self._groups[ng]
+
+    def own_symbols(self) -> dict[str, "Symbol"]:
+        """The symbols defined directly in this scope (no parent walk), flattened
+        across name groups. Used to enumerate a sequence's own top-level
+        definitions -- functions, globals, and re-exported modules -- when an
+        import binds the whole sequence."""
+        merged = dict(self._groups[NameGroup.CALLABLE])
+        merged.update(self._groups[NameGroup.VALUE])
+        return merged
+
+    def define(self, ng: NameGroup, name: str, sym: "Symbol"):
+        """Bind *name* to *sym* in this scope's *ng* group."""
+        self._groups[ng][name] = sym
+
+    def get(self, ng: NameGroup, name: str):
+        """Look up *name* in this scope's *ng* group only (no parent walk)."""
+        return self._groups[ng].get(name)
+
+    def lookup(self, ng: NameGroup, name: str):
+        """Look up *name* in the *ng* group of this scope and its ancestors."""
+        scope = self
+        while scope is not None:
+            sym = scope._groups[ng].get(name)
+            if sym is not None:
+                return sym
+            scope = scope.parent
+        return None
 
 
 def create_symbol_table(symbols: dict[str, "Symbol"]) -> SymbolTable:
@@ -237,6 +288,39 @@ def is_symbol_an_expr(symbol: "Symbol") -> bool:
 
 
 ModuleSymbol = SymbolTable
+"""a table which may contain sub definitions (a dictionary module, or an
+import-bound directory or sequence symbol)."""
+
+
+class SequenceSymbol(SymbolTable):
+    """A sequence definition: a sequence file, as a definition (SPEC.md
+    "File system definitions").
+
+    One file is one definition, so there is one SequenceSymbol per sequence
+    file, shared by every scope that imports it. Its entries are the
+    definitions in the scope of its sequence, filled in by BindImports once
+    the sequence is compiled."""
+
+    def __init__(self, source_file=None, parent=None):
+        super().__init__(parent=parent)
+        self.source_file = source_file
+
+
+class DirectorySymbol(SymbolTable):
+    """A directory definition -- a directory, as a definition -- as
+    associated in one importing scope (SPEC.md "File system
+    definitions").
+
+    One directory is one definition, so two directory symbols stand for the
+    same definition iff their `directory` is the same path. Each importing
+    scope holds its own DirectorySymbol per bound name, whose entries are
+    only the associations that scope's import statements made at longer
+    qualified names -- not every definition in the directory."""
+
+    def __init__(self, directory=None, parent=None):
+        super().__init__(parent=parent)
+        self.directory = directory
+
 
 Symbol = typing.Union[
     ChDef,

@@ -43,6 +43,7 @@ from fpy.symbols import (
     CommandSymbol,
     FieldAccess,
     FunctionSymbol,
+    NameGroup,
     TypeCtorSymbol,
     VariableSymbol,
 )
@@ -153,53 +154,90 @@ class CollectUsedFunctions(Visitor):
         state.used_funcs.add(func.definition)
 
 
-class CalculateFrameSizes(TopDownVisitor):
-    """Assigns frame offsets to variables before code generation.
+class _LayOutFrameLocals(TopDownVisitor):
+    """Walk one frame's blocks, giving each not-yet-placed local variable the
+    next offset. Does not descend into nested function bodies -- each of those
+    owns its own frame.
 
-    Each instance handles one frame (global or function). Visits blocks
-    top-down, assigning sequential offsets to variables. At function
-    boundaries, spawns a fresh instance for the function's frame and
-    returns STOP_DESCENT to isolate frames from each other.
+    `offset` starts past the frame's prologue (the sequence args and flags slot
+    # FIXME what do you mean by "nothing" here
+    for the main frame; nothing for a function frame, whose parameters sit at
+    negative offsets) and ends past the last local, i.e. at the frame size."""
 
-    This must run before GenerateFunctions so that global variable offsets
-    are known when generating function bodies that access them.
-    """
-
-    def __init__(self):
+    def __init__(self, offset: int):
         super().__init__()
-        self.offset = 0
-
-    def run(self, start: Ast, state: CompileState):
-        # For the global frame, lay out sequence args (already on stack) first,
-        # then start body variables after them.
-        if start is state.root:
-            for name, arg_type in state.this_seq_arg_specs:
-                arg_var = state.global_value_scope[name]
-                arg_var.frame_offset = self.offset
-                self.offset += arg_type.max_size
-        super().run(start, state)
-        state.frame_sizes[start] = self.offset
+        self.offset = offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        scope = state.enclosing_value_scope[node]
-        for _name, sym in scope.items():
+        for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
                 self.offset += sym.type.max_size
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Assign argument offsets (negative offsets before frame start)
-        func = state.resolved_symbols[node.name]
-        if func.args:
-            arg_offset = -STACK_FRAME_HEADER_SIZE
-            for arg in reversed(func.args):
-                arg_name, arg_type, _ = arg
-                arg_var = state.enclosing_value_scope[node.body][arg_name]
-                arg_offset -= arg_type.max_size
-                arg_var.frame_offset = arg_offset
-        # Assign body variable offsets in a fresh frame
-        CalculateFrameSizes().run(node.body, state)
         return STOP_DESCENT
+
+
+class CalculateFrameSizes(Visitor):
+    """Assign every local variable its offset within its stack frame, and record
+    each frame's total size in state.frame_sizes.
+
+    A frame is owned by a block: the main block (the global frame) or a
+    function body. Its locals are the variables declared in that block and its
+    nested blocks, except nested function bodies, which own their own frames.
+    Ahead of the locals sits the frame's prologue:
+      * the main frame: the sequence arguments, then the flags slot
+      * a function frame: the formal parameters, at negative offsets (before the
+        frame start)
+
+    We walk the whole tree only to find the frame owners: run() lays out the
+    main frame, then visit_AstDef lays out each function's frame.
+
+    This must run before GenerateFunctions so global variable offsets are known
+    when generating function bodies that access them."""
+
+    def run(self, start: Ast, state: CompileState):
+        self._layout_main_frame(state)
+        # The rest of the walk just finds the function definitions; each lays out
+        # its own frame in visit_AstDef.
+        super().run(start, state)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        self._layout_function_frame(node, state)
+
+    def _layout_main_frame(self, state: CompileState):
+        # Sequence args arrive on the stack first, then the flags slot -- which
+        # lives in the base scope but occupies a slot in the main frame here.
+        offset = 0
+        for name, arg_type in state.this_seq_arg_specs:
+            arg_var = state.main_scope.group(NameGroup.VALUE)[name]
+            arg_var.frame_offset = offset
+            offset += arg_type.max_size
+        state.flags_var.frame_offset = offset
+        offset += state.flags_var.type.max_size
+
+        state.frame_sizes[state.main_block] = self._layout_locals(
+            state.main_block, offset, state
+        )
+
+    def _layout_function_frame(self, node: AstDef, state: CompileState):
+        # FIXME you can inline this func
+        # Formal parameters sit before the frame start, at negative offsets.
+        func = state.resolved_symbols[node.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg_name, arg_type, _default in reversed(func.args):
+            arg_offset -= arg_type.max_size
+            body_values[arg_name].frame_offset = arg_offset
+
+        state.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
+
+    def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
+        """Lay out every local in *frame_block*'s frame, starting at *offset*,
+        and return the offset past the last one (the frame's total size)."""
+        layout = _LayOutFrameLocals(offset)
+        layout.run(frame_block, state)
+        return layout.offset
 
 
 class GenerateFunctionEntryPoints(Visitor):
@@ -643,6 +681,11 @@ class GenerateFunctionBody(Emitter):
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
+            if is_instance_compat(stmt, AstBlock):
+                # a sub block. this is only possible if it is an imported sequence
+                # emit its statements inline in this frame
+                dirs.extend(self.emit(stmt, state))
+                continue
             if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
@@ -1322,7 +1365,7 @@ class GenerateFunctionBody(Emitter):
 class GenerateModule(Emitter):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.root:
+        if node is not state.main_block:
             return []
 
         main_body = []

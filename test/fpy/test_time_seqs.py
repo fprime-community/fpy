@@ -10,6 +10,7 @@ Tests for:
 
 import pytest
 
+from fpy.error import WarningType
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -600,6 +601,27 @@ assert result.seconds == 100
 assert result.useconds == 300000
 """
         assert_run_success(fprime_test_api, seq)
+
+    def test_sequence_function_does_not_hijack_time_desugaring(self, fprime_test_api):
+        """A sequence-local function whose name collides with a time builtin must
+        not be picked up by operator desugaring. The `-` desugaring resolves
+        `time_sub` in the base (library) scope, never the sequence's own scope,
+        so this incompatible `time_sub(U32, U32)` is ignored and `t1 - t2` still
+        calls the real builtin on the Time operands. If the desugaring resolved
+        from the sequence scope instead, the U32 signature would reject them."""
+        seq = """
+def time_sub(a: U32, b: U32) -> U32:
+    return U32(a - b)
+
+t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 200, 500000)
+t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 200000)
+result: Fw.TimeIntervalValue = t1 - t2
+assert result.seconds == 100
+assert result.useconds == 300000
+"""
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )
 
     def test_time_addition_operator(self, fprime_test_api):
         """Test Time + TimeInterval using operator syntax."""

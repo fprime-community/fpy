@@ -17,10 +17,20 @@ from fpy.state import get_base_compile_state
 from fpy.test_helpers import default_dictionary
 
 
-def _collect(seq: str, ground_binary_dir: str = None) -> list[str]:
+def _collect(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] = None,
+    main_file_dir: str = None,
+) -> list[str]:
     """Run ast_to_dependencies on a sequence string; return the dependency list."""
     fpy.error.file_name = "<test>"
-    state = get_base_compile_state(default_dictionary, ground_binary_dir)
+    state = get_base_compile_state(
+        default_dictionary,
+        ground_binary_dir,
+        import_directories=import_directories,
+        main_file_dir=main_file_dir,
+    )
     body = text_to_ast(seq)
     assert body is not None
     return ast_to_dependencies(body, state)
@@ -143,8 +153,56 @@ Ref.seqDisp.RUN_ARGS(name, Svc.BlockState.BLOCK)
         assert "string literal" in str(exc_info.value)
 
 
+class TestImports:
+    """The depend tool must inline imports, so a sequence-run dependency inside
+    an imported sequence is discovered (and an import never breaks discovery)."""
+
+    def test_import_of_functions_only_sequence_does_not_break_discovery(self, tmp_path):
+        (tmp_path / "lib.fpy").write_text(
+            "def add_one(x: U32) -> U32:\n    return U32(x + 1)\n"
+        )
+        seq = "import lib\n\nresult: U32 = lib.add_one(41)\n"
+        deps = _collect(seq, import_directories=[str(tmp_path)])
+        assert deps == []
+
+    def test_seq_run_dep_inside_imported_sequence_is_discovered(self, tmp_path):
+        # The RUN_ARGS lives only in the imported sequence; discovery must follow
+        # the import to find it.
+        (tmp_path / "lib.fpy").write_text(
+            "def run_child():\n"
+            '    Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n'
+        )
+        seq = "import lib\n\nlib.run_child()\n"
+        deps = _collect(
+            seq, ground_binary_dir="/tmp/bins", import_directories=[str(tmp_path)]
+        )
+        assert deps == ["/tmp/bins/child.bin"]
+
+
 class TestDependMainCLI:
     """End-to-end CLI tests that write real .fpy files and call depend_main."""
+
+    def test_import_dependency_discovered_via_cli(self, tmp_path, capsys):
+        from fpy.main import depend_main
+
+        (tmp_path / "lib.fpy").write_text(
+            "def run_child():\n"
+            '    Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK)\n'
+        )
+        fpy_path = tmp_path / "seq.fpy"
+        fpy_path.write_text("import lib\n\nlib.run_child()\n")
+        depend_main(
+            [
+                str(fpy_path),
+                "-d",
+                default_dictionary,
+                "-g",
+                str(tmp_path),
+                "-i",
+                str(tmp_path),
+            ]
+        )
+        assert capsys.readouterr().out.strip() == str(tmp_path / "child.bin")
 
     def test_no_deps_produces_no_output(self, tmp_path, capsys):
         from fpy.main import depend_main

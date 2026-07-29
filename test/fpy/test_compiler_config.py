@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 import fpy.error
+import fpy.types
 from fpy.compiler import (
     text_to_ast,
     analyze_ast,
@@ -233,7 +234,7 @@ def test_too_many_directives_with_custom_limit():
         # Should fail because we exceed the custom limit
         with pytest.raises(fpy.error.BackendError) as exc_info:
             state = analyze_ast(body, state)
-            analysis_to_fpybc_directives(body, state)
+            analysis_to_fpybc_directives(state)
         assert "Too many directives" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
@@ -269,7 +270,99 @@ def test_within_custom_limit_succeeds():
 
         # Should succeed
         state = analyze_ast(body, state)
-        analysis_to_fpybc_directives(body, state)
+        analysis_to_fpybc_directives(state)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+# ============================================================================
+# FW_SERIALIZE_TRUE_VALUE / FW_SERIALIZE_FALSE_VALUE loading tests
+# ============================================================================
+
+
+def fw_serialize_constant(name: str, value: int) -> dict:
+    """Build a dictionary constant descriptor for a FW_SERIALIZE_* value."""
+    return {
+        "kind": "constant",
+        "qualifiedName": name,
+        "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+        "value": value,
+        "annotation": f"Custom {name} for testing",
+    }
+
+
+def test_load_fw_serialize_from_default_dictionary():
+    """Test that boolean wire-format values are loaded from the standard dictionary."""
+    _clear_caches()
+    from fpy.types import BOOL, FpyValue
+
+    get_base_compile_state(DEFAULT_DICTIONARY, {})
+
+    # The RefTopologyDictionary.json has FW_SERIALIZE_TRUE_VALUE=255, FALSE=0
+    assert fpy.types.FW_SERIALIZE_TRUE_VALUE == 0xFF
+    assert fpy.types.FW_SERIALIZE_FALSE_VALUE == 0x00
+    assert FpyValue(BOOL, True).serialize() == b"\xff"
+    assert FpyValue(BOOL, False).serialize() == b"\x00"
+
+
+def test_custom_fw_serialize_values():
+    """Test that custom boolean wire-format values from the dictionary are used."""
+    _clear_caches()
+    from fpy.types import (
+        BOOL,
+        DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+        DEFAULT_FW_SERIALIZE_TRUE_VALUE,
+        FpyValue,
+    )
+
+    dict_path = create_test_dictionary(
+        [
+            fw_serialize_constant("FW_SERIALIZE_TRUE_VALUE", 1),
+            fw_serialize_constant("FW_SERIALIZE_FALSE_VALUE", 2),
+        ]
+    )
+
+    try:
+        get_base_compile_state(dict_path, {})
+        assert fpy.types.FW_SERIALIZE_TRUE_VALUE == 1
+        assert fpy.types.FW_SERIALIZE_FALSE_VALUE == 2
+        # Booleans now serialize using the dictionary-provided wire values.
+        assert FpyValue(BOOL, True).serialize() == b"\x01"
+        assert FpyValue(BOOL, False).serialize() == b"\x02"
+    finally:
+        # Restore the framework defaults so we don't leak into other tests.
+        fpy.types.FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
+        fpy.types.FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_missing_fw_serialize_use_defaults():
+    """Test that missing FW_SERIALIZE constants fall back to framework defaults."""
+    _clear_caches()
+    from fpy.types import (
+        DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+        DEFAULT_FW_SERIALIZE_TRUE_VALUE,
+    )
+
+    dict_path = create_test_dictionary([])
+
+    # Remove the FW_SERIALIZE constants from the dictionary.
+    with open(dict_path, "r") as f:
+        dict_json = json.load(f)
+    dict_json["constants"] = [
+        c
+        for c in dict_json.get("constants", [])
+        if not c.get("qualifiedName", "").startswith("FW_SERIALIZE_")
+    ]
+    with open(dict_path, "w") as f:
+        json.dump(dict_json, f)
+
+    try:
+        get_base_compile_state(dict_path, {})
+        assert fpy.types.FW_SERIALIZE_TRUE_VALUE == DEFAULT_FW_SERIALIZE_TRUE_VALUE
+        assert fpy.types.FW_SERIALIZE_FALSE_VALUE == DEFAULT_FW_SERIALIZE_FALSE_VALUE
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -449,4 +542,4 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     assert body is not None
 
     state = analyze_ast(body, state)
-    analysis_to_fpybc_directives(body, state)
+    analysis_to_fpybc_directives(state)

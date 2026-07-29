@@ -34,9 +34,15 @@ MAX_DIRECTIVE_SIZE = DEFAULT_MAX_DIRECTIVE_SIZE
 
 COMPILER_MAX_STRING_SIZE = 128
 
-# FPP wire-format constants for boolean serialization
-FW_SERIALIZE_TRUE_VALUE = 0xFF
-FW_SERIALIZE_FALSE_VALUE = 0x00
+# FPP wire-format constants for boolean serialization.
+# The live FW_SERIALIZE_* values may be overridden from the dictionary at
+# compile time (see get_base_compile_state); the DEFAULT_* values are the
+# framework fallbacks used when the dictionary does not define them.
+DEFAULT_FW_SERIALIZE_TRUE_VALUE = 0xFF
+DEFAULT_FW_SERIALIZE_FALSE_VALUE = 0x00
+
+FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
+FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
 
 
 class TypeKind(str, Enum):

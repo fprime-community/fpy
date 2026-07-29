@@ -14,12 +14,14 @@ capsys
 cbranch
 Ccsds
 Cdh
+cfgv
 chans
 cls
 codegen
 CSPRNG
 ctx
 cuz
+dedenting
 Deframer
 downcasted
 downcasting
@@ -61,6 +63,7 @@ gz
 hh
 HLTH
 iabs
+idempotently
 idx
 ieq
 ifelifelse
@@ -82,6 +85,7 @@ nassert
 nbackend
 nexit
 nif
+nlib
 nontrapping
 noreturn
 nsize
@@ -142,6 +146,7 @@ vw
 WASI
 wasmtime
 wikipedia
+workaround
 wrt
 wx
 xl

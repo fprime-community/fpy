@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 from pathlib import Path
 from lark import Lark, LarkError
 from llvmlite import ir
@@ -19,6 +20,7 @@ from fpy.codegen_llvm import (
     llvm_module_to_wasm_text,
 )
 from fpy.desugaring import (
+    DesugarAugmentedAssignments,
     DesugarDefaultArgs,
     DesugarForLoops,
     DesugarCheckStatements,
@@ -26,8 +28,9 @@ from fpy.desugaring import (
 )
 from fpy.semantics import (
     AssignIds,
+    AssignNameGroups,
     CreateScopes,
-    CheckAllTypesAndCallablesResolved,
+    CheckResolvedSymbolKinds,
     CheckAllUnqualifiedIdentifiersResolved,
     CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
@@ -51,6 +54,11 @@ from fpy.semantics import (
     CheckForConstantSizeTypes,
     UpdateStateWithTypes,
     WarnRangesAreNotEmpty,
+)
+from fpy.imports import (
+    BindImports,
+    ConstructAst,
+    WarnImportUnderscore,
 )
 from fpy.syntax import AstBlock, FpyTransformer, PythonIndenter
 from fpy.types import (
@@ -93,6 +101,29 @@ _fpy_parser = Lark(
     maybe_placeholders=True,
 )
 
+
+def _parse_fpy(text: str, **kwargs):
+    """Parse fpy source into a Lark tree, tolerating a missing final newline.
+
+    The indenter (PythonIndenter) derives INDENT/DEDENT tokens from the
+    whitespace each _NEWLINE token carries. When the source does not end in a
+    newline, the final line's leading whitespace is never followed by a newline,
+    so at end-of-input it is misread as a brand-new indentation level: a trailing
+    tab or an over-indented comment on the last line then emits a spurious INDENT
+    (or a bogus dedent) and an otherwise-valid sequence fails to compile
+    (https://github.com/fprime-community/fpy/issues/61).
+
+    Appending a newline when one is absent makes the last line's indentation
+    resolve to column 0 -- closing any open blocks cleanly -- exactly as
+    CPython's tokenizer supplies an implicit NEWLINE before end-of-input. The
+    newline is added only at the very end, so it shifts no positions and leaves
+    error line/column reporting (and text.splitlines()) unchanged.
+    """
+    if not text.endswith("\n"):
+        text = text + "\n"
+    return _fpy_parser.parse(text, **kwargs)
+
+
 # Load builtin time.fpy functions at module level
 _builtin_time_path = Path(__file__).parent / "builtin" / "time.fpy"
 _builtin_time_text = _builtin_time_path.read_text(encoding="utf-8")
@@ -112,7 +143,7 @@ def _get_builtin_library_ast():
         fpy.error.input_text = _builtin_time_text
         fpy.error.input_lines = _builtin_time_text.splitlines()
 
-        tree = _fpy_parser.parse(_builtin_time_text)
+        tree = _parse_fpy(_builtin_time_text)
         _builtin_library_ast = FpyTransformer().transform(tree)
 
         # Restore error state
@@ -123,13 +154,35 @@ def _get_builtin_library_ast():
     return _builtin_library_ast
 
 
+def _build_root_block(program: AstBlock, state: CompileState):
+    """Wrap the program in a fresh *library root* block, stored as
+    state.root_block, and put the imported sequence blocks as sibling blocks:
+
+        library root (state.root_block)     scope = base
+        |- builtin library defs             (time_add, time_cmp, ...)
+        |- main block (state.main_block)     scope = child of base
+        |- imported sequence block           scope = child of base
+        |- ..."""
+    library_ast = _get_builtin_library_ast()
+
+    # The program block, as parsed, is the main block; the main sequence's
+    # context points at it so BindImports can reach its scope.
+    state.main_block = program
+    state.main_sequence.block = program
+
+    state.root_block = AstBlock(
+        program.meta,
+        copy.deepcopy(library_ast.stmts) + [program] + state.imported_blocks,
+    )
+
+
 def text_to_ast(text: str):
     from lark.exceptions import VisitError
 
     fpy.error.input_text = text
     fpy.error.input_lines = text.splitlines()
     try:
-        tree = _fpy_parser.parse(text, on_error=handle_lark_error)
+        tree = _parse_fpy(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
         return None
@@ -157,30 +210,27 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
     Returns the populated CompileState. Raises the first CompileError encountered.
     """
-    state.root = body
+    # Constructing the AST (SPEC.md Imports): resolve every import statement, on
+    # the raw program AST, including each imported sequence file's block in
+    # state.imported_blocks and recording a ResolvedImport for BindImports.
+    ConstructAst().run(body, state)
+    if len(state.errors) != 0:
+        raise state.errors[0]
 
-    # we want to run this past first, because the next
-    # stage will add statements to the start of the file
-    # which would mess with this pass
-    pre_builtin_lib_include_passes = [
-        CheckSequenceMetadataDefinedAtTop(),
+    # Wrap the program in the library root block: builtin library, the main
+    # program (state.main_block), and every imported sequence as sibling
+    # children. All later passes run on state.root_block.
+    _build_root_block(body, state)
+
+    pre_semantic_desugaring_passes = [
+        DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
     ]
 
-    for compile_pass in pre_builtin_lib_include_passes:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    # Now prepend builtin library functions to user code - always available.
-    # will be elided if unused
-    import copy
-
-    builtin_library_ast = _get_builtin_library_ast()
-    body.stmts = copy.deepcopy(builtin_library_ast.stmts) + body.stmts
-
-    pre_semantic_desugaring_passes = [DesugarCheckStatements()]
-
     semantics_passes: list[Visitor] = [
+        # sequence() metadata, if present, must be the first statement of
+        # each sequence block
+        CheckSequenceMetadataDefinedAtTop(),
         # assign each node a unique id for indexing/hashing
         AssignIds(),
         # based on position of node in tree, figure out which scope it is in
@@ -188,17 +238,27 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # check that assignment targets are valid
         CheckAssignSyntax(),
         # register all user-defined functions in the global callable scope
+        # (and the builtin library functions in the shared base callable scope)
         DefineFunctions(),
         # register all variable declarations in their enclosing scopes.
         # Function bodies are deferred so that globals declared later in
         # the source are visible inside functions.
         DefineVariables(),
+        # Binding (SPEC.md Imports): now that every sequence's definitions are
+        # registered, each import statement associates one or more qualified
+        # names with definitions in the importing scope
+        BindImports(),
         # check that break/continue are in loops, and store which loop they're in
         CheckBreakAndContinueInLoop(),
         CheckReturnInFunc(),
+        # record each expression's name group (callable/type/value) from its
+        # syntactic slot, so resolution and kind-checking can read it back
+        AssignNameGroups(),
         ResolveQualifiedIdentifiers(),
         CheckAllUnqualifiedIdentifiersResolved(),
-        CheckAllTypesAndCallablesResolved(),
+        # warn when the importer uses an underscore-prefixed imported definition
+        WarnImportUnderscore(),
+        CheckResolvedSymbolKinds(),
         CheckForConstantSizeTypes(),
         UpdateStateWithTypes(),
         # make sure we don't use any variables before they are declared
@@ -237,17 +297,17 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     ]
 
     for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in semantics_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
     for compile_pass in desugaring_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
@@ -255,7 +315,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
 
 
 def analysis_to_fpybc_directives(
-    body: AstBlock, state: CompileState
+    state: CompileState,
 ) -> tuple[list[Directive], list[FpyType]]:
     """Runs fpybc codegen passes on analysis results, returning fpybc directives.
 
@@ -271,11 +331,11 @@ def analysis_to_fpybc_directives(
         GenerateFunctions(),
     ]
     for compile_pass in codegen_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
 
-    ir = GenerateModule().emit(body, state)
+    ir = GenerateModule().emit(state.main_block, state)
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
     for compile_pass in ir_passes:
@@ -293,18 +353,13 @@ def analysis_to_fpybc_directives(
 
 
 def analysis_to_llvm_module(
-    body: AstBlock, state: CompileState
+    state: CompileState,
 ) -> tuple[ir.Module, list[FpyType]]:
     """Runs LLVM codegen passes on analysis results, returning an llvmlite ir.Module (the LLVM backend).
 
     Raises BackendError on failure."""
 
-    for compile_pass in []:
-        compile_pass.run(body, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    module = GenerateLlvmModule().emit(body, state)
+    module = GenerateLlvmModule().emit(state.root_block, state)
 
     # print out warnings
     for warning in state.warnings:
@@ -314,24 +369,22 @@ def analysis_to_llvm_module(
 
 
 def analysis_to_wasm(
-    body: AstBlock,
     state: CompileState,
 ) -> tuple[bytes, list[FpyType]]:
     """Runs the LLVM backend and lowers the result to a runnable wasm module.
 
     Raises BackendError on failure."""
-    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm(module), seq_arg_types
 
 
 def analysis_to_wat(
-    body: AstBlock,
     state: CompileState,
 ) -> tuple[str, list[FpyType]]:
     """Runs the LLVM backend and lowers the result to WebAssembly text.
 
     Raises BackendError on failure."""
-    module, seq_arg_types = analysis_to_llvm_module(body, state)
+    module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm_text(module), seq_arg_types
 
 
@@ -343,33 +396,35 @@ def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
 
     Raises CompileError on failure.
     """
-    state.root = body
+    # Load imported sequences first so sequence-run dependencies inside them are
+    # discovered too.
+    ConstructAst().run(body, state)
+    if state.errors:
+        raise state.errors[0]
 
-    pre_builtin_passes = [CheckSequenceMetadataDefinedAtTop()]
-    for compile_pass in pre_builtin_passes:
-        compile_pass.run(body, state)
-        if state.errors:
-            raise state.errors[0]
-
-    import copy
-
-    body.stmts = copy.deepcopy(_get_builtin_library_ast().stmts) + body.stmts
+    # Wrap the program in the library root block (sets state.root_block and
+    # state.main_block).
+    _build_root_block(body, state)
 
     discovery_passes: list[Visitor] = [
+        CheckSequenceMetadataDefinedAtTop(),
         DesugarCheckStatements(),
+        DesugarAugmentedAssignments(),
         AssignIds(),
         CreateScopes(),
         DefineFunctions(),
         DefineVariables(),
+        BindImports(),
+        AssignNameGroups(),
         ResolveQualifiedIdentifiers(),
     ]
     for compile_pass in discovery_passes:
-        compile_pass.run(body, state)
+        compile_pass.run(state.root_block, state)
         if state.errors:
             raise state.errors[0]
 
     discover = CollectSequenceDependencies()
-    discover.run(body, state)
+    discover.run(state.root_block, state)
     if state.errors:
         raise state.errors[0]
 
