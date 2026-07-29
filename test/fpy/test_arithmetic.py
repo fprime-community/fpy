@@ -2,7 +2,13 @@ import pytest
 
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+import fpy.test_helpers as test_helpers
+from fpy.model import DirectiveErrorCode
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_failure,
+    assert_run_success,
+)
 
 
 class TestConstantFolding:
@@ -525,15 +531,12 @@ assert iabs(I64(1)) == 1
 assert iabs(I64(0)) == 0
 # need to use a large subtract here cuz otherwise float precision kills us... this is kinda sus
 assert iabs(I64(2**63 - 6556)) == 2**63 - 6556
-assert iabs(I64(-2**63)) == I64(-2**63) # abs int min is int min
 """
 
         assert_run_success(fprime_test_api, seq)
 
     def test_abs_i64_edge_cases(self, fprime_test_api):
         seq = """
-# I64 min: abs wraps back to I64 min (matching libm's llabs), no overflow trap
-assert iabs(I64(-2**63)) == I64(-2**63)
 # I64 max is its own absolute value
 assert iabs(I64(2**63 - 1)) == 2**63 - 1
 # -(I64 max) negates cleanly to I64 max
@@ -543,6 +546,17 @@ assert iabs(I64(-2**63 + 1)) == 2**63 - 1
 """
 
         assert_run_success(fprime_test_api, seq)
+
+    def test_abs_i64_int_min_overflows(self, fprime_test_api):
+        """abs(I64 min) is not representable in I64, so the sequence ends
+        with ARITHMETIC_OVERFLOW rather than wrapping."""
+        if test_helpers.USE_WASM:
+            pytest.skip("wasm backend does not implement arithmetic traps yet")
+        seq = """
+val: I64 = iabs(I64(-2**63))
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
     def test_abs_u64(self, fprime_test_api):
         seq = """

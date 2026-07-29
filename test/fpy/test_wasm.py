@@ -272,14 +272,18 @@ class TestWasmUnaryOps:
 
 class TestWasmAbsFloor:
     """iabs/fabs lower to llvm.abs/llvm.fabs and float `//` to llvm.floor.
-    These pin the SPEC edge cases: iabs wraps I64 min, fabs only clears the
-    sign bit, and flooring preserves the sign of a zero quotient. The sign of
-    a zero is observed through division (1.0 / -0.0 == -inf)."""
+    These pin the SPEC edge cases: fabs only clears the sign bit, and flooring
+    preserves the sign of a zero quotient. The sign of a zero is observed
+    through division (1.0 / -0.0 == -inf)."""
 
     def test_iabs_basic(self):
         assert run_seq_wasm("x: I64 = 0 - 5\nassert iabs(x) == 5\n") == NO_ERROR
 
     def test_iabs_int_min_wraps(self):
+        # Known divergence: SPEC says iabs(I64 min) raises ARITHMETIC_OVERFLOW,
+        # but the wasm backend implements no arithmetic traps yet and llvm.abs
+        # with is_int_min_poison=0 wraps. This pins the current behavior so a
+        # future trap implementation consciously flips it.
         seq = "x: I64 = I64(-2**63)\nassert iabs(x) == x\n"
         assert run_seq_wasm(seq) == NO_ERROR
 

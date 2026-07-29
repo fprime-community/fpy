@@ -1140,7 +1140,7 @@ If this is called without the seed being manually set beforehand, then the seed 
 Reserved for a future directive that pops a serializable value off the stack. Not yet implemented — the opcode is reserved so its id stays stable for future use.
 
 ## FFLOOR (79)
-Floors an `F64` toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation), pushes result to stack. A zero, infinite, or NaN value passes through unchanged; the sign of a zero is preserved (`-0.0` floors to `-0.0`). The bit pattern of a NaN result is unspecified. A value in `(0, 1)` floors to `0.0`; a value in `(-1, 0)` floors to `-1.0`. Never raises an error. Used to lower float floor division (`//`).
+Floors an `F64` toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation), pushes result to stack. A zero, infinite, or NaN value passes through unchanged; the sign of a zero is preserved (`-0.0` floors to `-0.0`). A NaN result is a quiet NaN; its sign and payload are unspecified. A value in `(0, 1)` floors to `0.0`; a value in `(-1, 0)` floors to `-1.0`. Never raises an error. Used to lower float floor division (`//`).
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | value    | F64      | stack  | Value to floor |
@@ -1152,7 +1152,7 @@ Floors an `F64` toward negative infinity (the IEEE 754 `roundToIntegralTowardNeg
 **Requirement:**  FPY-SEQ-002
 
 ## IABS (80)
-Pops a signed `I64`, pushes its absolute value to the stack: the value itself if non-negative, its two's-complement negation otherwise. The absolute value of `I64` min (`-2**63`) is not representable, so it wraps back to `I64` min rather than trapping (matching `llvm.abs` with `is_int_min_poison=0`). Never raises an error.
+Pops a signed `I64`, pushes its absolute value to the stack: the value itself if non-negative, its negation otherwise. The absolute value of `I64` min (`-2**63`) is not representable in `I64`, so it raises `ARITHMETIC_OVERFLOW`. Raises no other error.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | value    | I64      | stack  | Value to take the absolute value of |

@@ -881,9 +881,9 @@ TODO this really should be linked to the FpySequencer spec to say exactly where 
 `iabs(value: I64) -> I64`
 
 #### Semantics
-At evaluation, the function call evaluates to `value` if `value >= 0`, and to the two's-complement negation of `value` otherwise.
+At evaluation, the function call evaluates to the mathematical absolute value of `value`: `value` if `value >= 0`, and its negation otherwise.
 
-The absolute value of `I64` min (`-2**63`) is not representable in `I64`; its two's-complement negation wraps back to `-2**63`, so `iabs(-2**63)` evaluates to `-2**63`. `iabs` never raises an error.
+The absolute value of `I64` min (`-2**63`) is not representable in `I64`, so `iabs(-2**63)` raises a runtime error. For every other value, `iabs` does not raise an error.
 
 ### `fabs`
 #### Signature
@@ -1278,7 +1278,7 @@ With integer operands, the result is the largest integer not greater than the ex
 
 If either operand is a float, both are promoted to `F64`. The quotient is computed by IEEE 754 division and then floored toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation):
 
-* An infinite or NaN quotient is unchanged. The bit pattern of a NaN result is unspecified.
+* An infinite or NaN quotient is unchanged. A NaN result is a quiet NaN; its sign and payload are unspecified.
 * A zero quotient is unchanged; the sign of zero is preserved, so a quotient of `-0.0` floors to `-0.0`.
 * Otherwise the result is the largest integral `F64` value not greater than the quotient: a quotient of `0.5` floors to `0.0`, and a quotient of `-0.5` floors to `-1.0`.
 

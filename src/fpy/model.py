@@ -964,9 +964,10 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop()
-        # overflow_check makes abs(I64 min) wrap back to I64 min (matching
-        # libm's llabs and llvm.abs) rather than trapping.
-        self.push(overflow_check(abs(val)))
+        # abs(I64 min) is not representable in I64
+        if val == MIN_INT64:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        self.push(abs(val))
         return None
 
     def handle_fabs(self, dir: FloatAbsDirective):

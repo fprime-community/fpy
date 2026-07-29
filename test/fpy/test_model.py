@@ -935,7 +935,7 @@ class TestFdivNegativeZero:
 
 
 class TestAbsFloorDirectives:
-    """Value semantics of iabs/fabs/ffloor per SPEC: iabs wraps I64 min,
+    """Value semantics of iabs/fabs/ffloor per SPEC: iabs overflows on I64 min,
     fabs only clears the sign bit, and ffloor preserves the sign of zero
     while passing +-inf and NaN through."""
 
@@ -950,9 +950,12 @@ class TestAbsFloorDirectives:
         model = self._run_unary(IntAbsDirective(), -5)
         assert model.pop(signed=True) == 5
 
-    def test_iabs_int_min_wraps(self):
-        model = self._run_unary(IntAbsDirective(), MIN_INT64)
-        assert model.pop(signed=True) == MIN_INT64
+    def test_iabs_int_min_overflows(self):
+        model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+        model.push(MIN_INT64)
+        assert (
+            model.dispatch(IntAbsDirective()) == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        )
 
     def test_iabs_int_max(self):
         model = self._run_unary(IntAbsDirective(), MAX_INT64)
