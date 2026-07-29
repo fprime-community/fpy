@@ -54,16 +54,6 @@ The list of reserved words is:
 
 A **symbol** is a language construct that can be referred to by a name in the program. 
 
-The following language constructs may be symbols:
-* [modules](#modules)
-* [variables](#variables)
-* [callables](#callables)
-* [types](#types)
-* telemetry channels
-* parameters
-* enum constants
-TODO members?
-TODO you're selecting a member of a value--not referring to a static member. when you say a.b you're asking for a comp to be performed
 
 ## Scopes
 
@@ -108,7 +98,7 @@ TODO Does it refer to something that has a scope, or does it refer to something 
 
 > For instance, the type name group is accessible anywhere in the source code where a type name is expected, such as a [variable definition](#variable-definition) type annotation, or a [function definition](#function-definition) return type.
 
-The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
+The **contextual name group** is the name group that a qualified should be resolved in, based on its syntactic context.
 
 ## Shadowing
 
@@ -162,6 +152,16 @@ The list of definitions is:
 * [Variable definitions](#variable-definition)
 * [Function definitions](#function-definition)
 * Directory and sequence definitions, associated with names by [import statements](#imports)
+The following language constructs may be symbols:
+* [modules](#modules)
+* [variables](#variables)
+* [callables](#callables)
+* [types](#types)
+* telemetry channels
+* parameters
+* enum constants
+TODO members?
+TODO you're selecting a member of a value--not referring to a static member. when you say a.b you're asking for a comp to be performed
 
 # Variables
 
