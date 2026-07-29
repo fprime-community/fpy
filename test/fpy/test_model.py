@@ -948,23 +948,25 @@ class TestAbsFloorDirectives:
 
     def test_iabs_negative(self):
         model = self._run_unary(IntAbsDirective(), -5)
-        assert model.pop(signed=True) == 5
+        val = model.pop(signed=True)
+        assert val == 5
 
     def test_iabs_int_min_overflows(self):
         model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
         model.push(MIN_INT64)
-        assert (
-            model.dispatch(IntAbsDirective()) == DirectiveErrorCode.ARITHMETIC_OVERFLOW
-        )
+        result = model.dispatch(IntAbsDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
 
     def test_iabs_int_max(self):
         model = self._run_unary(IntAbsDirective(), MAX_INT64)
-        assert model.pop(signed=True) == MAX_INT64
+        val = model.pop(signed=True)
+        assert val == MAX_INT64
 
     def test_iabs_stack_underflow(self):
         model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
         model.stack = bytearray(7)
-        assert model.dispatch(IntAbsDirective()) == DirectiveErrorCode.STACK_UNDERFLOW
+        result = model.dispatch(IntAbsDirective())
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_fabs_negative_zero(self):
         model = self._run_unary(FloatAbsDirective(), -0.0)
@@ -974,11 +976,13 @@ class TestAbsFloorDirectives:
 
     def test_fabs_negative_inf(self):
         model = self._run_unary(FloatAbsDirective(), float("-inf"))
-        assert model.pop(type=float) == float("inf")
+        val = model.pop(type=float)
+        assert val == float("inf")
 
     def test_fabs_nan(self):
         model = self._run_unary(FloatAbsDirective(), float("nan"))
-        assert math.isnan(model.pop(type=float))
+        val = model.pop(type=float)
+        assert math.isnan(val)
 
     def test_ffloor_preserves_negative_zero_sign(self):
         model = self._run_unary(FloatFloorDirective(), -0.0)
@@ -994,25 +998,31 @@ class TestAbsFloorDirectives:
 
     def test_ffloor_fraction_below_one(self):
         model = self._run_unary(FloatFloorDirective(), 0.5)
-        assert model.pop(type=float) == 0.0
+        val = model.pop(type=float)
+        assert val == 0.0
 
     def test_ffloor_negative_fraction(self):
         model = self._run_unary(FloatFloorDirective(), -0.5)
-        assert model.pop(type=float) == -1.0
+        val = model.pop(type=float)
+        assert val == -1.0
 
     def test_ffloor_inf_passthrough(self):
         model = self._run_unary(FloatFloorDirective(), float("inf"))
-        assert model.pop(type=float) == float("inf")
+        val = model.pop(type=float)
+        assert val == float("inf")
         model = self._run_unary(FloatFloorDirective(), float("-inf"))
-        assert model.pop(type=float) == float("-inf")
+        val = model.pop(type=float)
+        assert val == float("-inf")
 
     def test_ffloor_nan_passthrough(self):
         model = self._run_unary(FloatFloorDirective(), float("nan"))
-        assert math.isnan(model.pop(type=float))
+        val = model.pop(type=float)
+        assert math.isnan(val)
 
     def test_ffloor_integral_identity(self):
         model = self._run_unary(FloatFloorDirective(), -2.0)
-        assert model.pop(type=float) == -2.0
+        val = model.pop(type=float)
+        assert val == -2.0
 
 
 from fpy.types import U8, U16, U32, U64, I32, F32, F64, BOOL
