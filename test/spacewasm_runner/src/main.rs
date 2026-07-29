@@ -3,21 +3,25 @@
 //!
 //! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]`
 //!
-//! On success it prints the sequence's i32 error code as a single decimal line
-//! to stdout and exits 0. The code comes from `env.exit` when the sequence
-//! calls exit() or fails an assert, or from `env.fault` when it hits an
-//! implicit runtime trap (array index out of bounds, zero divisor). The entry
-//! itself is a wasm Basic-C-ABI `main(argc, argv) -> i32` (we pass 0, 0 like
-//! a crt with no argument plumbing) -- which the fpy backend only ever
-//! returns 0 from, since every failure leaves through exit/fault instead of
-//! returning. The caller reads the printed code; the process exit status only
+//! On success it prints the sequence's i32 error code as a decimal on the
+//! final line of stdout and exits 0. The code comes from `fprime.exit` when
+//! the sequence calls exit() or fails an assert, or from `fprime.fault` when
+//! it hits an implicit runtime trap (array index out of bounds, zero
+//! divisor). The entry itself is a `void main()` -- no arguments, no return
+//! value -- since every failure (and explicit exit) leaves through exit/fault
+//! and never comes back, so returning at all means success (reported as code
+//! 0). The caller reads the printed code; the process exit status only
 //! distinguishes "ran cleanly" (0) from "harness/runtime fault" (2), so a
 //! nonzero error code is not conflated with a trap.
 //!
-//! The `env.{pow,fmod,log}` host imports the fpy LLVM backend may emit are
-//! provided here, backed by libm so they match the C/IEEE semantics the LLVM
-//! intrinsics lower to. `env.{exit,fault}` are provided to terminate the
-//! sequence.
+//! Each `fprime.event` call the sequence makes (the log() builtin) is
+//! reported before the code line as `event <severity> <message>`, one line
+//! per event, with the message Rust-escaped so it stays on one line.
+//!
+//! Two host modules are provided: `env` holds the float libcalls
+//! (`pow`/`fmod`/`log`) LLVM materializes itself, backed by libm so they
+//! match the C/IEEE semantics the LLVM intrinsics lower to; `fprime` mirrors
+//! the flight sequencer's host interface (`exit`, `fault`, `event`).
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -136,39 +140,17 @@ fn wasm_alloc() -> spacewasm::Rc<dyn WasmMemoryAllocator> {
         .into_wasm_memory_allocator()
 }
 
-/// The host imports the fpy LLVM/wasm backend may emit, all under module `env`.
-///
-/// `pow`/`fmod`/`log` are backed by libm so edge cases (e.g. `pow(0, -1)` ->
-/// +inf, domain errors -> NaN) match what the LLVM intrinsics produce.
-///
-/// `exit(code)` and `fault(code)` end the whole sequence: they record the code
-/// into *exit_code* and unwind the interpreter with a host trap, so they
-/// terminate the program from any call depth (a `ret` would only unwind the
-/// current function). The recorded code -- not the trap -- carries the result.
-/// `exit` is a termination the sequence asked for (exit(), a failing assert;
-/// code 0 is a normal exit, nonzero an error), `fault` an implicit runtime
-/// trap (array index out of bounds, zero divisor; always an error). This
-/// harness reports both the same way, as the sequence's resulting error code.
-fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
+/// The `env` host module: the float libcalls (`pow`/`fmod`/`log`) LLVM
+/// materializes under wasm-ld's default import module. Backed by libm so edge
+/// cases (e.g. `pow(0, -1)` -> +inf, domain errors -> NaN) match what the
+/// LLVM intrinsics produce.
+fn env_host_module() -> HostModule {
     fn arg_f64(args: &[Value], i: usize) -> f64 {
         match args[i] {
             Value::F64(v) => v,
             other => panic!("expected f64 host arg, got {other:?}"),
         }
     }
-    fn record_code_and_unwind(
-        exit_code: &Rc<Cell<Option<i32>>>,
-        args: &[Value],
-    ) -> ControlFlow<HostFunctionBreak, Option<Value>> {
-        let code = match args[0] {
-            Value::I32(v) => v,
-            other => panic!("expected i32 exit code, got {other:?}"),
-        };
-        exit_code.set(Some(code));
-        // Unwind the whole interpreter; run() reads the code back.
-        ControlFlow::Break(HostFunctionBreak::Trap)
-    }
-    let fault_code = exit_code.clone();
     HostModule {
         name: "env".into(),
         globals: spacewasm::vec![],
@@ -188,11 +170,72 @@ fn fpy_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
             HostFunction::new("log", "d".into(), "d".into(), |_, args| {
                 ControlFlow::Continue(Some(Value::F64(libm::log(arg_f64(args, 0)))))
             }),
+        ],
+        memory: spacewasm::vec![],
+        table: spacewasm::vec![],
+    }
+}
+
+/// The `fprime` host module, mirroring the host interface the flight
+/// sequencer (Svc/WasmSequencer) registers under that wasm module name.
+///
+/// `exit(code)` and `fault(code)` end the whole sequence: they record the code
+/// into *exit_code* and unwind the interpreter with a host trap, so they
+/// terminate the program from any call depth (a `ret` would only unwind the
+/// current function). The recorded code -- not the trap -- carries the result.
+/// `exit` is a termination the sequence asked for (exit(), a failing assert;
+/// code 0 is a normal exit, nonzero an error), `fault` an implicit runtime
+/// trap (array index out of bounds, zero divisor; always an error). This
+/// harness reports both the same way, as the sequence's resulting error code.
+///
+/// `event(severity, ptr, len)` is the log() builtin's event report: the
+/// pointer/length name a utf-8 message in guest linear memory. This harness
+/// prints each one to stdout as an `event <severity> <message>` line.
+fn fprime_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
+    fn arg_i32(args: &[Value], i: usize) -> i32 {
+        match args[i] {
+            Value::I32(v) => v,
+            other => panic!("expected i32 host arg, got {other:?}"),
+        }
+    }
+    fn record_code_and_unwind(
+        exit_code: &Rc<Cell<Option<i32>>>,
+        args: &[Value],
+    ) -> ControlFlow<HostFunctionBreak, Option<Value>> {
+        let code = match args[0] {
+            Value::I32(v) => v,
+            other => panic!("expected i32 exit code, got {other:?}"),
+        };
+        exit_code.set(Some(code));
+        // Unwind the whole interpreter; run() reads the code back.
+        ControlFlow::Break(HostFunctionBreak::Trap)
+    }
+    let fault_code = exit_code.clone();
+    HostModule {
+        name: "fprime".into(),
+        globals: spacewasm::vec![],
+        functions: spacewasm::vec![
             HostFunction::new("exit", "i".into(), "".into(), move |_, args| {
                 record_code_and_unwind(&exit_code, args)
             }),
             HostFunction::new("fault", "i".into(), "".into(), move |_, args| {
                 record_code_and_unwind(&fault_code, args)
+            }),
+            HostFunction::new("event", "iii".into(), "".into(), |engine, args| {
+                let severity = arg_i32(args, 0);
+                let ptr = arg_i32(args, 1) as u32 as usize;
+                let len = arg_i32(args, 2) as u32 as usize;
+                match engine.memory.load(ptr, len) {
+                    Ok(bytes) => {
+                        let message = String::from_utf8_lossy(bytes);
+                        println!("event {severity} {}", message.escape_default());
+                        ControlFlow::Continue(None)
+                    }
+                    Err(e) => {
+                        eprintln!("event: bad message pointer/length: {e:?}");
+                        ControlFlow::Break(HostFunctionBreak::Trap)
+                    }
+                }
             }),
         ],
         memory: spacewasm::vec![],
@@ -206,8 +249,12 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     // exit/fault write the sequence's error code here and unwind the interpreter.
     let exit_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
-    let mut engine = Engine::new(1024, 256, spacewasm::vec![fpy_host_module(exit_code.clone())])
-        .map_err(|e| format!("engine: {e:?}"))?;
+    let mut engine = Engine::new(
+        1024,
+        256,
+        spacewasm::vec![env_host_module(), fprime_host_module(exit_code.clone())],
+    )
+    .map_err(|e| format!("engine: {e:?}"))?;
     let mut code_builder = CodeBuilder::new(CompilerOptions {
         allow_memory_grow: true,
         max_backpatch_iterations: 0,
@@ -270,10 +317,8 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
         }
     };
 
-    // The entry is a Basic-C-ABI main(argc, argv); it ignores both, so pass
-    // the (0, 0) a crt with no argument plumbing would.
     engine
-        .invoke(f_ref, &[Value::I32(0), Value::I32(0)])
+        .invoke(f_ref, &[])
         .map_err(|e| format!("invoke: {e:?}"))?;
     let result = Interpreter.run(code_builder.pages(), &mut engine, FUEL);
 
@@ -286,16 +331,9 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     }
 
     match result {
-        // main returned its i32 status without calling exit/fault. The fpy
-        // backend only ever returns 0 here, but report whatever came back
-        // rather than assuming.
-        InterpreterResult::Finished => {
-            let raw: spacewasm::RawValue = engine.result.ok_or("entry returned no value")?;
-            match raw.to_value(spacewasm::ValType::I32) {
-                Value::I32(code) => Ok(code),
-                other => Err(format!("entry returned non-i32: {other:?}")),
-            }
-        }
+        // main returned without calling exit/fault. The entry is void, so
+        // reaching its end is the only way here and it always means success.
+        InterpreterResult::Finished => Ok(0),
         InterpreterResult::Trap(t) => Err(format!("trap: {t:?}")),
         InterpreterResult::Pause => Err("interpreter paused unexpectedly".into()),
         InterpreterResult::OutOfFuel => Err("out of fuel (infinite loop?)".into()),

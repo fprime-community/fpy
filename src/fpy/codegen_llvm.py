@@ -62,32 +62,29 @@ HOST_EVENT_FUNC_NAME = "event"
 def declare_host_imports(module: ir.Module) -> None:
     """Declare the full expected host interface on *module*; emit sites look
     the functions up in ``module.globals``."""
-    # The float libcalls (env.pow/fmod/log) are deliberately absent: LLVM
-    # materializes those itself when lowering llvm.pow/llvm.log/frem.
-
-    # exit/fault never return to wasm (the host unwinds the interpreter);
-    # noreturn lets LLVM drop the dead code after them.
-    for name in (HOST_EXIT_FUNC_NAME, HOST_FAULT_FUNC_NAME):
-        fn = ir.Function(
-            module, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]), name=name
-        )
-        fn.attributes.add("noreturn")
-
-    event = ir.Function(
-        module,
-        ir.FunctionType(
-            ir.VoidType(),
-            [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
-        ),
-        name=HOST_EVENT_FUNC_NAME,
+    # Everything the backend imports itself lives under the wasm module
+    # "fprime", the interface the flight sequencer registers. The float
+    # libcalls (env.pow/fmod/log) are deliberately absent: LLVM materializes
+    # those itself when lowering llvm.pow/llvm.log/frem, and they stay under
+    # wasm-ld's default import module "env".
+    terminator_type = ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
+    event_type = ir.FunctionType(
+        ir.VoidType(),
+        [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
     )
-    # wasm-ld imports an undefined symbol from the module named by its
-    # wasm-import-module attribute ("env" when absent). The flight sequencer
-    # registers its host interface under "fprime"; exit/fault stay under the
-    # default while their flight-side shape is unsettled. llvmlite's attribute
-    # set only knows enum attributes, so bypass its allowlist to attach the
-    # string-valued one.
-    set.add(event.attributes, '"wasm-import-module"="fprime"')
+    for name, fn_type, noreturn in (
+        (HOST_EXIT_FUNC_NAME, terminator_type, True),
+        (HOST_FAULT_FUNC_NAME, terminator_type, True),
+        (HOST_EVENT_FUNC_NAME, event_type, False),
+    ):
+        fn = ir.Function(module, fn_type, name=name)
+        if noreturn:
+            # exit/fault never return to wasm (the host unwinds the
+            # interpreter); noreturn lets LLVM drop the dead code after them.
+            fn.attributes.add("noreturn")
+        # llvmlite's attribute set only knows enum attributes; bypass its
+        # allowlist to attach the string-valued one.
+        set.add(fn.attributes, '"wasm-import-module"="fprime"')
 
 
 def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
