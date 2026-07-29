@@ -44,43 +44,50 @@ LLVM_CPU = "mvp"
 WASM_VERSION = "1.0 (MVP)"
 
 # TODO enable custom page sizes
-
-# TODO strip custom sections from WASM--wasm opt crate, optimize for size?
-
-# TODO with wasm mvp llvm will provide pow/fmod??
-
+# TODO strip custom sections from the wasm / optimize for size (wasm-opt)?
 # TODO could just start with a .a and a header??
-
-# TODO need to disable WASI so we aren't generating these env :: pow
 
 ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 
-# Host imports that end the whole sequence. Both take an error code and never
-# return, but they mean different things to the host: `exit` carries a
-# termination the user wrote in syntax (exit(), a failing assert), while
-# `fault` carries an implicit runtime trap the program never asked for (array
-# index out of bounds, zero divisor).
+# Host imports. `exit` reports a termination the user wrote (exit(), a failing
+# assert); `fault` reports an implicit runtime trap (index out of bounds, zero
+# divisor). `event` reports an event: event(severity, msg ptr, msg len), where
+# severity is an Fw.LogSeverity and the pointer/length name a utf-8 message in
+# linear memory.
 HOST_EXIT_FUNC_NAME = "exit"
 HOST_FAULT_FUNC_NAME = "fault"
-
-# Every host function the backend itself imports, name -> signature. They are
-# all declared up front on each module (declare_host_imports); emit sites just
-# look them up. Both current entries are sequence terminators, so they never
-# return to wasm (the host unwinds the interpreter) -- if a returning import
-# is ever added, the blanket noreturn below needs to become per-entry. The
-# float libcalls (env.pow/fmod/log) are deliberately absent: LLVM materializes
-# those itself when lowering llvm.pow/llvm.log/frem.
-HOST_IMPORT_SIGNATURES: dict[str, ir.FunctionType] = {
-    HOST_EXIT_FUNC_NAME: ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-    HOST_FAULT_FUNC_NAME: ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-}
+HOST_EVENT_FUNC_NAME = "event"
 
 
 def declare_host_imports(module: ir.Module) -> None:
-    """Declare the full expected host interface on *module*."""
-    for name, fn_type in HOST_IMPORT_SIGNATURES.items():
-        fn = ir.Function(module, fn_type, name=name)
+    """Declare the full expected host interface on *module*; emit sites look
+    the functions up in ``module.globals``."""
+    # The float libcalls (env.pow/fmod/log) are deliberately absent: LLVM
+    # materializes those itself when lowering llvm.pow/llvm.log/frem.
+
+    # exit/fault never return to wasm (the host unwinds the interpreter);
+    # noreturn lets LLVM drop the dead code after them.
+    for name in (HOST_EXIT_FUNC_NAME, HOST_FAULT_FUNC_NAME):
+        fn = ir.Function(
+            module, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]), name=name
+        )
         fn.attributes.add("noreturn")
+
+    event = ir.Function(
+        module,
+        ir.FunctionType(
+            ir.VoidType(),
+            [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
+        ),
+        name=HOST_EVENT_FUNC_NAME,
+    )
+    # wasm-ld imports an undefined symbol from the module named by its
+    # wasm-import-module attribute ("env" when absent). The flight sequencer
+    # registers its host interface under "fprime"; exit/fault stay under the
+    # default while their flight-side shape is unsettled. llvmlite's attribute
+    # set only knows enum attributes, so bypass its allowlist to attach the
+    # string-valued one.
+    set.add(event.attributes, '"wasm-import-module"="fprime"')
 
 
 def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
@@ -93,6 +100,15 @@ def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
     """Emit a call to the host fault(code) and terminate the current block."""
     builder.call(builder.module.globals[HOST_FAULT_FUNC_NAME], [code])
     builder.unreachable()
+
+
+def emit_host_event(
+    builder: ir.IRBuilder, severity: ir.Value, msg_ptr: ir.Value, msg_len: ir.Value
+) -> None:
+    """Emit a call to the host event(severity, message ptr, message length)."""
+    builder.call(
+        builder.module.globals[HOST_EVENT_FUNC_NAME], [severity, msg_ptr, msg_len]
+    )
 
 
 class EmitLlvmExpr(Emitter):
@@ -498,13 +514,24 @@ class EmitLlvmExpr(Emitter):
             )
         # Pass each argument as (emitted ir.Value, its constant FpyValue or None
         # if it isn't a compile-time constant). The builtin's generate_llvm picks
-        # whichever it needs.
-        args: list[tuple[ir.Value, FpyValue | None]] = []
-        for arg in node.args or []:
-            if isinstance(arg, FpyValue):  # a filled-in default argument
-                args.append((arg.llvm_value, arg))
+        # whichever it needs. Args the builtin requires to be compile-time
+        # constants are not emitted at all -- they may have no machine
+        # representation (e.g. log's InternalString message) -- so they arrive
+        # as (None, value).
+        args: list[tuple[ir.Value | None, FpyValue | None]] = []
+        for i, arg in enumerate(node.args or []):
+            const_val = (
+                arg if isinstance(arg, FpyValue) else state.const_expr_values.get(arg)
+            )
+            if i in func.const_arg_indices:
+                assert (
+                    const_val is not None
+                ), f"const arg {i} of {func.name} should have been validated by semantics"
+                args.append((None, const_val))
+            elif isinstance(arg, FpyValue):  # a filled-in default argument
+                args.append((arg.llvm_value, const_val))
             else:
-                args.append((self.emit(arg, state), state.const_expr_values.get(arg)))
+                args.append((self.emit(arg, state), const_val))
         return func.generate_llvm(self.builder, args)
 
     def convert_numeric_type(self, value: ir.Value, from_type, to_type) -> ir.Value:
@@ -804,7 +831,14 @@ def _wasm_ld_command() -> list[str]:
             "the 'ziglang' package is required to link wasm output (it provides "
             "wasm-ld); install it with 'pip install ziglang'"
         )
-    return [sys.executable, "-m", "ziglang", "wasm-ld"]
+    return [
+        sys.executable,
+        "-m",
+        "ziglang",
+        "wasm-ld",
+        "--page-size=1",
+        "-zstack-size=0",
+    ]
 
 
 def _llvm_version_str() -> str:

@@ -24,7 +24,12 @@ from fpy.compiler import analyze_ast, text_to_ast
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import get_base_compile_state
-from fpy.test_helpers import compile_seq_wasm, default_dictionary, run_seq_wasm
+from fpy.test_helpers import (
+    compile_seq_wasm,
+    default_dictionary,
+    run_seq_wasm,
+    run_seq_wasm_with_events,
+)
 
 # Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
 # marker makes conftest build the spacewasm runner on demand, so these always
@@ -438,12 +443,11 @@ class TestWasmExponent:
         assert run_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n") == NO_ERROR
 
     def test_exponent_emits_pow_import(self):
-        # Document the host-call contract: the emitted module imports env.pow.
-        from wasmtime import Engine, Module
-
+        # Document the host-call contract: the linked module imports env.pow.
+        # An import-section entry encodes as <len>module <len>name <kind>, so a
+        # function import of env.pow is exactly this byte run.
         wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
-        imports = {(i.module, i.name) for i in Module(Engine(), wasm).imports}
-        assert ("env", "pow") in imports
+        assert b"\x03env\x03pow\x00" in wasm
 
 
 class TestWasmExit:
@@ -470,6 +474,42 @@ class TestWasmExit:
         # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
         # so a runtime code must be a signed int.
         assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
+
+
+class TestWasmLog:
+    """log() lowers to the host `event(severity, ptr, len)` call, with the
+    message bytes in a constant in linear memory. The runner harness reports
+    each call back as a (severity, message) pair."""
+
+    def test_default_severity_is_activity_hi(self):
+        code, events = run_seq_wasm_with_events('log("hello world")\n')
+        assert code == NO_ERROR
+        assert events == [(5, "hello world")]  # ACTIVITY_HI = 5
+
+    def test_explicit_severity(self):
+        code, events = run_seq_wasm_with_events('log("oh no", Fw.LogSeverity.FATAL)\n')
+        assert code == NO_ERROR
+        assert events == [(1, "oh no")]  # FATAL = 1
+
+    def test_multiple_events_in_call_order(self):
+        code, events = run_seq_wasm_with_events(
+            'log("first")\n'
+            'log("second", Fw.LogSeverity.WARNING_HI)\n'
+            'log("first")\n'
+        )
+        assert code == NO_ERROR
+        assert events == [(5, "first"), (2, "second"), (5, "first")]
+
+    def test_empty_message(self):
+        code, events = run_seq_wasm_with_events('log("")\n')
+        assert code == NO_ERROR
+        assert events == [(5, "")]
+
+    def test_log_before_exit_still_reported(self):
+        # The event host call must happen before the sequence terminates.
+        code, events = run_seq_wasm_with_events('log("bye")\nexit(9)\n')
+        assert code == 9
+        assert events == [(5, "bye")]
 
 
 class TestWasmBareExpressionStatements:

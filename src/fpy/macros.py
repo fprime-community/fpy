@@ -169,6 +169,31 @@ def generate_log_llvm(builder, args):
     return builder.call(fn, [value])
 
 
+def generate_log_event_llvm(builder, args):
+    """LLVM/wasm lowering of log(message, severity): place the utf-8 message
+    bytes in a constant in linear memory and call the host
+    event(severity, ptr, len)."""
+    from fpy.codegen_llvm import emit_host_event
+
+    [(_, message), (_, severity)] = args
+    data = message.val.encode("utf-8")
+    module = builder.module
+    msg_type = ir.ArrayType(ir.IntType(8), len(data))
+    msg = ir.GlobalVariable(module, msg_type, name=module.get_unique_name("log_msg"))
+    msg.linkage = "private"
+    msg.global_constant = True
+    msg.initializer = ir.Constant(msg_type, bytearray(data))
+
+    i32 = ir.IntType(32)
+    emit_host_event(
+        builder,
+        ir.Constant(i32, severity.type.enum_dict[severity.val]),
+        builder.bitcast(msg, ir.IntType(8).as_pointer()),
+        ir.Constant(i32, len(data)),
+    )
+    return None
+
+
 MACRO_ABS_FLOAT = BuiltinFuncSymbol(
     "abs", F64, [("value", F64, None)], generate_abs_float, generate_abs_float_llvm
 )
@@ -252,6 +277,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             ),
             PopEventDirective(),
         ],
+        generate_log_event_llvm,
         const_arg_indices=frozenset({0, 1}),
     ),
 }

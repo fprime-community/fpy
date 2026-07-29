@@ -158,6 +158,27 @@ def run_seq_wasm(
 
     Runs the compiled module through the NASA spacewasm interpreter (the
     on-board target runtime) via the runner harness built by conftest."""
+    code, _ = run_seq_wasm_with_events(
+        seq,
+        ground_binary_dir,
+        import_directories=import_directories,
+        expected_warnings=expected_warnings,
+        main_file_dir=main_file_dir,
+    )
+    return code
+
+
+def run_seq_wasm_with_events(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] | None = None,
+    expected_warnings=None,
+    main_file_dir: str | None = None,
+) -> tuple[int, list[tuple[int, str]]]:
+    """Like run_seq_wasm, but also returns the events the sequence reported
+    through the event host import (the log() builtin) as (severity, message)
+    pairs, in call order. Messages are Rust-escaped by the runner harness, so
+    a plain ASCII message round-trips verbatim."""
     import subprocess
 
     assert (
@@ -185,7 +206,15 @@ def run_seq_wasm(
             f"spacewasm runner faulted (exit {result.returncode}): "
             f"{result.stderr.strip()}"
         )
-    return int(result.stdout.strip())
+    # The runner prints one `event <severity> <message>` line per event host
+    # call, then the sequence's error code as the final line.
+    *event_lines, code_line = result.stdout.strip().splitlines()
+    events = []
+    for line in event_lines:
+        kind, severity, message = line.split(" ", 2)
+        assert kind == "event", f"unexpected runner output line: {line!r}"
+        events.append((int(severity), message))
+    return int(code_line), events
 
 
 def lookup_type(fprime_test_api, type_name: str):

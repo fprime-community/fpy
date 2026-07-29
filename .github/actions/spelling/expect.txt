@@ -144,7 +144,6 @@ verflow
 vh
 vw
 WASI
-wasmtime
 wikipedia
 workaround
 wrt
