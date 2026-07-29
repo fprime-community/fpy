@@ -2720,7 +2720,11 @@ class CalculateConstExprValues(Visitor):
         folded_value = None
 
         if node.op == UnaryStackOp.NEGATE:
-            folded_value = -value
+            # Decimal.__neg__ follows the decimal spec and returns +0 for any
+            # zero, which would fold the literal -0.0 to +0.0. copy_negate
+            # flips the sign unconditionally, matching runtime negation
+            # (llvm fneg / the VM's multiply by -1.0).
+            folded_value = value.copy_negate() if type(value) == Decimal else -value
         elif node.op == UnaryStackOp.IDENTITY:
             folded_value = value
         elif node.op == UnaryStackOp.NOT:

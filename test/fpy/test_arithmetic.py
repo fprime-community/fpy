@@ -561,6 +561,33 @@ assert iabs(-1) == 1
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_abs_float_negative_zero_sign(self, fprime_test_api):
+        """fabs clears the sign bit of -0.0. The sign of a zero is observable
+        through division: 1.0 / -0.0 is -inf, 1.0 / +0.0 is +inf."""
+        seq = """
+neg: F64 = -0.0
+# -0.0 survives into the variable
+assert 1.0 / neg < 0.0
+# fabs(-0.0) is +0.0
+assert 1.0 / fabs(neg) > 0.0
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_abs_float_inf_nan(self, fprime_test_api):
+        """fabs maps -inf to inf, passes inf through, and a NaN stays a NaN
+        (which never compares equal to itself)."""
+        seq = """
+zero: F64 = 0.0
+inf: F64 = 1.0 / zero
+nan: F64 = zero / zero
+assert fabs(inf) == inf
+assert fabs(0.0 - inf) == inf
+assert fabs(nan) != fabs(nan)
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestFloorDivision:
     """Floor division floors toward -inf (Python `//` semantics).
@@ -615,5 +642,41 @@ assert result == 3
         seq = """
 result: I64 = 7 // (-2)
 assert result == -4
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_fractional_quotients(self, fprime_test_api):
+        """Quotients in (0, 1) floor to 0.0; quotients in (-1, 0) floor to -1.0."""
+        seq = """
+x: F64 = 0.5
+y: F64 = -0.5
+assert x // 1.0 == 0.0
+assert y // 1.0 == -1.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_preserves_zero_sign(self, fprime_test_api):
+        """Flooring a zero quotient preserves its sign: -0.0 // 1.0 is -0.0,
+        observable because 1.0 / -0.0 is -inf."""
+        seq = """
+neg: F64 = -0.0
+q: F64 = neg // 1.0
+assert 1.0 / q < 0.0
+pos: F64 = 0.0
+r: F64 = pos // 1.0
+assert 1.0 / r > 0.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_inf_nan_passthrough(self, fprime_test_api):
+        """An infinite or NaN quotient passes through the floor unchanged."""
+        seq = """
+zero: F64 = 0.0
+inf: F64 = 1.0 / zero
+nan: F64 = zero / zero
+assert inf // 1.0 == inf
+assert (0.0 - inf) // 1.0 == 0.0 - inf
+q: F64 = nan // 1.0
+assert q != q
 """
         assert_run_success(fprime_test_api, seq)

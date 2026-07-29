@@ -720,10 +720,10 @@ Truncates a 64-bit integer to a 32-bit integer, pushes result to stack. Integers
 **Requirement:**  FPY-SEQ-015
 
 ## EXIT (57)
-Pops a byte off the stack. If the byte == 0, end sequence as if it had finished nominally, otherwise exit the sequence and raise an event with an error code.
+Pops an `I32` exit code off the stack. If the code == 0, end sequence as if it had finished nominally, otherwise exit the sequence and raise an event with the error code.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
-| success    | U8      | stack  | 0 if should exit without error |
+| exit_code    | I32      | stack  | 0 if should exit without error |
 
 | Stack Result Type | Description |
 | ------------------|-------------|
@@ -1140,7 +1140,7 @@ If this is called without the seed being manually set beforehand, then the seed 
 Reserved for a future directive that pops a serializable value off the stack. Not yet implemented — the opcode is reserved so its id stays stable for future use.
 
 ## FFLOOR (79)
-Floors a float toward negative infinity, pushes result to stack. Infinity and NaN values pass through unchanged, consistent with wasm's `f64.floor`. Used to lower float floor division (`//`).
+Floors an `F64` toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation), pushes result to stack. A zero, infinite, or NaN value passes through unchanged; the sign of a zero is preserved (`-0.0` floors to `-0.0`). The bit pattern of a NaN result is unspecified. A value in `(0, 1)` floors to `0.0`; a value in `(-1, 0)` floors to `-1.0`. Never raises an error. Used to lower float floor division (`//`).
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | value    | F64      | stack  | Value to floor |
@@ -1152,7 +1152,7 @@ Floors a float toward negative infinity, pushes result to stack. Infinity and Na
 **Requirement:**  FPY-SEQ-002
 
 ## IABS (80)
-Pops a signed `I64`, pushes its absolute value to the stack. The absolute value of `I64` min (`-2**63`) wraps back to `I64` min rather than trapping, matching libm's `llabs` and LLVM's `llvm.abs`.
+Pops a signed `I64`, pushes its absolute value to the stack: the value itself if non-negative, its two's-complement negation otherwise. The absolute value of `I64` min (`-2**63`) is not representable, so it wraps back to `I64` min rather than trapping (matching `llvm.abs` with `is_int_min_poison=0`). Never raises an error.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | value    | I64      | stack  | Value to take the absolute value of |
@@ -1164,7 +1164,7 @@ Pops a signed `I64`, pushes its absolute value to the stack. The absolute value 
 **Requirement:**  FPY-SEQ-002
 
 ## FABS (81)
-Pops an `F64`, pushes its absolute value to the stack, consistent with `llvm.fabs`. The sign bit is cleared, so negative zero becomes positive zero and NaN/infinity magnitudes pass through.
+Pops an `F64`, clears its sign bit, and pushes the result to the stack (the IEEE 754 `abs` operation, matching `llvm.fabs` and wasm's `f64.abs`). No bits other than the sign bit change: `-0.0` becomes `0.0`, `-inf` becomes `inf`, and a NaN keeps its payload and signaling bit. Never raises an error or floating-point exception.
 | Arg Name | Arg Type | Source | Description |
 |----------|----------|--------|-------------|
 | value    | F64      | stack  | Value to take the absolute value of |

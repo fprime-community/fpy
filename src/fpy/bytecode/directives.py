@@ -654,22 +654,27 @@ class FloatExtendDirective(StackOpDirective):
 
 @dataclass
 class FloatFloorDirective(StackOpDirective):
-    """Floor a float toward -inf (used to lower float `//`)."""
+    """Floor an F64 toward -inf (IEEE 754 roundToIntegralTowardNegative; used to
+    lower float `//`). +-0, +-inf and NaN pass through; the sign of zero is
+    preserved. The bit pattern of a NaN result is unspecified."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
 
 
 @dataclass
 class IntAbsDirective(StackOpDirective):
-    """Absolute value of a signed I64. abs(I64 min) wraps to I64 min, matching
-    libm's llabs and LLVM's llvm.abs (no overflow trap)."""
+    """Absolute value of a signed I64. abs(I64 min) wraps to I64 min via
+    two's-complement negation, matching llvm.abs with is_int_min_poison=0
+    (no overflow trap)."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.IABS
 
 
 @dataclass
 class FloatAbsDirective(StackOpDirective):
-    """Absolute value of an F64 (matching llvm.fabs)."""
+    """Absolute value of an F64: clears the sign bit, changes nothing else
+    (IEEE 754 abs, matching llvm.fabs). NaN payload and signaling bit are
+    preserved; never raises an error or floating-point exception."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.FABS
 

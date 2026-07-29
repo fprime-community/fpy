@@ -952,8 +952,12 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        # Match wasm's f64.floor: inf/nan pass through unchanged.
-        self.push(val if not math.isfinite(val) else float(math.floor(val)))
+        # Match f64.floor (IEEE roundToIntegralTowardNegative): +-0, +-inf and
+        # NaN pass through. The zero check preserves the sign of -0.0, which
+        # math.floor would lose by returning the int 0.
+        self.push(
+            val if not math.isfinite(val) or val == 0.0 else float(math.floor(val))
+        )
         return None
 
     def handle_iabs(self, dir: IntAbsDirective):
