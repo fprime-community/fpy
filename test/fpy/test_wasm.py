@@ -529,7 +529,7 @@ class TestWasmBareExpressionStatements:
         # BackendError; before the fix the statement was dropped and the module
         # compiled to a (wrong) no-op with no error at all.
         seq = "def f() -> U32:\n    return 0\nf() == 0\n"
-        with pytest.raises(BackendError, match="FunctionSymbol"):
+        with pytest.raises(BackendError, match="script-defined function"):
             _seq_to_llvm_module(seq)
 
 

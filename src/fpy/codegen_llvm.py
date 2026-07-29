@@ -12,7 +12,15 @@ import llvmlite.binding as llvm
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
-from fpy.symbols import BuiltinFuncSymbol, CastSymbol, FieldAccess, VariableSymbol
+from fpy.symbols import (
+    BuiltinFuncSymbol,
+    CastSymbol,
+    CommandSymbol,
+    FieldAccess,
+    FunctionSymbol,
+    TypeCtorSymbol,
+    VariableSymbol,
+)
 from fpy.syntax import (
     AstAnonArray,
     AstAnonStruct,
@@ -500,15 +508,32 @@ class EmitLlvmExpr(Emitter):
     def emit_AstFuncCall(
         self, node: AstFuncCall, state: CompileState
     ) -> ir.Value | None:
+        node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
-        if isinstance(func, CastSymbol):
-            # the actual conversion happens already as part of the
-            # synthesized -> contextual conversion
-            return self.emit(node.args[0], state)
-        if not isinstance(func, BuiltinFuncSymbol):
+        if is_instance_compat(func, CommandSymbol):
+            raise BackendError("LLVM backend can't lower command calls yet")
+        elif is_instance_compat(func, BuiltinFuncSymbol):
+            return self._emit_builtin_call(node_args, func, state)
+        elif is_instance_compat(func, TypeCtorSymbol):
+            # A ctor call with all-constant args folds before reaching here.
             raise BackendError(
-                f"LLVM backend can't lower a call to {type(func).__name__} yet"
+                "LLVM backend can't lower runtime type-constructor calls yet"
             )
+        elif is_instance_compat(func, CastSymbol):
+            # the actual conversion happens already as part of the
+            # synthesized -> contextual conversion in emit()
+            return self.emit(node_args[0], state)
+        elif is_instance_compat(func, FunctionSymbol):
+            # script-defined function
+            raise BackendError(
+                "LLVM backend can't lower script-defined function calls yet"
+            )
+        else:
+            assert False, func
+
+    def _emit_builtin_call(
+        self, node_args: list, func: BuiltinFuncSymbol, state: CompileState
+    ) -> ir.Value | None:
         # Pass each argument as (emitted ir.Value, its constant FpyValue or None
         # if it isn't a compile-time constant). The builtin's generate_llvm picks
         # whichever it needs. Args the builtin requires to be compile-time
@@ -516,16 +541,18 @@ class EmitLlvmExpr(Emitter):
         # representation (e.g. log's InternalString message) -- so they arrive
         # as (None, value).
         args: list[tuple[ir.Value | None, FpyValue | None]] = []
-        for i, arg in enumerate(node.args or []):
+        for i, arg in enumerate(node_args):
             const_val = (
-                arg if isinstance(arg, FpyValue) else state.const_expr_values.get(arg)
+                arg
+                if is_instance_compat(arg, FpyValue)
+                else state.const_expr_values.get(arg)
             )
             if i in func.const_arg_indices:
                 assert (
                     const_val is not None
                 ), f"const arg {i} of {func.name} should have been validated by semantics"
                 args.append((None, const_val))
-            elif isinstance(arg, FpyValue):  # a filled-in default argument
+            elif is_instance_compat(arg, FpyValue):  # a filled-in default argument
                 args.append((arg.llvm_value, const_val))
             else:
                 args.append((self.emit(arg, state), const_val))
