@@ -135,10 +135,11 @@ def generate_exit_llvm(builder, args):
     ends the whole sequence from any call depth (code 0 is a normal exit,
     nonzero an error).
     """
-    from fpy.codegen_llvm import emit_host_exit
+    from fpy.codegen_llvm import HOST_EXIT_FUNC_NAME
 
     [(code, _const)] = args
-    emit_host_exit(builder, code)
+    builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
+    builder.unreachable()
     builder.position_at_end(builder.function.append_basic_block("after_exit"))
     return None
 
@@ -173,7 +174,7 @@ def generate_log_event_llvm(builder, args):
     """LLVM/wasm lowering of log(message, severity): place the utf-8 message
     bytes in a constant in linear memory and call the host
     event(severity, ptr, len)."""
-    from fpy.codegen_llvm import emit_host_event
+    from fpy.codegen_llvm import HOST_EVENT_FUNC_NAME
 
     [(_, message), (_, severity)] = args
     data = message.val.encode("utf-8")
@@ -185,11 +186,13 @@ def generate_log_event_llvm(builder, args):
     msg.initializer = ir.Constant(msg_type, bytearray(data))
 
     i32 = ir.IntType(32)
-    emit_host_event(
-        builder,
-        ir.Constant(i32, severity.type.enum_dict[severity.val]),
-        builder.bitcast(msg, ir.IntType(8).as_pointer()),
-        ir.Constant(i32, len(data)),
+    builder.call(
+        builder.module.globals[HOST_EVENT_FUNC_NAME],
+        [
+            ir.Constant(i32, severity.type.enum_dict[severity.val]),
+            builder.bitcast(msg, ir.IntType(8).as_pointer()),
+            ir.Constant(i32, len(data)),
+        ],
     )
     return None
 

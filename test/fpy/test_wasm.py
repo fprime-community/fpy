@@ -10,17 +10,27 @@ folds at compile time, so tests that want the wasm to actually compute
 something route one operand through a variable.
 """
 
+import struct
+
 import pytest
 
+from llvmlite import ir
 import llvmlite.binding as llvm
 
 from fpy.codegen_llvm import (
+    ERROR_CODE_TYPE,
+    FPY_ENTRY_POINT,
+    HOST_EXIT_FUNC_NAME,
     LLVM_CPU,
     LLVM_TRIPLE,
+    EmitLlvmExpr,
     GenerateLlvmModule,
+    declare_host_imports,
+    llvm_module_to_wasm,
     _ensure_llvm_targets,
 )
 from fpy.compiler import analyze_ast, text_to_ast
+from fpy.dictionary import load_dictionary
 from fpy.error import BackendError
 from fpy.model import DirectiveErrorCode
 from fpy.state import get_base_compile_state
@@ -28,7 +38,23 @@ from fpy.test_helpers import (
     compile_seq_wasm,
     default_dictionary,
     run_seq_wasm,
+    run_seq_wasm_with_cmds,
     run_seq_wasm_with_events,
+    run_wasm,
+)
+from fpy.types import (
+    BOOL,
+    F32,
+    F64,
+    FpyValue,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
 )
 
 # Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
@@ -668,3 +694,358 @@ class TestWasmFloatToIntSaturates:
         seq = "x: F64 = 1e20\ny: I32 = I32(x)\nassert y == 0\n"
         assert "i32.trunc_sat_f64_s" not in _emit_wasm_asm(seq, cpu=LLVM_CPU)
         assert "i32.trunc_sat_f64_s" in _emit_wasm_asm(seq, cpu="generic")
+
+
+class TestWasmCommands:
+    """Command calls lower to the host `cmd(buf ptr, buf len)` call, where the
+    buffer holds the big-endian serialized FwOpcodeType followed by the
+    fprime-serialized arguments. The runner harness reports each buffer back
+    verbatim, so these assert the exact wire bytes against an independent
+    struct.pack encoding. Constant arguments are baked into the buffer at
+    compile time; runtime arguments are byte-swapped and stored into their
+    packed offsets before each dispatch."""
+
+    def _opcode(self, name: str) -> bytes:
+        d = load_dictionary(default_dictionary)
+        return struct.pack(">I", d["cmd_name_dict"][name].opcode)
+
+    def test_cmd_emits_fprime_cmd_import(self):
+        # Document the host-call contract: the linked module imports
+        # fprime.cmd. An import-section entry encodes as
+        # <len>module <len>name <kind>, so this byte run is exactly that entry.
+        wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
+        assert b"\x06fprime\x03cmd\x00" in wasm
+
+    def test_const_no_arg_command(self):
+        code, cmds = run_seq_wasm_with_cmds("CdhCore.cmdDisp.CMD_NO_OP()\n")
+        assert code == NO_ERROR
+        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
+
+    def test_const_string_arg_is_compact(self):
+        # A constant string serializes at its actual length (u16 big-endian
+        # prefix + bytes), not its declared capacity.
+        code, cmds = run_seq_wasm_with_cmds('CdhCore.cmdDisp.CMD_NO_OP_STRING("hi")\n')
+        assert code == NO_ERROR
+        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected += struct.pack(">H", 2) + b"hi"
+        assert cmds == [expected]
+
+    def test_empty_string_arg(self):
+        # An empty string is just the zero length prefix.
+        code, cmds = run_seq_wasm_with_cmds('CdhCore.cmdDisp.CMD_NO_OP_STRING("")\n')
+        assert code == NO_ERROR
+        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected += struct.pack(">H", 0)
+        assert cmds == [expected]
+
+    def test_utf8_string_arg_prefix_counts_bytes(self):
+        # The length prefix counts encoded utf-8 bytes, not characters:
+        # "héllo✓" is 6 characters but 9 bytes.
+        code, cmds = run_seq_wasm_with_cmds(
+            'CdhCore.cmdDisp.CMD_NO_OP_STRING("héllo✓")\n'
+        )
+        assert code == NO_ERROR
+        data = "héllo✓".encode("utf-8")
+        assert len(data) == 9
+        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected += struct.pack(">H", len(data)) + data
+        assert cmds == [expected]
+
+    def test_runtime_scalar_args(self):
+        # A negative int pins the big-endian sign bytes; the float pins the
+        # bitcast-then-swap path.
+        code, cmds = run_seq_wasm_with_cmds(
+            "var1: I32 = -2\n"
+            "var2: F32 = 1.5\n"
+            "var3: U8 = 8\n"
+            "CdhCore.cmdDisp.CMD_TEST_CMD_1(var1, var2, var3)\n"
+        )
+        assert code == NO_ERROR
+        expected = self._opcode("CdhCore.cmdDisp.CMD_TEST_CMD_1")
+        expected += struct.pack(">ifB", -2, 1.5, 8)
+        assert cmds == [expected]
+
+    @pytest.mark.parametrize("flag, byte", [(True, b"\xff"), (False, b"\x00")])
+    def test_runtime_bool_arg(self, flag, byte):
+        # Bools serialize as the FW_SERIALIZE truth bytes, not 1/0.
+        code, cmds = run_seq_wasm_with_cmds(
+            "idx: U32 = 3\n"
+            f"flag: bool = {flag}\n"
+            "Ref.cmdSeq0.SET_BREAKPOINT(idx, flag)\n"
+        )
+        assert code == NO_ERROR
+        expected = self._opcode("Ref.cmdSeq0.SET_BREAKPOINT")
+        expected += struct.pack(">I", 3) + byte
+        assert cmds == [expected]
+
+    def test_mixed_const_and_runtime_args(self):
+        # A compact constant string ahead of a runtime argument pins the
+        # runtime argument's offset computation.
+        code, cmds = run_seq_wasm_with_cmds(
+            "en: Fw.Enabled = Fw.Enabled.ENABLED\n"
+            'CdhCore.health.HLTH_PING_ENABLE("task1", en)\n'
+        )
+        assert code == NO_ERROR
+        expected = self._opcode("CdhCore.health.HLTH_PING_ENABLE")
+        expected += struct.pack(">H", 5) + b"task1"  # entry: String_40
+        expected += struct.pack(">B", 1)  # enable: Fw.Enabled (u8 rep), ENABLED
+        assert cmds == [expected]
+
+    def test_runtime_struct_arg_all_scalar_widths(self):
+        # A runtime struct argument walks every member; ScalarStruct covers
+        # every scalar width, including the 8-byte swaps.
+        code, cmds = run_seq_wasm_with_cmds(
+            "s: Ref.ScalarStruct = "
+            "Ref.ScalarStruct(-1, -2, -3, -4, 1, 2, 3, 4, 1.5, -2.5)\n"
+            "Ref.typeDemo.SEND_SCALARS(s)\n"
+        )
+        assert code == NO_ERROR
+        expected = self._opcode("Ref.typeDemo.SEND_SCALARS")
+        expected += struct.pack(">bhiqBHIQfd", -1, -2, -3, -4, 1, 2, 3, 4, 1.5, -2.5)
+        assert cmds == [expected]
+
+    def test_runtime_array_arg(self):
+        # An array of i32-rep enums exercises the element walk.
+        code, cmds = run_seq_wasm_with_cmds(
+            "c: Ref.ManyChoices = Ref.ManyChoices(Ref.Choice.TWO, Ref.Choice.RED)\n"
+            "Ref.typeDemo.CHOICES(c)\n"
+        )
+        assert code == NO_ERROR
+        expected = self._opcode("Ref.typeDemo.CHOICES")
+        expected += struct.pack(">ii", 1, 2)  # TWO = 1, RED = 2
+        assert cmds == [expected]
+
+    def test_multiple_commands_in_call_order(self):
+        code, cmds = run_seq_wasm_with_cmds(
+            'CdhCore.cmdDisp.CMD_NO_OP_STRING("a")\n' "CdhCore.cmdDisp.CMD_NO_OP()\n"
+        )
+        assert code == NO_ERROR
+        assert cmds == [
+            self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+            + struct.pack(">H", 1)
+            + b"a",
+            self._opcode("CdhCore.cmdDisp.CMD_NO_OP"),
+        ]
+
+    def test_captured_response_compares_ok(self):
+        code, _ = run_seq_wasm_with_cmds(
+            "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
+            "assert ret == Fw.CmdResponse.OK\n"
+        )
+        assert code == NO_ERROR
+
+    def test_captured_response_carries_host_value(self):
+        code, _ = run_seq_wasm_with_cmds(
+            "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
+            "assert ret == Fw.CmdResponse.BUSY\n",
+            cmd_response=5,  # BUSY
+        )
+        assert code == NO_ERROR
+
+    def test_captured_failing_response_does_not_auto_exit(self):
+        # Capturing the response takes responsibility for it: a failing
+        # command must not end the sequence even with assert_cmd_success set.
+        code, _ = run_seq_wasm_with_cmds(
+            "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
+            "assert ret == Fw.CmdResponse.EXECUTION_ERROR\n",
+            cmd_response=4,  # EXECUTION_ERROR
+        )
+        assert code == NO_ERROR
+
+    def test_bare_failing_command_exits_cmd_fail(self):
+        code, cmds = run_seq_wasm_with_cmds(
+            "CdhCore.cmdDisp.CMD_NO_OP()\nassert False\n",
+            cmd_response=4,  # EXECUTION_ERROR
+        )
+        assert code == DirectiveErrorCode.CMD_FAIL.value
+        # The command was dispatched; the sequence ended on its response.
+        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
+
+    def test_bare_failing_command_via_fail_opcodes(self):
+        d = load_dictionary(default_dictionary)
+        code, _ = run_seq_wasm_with_cmds(
+            "CdhCore.cmdDisp.CMD_NO_OP()\n",
+            failing_opcodes={d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode},
+        )
+        assert code == DirectiveErrorCode.CMD_FAIL.value
+
+    def test_assert_cmd_success_flag_disables_check(self):
+        # With the flag cleared, failing bare commands don't end the sequence;
+        # both commands are still dispatched.
+        code, cmds = run_seq_wasm_with_cmds(
+            "flags.assert_cmd_success = False\n"
+            "CdhCore.cmdDisp.CMD_NO_OP()\n"
+            "CdhCore.cmdDisp.CMD_NO_OP()\n",
+            cmd_response=4,  # EXECUTION_ERROR
+        )
+        assert code == NO_ERROR
+        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")] * 2
+
+    def test_bare_command_inside_if_block(self):
+        # The response check applies to bare commands in nested blocks too.
+        code, _ = run_seq_wasm_with_cmds(
+            "x: U8 = 1\n"
+            "if x == 1:\n"
+            "    CdhCore.cmdDisp.CMD_NO_OP()\n"
+            "assert False\n",
+            cmd_response=4,  # EXECUTION_ERROR
+        )
+        assert code == DirectiveErrorCode.CMD_FAIL.value
+
+
+def _big_endian_cases():
+    """Round-trip test values spanning every serializable runtime type: each
+    scalar width, both bools, both enum rep widths, and nested aggregates."""
+    types = load_dictionary(default_dictionary)["type_defs"]
+    choice = types["Ref.Choice"]
+    slurry = types["Ref.ChoiceSlurry"]
+    slurry_members = {m.name: m.type for m in slurry.members}
+    many_choices = types["Ref.ManyChoices"]
+
+    def choice_v(name):
+        return FpyValue(choice, name)
+
+    def many(a, b):
+        return FpyValue(many_choices, [choice_v(a), choice_v(b)])
+
+    # Asymmetric byte patterns, so a wrong (little-endian) order and a
+    # partial/misplaced store are both visible in the bytes.
+    scalars = FpyValue(
+        types["Ref.ScalarStruct"],
+        {
+            "i8": FpyValue(I8, -1),
+            "i16": FpyValue(I16, -2),
+            "i32": FpyValue(I32, -3),
+            "i64": FpyValue(I64, -4),
+            "u8": FpyValue(U8, 1),
+            "u16": FpyValue(U16, 0x0102),
+            "u32": FpyValue(U32, 0x01020304),
+            "u64": FpyValue(U64, 0x0102030405060708),
+            "f32": FpyValue(F32, 1.5),
+            "f64": FpyValue(F64, -2.5),
+        },
+    )
+    slurry_val = FpyValue(
+        slurry,
+        {
+            "tooManyChoices": FpyValue(
+                slurry_members["tooManyChoices"],
+                [many("ONE", "TWO"), many("RED", "BLUE")],
+            ),
+            "separateChoice": choice_v("RED"),
+            "choicePair": FpyValue(
+                slurry_members["choicePair"],
+                {"firstChoice": choice_v("TWO"), "secondChoice": choice_v("BLUE")},
+            ),
+            "choiceAsMemberArray": FpyValue(
+                slurry_members["choiceAsMemberArray"],
+                [FpyValue(U8, 0xAA), FpyValue(U8, 0x55)],
+            ),
+        },
+    )
+    return [
+        pytest.param(FpyValue(U8, 0xAB), id="u8"),
+        pytest.param(FpyValue(I8, -1), id="i8-neg"),
+        pytest.param(FpyValue(U16, 0x0102), id="u16"),
+        pytest.param(FpyValue(I16, -2), id="i16-neg"),
+        pytest.param(FpyValue(U32, 0x01020304), id="u32"),
+        pytest.param(FpyValue(I32, -123456789), id="i32-neg"),
+        pytest.param(FpyValue(U64, 0x0102030405060708), id="u64"),
+        pytest.param(FpyValue(I64, -3_000_000_000), id="i64-neg"),
+        pytest.param(FpyValue(F32, 1.5), id="f32"),
+        pytest.param(FpyValue(F64, -2.5), id="f64-neg"),
+        pytest.param(FpyValue(BOOL, True), id="bool-true"),
+        pytest.param(FpyValue(BOOL, False), id="bool-false"),
+        pytest.param(FpyValue(types["Fw.Enabled"], "ENABLED"), id="enum-u8-rep"),
+        pytest.param(choice_v("RED"), id="enum-i32-rep"),
+        pytest.param(scalars, id="struct-every-scalar"),
+        pytest.param(many("TWO", "RED"), id="array-of-enums"),
+        pytest.param(slurry_val, id="struct-nested-arrays"),
+    ]
+
+
+class TestWasmBigEndianSerialization:
+    """_emit_store_big_endian / _emit_load_big_endian translate between LLVM
+    values and the fprime wire format in linear memory. FpyValue.serialize()
+    is the format oracle: storing a value must produce exactly its bytes
+    (pinning big-endianness, tight packing, and the bool truth bytes -- a
+    round trip alone couldn't catch both directions agreeing on the wrong
+    endianness), and a value loaded from those bytes must store back to them
+    (which pins the load as the store's inverse, since serialization is
+    injective)."""
+
+    def _emit_check_bytes(self, builder, buf, expected: bytes, exit_code: int):
+        """Exit with *exit_code* unless the buffer holds exactly *expected*."""
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        ok = ir.Constant(ir.IntType(1), 1)
+        for i, byte in enumerate(expected):
+            ptr = builder.gep(
+                buf, [ir.Constant(i32, 0), ir.Constant(i32, i)], inbounds=True
+            )
+            ok = builder.and_(
+                ok,
+                builder.icmp_unsigned(
+                    "==", builder.load(ptr, align=1), ir.Constant(i8, byte)
+                ),
+            )
+        fail_block = builder.function.append_basic_block("bytes_bad")
+        ok_block = builder.function.append_basic_block("bytes_ok")
+        builder.cbranch(ok, ok_block, fail_block)
+        builder.position_at_end(fail_block)
+        builder.call(
+            builder.module.globals[HOST_EXIT_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, exit_code)],
+        )
+        builder.unreachable()
+        builder.position_at_end(ok_block)
+
+    def _build_module(self, value: FpyValue) -> ir.Module:
+        module = ir.Module(name="be_test")
+        module.triple = LLVM_TRIPLE
+        declare_host_imports(module)
+        func = ir.Function(
+            module, ir.FunctionType(ir.VoidType(), []), name=FPY_ENTRY_POINT
+        )
+        builder = ir.IRBuilder(func.append_basic_block("entry"))
+        emitter = EmitLlvmExpr(builder)
+
+        expected = value.serialize()
+        buf_type = ir.ArrayType(ir.IntType(8), len(expected))
+
+        def byte_buffer(name, init):
+            g = ir.GlobalVariable(module, buf_type, name=module.get_unique_name(name))
+            g.linkage = "internal"
+            g.initializer = ir.Constant(buf_type, bytearray(init))
+            return g
+
+        # Route the value through a mutable global and a runtime load, so the
+        # walks execute on the interpreter instead of LLVM folding them away.
+        src = ir.GlobalVariable(module, value.type.llvm_type, name="src")
+        src.linkage = "internal"
+        src.initializer = value.llvm_value
+
+        # exit(1): storing the value must produce the oracle bytes.
+        buf_store = byte_buffer("buf_store", bytes(len(expected)))
+        written = emitter._emit_store_big_endian(
+            builder.load(src), value.type, buf_store, 0
+        )
+        assert written == len(expected) == value.type.max_size
+        self._emit_check_bytes(builder, buf_store, expected, exit_code=1)
+
+        # exit(2): loading from the oracle bytes must store back to them.
+        buf_in = byte_buffer("buf_in", expected)
+        loaded = emitter._emit_load_big_endian(value.type, buf_in, 0)
+        buf_out = byte_buffer("buf_out", bytes(len(expected)))
+        emitter._emit_store_big_endian(loaded, value.type, buf_out, 0)
+        self._emit_check_bytes(builder, buf_out, expected, exit_code=2)
+
+        builder.ret_void()
+        return module
+
+    @pytest.mark.parametrize("value", _big_endian_cases())
+    def test_round_trip_matches_serialize(self, value):
+        code, _, _ = run_wasm(llvm_module_to_wasm(self._build_module(value)))
+        assert code != 1, f"stored bytes diverged from serialize() for {value}"
+        assert code != 2, f"load->store did not round-trip for {value}"
+        assert code == NO_ERROR

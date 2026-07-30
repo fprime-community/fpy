@@ -670,6 +670,13 @@ class CheckAllUnqualifiedIdentifiersResolved(Visitor):
             state.err("Unknown name", node)
 
 
+def is_cmd_and_response_unhandled(stmt: Ast, state: CompileState) -> bool:
+    """True when *stmt* is a command call whose response is not captured."""
+    return is_instance_compat(stmt, AstFuncCall) and is_instance_compat(
+        state.resolved_symbols.get(stmt.func), CommandSymbol
+    )
+
+
 def is_type_constant_size(type: FpyType) -> bool:
     """Return true if the type has a statically known size.
 

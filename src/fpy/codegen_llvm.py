@@ -41,8 +41,18 @@ from fpy.syntax import (
     COMPARISON_OPS,
     UnaryStackOp,
 )
-from fpy.bytecode.directives import ErrorCodeType
-from fpy.types import ChDef, FpyValue, PrmDef, is_instance_compat
+from fpy.bytecode.directives import ErrorCodeType, FwOpcodeType
+from fpy.semantics import is_cmd_and_response_unhandled
+import fpy.types
+from fpy.types import (
+    CMD_RESPONSE,
+    ChDef,
+    FpyType,
+    FpyValue,
+    PrmDef,
+    TypeKind,
+    is_instance_compat,
+)
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
 
 LLVM_TRIPLE = "wasm32-unknown-unknown"
@@ -57,14 +67,10 @@ WASM_VERSION = "1.0 (MVP)"
 
 ERROR_CODE_TYPE = ErrorCodeType.llvm_type
 
-# Host imports. `exit` reports a termination the user wrote (exit(), a failing
-# assert); `fault` reports an implicit runtime trap (index out of bounds, zero
-# divisor). `event` reports an event: event(severity, msg ptr, msg len), where
-# severity is an Fw.LogSeverity and the pointer/length name a utf-8 message in
-# linear memory.
 HOST_EXIT_FUNC_NAME = "exit"
 HOST_FAULT_FUNC_NAME = "fault"
 HOST_EVENT_FUNC_NAME = "event"
+HOST_CMD_FUNC_NAME = "cmd"
 
 
 def declare_host_imports(module: ir.Module) -> None:
@@ -80,10 +86,15 @@ def declare_host_imports(module: ir.Module) -> None:
         ir.VoidType(),
         [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
     )
+    cmd_type = ir.FunctionType(
+        ir.IntType(32),
+        [ir.IntType(8).as_pointer(), ir.IntType(32)],
+    )
     for name, fn_type, noreturn in (
         (HOST_EXIT_FUNC_NAME, terminator_type, True),
         (HOST_FAULT_FUNC_NAME, terminator_type, True),
         (HOST_EVENT_FUNC_NAME, event_type, False),
+        (HOST_CMD_FUNC_NAME, cmd_type, False),
     ):
         fn = ir.Function(module, fn_type, name=name)
         if noreturn:
@@ -93,27 +104,6 @@ def declare_host_imports(module: ir.Module) -> None:
         # llvmlite's attribute set only knows enum attributes; bypass its
         # allowlist to attach the string-valued one.
         set.add(fn.attributes, '"wasm-import-module"="fprime"')
-
-
-def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to the host exit(code) and terminate the current block."""
-    builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
-    builder.unreachable()
-
-
-def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to the host fault(code) and terminate the current block."""
-    builder.call(builder.module.globals[HOST_FAULT_FUNC_NAME], [code])
-    builder.unreachable()
-
-
-def emit_host_event(
-    builder: ir.IRBuilder, severity: ir.Value, msg_ptr: ir.Value, msg_len: ir.Value
-) -> None:
-    """Emit a call to the host event(severity, message ptr, message length)."""
-    builder.call(
-        builder.module.globals[HOST_EVENT_FUNC_NAME], [severity, msg_ptr, msg_len]
-    )
 
 
 class EmitLlvmExpr(Emitter):
@@ -322,9 +312,11 @@ class EmitLlvmExpr(Emitter):
         ok_block = b.function.append_basic_block("div_ok")
         b.cbranch(is_zero, fail_block, ok_block)
         b.position_at_end(fail_block)
-        emit_host_fault(
-            b, ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)
+        b.call(
+            b.module.globals[HOST_FAULT_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)],
         )
+        b.unreachable()
         b.position_at_end(ok_block)
 
     def _emit_short_circuit(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
@@ -499,10 +491,15 @@ class EmitLlvmExpr(Emitter):
         ok_block = b.function.append_basic_block("idx_ok")
         b.cbranch(oob, fail_block, ok_block)
         b.position_at_end(fail_block)
-        emit_host_fault(
-            b,
-            ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value),
+        b.call(
+            b.module.globals[HOST_FAULT_FUNC_NAME],
+            [
+                ir.Constant(
+                    ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
+                )
+            ],
         )
+        b.unreachable()
         b.position_at_end(ok_block)
 
     def emit_AstFuncCall(
@@ -511,7 +508,12 @@ class EmitLlvmExpr(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         if is_instance_compat(func, CommandSymbol):
-            raise BackendError("LLVM backend can't lower command calls yet")
+            if func.is_seq_run_with_args:
+                raise BackendError(
+                    "LLVM backend can't lower sequence-run commands with "
+                    "arguments yet"
+                )
+            return self._emit_command_call(node_args, func, state)
         elif is_instance_compat(func, BuiltinFuncSymbol):
             return self._emit_builtin_call(node_args, func, state)
         elif is_instance_compat(func, TypeCtorSymbol):
@@ -557,6 +559,167 @@ class EmitLlvmExpr(Emitter):
             else:
                 args.append((self.emit(arg, state), const_val))
         return func.generate_llvm(self.builder, args)
+
+    def _emit_command_call(
+        self, node_args: list, func: CommandSymbol, state: CompileState
+    ) -> ir.Value:
+        """Lower a command call: build the command buffer -- the big-endian
+        serialized FwOpcodeType followed by the fprime-serialized arguments --
+        in linear memory and dispatch it through the host cmd import.
+        """
+        b = self.builder
+        module = b.module
+        template = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+        # (byte offset in the buffer, arg node, its contextual type)
+        runtime_args = []
+        for arg in node_args:
+            const_val = (
+                arg
+                if is_instance_compat(arg, FpyValue)
+                else state.const_expr_values.get(arg)
+            )
+            if const_val is not None:
+                # Constants serialize at their actual size (strings pack to
+                # their real length, not their capacity).
+                template += const_val.serialize()
+            else:
+                arg_type = state.contextual_types[arg]
+                runtime_args.append((len(template), arg, arg_type))
+                template += bytes(arg_type.max_size)
+
+        buf_type = ir.ArrayType(ir.IntType(8), len(template))
+        buf = ir.GlobalVariable(
+            module, buf_type, name=module.get_unique_name("cmd_buf")
+        )
+        buf.linkage = "private"
+        buf.global_constant = not runtime_args
+        buf.initializer = ir.Constant(buf_type, template)
+
+        for offset, arg, arg_type in runtime_args:
+            value = self.emit(arg, state)
+            written = self._emit_store_big_endian(value, arg_type, buf, offset)
+            assert written == arg_type.max_size, (arg_type, written)
+
+        # The host returns the command's Fw.CmdResponse, widened to i32.
+        response = b.call(
+            b.module.globals[HOST_CMD_FUNC_NAME],
+            [
+                b.bitcast(buf, ir.IntType(8).as_pointer()),
+                ir.Constant(ir.IntType(32), len(template)),
+            ],
+        )
+        return b.trunc(response, CMD_RESPONSE.llvm_type)
+
+    def _emit_store_big_endian(
+        self, value: ir.Value, fpy_type: FpyType, base_ptr: ir.Value, offset: int
+    ) -> int:
+        """Store *value* at byte *offset* inside the [N x i8] buffer at
+        *base_ptr* in fprime wire format: big-endian, tightly packed, bools as
+        the FW_SERIALIZE truth bytes, aggregates member by member. Returns the
+        number of bytes written (fpy_type's serialized size)."""
+        b = self.builder
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        if fpy_type.kind == TypeKind.STRUCT:
+            start = offset
+            for i, member in enumerate(fpy_type.members):
+                offset += self._emit_store_big_endian(
+                    b.extract_value(value, i), member.type, base_ptr, offset
+                )
+            assert offset - start == fpy_type.max_size, fpy_type
+            return fpy_type.max_size
+        if fpy_type.kind == TypeKind.ARRAY:
+            start = offset
+            for i in range(fpy_type.length):
+                offset += self._emit_store_big_endian(
+                    b.extract_value(value, i), fpy_type.elem_type, base_ptr, offset
+                )
+            assert offset - start == fpy_type.max_size, fpy_type
+            return fpy_type.max_size
+        if fpy_type.kind == TypeKind.BOOL:
+            # The truth bytes are dictionary-configurable module globals, so
+            # read them through the module, never a from-import.
+            value = b.select(
+                value,
+                ir.Constant(i8, fpy.types.FW_SERIALIZE_TRUE_VALUE),
+                ir.Constant(i8, fpy.types.FW_SERIALIZE_FALSE_VALUE),
+            )
+            width = 1
+        else:
+            # A runtime string can't exist (semantics rejects it), so what's
+            # left is an integer, an enum at its rep type, or a float.
+            assert not fpy_type.is_string, fpy_type
+            width = fpy_type.max_size
+            if fpy_type.is_float:
+                value = b.bitcast(value, ir.IntType(width * 8))
+            if width > 1:
+                # wasm memory is little-endian; the wire format is big-endian.
+                swap = b.module.declare_intrinsic("llvm.bswap", [value.type])
+                value = b.call(swap, [value])
+        ptr = b.gep(
+            base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, offset)], inbounds=True
+        )
+        if width > 1:
+            ptr = b.bitcast(ptr, value.type.as_pointer())
+        # The buffer is packed, so wider slots aren't naturally aligned.
+        b.store(value, ptr, align=1)
+        return width
+
+    def _emit_load_big_endian(
+        self, fpy_type: FpyType, base_ptr: ir.Value, offset: int
+    ) -> ir.Value:
+        """Load a value of *fpy_type* from byte *offset* inside the [N x i8]
+        buffer at *base_ptr*, the inverse of _emit_store_big_endian: the bytes
+        are fprime wire format (big-endian, tightly packed, aggregates member
+        by member; a bool is true iff its byte is the FW_SERIALIZE truth
+        value). Returns the value at fpy_type's LLVM type."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        if fpy_type.kind == TypeKind.STRUCT:
+            value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
+            start = offset
+            for i, member in enumerate(fpy_type.members):
+                value = b.insert_value(
+                    value, self._emit_load_big_endian(member.type, base_ptr, offset), i
+                )
+                offset += member.type.max_size
+            assert offset - start == fpy_type.max_size, fpy_type
+            return value
+        if fpy_type.kind == TypeKind.ARRAY:
+            value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
+            start = offset
+            for i in range(fpy_type.length):
+                value = b.insert_value(
+                    value,
+                    self._emit_load_big_endian(fpy_type.elem_type, base_ptr, offset),
+                    i,
+                )
+                offset += fpy_type.elem_type.max_size
+            assert offset - start == fpy_type.max_size, fpy_type
+            return value
+        assert not fpy_type.is_string, fpy_type
+        width = fpy_type.max_size
+        ptr = b.gep(
+            base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, offset)], inbounds=True
+        )
+        if fpy_type.kind == TypeKind.BOOL:
+            # The truth byte is a dictionary-configurable module global, so
+            # read it through the module, never a from-import.
+            byte = b.load(ptr, align=1)
+            return b.icmp_unsigned(
+                "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_TRUE_VALUE)
+            )
+        if width > 1:
+            ptr = b.bitcast(ptr, ir.IntType(width * 8).as_pointer())
+        # The buffer is packed, so wider slots aren't naturally aligned.
+        value = b.load(ptr, align=1)
+        if width > 1:
+            # wasm memory is little-endian; the wire format is big-endian.
+            swap = b.module.declare_intrinsic("llvm.bswap", [value.type])
+            value = b.call(swap, [value])
+        if fpy_type.is_float:
+            value = b.bitcast(value, fpy_type.llvm_type)
+        return value
 
     def convert_numeric_type(self, value: ir.Value, from_type, to_type) -> ir.Value:
         """Convert a scalar numeric value between two concrete numeric types."""
@@ -656,12 +819,51 @@ class EmitLlvmStmt(Emitter):
                 # assert in FpyValue.llvm_value. They're also pure (const folding
                 # only folds pure expressions), so dropping them changes nothing.
                 if state.const_expr_values.get(stmt) is None:
-                    self.expr.emit(stmt, state)
+                    result = self.expr.emit(stmt, state)
+                    if is_cmd_and_response_unhandled(stmt, state):
+                        self._emit_assert_cmd_response_ok(result, state)
             elif is_instance_compat(stmt, AstNodeWithSideEffects):
                 # A non-expression statement (assign, if, assert, def, ...).
                 self.emit(stmt, state)
             # else: a non-expression statement that can't affect the program on
             # its own (e.g. `pass`, sequence metadata) -- nothing to lower.
+
+    def _emit_assert_cmd_response_ok(
+        self, response: ir.Value, state: CompileState
+    ) -> None:
+        """For a bare command call, exit with CMD_FAIL if the response is not
+        OK and flags.assert_cmd_success is set."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        ok = b.icmp_unsigned(
+            "==", response, ir.Constant(response.type, CMD_RESPONSE.enum_dict["OK"])
+        )
+        not_ok_block = b.function.append_basic_block("cmd_not_ok")
+        fail_block = b.function.append_basic_block("cmd_fail")
+        end_block = b.function.append_basic_block("cmd_ok")
+        b.cbranch(ok, end_block, not_ok_block)
+
+        b.position_at_end(not_ok_block)
+        flags_type = state.flags_var.type
+        member_idx = next(
+            i
+            for i, m in enumerate(flags_type.members)
+            if m.name == "assert_cmd_success"
+        )
+        flag_ptr = b.gep(
+            state.flags_var.llvm_ptr,
+            [ir.Constant(i32, 0), ir.Constant(i32, member_idx)],
+            inbounds=True,
+        )
+        b.cbranch(b.load(flag_ptr), fail_block, end_block)
+
+        b.position_at_end(fail_block)
+        b.call(
+            b.module.globals[HOST_EXIT_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.CMD_FAIL.value)],
+        )
+        b.unreachable()
+        b.position_at_end(end_block)
 
     def emit_AstDef(self, node: AstDef, state: CompileState) -> None:
         # Function definitions (incl. the prepended builtin library) aren't
@@ -729,7 +931,8 @@ class EmitLlvmStmt(Emitter):
             )
         else:
             code = self.expr.emit(node.exit_code, state)
-        emit_host_exit(builder, code)
+        builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
+        builder.unreachable()
 
         # Success path: continue lowering subsequent statements here.
         builder.position_at_end(ok_block)
@@ -861,7 +1064,12 @@ def _wasm_ld_command() -> list[str]:
         "ziglang",
         "wasm-ld",
         "--page-size=1",
-        "-zstack-size=0",
+        # Reserve a real shadow stack for allocas, placed at the very start of
+        # linear memory so an overflow traps (the stack pointer wraps below 0
+        # and the store lands out of bounds) instead of silently corrupting
+        # the globals laid out after it.
+        "-zstack-size=4096",
+        "--stack-first",
     ]
 
 

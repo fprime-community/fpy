@@ -1,3 +1,6 @@
+import pytest
+
+import fpy.test_helpers
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -57,6 +60,8 @@ exit(1)
     def test_too_many_dirs(self, fprime_test_api):
         from fpy.types import MAX_DIRECTIVES_COUNT
 
+        if fpy.test_helpers.USE_WASM:
+            pytest.skip("the directive-count limit is bytecode-specific")
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * (MAX_DIRECTIVES_COUNT + 1)
         assert_compile_failure(fprime_test_api, seq)
 

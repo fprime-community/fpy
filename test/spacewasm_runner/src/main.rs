@@ -1,7 +1,8 @@
 //! Runs a single compiled fpy `.wasm` sequence through the NASA spacewasm
 //! interpreter and reports the result of its `main` export.
 //!
-//! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]`
+//! Usage: `fpy-spacewasm-runner <path-to.wasm> [entry-name]
+//!             [--fail-opcode <u32>]... [--cmd-response <i32>]`
 //!
 //! On success it prints the sequence's i32 error code as a decimal on the
 //! final line of stdout and exits 0. The code comes from `fprime.exit` when
@@ -18,10 +19,18 @@
 //! reported before the code line as `event <severity> <message>`, one line
 //! per event, with the message Rust-escaped so it stays on one line.
 //!
+//! Each `fprime.cmd` call is reported the same way as a `cmd <hex>` line
+//! holding the received command buffer (the big-endian FwOpcodeType followed
+//! by the serialized arguments) as lowercase hex. The call returns
+//! `--cmd-response` (an Fw.CmdResponse value, default 0 = OK), except that a
+//! command whose opcode is listed via `--fail-opcode` returns
+//! EXECUTION_ERROR (4) -- mirroring the always-failing commands of the
+//! bytecode reference model.
+//!
 //! Two host modules are provided: `env` holds the float libcalls
 //! (`pow`/`fmod`/`log`) LLVM materializes itself, backed by libm so they
 //! match the C/IEEE semantics the LLVM intrinsics lower to; `fprime` mirrors
-//! the flight sequencer's host interface (`exit`, `fault`, `event`).
+//! the flight sequencer's host interface (`exit`, `fault`, `event`, `cmd`).
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -191,7 +200,17 @@ fn env_host_module() -> HostModule {
 /// `event(severity, ptr, len)` is the log() builtin's event report: the
 /// pointer/length name a utf-8 message in guest linear memory. This harness
 /// prints each one to stdout as an `event <severity> <message>` line.
-fn fprime_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
+///
+/// `cmd(ptr, len)` dispatches a command: the pointer/length name the encoded
+/// command buffer (big-endian FwOpcodeType + serialized arguments) in guest
+/// linear memory. This harness prints each buffer as a `cmd <hex>` line and
+/// returns *cmd_response*, or EXECUTION_ERROR (4) when the buffer's opcode is
+/// in *fail_opcodes*.
+fn fprime_host_module(
+    exit_code: Rc<Cell<Option<i32>>>,
+    fail_opcodes: Vec<u32>,
+    cmd_response: i32,
+) -> HostModule {
     fn arg_i32(args: &[Value], i: usize) -> i32 {
         match args[i] {
             Value::I32(v) => v,
@@ -237,13 +256,45 @@ fn fprime_host_module(exit_code: Rc<Cell<Option<i32>>>) -> HostModule {
                     }
                 }
             }),
+            HostFunction::new("cmd", "ii".into(), "i".into(), move |engine, args| {
+                let ptr = arg_i32(args, 0) as u32 as usize;
+                let len = arg_i32(args, 1) as u32 as usize;
+                match engine.memory.load(ptr, len) {
+                    Ok(bytes) => {
+                        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+                        println!("cmd {hex}");
+                        // FwOpcodeType is a U32 in the test dictionary: the
+                        // buffer leads with the opcode's 4 big-endian bytes.
+                        let Some(opcode_bytes) = bytes.get(0..4) else {
+                            eprintln!("cmd: buffer too short for an opcode: {len} bytes");
+                            return ControlFlow::Break(HostFunctionBreak::Trap);
+                        };
+                        let opcode = u32::from_be_bytes(opcode_bytes.try_into().unwrap());
+                        let response = if fail_opcodes.contains(&opcode) {
+                            4 // Fw.CmdResponse.EXECUTION_ERROR
+                        } else {
+                            cmd_response
+                        };
+                        ControlFlow::Continue(Some(Value::I32(response)))
+                    }
+                    Err(e) => {
+                        eprintln!("cmd: bad buffer pointer/length: {e:?}");
+                        ControlFlow::Break(HostFunctionBreak::Trap)
+                    }
+                }
+            }),
         ],
         memory: spacewasm::vec![],
         table: spacewasm::vec![],
     }
 }
 
-fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
+fn run(
+    wasm_path: &str,
+    entry: &str,
+    fail_opcodes: Vec<u32>,
+    cmd_response: i32,
+) -> Result<i32, String> {
     let wasm = std::fs::read(wasm_path).map_err(|e| format!("read {wasm_path}: {e}"))?;
 
     // exit/fault write the sequence's error code here and unwind the interpreter.
@@ -252,7 +303,10 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
     let mut engine = Engine::new(
         1024,
         256,
-        spacewasm::vec![env_host_module(), fprime_host_module(exit_code.clone())],
+        spacewasm::vec![
+            env_host_module(),
+            fprime_host_module(exit_code.clone(), fail_opcodes, cmd_response)
+        ],
     )
     .map_err(|e| format!("engine: {e:?}"))?;
     let mut code_builder = CodeBuilder::new(CompilerOptions {
@@ -341,14 +395,38 @@ fn run(wasm_path: &str, entry: &str) -> Result<i32, String> {
 }
 
 fn main() -> ExitCode {
+    let usage = "usage: fpy-spacewasm-runner <path-to.wasm> [entry-name] \
+                 [--fail-opcode <u32>]... [--cmd-response <i32>]";
+    let mut positional: Vec<String> = Vec::new();
+    let mut fail_opcodes: Vec<u32> = Vec::new();
+    let mut cmd_response: i32 = 0;
     let mut args = std::env::args().skip(1);
-    let Some(wasm_path) = args.next() else {
-        eprintln!("usage: fpy-spacewasm-runner <path-to.wasm> [entry-name]");
+    while let Some(arg) = args.next() {
+        let flag_value = |args: &mut dyn Iterator<Item = String>| {
+            args.next().ok_or_else(|| format!("{arg} needs a value"))
+        };
+        let parsed = match arg.as_str() {
+            "--fail-opcode" => flag_value(&mut args)
+                .and_then(|v| v.parse().map_err(|e| format!("{arg} {v}: {e}")))
+                .map(|v| fail_opcodes.push(v)),
+            "--cmd-response" => flag_value(&mut args)
+                .and_then(|v| v.parse().map_err(|e| format!("{arg} {v}: {e}")))
+                .map(|v| cmd_response = v),
+            _ => Ok(positional.push(arg.clone())),
+        };
+        if let Err(msg) = parsed {
+            eprintln!("{msg}\n{usage}");
+            return ExitCode::from(FAULT);
+        }
+    }
+    let mut positional = positional.into_iter();
+    let Some(wasm_path) = positional.next() else {
+        eprintln!("{usage}");
         return ExitCode::from(FAULT);
     };
-    let entry = args.next().unwrap_or_else(|| "main".to_string());
+    let entry = positional.next().unwrap_or_else(|| "main".to_string());
 
-    match run(&wasm_path, &entry) {
+    match run(&wasm_path, &entry, fail_opcodes, cmd_response) {
         Ok(code) => {
             println!("{code}");
             ExitCode::SUCCESS

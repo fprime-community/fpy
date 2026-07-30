@@ -90,7 +90,7 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To32Directive,
     IntegerTruncate64To8Directive,
 )
-from fpy.types import FpyValue, LOG_SEVERITY, TIME, U32
+from fpy.types import DeserializeError, FpyValue, LOG_SEVERITY, TIME, U32
 
 debug = False
 
@@ -371,7 +371,12 @@ class FpySequencerModel:
         offset = 0
         for arg in cmd.arguments:
             arg_name, arg_desc, arg_type = arg
-            _, offset = FpyValue.deserialize(arg_type, args, offset)
+            try:
+                _, offset = FpyValue.deserialize(arg_type, args, offset)
+            except DeserializeError:
+                # The receiving component would fail to deserialize the args
+                # and respond with FORMAT_ERROR.
+                return False
 
         return offset == len(args)
 
