@@ -1,5 +1,4 @@
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -409,7 +408,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
             body = text_to_ast(seq)
             assert body is not None
             state = analyze_ast(body, state)
-            return analysis_to_fpybc_directives(body, state)
+            return analysis_to_fpybc_directives(state)
 
         try:
             directives, _ = compile_with(
