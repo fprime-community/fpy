@@ -1138,15 +1138,15 @@ If this is called without the seed being manually set beforehand, then the seed 
 | U32 | The next pseudorandom 32-bit value from the sequencer's internal PRNG |
 
 ## POP_SERIALIZABLE (78)
-Pops serialized data from the stack and sends it to an external component via a serial output port. Not currently emitted by the Fpy compiler.
+Pops `size` bytes of serialized data from the stack and sends them to an external component via the sequencer's `serialOut` output port array.
 
 **Preconditions:**
-- `port_index < MAX_SERIAL_PORTS` (from `FpySequencerCfg.SerialPortIndex` enum)
+- `port_index < MAX_SERIAL_PORTS` (from the `Svc.Fpy.SerialPortIndex` enum in `FpySequencerCfg`)
 - `serialOut[port_index]` is connected to a target component
 - `len(stack) >= size`
 
 **Semantics:**
-1. Validate port index is within bounds.
+1. Validate the port index is within bounds.
 2. Check that the specified port is connected.
 3. Pop `size` bytes from the stack.
 4. Send the popped bytes to the target component via `serialOut[port_index]`.

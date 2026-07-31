@@ -84,6 +84,7 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend8To64Directive,
     OrDirective,
     PeekDirective,
+    PopSerializableDirective,
     FloatMultiplyDirective,
     GetFieldDirective,
     IntAddDirective,
@@ -1144,12 +1145,27 @@ class GenerateFunctionBody(Emitter):
                 ), f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
-            # put non-const arg values on stack
-            for i, arg_node in enumerate(node_args):
-                if i not in func.const_arg_indices:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
+            # Residual hook: only the size/port directive params need emitting; validation is handled by the SIZED/SerialPortIndex signature.
+            if func.name == "write_to_port":
+                value_arg = node_args[1]
+                # Push the value for the directive to pop and send.
+                dirs.extend(self._emit_func_arg(value_arg, state))
+                # Value is coerced to a concrete sized type, so max_size is the exact size to pop.
+                size = state.contextual_types[value_arg].max_size
+                # Port is a const dictionary SerialPortIndex enum; .val is the constant name, resolve to its int index.
+                port_val = const_arg_values[0]
+                assert isinstance(port_val.val, str), port_val
+                port_index = port_val.type.enum_dict[port_val.val]
+                dirs.append(
+                    PopSerializableDirective(portIndex=port_index, size=size)
+                )
+            else:
+                # put non-const arg values on stack
+                for i, arg_node in enumerate(node_args):
+                    if i not in func.const_arg_indices:
+                        dirs.extend(self._emit_func_arg(arg_node, state))
 
-            dirs.extend(func.generate_fpybc(node, const_arg_values))
+                dirs.extend(func.generate_fpybc(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
