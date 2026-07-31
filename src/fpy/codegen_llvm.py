@@ -671,8 +671,8 @@ class EmitLlvmExpr(Emitter):
         """Load a value of *fpy_type* from byte *offset* inside the [N x i8]
         buffer at *base_ptr*, the inverse of _emit_store_big_endian: the bytes
         are fprime wire format (big-endian, tightly packed, aggregates member
-        by member; a bool is true iff its byte is the FW_SERIALIZE truth
-        value). Returns the value at fpy_type's LLVM type."""
+        by member). If the bytes cannot be deserialized to the fpy_type,
+        raise an error. Returns the value at fpy_type's LLVM type."""
         b = self.builder
         i32 = ir.IntType(32)
         if fpy_type.kind == TypeKind.STRUCT:
@@ -703,12 +703,31 @@ class EmitLlvmExpr(Emitter):
             base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, offset)], inbounds=True
         )
         if fpy_type.kind == TypeKind.BOOL:
-            # The truth byte is a dictionary-configurable module global, so
-            # read it through the module, never a from-import.
+            # The truth bytes are dictionary-configurable module globals, so
+            # read them through the module, never a from-import.
             byte = b.load(ptr, align=1)
-            return b.icmp_unsigned(
+            is_true = b.icmp_unsigned(
                 "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_TRUE_VALUE)
             )
+            is_false = b.icmp_unsigned(
+                "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_FALSE_VALUE)
+            )
+            fail_block = b.function.append_basic_block("bool_bad")
+            ok_block = b.function.append_basic_block("bool_ok")
+            b.cbranch(b.or_(is_true, is_false), ok_block, fail_block)
+            b.position_at_end(fail_block)
+            b.call(
+                b.module.globals[HOST_FAULT_FUNC_NAME],
+                [
+                    ir.Constant(
+                        ERROR_CODE_TYPE,
+                        DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value,
+                    )
+                ],
+            )
+            b.unreachable()
+            b.position_at_end(ok_block)
+            return is_true
         if width > 1:
             ptr = b.bitcast(ptr, ir.IntType(width * 8).as_pointer())
         # The buffer is packed, so wider slots aren't naturally aligned.

@@ -1049,3 +1049,28 @@ class TestWasmBigEndianSerialization:
         assert code != 1, f"stored bytes diverged from serialize() for {value}"
         assert code != 2, f"load->store did not round-trip for {value}"
         assert code == NO_ERROR
+
+    @pytest.mark.parametrize("byte", [b"\x01", b"\x7f", b"\xfe"])
+    def test_invalid_bool_byte_faults(self, byte):
+        # A bool byte that is neither truth value faults with
+        # DESERIALIZE_ERROR_INVALID_BOOL, matching the C++ deserializer's
+        # FW_DESERIALIZE_FORMAT_ERROR (and FpyValue.deserialize raising
+        # DeserializeError).
+        module = ir.Module(name="be_test")
+        module.triple = LLVM_TRIPLE
+        declare_host_imports(module)
+        func = ir.Function(
+            module, ir.FunctionType(ir.VoidType(), []), name=FPY_ENTRY_POINT
+        )
+        builder = ir.IRBuilder(func.append_basic_block("entry"))
+        emitter = EmitLlvmExpr(builder)
+
+        buf_type = ir.ArrayType(ir.IntType(8), 1)
+        buf = ir.GlobalVariable(module, buf_type, name="buf_in")
+        buf.linkage = "internal"
+        buf.initializer = ir.Constant(buf_type, bytearray(byte))
+        emitter._emit_load_big_endian(BOOL, buf, 0)
+        builder.ret_void()
+
+        code, _, _ = run_wasm(llvm_module_to_wasm(module))
+        assert code == DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value

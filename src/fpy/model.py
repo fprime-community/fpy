@@ -138,6 +138,7 @@ class DirectiveErrorCode(Enum):
     STACK_UNDERFLOW = 15
     INVALID_ARG = 16
     CMD_FAIL = 17
+    DESERIALIZE_ERROR_INVALID_BOOL = 18
 
 
 class FpySequencerModel:
