@@ -2709,7 +2709,7 @@ class TestLoadDictionary:
 
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["type_defs"]) == 95
+        assert len(d["type_defs"]) == 96
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)

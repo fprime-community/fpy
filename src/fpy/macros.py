@@ -6,6 +6,7 @@ from fpy.bytecode.directives import (
     ExitDirective,
     FloatLogDirective,
     PopEventDirective,
+    PopSerializableDirective,
     PushTimeDirective,
     SetSeedDirective,
     PushValDirective,
@@ -16,10 +17,12 @@ from fpy.bytecode.directives import (
 from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
 from fpy.syntax import Ast
+from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
     INTERNAL_STRING,
     LOG_SEVERITY,
     NOTHING,
+    SIZED,
     TIME,
     TIME_BASE,
     BOOL,
@@ -253,5 +256,14 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             PopEventDirective(),
         ],
         const_arg_indices=frozenset({0, 1}),
+    ),
+    # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.
+    "write_to_port": BuiltinFuncSymbol(
+        "write_to_port", NOTHING, [
+            ("port", SerialPortIndex, None),
+            ("value", SIZED, None),
+        ],
+        lambda n, c: [],  # Placeholder; codegen.py emits the directive
+        const_arg_indices=frozenset({0}),  # port must be compile-time constant
     ),
 }

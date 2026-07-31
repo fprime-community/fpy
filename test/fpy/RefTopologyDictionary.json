@@ -45,6 +45,43 @@
       "default" : "Svc.PrmDb.Merge.MERGE"
     },
     {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Fpy.SerialPortIndex",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "EXAMPLE_PORT_0",
+          "value" : 0
+        },
+        {
+          "name" : "EXAMPLE_PORT_1",
+          "value" : 1
+        },
+        {
+          "name" : "EXAMPLE_PORT_2",
+          "value" : 2
+        },
+        {
+          "name" : "EXAMPLE_PORT_3",
+          "value" : 3
+        },
+        {
+          "name" : "EXAMPLE_PORT_4",
+          "value" : 4
+        },
+        {
+          "name" : "MAX_SERIAL_PORTS",
+          "value" : 5
+        }
+      ],
+      "default" : "Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0"
+    },
+    {
       "kind" : "alias",
       "qualifiedName" : "FwTlmPacketizeIdType",
       "type" : {
