@@ -478,9 +478,11 @@ def is_past(deadline: Fw.Time) -> bool:
         main = """\
 import lib
 
-past: bool = lib.is_past(Fw.Time(TimeBase.TB_NONE, 0, 0, 0))
+past: bool = lib.is_past(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 0, 0))
 """
-        assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
+        assert_run_success(
+            fprime_test_api, main, import_directories=[str(tmp_path)], time_base=2
+        )
 
 
 class TestImportFileErrors:
