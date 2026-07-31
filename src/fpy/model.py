@@ -1171,8 +1171,11 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
+        # fmod(x, 0) is NaN (matching the flight VM, wasm's frem, Rust and
+        # C#); Python's % raises instead, so it needs a guard.
         if rhs == 0.0:
-            return DirectiveErrorCode.DOMAIN_ERROR
+            self.push(float("nan"))
+            return None
         self.push(lhs % rhs)
         return None
 
