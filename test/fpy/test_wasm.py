@@ -270,6 +270,53 @@ class TestWasmUnaryOps:
         assert run_seq_wasm("x: I64 = 7\nassert +x == 7\n") == NO_ERROR
 
 
+class TestWasmAbsFloor:
+    """iabs/fabs lower to llvm.abs/llvm.fabs and float `//` to llvm.floor.
+    These pin the SPEC edge cases: fabs only clears the sign bit, and flooring
+    preserves the sign of a zero quotient. The sign of a zero is observed
+    through division (1.0 / -0.0 == -inf)."""
+
+    def test_iabs_basic(self):
+        assert run_seq_wasm("x: I64 = 0 - 5\nassert iabs(x) == 5\n") == NO_ERROR
+
+    def test_iabs_int_min_wraps(self):
+        # Known divergence: SPEC says iabs(I64 min) raises ARITHMETIC_OVERFLOW,
+        # but the wasm backend implements no arithmetic traps yet and llvm.abs
+        # with is_int_min_poison=0 wraps. This pins the current behavior so a
+        # future trap implementation consciously flips it.
+        seq = "x: I64 = I64(-2**63)\nassert iabs(x) == x\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_fabs_negative_zero(self):
+        seq = "neg: F64 = -0.0\nassert 1.0 / neg < 0.0\nassert 1.0 / fabs(neg) > 0.0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_fabs_inf_nan(self):
+        seq = (
+            "zero: F64 = 0.0\n"
+            "inf: F64 = 1.0 / zero\n"
+            "nan: F64 = zero / zero\n"
+            "assert fabs(0.0 - inf) == inf\n"
+            "assert fabs(nan) != fabs(nan)\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_floor_divide_preserves_zero_sign(self):
+        seq = "neg: F64 = -0.0\nq: F64 = neg // 1.0\nassert 1.0 / q < 0.0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_floor_divide_inf_nan_passthrough(self):
+        seq = (
+            "zero: F64 = 0.0\n"
+            "inf: F64 = 1.0 / zero\n"
+            "nan: F64 = zero / zero\n"
+            "assert inf // 1.0 == inf\n"
+            "q: F64 = nan // 1.0\n"
+            "assert q != q\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+
 class TestWasmExponent:
     """`**` always computes over floats and lowers to the llvm.pow intrinsic,
     which the wasm target leaves as an imported `env.pow` host call. run_seq_wasm
