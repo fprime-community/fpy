@@ -11,8 +11,9 @@ from fpy.test_helpers import (
 
 def _oor_float_to_int(saturated, wrapped):
     """Expected result of an *out-of-range* float->int cast, which differs by
-    backend: the LLVM/wasm backend saturates (Rust `as` semantics -- clamp to
-    the target type's min/max), while the bytecode VM wraps mod 2^n. Reads
+    backend: the LLVM/wasm backend saturates at the target width (Rust `as`
+    semantics -- clamp to the target type's min/max), while the bytecode VM
+    saturates at 64 bits and then wrap-truncates to the target width. Reads
     test_helpers.USE_WASM at call time (conftest sets it from the --wasm flag)."""
     return saturated if test_helpers.USE_WASM else wrapped
 
@@ -827,25 +828,24 @@ val: U8 = U8(1231231231243) # this is allowed but suspicious
 class TestOutOfRangeFloatCasts:
     """Casting a float that is out of the target integer type's range.
 
-    The two backends deliberately differ here, so each expected value switches
-    on the active backend via _oor_float_to_int:
-      * LLVM/wasm: saturates to the target type's min/max (Rust `as` semantics).
-      * bytecode VM: wraps mod 2^n (truncates the bit pattern).
-
-    The values are kept within what the VM can currently represent without
-    crashing: its float->int handler raises on NaN/+-inf and on negative
-    magnitudes >= 2**64, so those (saturating) cases live in
-    test_wasm.TestWasmFloatToIntSaturates instead."""
+    Both backends saturate the float->int conversion at 64 bits (NaN -> 0,
+    out-of-range clamps to I64/U64 min/max). For narrower targets they then
+    deliberately differ, so each expected value switches on the active
+    backend via _oor_float_to_int:
+      * LLVM/wasm: saturates at the *target* width (Rust `as` semantics).
+      * bytecode VM: saturates at 64 bits, then wrap-truncates the bit
+        pattern to the target width."""
 
     def test_unsigned_overflow(self, fprime_test_api):
-        # 1e20 is above U8 max. wasm -> 255 (clamp); VM -> 0 (1e20 mod 256 == 0).
-        expected = _oor_float_to_int(saturated=255, wrapped=0)
+        # 1e20 is above U64 max: both saturate to U64 max; the VM's truncation
+        # of all-ones to 8 bits coincides with the wasm clamp.
+        expected = _oor_float_to_int(saturated=255, wrapped=255)
         seq = f"x: F64 = 1e20\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
     def test_unsigned_negative(self, fprime_test_api):
-        # -5.0 is below U8 min. wasm -> 0 (clamp); VM -> 251 (-5 mod 256).
-        expected = _oor_float_to_int(saturated=0, wrapped=251)
+        # -5.0 is negative: the unsigned conversion clamps to 0 on both.
+        expected = _oor_float_to_int(saturated=0, wrapped=0)
         seq = f"x: F64 = -5.0\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
@@ -862,8 +862,9 @@ class TestOutOfRangeFloatCasts:
         assert_run_success(fprime_test_api, seq)
 
     def test_signed_32bit_overflow(self, fprime_test_api):
-        # 1e20 is above I32 max. wasm -> I32 max; VM -> 1e20 mod 2^32 (signed).
-        expected = _oor_float_to_int(saturated=2147483647, wrapped=1661992960)
+        # 1e20 is above I64 max. wasm -> I32 max; VM -> I64 max (0x7FFF...FFFF)
+        # wrap-truncated to 32 bits: 0xFFFFFFFF == -1.
+        expected = _oor_float_to_int(saturated=2147483647, wrapped=-1)
         seq = f"x: F64 = 1e20\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 

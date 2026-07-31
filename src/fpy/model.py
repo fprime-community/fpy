@@ -917,7 +917,13 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val_64 = self.pop(type=float)
-        val_32_bytes = struct.pack(">f", val_64)
+        try:
+            val_32_bytes = struct.pack(">f", val_64)
+        except OverflowError:
+            # IEEE round-to-nearest demote: a finite F64 beyond the F32 range
+            # rounds to +-inf (struct.pack only raises when a finite value
+            # would overflow; inf itself packs fine).
+            val_32_bytes = struct.pack(">f", math.copysign(float("inf"), val_64))
         self.push(val_32_bytes)
         return None
 
@@ -981,14 +987,32 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        self.push(int(val))
+        # Saturating conversion (llvm.fptosi.sat / wasm i64.trunc_sat_f64_s /
+        # Rust `as`): NaN -> 0, out-of-range clamps, in-range truncates toward
+        # zero. -2**63 is exactly representable; 2**63 is one past I64 max.
+        if math.isnan(val):
+            self.push(0)
+        elif val >= 2**63:
+            self.push(MAX_INT64)
+        elif val < -(2**63):
+            self.push(MIN_INT64)
+        else:
+            self.push(int(val))
         return None
 
     def handle_fptoui(self, dir: FloatToUnsignedIntDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        self.push(int(val), signed=False)
+        # Saturating conversion (llvm.fptoui.sat / wasm i64.trunc_sat_f64_u /
+        # Rust `as`): NaN -> 0, negatives truncate to at most 0 and clamp
+        # there, values at or above 2**64 clamp to U64 max.
+        if math.isnan(val) or val < 0:
+            self.push(0, signed=False)
+        elif val >= 2**64:
+            self.push(2**64 - 1, signed=False)
+        else:
+            self.push(int(val), signed=False)
         return None
 
     def handle_sitofp(self, dir: SignedIntToFloatDirective):
@@ -1070,6 +1094,10 @@ class FpySequencerModel:
 
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
+        # The one signed division that can overflow: |MIN_INT64 / -1| = 2**63
+        # is not representable in I64.
+        if lhs == MIN_INT64 and rhs == -1:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
 
         result = lhs // rhs
 
@@ -1108,7 +1136,8 @@ class FpySequencerModel:
         if rhs == 0.0:
             # IEEE 754: division by zero produces inf, -inf, or nan.
             # The sign of the result depends on the signs of BOTH operands.
-            if lhs == 0.0:
+            # A NaN numerator propagates (0/0 and nan/0 are both NaN).
+            if lhs == 0.0 or math.isnan(lhs):
                 self.push(float("nan"))
             else:
                 result_sign = math.copysign(1.0, lhs) * math.copysign(1.0, rhs)
@@ -1164,7 +1193,17 @@ class FpySequencerModel:
             else:
                 self.push(float("inf"))
             return None
-        except (ValueError, OverflowError):
+        except OverflowError:
+            # Overflow is a *range* error: C pow() returns +/-HUGE_VAL (inf).
+            # The result is negative only for a negative base with an odd
+            # integer exponent (a fractional exponent would be a domain error
+            # and raise ValueError instead).
+            if lhs < 0 and float(rhs).is_integer() and int(rhs) % 2 != 0:
+                self.push(float("-inf"))
+            else:
+                self.push(float("inf"))
+            return None
+        except ValueError:
             # C++ pow() returns NaN for domain errors
             self.push(float("nan"))
             return None
