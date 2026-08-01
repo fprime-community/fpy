@@ -1174,8 +1174,11 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
+        # fmod(x, 0) is NaN (matching the flight VM, wasm's frem, Rust and
+        # C#); Python's % raises instead, so it needs a guard.
         if rhs == 0.0:
-            return DirectiveErrorCode.DOMAIN_ERROR
+            self.push(float("nan"))
+            return None
         self.push(lhs % rhs)
         return None
 
@@ -1408,6 +1411,8 @@ class FpySequencerModel:
         # Pop the bytes (in model, we just discard them like pop_event does)
         popped_bytes = self.pop(type=bytes, size=dir.size)
         if debug:
-            print(f"POP_SERIALIZABLE port={dir.portIndex} size={dir.size} bytes={popped_bytes.hex()}")
+            print(
+                f"POP_SERIALIZABLE port={dir.portIndex} size={dir.size} bytes={popped_bytes.hex()}"
+            )
         # In the model we don't have actual serial ports, so we just discard the data
         return None

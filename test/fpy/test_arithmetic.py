@@ -607,7 +607,7 @@ class TestFloorDivision:
     """Floor division floors toward -inf (Python `//` semantics).
     Both const-folded and runtime paths should agree."""
 
-    def test_int_floor_div_negative_const_vs_runtime(self, fprime_test_api):
+    def test_int_floor_div_negative_runtime(self, fprime_test_api):
         """Runtime -7 // 2 should give -4 (floor toward -inf)."""
         seq = """
 a: I64 = -7
@@ -625,7 +625,7 @@ assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_float_floor_div_negative_const_vs_runtime(self, fprime_test_api):
+    def test_float_floor_div_negative_runtime(self, fprime_test_api):
         """Runtime float floor division: -5.5 // 2.0 = -3.0 (floor toward -inf)."""
         seq = """
 a: F64 = -5.5

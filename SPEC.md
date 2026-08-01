@@ -1285,6 +1285,8 @@ If either operand is a float, both are promoted to `F64`. The quotient is comput
 ### Modulus semantics
 Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. Signed integer and float modulo follow Python's floored semantics: a nonzero remainder has the same sign as the divisor. For floats, an exact-multiple result is a zero carrying the divisor's sign.
 
+An integer modulus with a zero divisor raises a runtime error (`DOMAIN_ERROR`). A float modulus with a zero divisor evaluates to NaN. `(-2**63) % -1` evaluates to `0`, the mathematical remainder.
+
 #### Exponentiation semantics
 Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.
 
