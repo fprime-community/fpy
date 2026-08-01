@@ -14,11 +14,9 @@ capsys
 cbranch
 Ccsds
 Cdh
-cfgv
 chans
 cls
 codegen
-CSPRNG
 ctx
 cuz
 dedenting
@@ -117,6 +115,7 @@ skipif
 sle
 smod
 smth
+sourced
 spacewasm
 srem
 sroa
