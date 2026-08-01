@@ -72,7 +72,6 @@ ine
 intrinsics
 ip
 itrunc
-keepends
 kinda
 lalr
 libcall
@@ -91,13 +90,13 @@ noreturn
 nsize
 oob
 oor
+passthrough
 pb
 pemdas
 postlex
 postlexer
 prm
 PRNG
-probs
 px
 py
 pytestmark
@@ -133,11 +132,11 @@ uitofp
 uk
 ul
 umod
+une
 urem
 usec
 useconds
 usize
-usr
 vararg
 vec
 verflow

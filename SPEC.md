@@ -881,17 +881,22 @@ TODO this really should be linked to the FpySequencer spec to say exactly where 
 `iabs(value: I64) -> I64`
 
 #### Semantics
-At evaluation, the function call evaluates to the absolute value of `value`.
+At evaluation, the function call evaluates to the mathematical absolute value of `value`: `value` if `value >= 0`, and its negation otherwise.
 
-TODO specify what happens if the abs value is outside of i64
+The absolute value of `I64` min (`-2**63`) is not representable in `I64`, so `iabs(-2**63)` raises a runtime error. For every other value, `iabs` does not raise an error.
 
 ### `fabs`
 #### Signature
 `fabs(value: F64) -> F64`
 
 #### Semantics
-At evaluation, the function call evaluates to the absolute value of `value`.
-TODO specify what happens if the abs value is outside of i64
+At evaluation, the function call evaluates to `value` with its sign bit cleared (the IEEE 754 `abs` operation). No bits other than the sign bit change:
+
+* `fabs(-0.0)` evaluates to `0.0`.
+* `fabs(-inf)` evaluates to `inf`.
+* A NaN remains a NaN with the same payload and signaling bit; only its sign bit is cleared.
+
+`fabs` never raises an error or floating-point exception.
 
 ## Builtin libraries
 
@@ -1267,10 +1272,18 @@ These operators require numeric operands and produce a result in the chosen inte
 Both operands are promoted to `F64`, and the result is always an `F64`. This means you must explicitly cast the result to store it in an integer type.
 
 #### Floor division semantics
-With integer operands, `//` performs truncating division using the signed or unsigned divide directive. If either operand is a float, the compiler divides in `F64`, converts the quotient to a signed 64-bit integer (which truncates toward zero), and converts back to `F64`, so floating-point floor division also truncates toward zero.
+The floor division operator is `//`. It requires numeric operands and rounds the quotient toward negative infinity (Python `//` semantics).
+
+With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
+
+If either operand is a float, both are promoted to `F64`. The quotient is computed by IEEE 754 division and then floored toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation):
+
+* An infinite or NaN quotient is unchanged. A NaN result is a quiet NaN; its sign and payload are unspecified.
+* A zero quotient is unchanged; the sign of zero is preserved, so a quotient of `-0.0` floors to `-0.0`.
+* Otherwise the result is the largest integral `F64` value not greater than the quotient: a quotient of `0.5` floors to `0.0`, and a quotient of `-0.5` floors to `-1.0`.
 
 ### Modulus semantics
-Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. For signed integers the remainder has the same sign as the dividend.
+Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. Signed integer and float modulo follow Python's floored semantics: a nonzero remainder has the same sign as the divisor. For floats, an exact-multiple result is a zero carrying the divisor's sign.
 
 #### Exponentiation semantics
 Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.

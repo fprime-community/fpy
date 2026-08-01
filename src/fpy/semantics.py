@@ -27,6 +27,7 @@ from fpy.types import (
     INTERNAL_STRING,
     RANGE,
     NOTHING,
+    SIZED,
     BOOL,
     TIME,
     TIME_BASE,
@@ -680,10 +681,17 @@ def is_cmd_and_response_unhandled(stmt: Ast, state: CompileState) -> bool:
 def is_type_constant_size(type: FpyType) -> bool:
     """Return true if the type has a statically known size.
 
-    Types with strings (directly or nested) don't have constant size because
-    strings can vary in length.
+    Internal Strings have constant sizes, but runtime strings don't -> They
+    can vary in length.
+    Also allow concrete constant-size types.
     """
-    if type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+    if type.kind == TypeKind.INTERNAL_STRING:
+        return True
+
+    if not type.is_concrete:
+        return False
+
+    if type.kind == TypeKind.STRING:
         return False
 
     if type.kind == TypeKind.ARRAY:
@@ -1158,6 +1166,9 @@ class PickTypesAndResolveFields(Visitor):
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
         """
+        # The SIZED sentinel accepts any serializable, statically-sized argument.
+        if target.kind == TypeKind.SIZED:
+            return is_type_constant_size(source)
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -1179,6 +1190,16 @@ class PickTypesAndResolveFields(Visitor):
                 node,
             )
             return False
+
+        # SIZED is a sentinel; resolve it to the argument's own concrete sized type.
+        if type.kind == TypeKind.SIZED:
+            if unconverted_type.kind == TypeKind.INTERNAL_STRING:
+                # A string literal gets a concrete String[N] sized to the literal.
+                assert is_instance_compat(node, AstString), node
+                str_len = len(node.value.encode("utf-8"))
+                type = FpyType(TypeKind.STRING, f"String_{str_len}", max_length=str_len)
+            else:
+                type = unconverted_type
 
         # For anon structs/arrays, recursively coerce children and build resolved_args
         if unconverted_type.kind == TypeKind.ANON_STRUCT:
@@ -1541,15 +1562,15 @@ class PickTypesAndResolveFields(Visitor):
             state.contextual_types[node] = parent_type.elem_type
             return
 
+        if parent_type.kind != TypeKind.ARRAY:
+            state.err(f"{parent_type.display_name} is not an array", node)
+            return
+
         if not is_type_constant_size(parent_type):
             state.err(
                 f"{parent_type.display_name} is not constant-sized (contains strings), cannot access items",
                 node,
             )
-            return
-
-        if parent_type.kind != TypeKind.ARRAY:
-            state.err(f"{parent_type.display_name} is not an array", node)
             return
 
         # coerce the index expression to array index type
@@ -2727,7 +2748,11 @@ class CalculateConstExprValues(Visitor):
         folded_value = None
 
         if node.op == UnaryStackOp.NEGATE:
-            folded_value = -value
+            # Decimal.__neg__ follows the decimal spec and returns +0 for any
+            # zero, which would fold the literal -0.0 to +0.0. copy_negate
+            # flips the sign unconditionally, matching runtime negation
+            # (llvm fneg / the VM's multiply by -1.0).
+            folded_value = value.copy_negate() if type(value) == Decimal else -value
         elif node.op == UnaryStackOp.IDENTITY:
             folded_value = value
         elif node.op == UnaryStackOp.NOT:

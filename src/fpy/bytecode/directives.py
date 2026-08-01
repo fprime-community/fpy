@@ -38,6 +38,12 @@ from fpy.syntax import (
 FwChanIdType = FpyType(TypeKind.U32, "U32")
 FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
+FwIndexType = FpyType(TypeKind.I16, "I16")
+
+# write_to_port's port param type; matched by name+kind, constants come from the dictionary at compile time.
+SerialPortIndex = FpyType(
+    TypeKind.ENUM, "Svc.Fpy.SerialPortIndex", enum_dict={}, rep_type=U8
+)
 
 
 ArrayIndexType = I64
@@ -63,12 +69,30 @@ def _update_configurable_type(
     target.name = resolved.name
 
 
+def _update_configurable_enum(
+    target: FpyType, type_defs: dict[str, FpyType], name: str
+) -> None:
+    """Update *target* enum in place from the dictionary; leave placeholder if absent."""
+    if name not in type_defs:
+        return
+    resolved = type_defs[name]
+    assert (
+        resolved.kind == TypeKind.ENUM
+    ), f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
+    target.kind = resolved.kind
+    target.name = resolved.name
+    target.enum_dict = resolved.enum_dict
+    target.rep_type = resolved.rep_type
+
+
 def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     """Update the user-configurable Fw* bytecode types in place from the dictionary."""
     _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
     _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
+    _update_configurable_type(FwIndexType, type_defs, "FwIndexType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+    _update_configurable_enum(SerialPortIndex, type_defs, "Svc.Fpy.SerialPortIndex")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -411,6 +435,17 @@ class PopEventDirective(Directive):
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
 
+@dataclass
+class PopSerializableDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.POP_SERIALIZABLE
+    portIndex: int
+    size: int
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {
+        "portIndex": FwIndexType,
+        "size": StackSizeType,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Arithmetic stack op directives (no fields)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -654,22 +689,26 @@ class FloatExtendDirective(StackOpDirective):
 
 @dataclass
 class FloatFloorDirective(StackOpDirective):
-    """Floor a float toward -inf (used to lower float `//`)."""
+    """Floor an F64 toward -inf (IEEE 754 roundToIntegralTowardNegative; used to
+    lower float `//`). +-0, +-inf and NaN pass through; the sign of zero is
+    preserved. A NaN result is a quiet NaN with unspecified sign and payload."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
 
 
 @dataclass
 class IntAbsDirective(StackOpDirective):
-    """Absolute value of a signed I64. abs(I64 min) wraps to I64 min, matching
-    libm's llabs and LLVM's llvm.abs (no overflow trap)."""
+    """Absolute value of a signed I64. abs(I64 min) is not representable in
+    I64 and raises ARITHMETIC_OVERFLOW."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.IABS
 
 
 @dataclass
 class FloatAbsDirective(StackOpDirective):
-    """Absolute value of an F64 (matching llvm.fabs)."""
+    """Absolute value of an F64: clears the sign bit, changes nothing else
+    (IEEE 754 abs, matching llvm.fabs). NaN payload and signaling bit are
+    preserved; never raises an error or floating-point exception."""
 
     opcode: ClassVar[DirectiveId] = DirectiveId.FABS
 

@@ -182,6 +182,11 @@ class EmitLlvmExpr(Emitter):
 
         assert op in COMPARISON_OPS, op
         if is_float:
+            # IEEE `!=` is the negation of `==` and is therefore true when
+            # either operand is NaN (une, wasm's f64.ne, Python's !=). Every
+            # other comparison is ordered: false on NaN, matching the VM.
+            if op == "!=":
+                return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
         # Enums and bools lower to integers too, so any integer-typed value
         # (not just numeric types) compares with icmp; aggregates don't.
