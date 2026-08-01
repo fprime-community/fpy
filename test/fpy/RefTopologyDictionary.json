@@ -1,119 +1,27 @@
 {
   "metadata" : {
     "deploymentName" : "Ref.Ref",
-    "projectVersion" : "860cb72",
-    "frameworkVersion" : "v4.2.0-131-g5fa74db1c",
+    "projectVersion" : "b22321f",
+    "frameworkVersion" : "v4.2.0-299-g48dba77e31",
     "libraryVersions" : [
     ],
     "dictionarySpecVersion" : "1.0.0"
   },
   "typeDefinitions" : [
     {
-      "kind" : "array",
-      "qualifiedName" : "Svc.BuffQueueDepth",
-      "size" : 1,
-      "elementType" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "default" : [
-        0
-      ],
-      "annotation" : "Array of queue depths for Fw::Buffer types"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.PrmDb.Merge",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "MERGE",
-          "value" : 0
-        },
-        {
-          "name" : "RESET",
-          "value" : 1
-        }
-      ],
-      "default" : "Svc.PrmDb.Merge.MERGE"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.SerialPortIndex",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "EXAMPLE_PORT_0",
-          "value" : 0
-        },
-        {
-          "name" : "EXAMPLE_PORT_1",
-          "value" : 1
-        },
-        {
-          "name" : "EXAMPLE_PORT_2",
-          "value" : 2
-        },
-        {
-          "name" : "EXAMPLE_PORT_3",
-          "value" : 3
-        },
-        {
-          "name" : "EXAMPLE_PORT_4",
-          "value" : 4
-        },
-        {
-          "name" : "MAX_SERIAL_PORTS",
-          "value" : 5
-        }
-      ],
-      "default" : "Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0"
-    },
-    {
       "kind" : "alias",
-      "qualifiedName" : "FwTlmPacketizeIdType",
+      "qualifiedName" : "FwIndexType",
       "type" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
+        "name" : "PlatformIndexType",
+        "kind" : "qualifiedIdentifier"
       },
       "underlyingType" : {
-        "name" : "U16",
+        "name" : "I16",
         "kind" : "integer",
         "size" : 16,
-        "signed" : false
+        "signed" : true
       },
-      "annotation" : "The type of a telemetry packet identifier"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "FwPacketDescriptorType",
-      "type" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "annotation" : "The width of packet descriptors when they are serialized by the framework"
+      "annotation" : "The type of smaller indices internal to the software, used\nfor array indices, e.g., port indices. Must be signed."
     },
     {
       "kind" : "alias",
@@ -143,6 +51,48 @@
         "signed" : false
       },
       "annotation" : "The type of a parameter identifier"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.BufferAccumulator.BlockMode",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "NOBLOCK",
+          "value" : 0
+        },
+        {
+          "name" : "BLOCK",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.BufferAccumulator.BlockMode.NOBLOCK"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.BufferAccumulator.OpState",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "ACCUMULATE",
+          "value" : 0
+        },
+        {
+          "name" : "DRAIN",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.BufferAccumulator.OpState.ACCUMULATE"
     },
     {
       "kind" : "enum",
@@ -226,6 +176,176 @@
         0
       ],
       "annotation" : "Array of queue depths for Fw::Com types"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.DpDemo.StructWithEverything",
+      "members" : {
+        "booleanArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.BooleanArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 10
+        },
+        "booleanMember" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 3
+        },
+        "enumArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.EnumArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 8
+        },
+        "nestedArrays" : {
+          "type" : {
+            "name" : "Ref.DpDemo.ArrayOfStringArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 12
+        },
+        "integerMember" : {
+          "type" : {
+            "name" : "Ref.DpDemo.I32Alias",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        },
+        "stringMember" : {
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 80
+          },
+          "index" : 2
+        },
+        "F32Array" : {
+          "type" : {
+            "name" : "Ref.DpDemo.F32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 6
+        },
+        "enumMember" : {
+          "type" : {
+            "name" : "Ref.DpDemo.ColorEnum",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 4
+        },
+        "U32Array" : {
+          "type" : {
+            "name" : "Ref.DpDemo.U32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 7
+        },
+        "stringArray" : {
+          "type" : {
+            "name" : "Ref.DpDemo.StringArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 9
+        },
+        "structWithStrings" : {
+          "type" : {
+            "name" : "Ref.DpDemo.StructWithStringMembers",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 11
+        },
+        "arrayMemberU32" : {
+          "type" : {
+            "name" : "Ref.DpDemo.U32Array",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 5,
+          "size" : 2
+        },
+        "floatMember" : {
+          "type" : {
+            "name" : "F32",
+            "kind" : "float",
+            "size" : 32
+          },
+          "index" : 1
+        }
+      },
+      "default" : {
+        "booleanArray" : [
+          false,
+          false
+        ],
+        "booleanMember" : false,
+        "enumArray" : [
+          "Ref.DpDemo.ColorEnum.RED",
+          "Ref.DpDemo.ColorEnum.RED",
+          "Ref.DpDemo.ColorEnum.RED"
+        ],
+        "nestedArrays" : [
+          [
+            "",
+            ""
+          ],
+          [
+            "",
+            ""
+          ],
+          [
+            "",
+            ""
+          ]
+        ],
+        "integerMember" : 0,
+        "stringMember" : "",
+        "F32Array" : [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "enumMember" : "Ref.DpDemo.ColorEnum.RED",
+        "U32Array" : [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "stringArray" : [
+          "",
+          ""
+        ],
+        "structWithStrings" : {
+          "stringMember" : "",
+          "stringArrayMember" : [
+            "",
+            ""
+          ]
+        },
+        "arrayMemberU32" : [
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "floatMember" : 0.0
+      }
     },
     {
       "kind" : "struct",
@@ -344,6 +464,167 @@
       ],
       "default" : "Svc.Ccsds.Tfvn.INVALID_UNINITIALIZED",
       "annotation" : "Transfer Frame Version Numbers are 4 bits long\nCCSDS References add 1 to the binary value when counting versions in english (e.g. TM & TC are \"version 1\" but 0b00)\nUntil the release of USLP, TFVN were 2 bits long\nWith the addition of USLP two bits were added to the trailing end that serve as the 2 most significant bits\n(i.e. on the wire USLP sends 0b1100)\nSee section 3.2.2.2 of USLP Overview (CCSDS 700.1-G-1),\nsection 4.1.2.2.2 of AOS (CCSDS 732.0-B-5),\nsection 4.3.2 of Space Data Link Protocol Summary (CCSDS 130.2-G-3),\n& table 3-1 in Overview of Space Comms Protocols (CCSDS 130.0-G-4)"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Svc.CompressionMetadata",
+      "members" : {
+        "algorithm" : {
+          "type" : {
+            "name" : "Svc.CompressionAlgorithm",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        }
+      },
+      "default" : {
+        "algorithm" : "Svc.CompressionAlgorithm.UNCOMPRESSED"
+      }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Fpy.DirectiveErrorCode",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "NO_ERROR",
+          "value" : 0
+        },
+        {
+          "name" : "STMT_OUT_OF_BOUNDS",
+          "value" : 1
+        },
+        {
+          "name" : "TLM_GET_NOT_CONNECTED",
+          "value" : 2
+        },
+        {
+          "name" : "TLM_CHAN_NOT_FOUND",
+          "value" : 3
+        },
+        {
+          "name" : "PRM_GET_NOT_CONNECTED",
+          "value" : 4
+        },
+        {
+          "name" : "PRM_NOT_FOUND",
+          "value" : 5
+        },
+        {
+          "name" : "CMD_SERIALIZE_FAILURE",
+          "value" : 6
+        },
+        {
+          "name" : "EXIT_WITH_ERROR",
+          "value" : 7
+        },
+        {
+          "name" : "STACK_ACCESS_OUT_OF_BOUNDS",
+          "value" : 8
+        },
+        {
+          "name" : "STACK_OVERFLOW",
+          "value" : 9
+        },
+        {
+          "name" : "DOMAIN_ERROR",
+          "value" : 10
+        },
+        {
+          "name" : "ARRAY_OUT_OF_BOUNDS",
+          "value" : 11
+        },
+        {
+          "name" : "ARITHMETIC_OVERFLOW",
+          "value" : 12
+        },
+        {
+          "name" : "ARITHMETIC_UNDERFLOW",
+          "value" : 13
+        },
+        {
+          "name" : "FRAME_START_OUT_OF_BOUNDS",
+          "value" : 14
+        },
+        {
+          "name" : "STACK_UNDERFLOW",
+          "value" : 15
+        },
+        {
+          "name" : "INVALID_ARG",
+          "value" : 16
+        },
+        {
+          "name" : "CMD_FAIL",
+          "value" : 17
+        },
+        {
+          "name" : "SERIAL_PORT_NOT_CONNECTED",
+          "value" : 18
+        },
+        {
+          "name" : "SERIAL_PORT_INVALID_INDEX",
+          "value" : 19
+        }
+      ],
+      "default" : "Svc.Fpy.DirectiveErrorCode.NO_ERROR"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Svc.BuffQueueDepth",
+      "size" : 1,
+      "elementType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "default" : [
+        0
+      ],
+      "annotation" : "Array of queue depths for Fw::Buffer types"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.FpyExampleStruct",
+      "members" : {
+        "flag" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 0
+        },
+        "count" : {
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "index" : 1
+        },
+        "ratio" : {
+          "type" : {
+            "name" : "F32",
+            "kind" : "float",
+            "size" : 32
+          },
+          "index" : 2
+        }
+      },
+      "default" : {
+        "flag" : false,
+        "count" : 0,
+        "ratio" : 0.0
+      },
+      "annotation" : "Example struct for exercising FpySequencer serial port type checks"
     },
     {
       "kind" : "enum",
@@ -551,21 +832,6 @@
       "default" : "Ref.SignalType.TRIANGLE"
     },
     {
-      "kind" : "array",
-      "qualifiedName" : "Ref.DpDemo.StringArray",
-      "size" : 2,
-      "elementType" : {
-        "name" : "string",
-        "kind" : "string",
-        "size" : 256
-      },
-      "default" : [
-        "",
-        ""
-      ],
-      "annotation" : "Array of strings"
-    },
-    {
       "kind" : "alias",
       "qualifiedName" : "FwDpPriorityType",
       "type" : {
@@ -683,6 +949,45 @@
         "signed" : false
       },
       "annotation" : "The unsigned type of larger sizes internal to the software,\ne.g., memory buffer sizes, file sizes. Must be unsigned.\nSupplied by platform, overridable by project."
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Fw.StringFormatStatus",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "SUCCESS",
+          "value" : 0,
+          "annotation" : "Format worked"
+        },
+        {
+          "name" : "OVERFLOWED",
+          "value" : 1,
+          "annotation" : "Format overflowed"
+        },
+        {
+          "name" : "INVALID_FORMAT_STRING",
+          "value" : 2,
+          "annotation" : "Format provided invalid format string"
+        },
+        {
+          "name" : "SIZE_OVERFLOW",
+          "value" : 3,
+          "annotation" : "FwSizeType overflowed the range of size_t"
+        },
+        {
+          "name" : "OTHER_ERROR",
+          "value" : 4,
+          "annotation" : "An error was returned from an underlying call"
+        }
+      ],
+      "default" : "Fw.StringFormatStatus.SUCCESS",
+      "annotation" : "FPP shadow-enum representing Fw::FormatStatus"
     },
     {
       "kind" : "alias",
@@ -833,176 +1138,6 @@
       }
     },
     {
-      "kind" : "struct",
-      "qualifiedName" : "Ref.DpDemo.StructWithEverything",
-      "members" : {
-        "booleanArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.BooleanArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 10
-        },
-        "booleanMember" : {
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "index" : 3
-        },
-        "enumArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.EnumArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 8
-        },
-        "nestedArrays" : {
-          "type" : {
-            "name" : "Ref.DpDemo.ArrayOfStringArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 12
-        },
-        "integerMember" : {
-          "type" : {
-            "name" : "Ref.DpDemo.I32Alias",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 0
-        },
-        "stringMember" : {
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "index" : 2
-        },
-        "F32Array" : {
-          "type" : {
-            "name" : "Ref.DpDemo.F32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 6
-        },
-        "enumMember" : {
-          "type" : {
-            "name" : "Ref.DpDemo.ColorEnum",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 4
-        },
-        "U32Array" : {
-          "type" : {
-            "name" : "Ref.DpDemo.U32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 7
-        },
-        "stringArray" : {
-          "type" : {
-            "name" : "Ref.DpDemo.StringArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 9
-        },
-        "structWithStrings" : {
-          "type" : {
-            "name" : "Ref.DpDemo.StructWithStringMembers",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 11
-        },
-        "arrayMemberU32" : {
-          "type" : {
-            "name" : "Ref.DpDemo.U32Array",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 5,
-          "size" : 2
-        },
-        "floatMember" : {
-          "type" : {
-            "name" : "F32",
-            "kind" : "float",
-            "size" : 32
-          },
-          "index" : 1
-        }
-      },
-      "default" : {
-        "booleanArray" : [
-          false,
-          false
-        ],
-        "booleanMember" : false,
-        "enumArray" : [
-          "Ref.DpDemo.ColorEnum.RED",
-          "Ref.DpDemo.ColorEnum.RED",
-          "Ref.DpDemo.ColorEnum.RED"
-        ],
-        "nestedArrays" : [
-          [
-            "",
-            ""
-          ],
-          [
-            "",
-            ""
-          ],
-          [
-            "",
-            ""
-          ]
-        ],
-        "integerMember" : 0,
-        "stringMember" : "",
-        "F32Array" : [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "enumMember" : "Ref.DpDemo.ColorEnum.RED",
-        "U32Array" : [
-          0,
-          0,
-          0,
-          0,
-          0
-        ],
-        "stringArray" : [
-          "",
-          ""
-        ],
-        "structWithStrings" : {
-          "stringMember" : "",
-          "stringArrayMember" : [
-            "",
-            ""
-          ]
-        },
-        "arrayMemberU32" : [
-          [
-            0,
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0,
-            0
-          ]
-        ],
-        "floatMember" : 0.0
-      }
-    },
-    {
       "kind" : "alias",
       "qualifiedName" : "FwChanIdType",
       "type" : {
@@ -1046,6 +1181,61 @@
       ],
       "default" : "Svc.SendFileStatus.STATUS_OK",
       "annotation" : "Send file status enum"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.PrmDb.Merge",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "MERGE",
+          "value" : 0
+        },
+        {
+          "name" : "RESET",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.PrmDb.Merge.MERGE"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Fw.DpCfg.ProcType",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "PROC_TYPE_NONE",
+          "value" : 0,
+          "annotation" : "No Processing"
+        },
+        {
+          "name" : "PROC_TYPE_ZLIB_DEFLATE",
+          "value" : 1,
+          "annotation" : "Processing type 0"
+        },
+        {
+          "name" : "PROC_TYPE_ONE",
+          "value" : 2,
+          "annotation" : "Processing type 1"
+        },
+        {
+          "name" : "PROC_TYPE_TWO",
+          "value" : 4,
+          "annotation" : "Processing type 2"
+        }
+      ],
+      "default" : "Fw.DpCfg.ProcType.PROC_TYPE_NONE",
+      "annotation" : "A bit mask for selecting the type of processing to perform on\na container before writing it to disk."
     },
     {
       "kind" : "alias",
@@ -1162,6 +1352,35 @@
         "tSub" : 0
       },
       "annotation" : "Data structure representing a data product."
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.DpDemo.StringArray",
+      "size" : 2,
+      "elementType" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 80
+      },
+      "default" : [
+        "",
+        ""
+      ],
+      "annotation" : "Array of strings"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "Ref.DpDemo.StringAlias",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 80
+      },
+      "underlyingType" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 80
+      }
     },
     {
       "kind" : "enum",
@@ -1328,6 +1547,27 @@
         "time" : 0.0,
         "value" : 0.0
       }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.CompressionAlgorithm",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "UNCOMPRESSED",
+          "value" : 0
+        },
+        {
+          "name" : "ZLIB_DEFLATE",
+          "value" : 1
+        }
+      ],
+      "default" : "Svc.CompressionAlgorithm.UNCOMPRESSED"
     },
     {
       "kind" : "enum",
@@ -1500,19 +1740,92 @@
       "annotation" : "The type used to serialize a C++ enumeration constant\nFPP enumerations are serialized according to their representation types"
     },
     {
-      "kind" : "alias",
-      "qualifiedName" : "FwIndexType",
-      "type" : {
-        "name" : "PlatformIndexType",
+      "kind" : "array",
+      "qualifiedName" : "Ref.ManyChoices",
+      "size" : 2,
+      "elementType" : {
+        "name" : "Ref.Choice",
         "kind" : "qualifiedIdentifier"
       },
-      "underlyingType" : {
-        "name" : "I16",
+      "default" : [
+        "Ref.Choice.ONE",
+        "Ref.Choice.ONE"
+      ],
+      "annotation" : "Enumeration array"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.EventManager.Enabled",
+      "representationType" : {
+        "name" : "U8",
         "kind" : "integer",
-        "size" : 16,
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "ENABLED",
+          "value" : 0,
+          "annotation" : "Enabled state"
+        },
+        {
+          "name" : "DISABLED",
+          "value" : 1,
+          "annotation" : "Disabled state"
+        }
+      ],
+      "default" : "Svc.EventManager.Enabled.ENABLED",
+      "annotation" : "Enabled and disabled state"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.FpyExampleArray",
+      "size" : 3,
+      "elementType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "default" : [
+        0,
+        0,
+        0
+      ],
+      "annotation" : "Example array for exercising FpySequencer serial port type checks"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "Ref.DpDemo.I32Alias",
+      "type" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
         "signed" : true
       },
-      "annotation" : "The type of smaller indices internal to the software, used\nfor array indices, e.g., port indices. Must be signed."
+      "underlyingType" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : true
+      }
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "Svc.Fpy.StackSizeType",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
     },
     {
       "kind" : "enum",
@@ -1835,109 +2148,121 @@
         {
           "name" : "PUSH_RAND",
           "value" : 77
+        },
+        {
+          "name" : "POP_SERIALIZABLE",
+          "value" : 78
+        },
+        {
+          "name" : "FFLOOR",
+          "value" : 79
+        },
+        {
+          "name" : "IABS",
+          "value" : 80
+        },
+        {
+          "name" : "FABS",
+          "value" : 81
         }
       ],
       "default" : "Svc.Fpy.DirectiveId.INVALID"
     },
     {
-      "kind" : "array",
-      "qualifiedName" : "Ref.ManyChoices",
-      "size" : 2,
-      "elementType" : {
-        "name" : "Ref.Choice",
-        "kind" : "qualifiedIdentifier"
+      "kind" : "struct",
+      "qualifiedName" : "Ref.FpyExampleMulti",
+      "members" : {
+        "enumVal" : {
+          "type" : {
+            "name" : "Ref.FpyExampleEnum",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        },
+        "boolVal" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 1
+        },
+        "floatVal" : {
+          "type" : {
+            "name" : "F64",
+            "kind" : "float",
+            "size" : 64
+          },
+          "index" : 2
+        }
       },
-      "default" : [
-        "Ref.Choice.ONE",
-        "Ref.Choice.ONE"
-      ],
-      "annotation" : "Enumeration array"
+      "default" : {
+        "enumVal" : "Ref.FpyExampleEnum.OFF",
+        "boolVal" : false,
+        "floatVal" : 0.0
+      },
+      "annotation" : "Serialization twin of the Svc.FpyCheckMulti port args: lets a sequence\nproduce the multi-arg byte layout with a single write_to_port value"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "FwTlmPacketizeIdType",
+      "type" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "annotation" : "The type of a telemetry packet identifier"
     },
     {
       "kind" : "enum",
-      "qualifiedName" : "Svc.EventManager.Enabled",
+      "qualifiedName" : "Svc.Fpy.SerialPortIndex",
       "representationType" : {
-        "name" : "U8",
+        "name" : "I16",
         "kind" : "integer",
-        "size" : 8,
-        "signed" : false
+        "size" : 16,
+        "signed" : true
       },
       "enumeratedConstants" : [
         {
-          "name" : "ENABLED",
+          "name" : "EXAMPLE_PORT_0",
           "value" : 0,
-          "annotation" : "Enabled state"
+          "annotation" : "Example serial port 0 - rename to application-specific name (e.g., TIME_SYNC_PORT)"
         },
         {
-          "name" : "DISABLED",
+          "name" : "EXAMPLE_PORT_1",
           "value" : 1,
-          "annotation" : "Disabled state"
-        }
-      ],
-      "default" : "Svc.EventManager.Enabled.ENABLED",
-      "annotation" : "Enabled and disabled state"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Ref.DpDemo.I32Alias",
-      "type" : {
-        "name" : "I32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : true
-      },
-      "underlyingType" : {
-        "name" : "I32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : true
-      }
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Fw.DpCfg.ProcType",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "PROC_TYPE_ZERO",
-          "value" : 1,
-          "annotation" : "Processing type 0"
+          "annotation" : "Example serial port 1 - rename to application-specific name (e.g., SENSOR_DATA_PORT)"
         },
         {
-          "name" : "PROC_TYPE_ONE",
+          "name" : "EXAMPLE_PORT_2",
           "value" : 2,
-          "annotation" : "Processing type 1"
+          "annotation" : "Example serial port 2 - rename to application-specific name"
         },
         {
-          "name" : "PROC_TYPE_TWO",
+          "name" : "EXAMPLE_PORT_3",
+          "value" : 3,
+          "annotation" : "Example serial port 3 - rename to application-specific name"
+        },
+        {
+          "name" : "EXAMPLE_PORT_4",
           "value" : 4,
-          "annotation" : "Processing type 2"
+          "annotation" : "Example serial port 4 - rename to application-specific name"
+        },
+        {
+          "name" : "MAX_SERIAL_PORTS",
+          "value" : 5,
+          "annotation" : "REQUIRED: Maximum number of serial ports. This sentinel value MUST be named"
         }
       ],
-      "default" : "Fw.DpCfg.ProcType.PROC_TYPE_ZERO",
-      "annotation" : "A bit mask for selecting the type of processing to perform on\na container before writing it to disk."
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Svc.Fpy.StackSizeType",
-      "type" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
+      "default" : "Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0",
+      "annotation" : "Serial port indices for FpySequencer serialOut port array.\nMAX_SERIAL_PORTS must be defined with this exact name for Fpy compiler bounds checking."
     },
     {
       "kind" : "alias",
@@ -2315,6 +2640,34 @@
       "annotation" : "Packet Version Numbers are 3 bits with only 2 currently valid values"
     },
     {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.DpDemo.StructWithStringMembers",
+      "members" : {
+        "stringMember" : {
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 80
+          },
+          "index" : 0
+        },
+        "stringArrayMember" : {
+          "type" : {
+            "name" : "Ref.DpDemo.StringArray",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 1
+        }
+      },
+      "default" : {
+        "stringMember" : "",
+        "stringArrayMember" : [
+          "",
+          ""
+        ]
+      }
+    },
+    {
       "kind" : "array",
       "qualifiedName" : "Ref.DpDemo.F32Array",
       "size" : 3,
@@ -2344,6 +2697,32 @@
         "Ref.DpDemo.ColorEnum.RED"
       ],
       "annotation" : "Array of enumerations"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Ref.FpyExampleEnum",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "OFF",
+          "value" : 0
+        },
+        {
+          "name" : "ON",
+          "value" : 1
+        },
+        {
+          "name" : "STANDBY",
+          "value" : 2
+        }
+      ],
+      "default" : "Ref.FpyExampleEnum.OFF",
+      "annotation" : "Example enum for exercising FpySequencer serial port type checks"
     },
     {
       "kind" : "array",
@@ -2614,91 +2993,6 @@
     },
     {
       "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.DirectiveErrorCode",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "NO_ERROR",
-          "value" : 0
-        },
-        {
-          "name" : "STMT_OUT_OF_BOUNDS",
-          "value" : 1
-        },
-        {
-          "name" : "TLM_GET_NOT_CONNECTED",
-          "value" : 2
-        },
-        {
-          "name" : "TLM_CHAN_NOT_FOUND",
-          "value" : 3
-        },
-        {
-          "name" : "PRM_GET_NOT_CONNECTED",
-          "value" : 4
-        },
-        {
-          "name" : "PRM_NOT_FOUND",
-          "value" : 5
-        },
-        {
-          "name" : "CMD_SERIALIZE_FAILURE",
-          "value" : 6
-        },
-        {
-          "name" : "EXIT_WITH_ERROR",
-          "value" : 7
-        },
-        {
-          "name" : "STACK_ACCESS_OUT_OF_BOUNDS",
-          "value" : 8
-        },
-        {
-          "name" : "STACK_OVERFLOW",
-          "value" : 9
-        },
-        {
-          "name" : "DOMAIN_ERROR",
-          "value" : 10
-        },
-        {
-          "name" : "ARRAY_OUT_OF_BOUNDS",
-          "value" : 11
-        },
-        {
-          "name" : "ARITHMETIC_OVERFLOW",
-          "value" : 12
-        },
-        {
-          "name" : "ARITHMETIC_UNDERFLOW",
-          "value" : 13
-        },
-        {
-          "name" : "FRAME_START_OUT_OF_BOUNDS",
-          "value" : 14
-        },
-        {
-          "name" : "STACK_UNDERFLOW",
-          "value" : 15
-        },
-        {
-          "name" : "INVALID_ARG",
-          "value" : 16
-        },
-        {
-          "name" : "CMD_FAIL",
-          "value" : 17
-        }
-      ],
-      "default" : "Svc.Fpy.DirectiveErrorCode.NO_ERROR"
-    },
-    {
-      "kind" : "enum",
       "qualifiedName" : "Svc.PrmDb.PrmDbFileLoadState",
       "representationType" : {
         "name" : "U8",
@@ -2771,6 +3065,62 @@
       ],
       "default" : "Svc.VersionStatus.OK",
       "annotation" : "An enumeration for version status"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "FwPacketDescriptorType",
+      "type" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "annotation" : "The width of packet descriptors when they are serialized by the framework"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Os.RawTimeStatus",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "OP_OK",
+          "value" : 0,
+          "annotation" : "Operation was successful"
+        },
+        {
+          "name" : "OP_OVERFLOW",
+          "value" : 1,
+          "annotation" : "Operation result caused an overflow"
+        },
+        {
+          "name" : "INVALID_PARAMS",
+          "value" : 2,
+          "annotation" : "Parameters invalid for current platform"
+        },
+        {
+          "name" : "NOT_SUPPORTED",
+          "value" : 3,
+          "annotation" : "RawTime feature is not supported"
+        },
+        {
+          "name" : "OTHER_ERROR",
+          "value" : 4,
+          "annotation" : "All other errors"
+        }
+      ],
+      "default" : "Os.RawTimeStatus.OP_OK",
+      "annotation" : "FPP shadow-enum representing Os::RawTime::Status"
     },
     {
       "kind" : "enum",
@@ -2929,20 +3279,6 @@
       ],
       "default" : "Fw.LogSeverity.FATAL",
       "annotation" : "Enum representing event severity"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Ref.DpDemo.StringAlias",
-      "type" : {
-        "name" : "string",
-        "kind" : "string",
-        "size" : 256
-      },
-      "underlyingType" : {
-        "name" : "string",
-        "kind" : "string",
-        "size" : 256
-      }
     },
     {
       "kind" : "enum",
@@ -3244,34 +3580,6 @@
       }
     },
     {
-      "kind" : "struct",
-      "qualifiedName" : "Ref.DpDemo.StructWithStringMembers",
-      "members" : {
-        "stringMember" : {
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 256
-          },
-          "index" : 0
-        },
-        "stringArrayMember" : {
-          "type" : {
-            "name" : "Ref.DpDemo.StringArray",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 1
-        }
-      },
-      "default" : {
-        "stringMember" : "",
-        "stringArrayMember" : [
-          "",
-          ""
-        ]
-      }
-    },
-    {
       "kind" : "enum",
       "qualifiedName" : "Fw.ParamValid",
       "representationType" : {
@@ -3531,6 +3839,17 @@
     },
     {
       "kind" : "constant",
+      "qualifiedName" : "Ref.DpDemo.stringSize",
+      "type" : {
+        "name" : "U64",
+        "kind" : "integer",
+        "size" : 64,
+        "signed" : false
+      },
+      "value" : 80
+    },
+    {
+      "kind" : "constant",
       "qualifiedName" : "AssertFatalAdapterEventFileSize",
       "type" : {
         "name" : "U64",
@@ -3663,6 +3982,14 @@
             "kind" : "integer",
             "size" : 32,
             "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "proc",
+          "type" : {
+            "name" : "Fw.DpCfg.ProcType",
+            "kind" : "qualifiedIdentifier"
           },
           "ref" : false
         }
@@ -4075,6 +4402,50 @@
       "annotation" : "Clear event throttling"
     },
     {
+      "name" : "DataProducts.dpBufferAccumulator.BA_SetMode",
+      "commandKind" : "async",
+      "opcode" : 67125248,
+      "formalParams" : [
+        {
+          "name" : "mode",
+          "type" : {
+            "name" : "Svc.BufferAccumulator.OpState",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Set the mode"
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_DrainBuffers",
+      "commandKind" : "async",
+      "opcode" : 67125249,
+      "formalParams" : [
+        {
+          "name" : "numToDrain",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "blockMode",
+          "type" : {
+            "name" : "Svc.BufferAccumulator.BlockMode",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Drain the commanded number of buffers"
+    },
+    {
       "name" : "FileHandling.fileDownlink.SendFile",
       "commandKind" : "async",
       "opcode" : 83890176,
@@ -4304,7 +4675,8 @@
           "annotation" : "The file to get the size of"
         }
       ],
-      "queueFullBehavior" : "assert"
+      "queueFullBehavior" : "assert",
+      "annotation" : "Get the size of a file"
     },
     {
       "name" : "FileHandling.fileManager.ListDirectory",
@@ -5435,6 +5807,25 @@
       ],
       "queueFullBehavior" : "assert",
       "annotation" : "Logs via Events the state of each connected command sequencer"
+    },
+    {
+      "name" : "Ref.seqDisp.CANCEL_NAME",
+      "commandKind" : "async",
+      "opcode" : 268468227,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file to cancel"
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Cancels any running sequence matching the given file name"
     },
     {
       "name" : "Ref.cmdSeq2.RUN",
@@ -8339,25 +8730,6 @@
       "annotation" : "Deframing received an unexpected sequence count"
     },
     {
-      "name" : "ComCcsds.apidManager.ApidTableFull",
-      "severity" : "WARNING_HI",
-      "formalParams" : [
-        {
-          "name" : "invalidApidValue",
-          "type" : {
-            "name" : "U16",
-            "kind" : "integer",
-            "size" : 16,
-            "signed" : false
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 33591297,
-      "format" : "APID Table is full, cannot generate or check sequence counts for APID: {}",
-      "annotation" : "Received an unregistered APID"
-    },
-    {
       "name" : "DataProducts.dpCat.DirectoryOpenError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -9313,6 +9685,38 @@
       "annotation" : "The file contained malformed or invalid data during deserialization"
     },
     {
+      "name" : "DataProducts.dpCat.FileNameFormatError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "file",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The file whose name failed to format"
+        },
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Fw.StringFormatStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned from the format operation"
+        }
+      ],
+      "id" : 67108913,
+      "format" : "Failed to format DP file name for {} with status {}",
+      "annotation" : "Error formatting a DP file name",
+      "throttle" : {
+        "count" : 10,
+        "every" : null
+      }
+    },
+    {
       "name" : "DataProducts.dpMgr.BufferAllocationFailed",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -9491,6 +9895,28 @@
       }
     },
     {
+      "name" : "DataProducts.dpWriter.FileNameFormatError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Fw.StringFormatStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned from the format operation"
+        }
+      ],
+      "id" : 67117061,
+      "format" : "Error {} formatting DP file name",
+      "annotation" : "An error occurred when formatting a file name",
+      "throttle" : {
+        "count" : 10,
+        "every" : null
+      }
+    },
+    {
       "name" : "DataProducts.dpWriter.FileOpenError",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -9516,7 +9942,7 @@
           "annotation" : "The file"
         }
       ],
-      "id" : 67117061,
+      "id" : 67117062,
       "format" : "Error {} opening file {}",
       "annotation" : "An error occurred when opening a file",
       "throttle" : {
@@ -9572,7 +9998,7 @@
           "annotation" : "The file"
         }
       ],
-      "id" : 67117062,
+      "id" : 67117063,
       "format" : "Error {} while writing {} of {} bytes to {}",
       "annotation" : "An error occurred when writing to a file",
       "throttle" : {
@@ -9606,7 +10032,7 @@
           "annotation" : "The file name"
         }
       ],
-      "id" : 67117063,
+      "id" : 67117064,
       "format" : "Wrote {} bytes to file {}",
       "annotation" : "File written"
     },
@@ -9644,6 +10070,139 @@
         "count" : 10,
         "every" : null
       }
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_BufferAccepted",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+      ],
+      "id" : 67125248,
+      "format" : "Buffer accepted",
+      "annotation" : "The Buffer Accumulator instance accepted and enqueued a buffer. To avoid uncontrolled sending of events, this event occurs only when the previous buffer received caused a QueueFull error."
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_QueueFull",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 67125249,
+      "format" : "Queue full",
+      "annotation" : "The Buffer Accumulator instance received a buffer when its queue was full. To avoid uncontrolled sending of events, this event occurs only when the previous buffer received did not cause a QueueFull error."
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_StillDraining",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "numDrained",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "numToDrain",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 67125250,
+      "format" : "Still draining {} of {}",
+      "annotation" : "Got DrainBuffers command while executing DrainBuffers command"
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_AlreadyDraining",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+      ],
+      "id" : 67125251,
+      "format" : "Already in DRAIN mode",
+      "annotation" : "Got DrainBuffers command while in DRAIN mode"
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_DrainStalled",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "numDrained",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "numToDrain",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 67125252,
+      "format" : "Drain stalling - only drained {} of {}",
+      "annotation" : "Ran out of buffers while executing DrainBuffers command"
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_PartialDrainDone",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "numDrained",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 67125253,
+      "format" : "Partial drain of {} finished",
+      "annotation" : "Finished DrainBuffers command"
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_NonBlockDrain",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "numWillDrain",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "numReqDrain",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 67125254,
+      "format" : "Only have {}; requested drain of {}",
+      "annotation" : "Not enough buffers to complete requested drain, and NOBLOCK was set; will only drain what we have"
     },
     {
       "name" : "FileHandling.fileUplink.BadChecksum",
@@ -10246,6 +10805,25 @@
       "id" : 83890193,
       "format" : "Commanded destination filename too long",
       "annotation" : "Supplied filename has overflowed"
+    },
+    {
+      "name" : "FileHandling.fileDownlink.SourceOutOfSandbox",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 100
+          },
+          "ref" : false,
+          "annotation" : "The rejected source file path"
+        }
+      ],
+      "id" : 83890194,
+      "format" : "Source file {} is outside the configured read sandbox",
+      "annotation" : "Source file path is outside the configured read sandbox"
     },
     {
       "name" : "FileHandling.fileManager.DirectoryCreateError",
@@ -10950,6 +11528,34 @@
       "annotation" : "CRC succeeded"
     },
     {
+      "name" : "FileHandling.fileManager.FileNameFormatError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The file whose full path failed to format"
+        },
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Fw.StringFormatStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned from the format operation"
+        }
+      ],
+      "id" : 83894301,
+      "format" : "Failed to format full path for file {} with status {}",
+      "annotation" : "Error formatting a file path"
+    },
+    {
       "name" : "FileHandling.prmDb.PrmIdNotFound",
       "severity" : "WARNING_LO",
       "formalParams" : [
@@ -11312,6 +11918,28 @@
       "annotation" : "Warning event that rate group has had a cycle slip"
     },
     {
+      "name" : "Ref.rateGroup1Comp.RateGroupTimeGetError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Os.RawTimeStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned by the time read"
+        }
+      ],
+      "id" : 268439554,
+      "format" : "Rate group failed to read cycle end time with status {}",
+      "annotation" : "Warning event that reading the cycle end time failed",
+      "throttle" : {
+        "count" : 5,
+        "every" : null
+      }
+    },
+    {
       "name" : "Ref.rateGroup2Comp.RateGroupStarted",
       "severity" : "DIAGNOSTIC",
       "formalParams" : [
@@ -11341,6 +11969,28 @@
       "annotation" : "Warning event that rate group has had a cycle slip"
     },
     {
+      "name" : "Ref.rateGroup2Comp.RateGroupTimeGetError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Os.RawTimeStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned by the time read"
+        }
+      ],
+      "id" : 268443650,
+      "format" : "Rate group failed to read cycle end time with status {}",
+      "annotation" : "Warning event that reading the cycle end time failed",
+      "throttle" : {
+        "count" : 5,
+        "every" : null
+      }
+    },
+    {
       "name" : "Ref.rateGroup3Comp.RateGroupStarted",
       "severity" : "DIAGNOSTIC",
       "formalParams" : [
@@ -11368,6 +12018,28 @@
       "id" : 268447745,
       "format" : "Rate group cycle slipped on cycle {}",
       "annotation" : "Warning event that rate group has had a cycle slip"
+    },
+    {
+      "name" : "Ref.rateGroup3Comp.RateGroupTimeGetError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Os.RawTimeStatus",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The status returned by the time read"
+        }
+      ],
+      "id" : 268447746,
+      "format" : "Rate group failed to read cycle end time with status {}",
+      "annotation" : "Warning event that reading the cycle end time failed",
+      "throttle" : {
+        "count" : 5,
+        "every" : null
+      }
     },
     {
       "name" : "Ref.pingRcvr.PR_PingsDisabled",
@@ -12145,10 +12817,10 @@
         {
           "name" : "errorCode",
           "type" : {
-            "name" : "U8",
+            "name" : "I32",
             "kind" : "integer",
-            "size" : 8,
-            "signed" : false
+            "size" : 32,
+            "signed" : true
           },
           "ref" : false
         }
@@ -13407,10 +14079,10 @@
         {
           "name" : "errorCode",
           "type" : {
-            "name" : "U8",
+            "name" : "I32",
             "kind" : "integer",
-            "size" : 8,
-            "signed" : false
+            "size" : 32,
+            "signed" : true
           },
           "ref" : false
         }
@@ -14336,6 +15008,50 @@
       "format" : "Sequencer {} with state {} is running file {}"
     },
     {
+      "name" : "Ref.seqDisp.SequenceCanceled",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "idx",
+          "type" : {
+            "name" : "U16",
+            "kind" : "integer",
+            "size" : 16,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "filename",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268468230,
+      "format" : "Sequencer {} canceled running sequence {}"
+    },
+    {
+      "name" : "Ref.seqDisp.CancelSequenceNotFound",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "filename",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268468231,
+      "format" : "No running sequence matched file {} to cancel"
+    },
+    {
       "name" : "Ref.cmdSeq2.InvalidCommand",
       "severity" : "WARNING_HI",
       "formalParams" : [
@@ -14811,10 +15527,10 @@
         {
           "name" : "errorCode",
           "type" : {
-            "name" : "U8",
+            "name" : "I32",
             "kind" : "integer",
-            "size" : 8,
-            "signed" : false
+            "size" : 32,
+            "signed" : true
           },
           "ref" : false
         }
@@ -16653,6 +17369,54 @@
       "id" : 268574722,
       "format" : "BuffRecv Parameter {} was updated",
       "annotation" : "Report parameter update"
+    },
+    {
+      "name" : "Ref.fpySerialRcvr.DataReceived",
+      "severity" : "ACTIVITY_LO",
+      "formalParams" : [
+        {
+          "name" : "portNum",
+          "type" : {
+            "name" : "FwIndexType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "The serial port index"
+        },
+        {
+          "name" : "numBytes",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false,
+          "annotation" : "The number of bytes received"
+        }
+      ],
+      "id" : 268591104,
+      "format" : "Received data on serial port {} ({} bytes)",
+      "annotation" : "Data was received on a serial port"
+    },
+    {
+      "name" : "Ref.fpySerialRcvr.CheckPassed",
+      "severity" : "ACTIVITY_LO",
+      "formalParams" : [
+        {
+          "name" : "checkName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 40
+          },
+          "ref" : false,
+          "annotation" : "The name of the check that passed"
+        }
+      ],
+      "id" : 268591105,
+      "format" : "Check passed: {}",
+      "annotation" : "A check port received the expected value(s)"
     }
   ],
   "telemetryChannels" : [
@@ -16691,6 +17455,16 @@
       "id" : 16777218,
       "telemetryUpdate" : "on change",
       "annotation" : "Number of commands drooped due to buffer overflow"
+    },
+    {
+      "name" : "CdhCore.events.EventsDropped",
+      "type" : {
+        "name" : "FwSizeType",
+        "kind" : "qualifiedIdentifier"
+      },
+      "id" : 16781312,
+      "telemetryUpdate" : "on change",
+      "annotation" : "Number of events dropped due to queue full"
     },
     {
       "name" : "CdhCore.health.PingLateWarnings",
@@ -17209,6 +17983,18 @@
           "red" : 1
         }
       }
+    },
+    {
+      "name" : "DataProducts.dpBufferAccumulator.BA_NumQueuedBuffers",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "id" : 67125248,
+      "telemetryUpdate" : "always",
+      "annotation" : "The number of buffers queued"
     },
     {
       "name" : "FileHandling.fileUplink.FilesReceived",
@@ -18153,6 +18939,18 @@
       "id" : 268468226,
       "telemetryUpdate" : "always",
       "annotation" : "Number of sequencers in an available state"
+    },
+    {
+      "name" : "Ref.seqDisp.canceledCount",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "id" : 268468227,
+      "telemetryUpdate" : "always",
+      "annotation" : "Number of sequences canceled by the CANCEL_NAME command"
     },
     {
       "name" : "Ref.cmdSeq2.State",
@@ -19319,7 +20117,7 @@
       "type" : {
         "name" : "string",
         "kind" : "string",
-        "size" : 256
+        "size" : 80
       },
       "array" : true,
       "id" : 2586,
