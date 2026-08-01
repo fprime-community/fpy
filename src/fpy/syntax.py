@@ -244,13 +244,25 @@ class AstAnonArray(Ast):
 AstOp = Union[AstBinaryOp, AstUnaryOp]
 
 AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
-AstExpr = Union[AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray]
+AstExpr = Union[
+    AstFuncCall, AstLiteral, AstReference, AstOp, AstRange, AstAnonStruct, AstAnonArray
+]
 
 
 @dataclass
 class AstAssign(Ast):
     lhs: AstExpr
     type_ann: AstExpr | None
+    rhs: AstExpr
+
+
+@dataclass
+class AstAugAssign(Ast):
+    """An augmented assignment (lhs op= rhs). Desugared into
+    AstAssign(lhs, None, AstBinaryOp(lhs, op, rhs)) before semantic analysis."""
+
+    lhs: AstExpr
+    op: str
     rhs: AstExpr
 
 
@@ -284,11 +296,12 @@ class AstWhile(Ast):
 @dataclass
 class AstCheck(Ast):
     condition: AstExpr
-    timeout: Union[AstExpr, None]  # Default: no timeout
+    timeout: Union[AstExpr, None]  # The timeout interval, or None if `never`/absent
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    period: Union[AstExpr, None]    # Default: 1 second interval
+    period: Union[AstExpr, None]  # Default: 1 second interval
     body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
+    timeout_never: bool = False  # True if the timeout clause is `never`
 
 
 @dataclass
@@ -321,14 +334,39 @@ class AstDef(Ast):
     return_type: Union[AstExpr, None]
     body: AstBlock
 
+
 @dataclass
 class AstSequenceMetadata(Ast):
     parameters: Union[list[tuple[AstIdent, AstExpr]], None]
 
 
+@dataclass
+class AstImport(Ast):
+    """An import statement. Only valid as a top-level statement.
+
+    `import [dots] a.b.c [as alias]` and
+    `from [dots] a.b.c import (* | m1 [as x], ...)`.
+    """
+
+    is_from: bool
+    """True for a `from` import, False for a plain `import`."""
+    num_dots: int
+    """Number of leading dots. 0 means absolute; >0 means relative."""
+    path: list[str]
+    """The dotted path segments after any leading dots (at least one)."""
+    alias: Union[str, None]
+    """The `as` alias for a plain `import ... as alias`, else None."""
+    members: Union[list[tuple[str, Union[str, None]]], None]
+    """For a `from` import: list of (member_name, alias_or_None). None for a
+    plain import. Empty/None when `is_star` is True."""
+    is_star: bool
+    """True for `from ... import *`."""
+
+
 AstStmt = Union[
     AstExpr,
     AstAssign,
+    AstAugAssign,
     AstPass,
     AstIf,
     AstElif,
@@ -340,14 +378,25 @@ AstStmt = Union[
     AstAssert,
     AstDef,
     AstSequenceMetadata,
-    AstReturn
+    AstReturn,
 ]
 AstStmtWithExpr = Union[
-    AstExpr, AstAssign, AstIf, AstElif, AstFor, AstWhile, AstCheck, AstAssert, AstDef, AstReturn
+    AstExpr,
+    AstAssign,
+    AstAugAssign,
+    AstIf,
+    AstElif,
+    AstFor,
+    AstWhile,
+    AstCheck,
+    AstAssert,
+    AstDef,
+    AstReturn,
 ]
 AstNodeWithSideEffects = Union[
     AstFuncCall,
     AstAssign,
+    AstAugAssign,
     AstIf,
     AstElif,
     AstFor,
@@ -357,7 +406,7 @@ AstNodeWithSideEffects = Union[
     AstBreak,
     AstContinue,
     AstDef,
-    AstReturn
+    AstReturn,
 ]
 
 
@@ -410,21 +459,33 @@ def handle_str(meta, s: str):
 # which optional clauses were provided, regardless of how many are present.
 def handle_check_clause(tag):
     """Create a handler that tags an expression with the given clause name."""
+
     @v_args(meta=True, inline=True)
     def wrapper(self, meta, expr):
         return (tag, expr)
+
+    return wrapper
+
+
+def handle_check_never_clause():
+    """Create a handler for the `timeout never` clause, which has no expression."""
+
+    @v_args(meta=True, inline=True)
+    def wrapper(self, meta):
+        return ("timeout_never", None)
+
     return wrapper
 
 
 def handle_check_clauses(meta, children):
     """Parse multi-line check clauses and body statements.
-    
+
     Returns a tuple of (clause_list, body_stmts) where clause_list is a list of
     (clause_type, expr) tuples and body_stmts is an AstBlock or None (body-less).
     """
     clauses = []
     stmts = []
-    
+
     for child in children:
         if isinstance(child, tuple) and len(child) == 2:
             # This is a clause: (clause_type, expr)
@@ -432,7 +493,7 @@ def handle_check_clauses(meta, children):
         else:
             # This is a statement AST node
             stmts.append(child)
-    
+
     # Return as a special tuple that handle_check_stmt can recognize
     body = AstBlock(meta, stmts) if stmts else None
     return ("check_clauses_result", clauses, body)
@@ -441,33 +502,50 @@ def handle_check_clauses(meta, children):
 def handle_check_stmt(meta, children):
     """Parse check statement with optional timeout/persist/period clauses."""
     from fpy.error import SyntaxErrorDuringTransform
-    
+
     condition = children[0]
     timeout = None
+    timeout_never = False
     persist = None
     period = None
     body = None
     timeout_body = None
     body_set = False  # distinguish "body not yet assigned" from "body intentionally None (body-less)"
-    
+
     def set_clause(clause_type, expr):
-        nonlocal timeout, persist, period
+        nonlocal timeout, timeout_never, persist, period
         if clause_type == "timeout":
-            if timeout is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'timeout' clause in check statement", expr)
+            if timeout is not None or timeout_never:
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'timeout' clause in check statement", expr
+                )
             timeout = expr
+        elif clause_type == "timeout_never":
+            if timeout is not None or timeout_never:
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'timeout' clause in check statement", condition
+                )
+            timeout_never = True
         elif clause_type == "persist":
             if persist is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'persist' clause in check statement", expr)
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'persist' clause in check statement", expr
+                )
             persist = expr
         elif clause_type == "period":
             if period is not None:
-                raise SyntaxErrorDuringTransform(f"Duplicate 'period' clause in check statement", expr)
+                raise SyntaxErrorDuringTransform(
+                    f"Duplicate 'period' clause in check statement", expr
+                )
             period = expr
-    
+
     for child in children[1:]:
         # Handle check_clauses which returns ("check_clauses_result", clauses, body)
-        if isinstance(child, tuple) and len(child) == 3 and child[0] == "check_clauses_result":
+        if (
+            isinstance(child, tuple)
+            and len(child) == 3
+            and child[0] == "check_clauses_result"
+        ):
             _, clauses, stmts = child
             for clause_type, expr in clauses:
                 set_clause(clause_type, expr)
@@ -482,8 +560,24 @@ def handle_check_stmt(meta, children):
                 body_set = True
             else:
                 timeout_body = child
-    
-    return AstCheck(meta, condition, timeout, persist, period, body, timeout_body)
+
+    if timeout is None and not timeout_never:
+        raise SyntaxErrorDuringTransform(
+            "check statement requires a 'timeout' clause "
+            "(use 'timeout never' to never time out)",
+            condition,
+        )
+
+    return AstCheck(
+        meta,
+        condition,
+        timeout,
+        persist,
+        period,
+        body,
+        timeout_body,
+        timeout_never=timeout_never,
+    )
 
 
 def handle_parameter(meta, args):
@@ -493,11 +587,73 @@ def handle_parameter(meta, args):
     default_value = args[2] if len(args) == 3 else None
     return (name, type_expr, default_value)
 
+
 def handle_sequence_argument(meta, args):
     """Parse a sequence argument: (name, type)"""
     assert len(args) == 2, f"Expected 2 args, got {len(args)}: {args}"
     name, type_expr = args[0], args[1]
     return (name, type_expr)
+
+
+# Sentinel marking a `from ... import *` target.
+_IMPORT_STAR = object()
+
+
+def handle_import_dots(meta, children):
+    """Count the leading dots of a relative import (the DOTS token)."""
+    return len(children[0])
+
+
+def handle_dotted_name(meta, children):
+    """Collect a dotted path's segment names (the `name` children are AstIdent)."""
+    return [str(c.name) for c in children]
+
+
+def handle_import_member(meta, children):
+    """Parse a `from` import member: (name, alias_or_None)."""
+    name = children[0]
+    alias = children[1] if len(children) > 1 else None
+    return (str(name.name), str(alias.name) if alias is not None else None)
+
+
+def handle_import_stmt(meta, children):
+    """Build an AstImport for `import [dots] a.b.c [as alias]`."""
+    dots, path, alias = children
+    num_dots = dots if dots is not None else 0
+    return AstImport(
+        meta,
+        is_from=False,
+        num_dots=num_dots,
+        path=path,
+        alias=(str(alias.name) if alias is not None else None),
+        members=None,
+        is_star=False,
+    )
+
+
+def handle_import_from_stmt(meta, children):
+    """Build an AstImport for `from [dots] a.b.c import (* | members)`."""
+    dots, path, targets = children
+    num_dots = dots if dots is not None else 0
+    if targets is _IMPORT_STAR:
+        return AstImport(
+            meta,
+            is_from=True,
+            num_dots=num_dots,
+            path=path,
+            alias=None,
+            members=None,
+            is_star=True,
+        )
+    return AstImport(
+        meta,
+        is_from=True,
+        num_dots=num_dots,
+        path=path,
+        alias=None,
+        members=targets,
+        is_star=False,
+    )
 
 
 @v_args(meta=True, inline=True)
@@ -506,6 +662,7 @@ class FpyTransformer(Transformer):
     pass_stmt = AstPass
 
     assign_stmt = AstAssign
+    aug_assign_stmt = AstAugAssign
 
     for_stmt = AstFor
     while_stmt = AstWhile
@@ -518,9 +675,11 @@ class FpyTransformer(Transformer):
     if_stmt = AstIf
 
     check_timeout = handle_check_clause("timeout")
+    check_timeout_never = handle_check_never_clause()
     check_persist = handle_check_clause("persist")
     check_period = handle_check_clause("period")
     check_timeout_final = handle_check_clause("timeout")
+    check_timeout_never_final = handle_check_never_clause()
     check_persist_final = handle_check_clause("persist")
     check_period_final = handle_check_clause("period")
 
@@ -571,11 +730,23 @@ class FpyTransformer(Transformer):
     sequence_stmt_parameters = no_inline_or_meta(list)
     sequence_stmt_parameter = no_inline(handle_sequence_argument)
 
-    NAME = lambda self, token: token[1:] if token.startswith('$') else token
+    import_stmt = no_inline(handle_import_stmt)
+    import_from_stmt = no_inline(handle_import_from_stmt)
+    import_dots = no_inline(handle_import_dots)
+    dotted_name = no_inline(handle_dotted_name)
+    import_member = no_inline(handle_import_member)
+    import_members = no_inline_or_meta(list)
+
+    @v_args(meta=True, inline=True)
+    def import_star(self, meta):
+        return _IMPORT_STAR
+
+    NAME = lambda self, token: token[1:] if token.startswith("$") else token
     DEC_NUMBER = int
     FLOAT_NUMBER = Decimal
     HEX_NUMBER = lambda self, token: int(token, 16)
     COMPARISON_OP = str
+    AUG_ASSIGN_OP = str
     RANGE_OP = str
     STRING = handle_str
     CONST_TRUE = lambda a, b: True

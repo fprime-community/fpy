@@ -10,13 +10,13 @@ Tests for:
 
 import pytest
 
+from fpy.error import WarningType
 from fpy.model import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
 )
-
 
 # ==================== time_cmp Tests ====================
 
@@ -242,7 +242,7 @@ t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 50, 0)
 t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_sub_different_time_base_asserts(self, fprime_test_api):
         """Test that subtracting times with different time bases asserts."""
@@ -251,7 +251,7 @@ t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)
 t2: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 50, 0)  # Different timeBase
 result: Fw.TimeIntervalValue = time_sub(t1, t2)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_sub_large_difference(self, fprime_test_api):
         """Test subtraction with large second values."""
@@ -266,7 +266,7 @@ assert result.useconds == 0
 
     def test_time_sub_u32_overflow_case(self, fprime_test_api):
         """Test time_sub correctly handles values that would overflow U32 when converted to microseconds.
-        
+
         If the seconds * 1_000_000 calculation happened in U32, values above 4294 seconds
         would overflow. This test verifies the calculation happens in U64.
         """
@@ -283,7 +283,7 @@ assert result.useconds == 300000
 
     def test_time_sub_max_u32_seconds(self, fprime_test_api):
         """Test time_sub with max U32 seconds.
-        
+
         The result of time_sub is always <= the larger input, so it can't overflow U32.
         This test verifies the max case works correctly.
         """
@@ -375,7 +375,7 @@ assert result.useconds == 999999
 
     def test_time_add_u32_overflow_case(self, fprime_test_api):
         """Test time_add correctly handles values that would overflow U32 when converted to microseconds.
-        
+
         If the seconds * 1_000_000 calculation happened in U32, values above 4294 seconds
         would overflow. This test verifies the calculation happens in U64.
         """
@@ -392,7 +392,7 @@ assert result.useconds == 300000
 
     def test_time_add_result_overflow_u32_asserts(self, fprime_test_api):
         """Test that time_add asserts when the result seconds would overflow U32.
-        
+
         Adding max U32 seconds to a large interval could produce a result
         that doesn't fit in U32 seconds. This should assert.
         """
@@ -403,7 +403,7 @@ t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 4294967295, 0)
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(1, 0)
 result: Fw.Time = time_add(t, interval)  # Should assert
 """
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, 1)
 
     def test_time_add_with_now(self, fprime_test_api):
         """Test time_add works with now()."""
@@ -581,7 +581,7 @@ result: Fw.Time = time_add(i1, i2)
 
 class TestTimeOperatorOverloading:
     """Tests for operator overloading on Fw.Time and Fw.TimeIntervalValue types.
-    
+
     These tests verify that binary operators are properly desugared to function calls:
     - Time - Time -> time_sub
     - Time + TimeInterval -> time_add
@@ -601,6 +601,27 @@ assert result.seconds == 100
 assert result.useconds == 300000
 """
         assert_run_success(fprime_test_api, seq)
+
+    def test_sequence_function_does_not_hijack_time_desugaring(self, fprime_test_api):
+        """A sequence-local function whose name collides with a time builtin must
+        not be picked up by operator desugaring. The `-` desugaring resolves
+        `time_sub` in the base (library) scope, never the sequence's own scope,
+        so this incompatible `time_sub(U32, U32)` is ignored and `t1 - t2` still
+        calls the real builtin on the Time operands. If the desugaring resolved
+        from the sequence scope instead, the U32 signature would reject them."""
+        seq = """
+def time_sub(a: U32, b: U32) -> U32:
+    return U32(a - b)
+
+t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 200, 500000)
+t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 200000)
+result: Fw.TimeIntervalValue = t1 - t2
+assert result.seconds == 100
+assert result.useconds == 300000
+"""
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )
 
     def test_time_addition_operator(self, fprime_test_api):
         """Test Time + TimeInterval using operator syntax."""
@@ -796,6 +817,7 @@ assert count == 5
 """
         assert_run_success(fprime_test_api, seq)
 
+
 # ==================== Time Builtins Tests ====================
 # Tests for sleep, sleep_until, now(), time constructors, and simulated time.
 # Migrated from test_seqs.py.
@@ -859,6 +881,7 @@ assert Fw.Time(TimeBase.TB_NONE, 0, 1, 0) != Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestWait:
 
     def test_wait_rel(self, fprime_test_api):
@@ -912,7 +935,10 @@ sleep_until(2, 1, 2, 3)
         assert_compile_failure(fprime_test_api, seq)
 
 
-@pytest.mark.skipif("config.getoption('--use-gds')", reason="simulated time is only available in the Python model")
+@pytest.mark.skipif(
+    "config.getoption('--use-gds')",
+    reason="simulated time is only available in the Python model",
+)
 class TestSimulatedTime:
     """Tests for simulated time functionality.
 

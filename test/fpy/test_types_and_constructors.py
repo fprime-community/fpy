@@ -1,11 +1,21 @@
 from fpy.types import U32
 
 from fpy.model import DirectiveErrorCode
+import fpy.test_helpers as test_helpers
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
 )
+
+
+def _oor_float_to_int(saturated, wrapped):
+    """Expected result of an *out-of-range* float->int cast, which differs by
+    backend: the LLVM/wasm backend saturates at the target width (Rust `as`
+    semantics -- clamp to the target type's min/max), while the bytecode VM
+    saturates at 64 bits and then wrap-truncates to the target width. Reads
+    test_helpers.USE_WASM at call time (conftest sets it from the --wasm flag)."""
+    return saturated if test_helpers.USE_WASM else wrapped
 
 
 class TestEnums:
@@ -22,6 +32,7 @@ var: Ref.Choice = Ref.Choice.ONE
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestStructs:
 
@@ -174,6 +185,7 @@ assert info.history[0] == 77.0
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestArrays:
 
     def test_array_ctor_var_arg(self, fprime_test_api):
@@ -257,10 +269,10 @@ exit(1)
 
     def test_const_array_oob(self, fprime_test_api):
         """Out-of-bounds on a const array expression (not a variable).
-    The parent is a type constructor call, so CalculateConstExprValues
-    has a non-None parent_value. Without the bounds guard there,
-    this would crash with a Python IndexError instead of a compile error.
-    """
+        The parent is a type constructor call, so CalculateConstExprValues
+        has a non-None parent_value. Without the bounds guard there,
+        this would crash with a Python IndexError instead of a compile error.
+        """
         seq = """
 val: U32 = Svc.ComQueueDepth(10, 20)[2]
 """
@@ -286,7 +298,7 @@ if val[idx] == 123:
 exit(1)
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_get_variable_array_idx_oob_2(self, fprime_test_api):
         seq = """
@@ -297,8 +309,7 @@ if val[idx] == 123:
 exit(1)
 """
 
-        # TODO this really should also assert the failure code
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_set_variable_array_idx_oob(self, fprime_test_api):
         seq = """
@@ -307,7 +318,7 @@ idx: I8 = 2
 val[idx] = 111
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
     def test_set_variable_array_idx(self, fprime_test_api):
         seq = """
@@ -358,6 +369,7 @@ assert pairs[1].value == 99.0
 assert pairs[1].time == 3.0
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 
@@ -449,7 +461,17 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestTypeErrors:
+
+    def test_enum_constant_as_type(self, fprime_test_api):
+        """An enum constant is a value, not a type. A type annotation resolves in
+        the type name group, where `Fw.TimeComparison` is the enum type (which
+        holds no sub-definitions), so `.GT` never resolves to a type."""
+        seq = """
+x: Fw.TimeComparison.GT = 0
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown type")
 
     def test_u8_too_large(self, fprime_test_api):
         seq = """
@@ -514,6 +536,7 @@ x()
 
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestStringTypes:
 
     def test_string_eq(self, fprime_test_api):
@@ -527,6 +550,7 @@ exit("asdf" == "asdf")
 var: string = "test"
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestConstCasts:
 
@@ -616,6 +640,7 @@ assert F64(U64(4294967295)) == 4294967295.0
 """
 
         assert_run_success(fprime_test_api, seq)
+
 
 class TestRuntimeCasts:
 
@@ -799,6 +824,57 @@ val: U8 = U8(1231231231243) # this is allowed but suspicious
 
         assert_run_success(fprime_test_api, seq)
 
+
+class TestOutOfRangeFloatCasts:
+    """Casting a float that is out of the target integer type's range.
+
+    Both backends saturate the float->int conversion at 64 bits (NaN -> 0,
+    out-of-range clamps to I64/U64 min/max). For narrower targets they then
+    deliberately differ, so each expected value switches on the active
+    backend via _oor_float_to_int:
+      * LLVM/wasm: saturates at the *target* width (Rust `as` semantics).
+      * bytecode VM: saturates at 64 bits, then wrap-truncates the bit
+        pattern to the target width."""
+
+    def test_unsigned_overflow(self, fprime_test_api):
+        # 1e20 is above U64 max: both saturate to U64 max; the VM's truncation
+        # of all-ones to 8 bits coincides with the wasm clamp.
+        expected = _oor_float_to_int(saturated=255, wrapped=255)
+        seq = f"x: F64 = 1e20\nassert U8(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_unsigned_negative(self, fprime_test_api):
+        # -5.0 is negative: the unsigned conversion clamps to 0 on both.
+        expected = _oor_float_to_int(saturated=0, wrapped=0)
+        seq = f"x: F64 = -5.0\nassert U8(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_signed_overflow(self, fprime_test_api):
+        # 1000.0 is above I8 max. wasm -> 127 (clamp); VM -> -24 (1000 & 0xff).
+        expected = _oor_float_to_int(saturated=127, wrapped=-24)
+        seq = f"x: F64 = 1000.0\nassert I8(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_signed_underflow(self, fprime_test_api):
+        # -1000.0 is below I8 min. wasm -> -128 (clamp); VM -> 24 (-1000 & 0xff).
+        expected = _oor_float_to_int(saturated=-128, wrapped=24)
+        seq = f"x: F64 = -1000.0\nassert I8(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_signed_32bit_overflow(self, fprime_test_api):
+        # 1e20 is above I64 max. wasm -> I32 max; VM -> I64 max (0x7FFF...FFFF)
+        # wrap-truncated to 32 bits: 0xFFFFFFFF == -1.
+        expected = _oor_float_to_int(saturated=2147483647, wrapped=-1)
+        seq = f"x: F64 = 1e20\nassert I32(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_signed_32bit_underflow(self, fprime_test_api):
+        # -1e10 is below I32 min. wasm -> I32 min; VM -> -1e10 mod 2^32 (signed).
+        expected = _oor_float_to_int(saturated=-2147483648, wrapped=-1410065408)
+        seq = f"x: F64 = -1e10\nassert I32(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+
 class TestNamedArgsInCtors:
 
     def test_named_arg_type_ctor(self, fprime_test_api):
@@ -872,6 +948,7 @@ assert test(c=x, a=y, b=z) == 5.5
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestNonConstSized:
 
     def test_non_const_sized_var_decl(self, fprime_test_api):
@@ -903,6 +980,7 @@ def foo() -> Ref.DpDemo.StringArray:
 Ref.DpDemo.StringArray("a", "b")
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestConstructorDefaults:
 
@@ -961,8 +1039,7 @@ assert stat.BuffErr == 0
         assert_run_success(fprime_test_api, seq)
 
     def test_array_elem_non_first_struct_member(self, fprime_test_api):
-        """Accessing a non-first struct member on an array element must not crash.
-    """
+        """Accessing a non-first struct member on an array element must not crash."""
         seq = """
 val: Ref.SignalPairSet = Ref.SignalPairSet( \
     Ref.SignalPair(1.0, 2.0), \

@@ -18,11 +18,13 @@ from fpy.bytecode.directives import (
     CallDirective,
     DiscardDirective,
     ExitDirective,
+    FloatAbsDirective,
     FloatAddDirective,
     FloatDivideDirective,
     FloatEqualDirective,
     FloatExponentDirective,
     FloatExtendDirective,
+    FloatFloorDirective,
     FloatGreaterThanDirective,
     FloatGreaterThanOrEqualDirective,
     FloatLessThanDirective,
@@ -38,6 +40,7 @@ from fpy.bytecode.directives import (
     GetFieldDirective,
     GotoDirective,
     IfDirective,
+    IntAbsDirective,
     IntAddDirective,
     IntEqualDirective,
     IntMultiplyDirective,
@@ -111,8 +114,9 @@ class TestStackAllocation:
     def test_allocate_stack_overflow(self):
         """Test that allocating more than max stack size returns STACK_OVERFLOW."""
         model = FpySequencerModel(stack_size=100)
-        result = model.run([AllocateDirective(200)])
-        assert result == DirectiveErrorCode.STACK_OVERFLOW
+        error_code, trap = model.run([AllocateDirective(200)])
+        assert trap == DirectiveErrorCode.STACK_OVERFLOW
+        assert error_code == 0
 
     def test_discard_out_of_bounds(self):
         """Test discarding more bytes than on stack."""
@@ -201,6 +205,7 @@ class TestStoreDirectives:
         result = model.dispatch(StoreAbsConstOffsetDirective(0, 8))
         assert result == DirectiveErrorCode.STACK_UNDERFLOW
 
+
 class TestPushDirectives:
     """Tests for push directive error conditions."""
 
@@ -270,6 +275,7 @@ class TestPushDirectives:
         model.stack = bytearray(3)
         result = model.dispatch(SetSeedDirective())
         assert result == DirectiveErrorCode.STACK_ACCESS_OUT_OF_BOUNDS
+
 
 class TestWaitDirectives:
     """Tests for wait directive error conditions."""
@@ -614,16 +620,6 @@ class TestArithmeticDirectives:
         result = model.dispatch(SignedIntDivideDirective())
         assert result == DirectiveErrorCode.DOMAIN_ERROR
 
-    def test_signed_div_min_by_neg_one(self):
-        """Test sdiv MIN_INT64 / -1 special case (overflow to MIN_INT64)."""
-        model = FpySequencerModel()
-        model.push(MIN_INT64)
-        model.push(-1)
-        result = model.dispatch(SignedIntDivideDirective())
-        assert result == DirectiveErrorCode.NO_ERROR or result is None
-        ret = model.pop() 
-        assert ret == MIN_INT64
-
     def test_float_add_stack_underflow(self):
         """Test fadd with insufficient stack."""
         model = FpySequencerModel()
@@ -820,6 +816,27 @@ class TestIntegerOverflow:
         result = model.dispatch(IntMultiplyDirective())
         assert result == DirectiveErrorCode.ARITHMETIC_UNDERFLOW
 
+    def test_sdiv_int_min_by_minus_one_overflows(self):
+        """MIN_INT64 // -1 (true result 2**63) is the one signed division that
+        can overflow; it should trap, not silently wrap (issue #113)."""
+        model = self._make_model()
+        model.push(MIN_INT64)
+        model.push(-1)
+        result = model.dispatch(SignedIntDivideDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
+    def test_smod_int_min_by_minus_one_is_zero(self):
+        """MIN_INT64 % -1 is 0, the mathematical remainder: unlike the sdiv
+        quotient it is representable, so no trap (matching wasm i64.rem_s and
+        Rust's wrapping_rem)."""
+        model = self._make_model()
+        model.push(MIN_INT64)
+        model.push(-1)
+        result = model.dispatch(SignedModuloDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(signed=True)
+        assert val == 0
+
 
 class TestFpow:
     """The model's handle_fpow should return NaN on domain errors
@@ -847,6 +864,40 @@ class TestFpow:
         val = model.pop(type=float)
         assert val == 8.0
         assert result == DirectiveErrorCode.NO_ERROR
+
+    def test_fpow_overflow_returns_inf(self):
+        """1e308 ** 2.0 overflows the F64 range: C pow() returns +HUGE_VAL
+        (+inf), not NaN -- overflow is a range error, not a domain error
+        (issue #121)."""
+        model = self._make_model()
+        model.push(1e308)
+        model.push(2.0)
+        result = model.dispatch(FloatExponentDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float("inf")
+
+    def test_fpow_overflow_negative_base_odd_exponent(self):
+        """(-1e308) ** 3.0 overflows toward -inf: a negative base with an odd
+        integer exponent has a negative true result (issue #121)."""
+        model = self._make_model()
+        model.push(-1e308)
+        model.push(3.0)
+        result = model.dispatch(FloatExponentDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float("-inf")
+
+    def test_fpow_overflow_negative_base_even_exponent(self):
+        """(-1e308) ** 2.0 overflows toward +inf: an even integer exponent
+        makes the true result positive (issue #121)."""
+        model = self._make_model()
+        model.push(-1e308)
+        model.push(2.0)
+        result = model.dispatch(FloatExponentDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(type=float)
+        assert val == float("inf")
 
 
 class TestFlog:
@@ -895,7 +946,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('-inf')
+        assert val == float("-inf")
 
     def test_fdiv_negative_by_neg_zero(self):
         """(-1.0) / (-0.0) should be +inf."""
@@ -905,7 +956,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_positive_by_pos_zero(self):
         """1.0 / 0.0 should be +inf."""
@@ -915,7 +966,7 @@ class TestFdivNegativeZero:
         result = model.dispatch(FloatDivideDirective())
         assert result == DirectiveErrorCode.NO_ERROR
         val = model.pop(type=float)
-        assert val == float('inf')
+        assert val == float("inf")
 
     def test_fdiv_zero_by_zero(self):
         """0.0 / 0.0 should be NaN."""
@@ -927,6 +978,214 @@ class TestFdivNegativeZero:
         val = model.pop(type=float)
         assert math.isnan(val)
 
+    def test_fdiv_nan_by_zero(self):
+        """NaN / +-0.0 must be NaN per IEEE 754, not inf: a NaN operand
+        propagates through division regardless of the divisor (issue #119)."""
+        for zero in (0.0, -0.0):
+            model = self._make_model()
+            model.push(float("nan"))
+            model.push(zero)
+            result = model.dispatch(FloatDivideDirective())
+            assert result == DirectiveErrorCode.NO_ERROR
+            val = model.pop(type=float)
+            assert math.isnan(val)
+
+
+class TestFmodZeroSign:
+    """Fpy float % follows Python's floored-modulo semantics exactly,
+    including the sign of a zero result: when the division is exact, the
+    zero carries the *divisor's* sign (CPython float_rem normalizes it with
+    copysign(0.0, divisor)). Issue #129 pins this against the flight VM."""
+
+    def _fmod(self, lhs, rhs):
+        model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+        model.push(lhs)
+        model.push(rhs)
+        result = model.dispatch(FloatModuloDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        return model.pop(type=float)
+
+    def test_exact_multiple_negative_divisor(self):
+        val = self._fmod(2.0, -1.0)
+        assert val == 0.0
+        assert math.copysign(1.0, val) == -1.0
+
+    def test_exact_multiple_positive_divisor(self):
+        val = self._fmod(-1.5, 0.5)
+        assert val == 0.0
+        assert math.copysign(1.0, val) == 1.0
+
+    def test_zero_divisor_is_nan(self):
+        """x % 0.0 is NaN, not an error (fmod semantics, matching the flight
+        VM, the wasm backend, Rust, and C#; issue #120)."""
+        for zero in (0.0, -0.0):
+            val = self._fmod(2.0, zero)
+            assert math.isnan(val)
+
+
+class TestFloatCastSaturation:
+    """float->int casts saturate at 64 bits (llvm.fptosi.sat/fptoui.sat, wasm
+    trunc_sat, Rust `as`): NaN -> 0, out-of-range values clamp to the type's
+    min/max, in-range values truncate toward zero. Narrowing F64->F32
+    overflows to +-inf (IEEE demote). Issues #122/#123."""
+
+    def _make_model(self):
+        return FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+
+    def _fptosi(self, val):
+        model = self._make_model()
+        model.push(val)
+        result = model.dispatch(FloatToSignedIntDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        return model.pop(signed=True)
+
+    def _fptoui(self, val):
+        model = self._make_model()
+        model.push(val)
+        result = model.dispatch(FloatToUnsignedIntDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        return model.pop(signed=False)
+
+    def test_fptosi_nan_is_zero(self):
+        assert self._fptosi(float("nan")) == 0
+
+    def test_fptosi_inf_saturates(self):
+        assert self._fptosi(float("inf")) == MAX_INT64
+        assert self._fptosi(float("-inf")) == MIN_INT64
+
+    def test_fptosi_out_of_range_saturates(self):
+        assert self._fptosi(1e300) == MAX_INT64
+        assert self._fptosi(-1e300) == MIN_INT64
+        # 2**63 as a float is exactly one past I64 max
+        assert self._fptosi(float(2**63)) == MAX_INT64
+        # -2**63 is exactly representable and in range
+        assert self._fptosi(float(-(2**63))) == MIN_INT64
+
+    def test_fptosi_truncates_toward_zero(self):
+        assert self._fptosi(3.7) == 3
+        assert self._fptosi(-3.7) == -3
+
+    def test_fptoui_nan_is_zero(self):
+        assert self._fptoui(float("nan")) == 0
+
+    def test_fptoui_negative_is_zero(self):
+        assert self._fptoui(-0.5) == 0
+        assert self._fptoui(-5.5) == 0
+        assert self._fptoui(float("-inf")) == 0
+
+    def test_fptoui_out_of_range_saturates(self):
+        assert self._fptoui(float("inf")) == 2**64 - 1
+        assert self._fptoui(1e300) == 2**64 - 1
+        assert self._fptoui(float(2**64)) == 2**64 - 1
+
+    def test_fptoui_truncates_toward_zero(self):
+        assert self._fptoui(3.7) == 3
+
+    def test_fptrunc_overflow_to_inf(self):
+        """An F64 beyond the F32 range demotes to +-inf per IEEE
+        round-to-nearest, instead of crashing the model (issue #123)."""
+        for src, expected in (
+            (3.4028235677973366e38, float("inf")),
+            (-3.4028235677973366e38, float("-inf")),
+        ):
+            model = self._make_model()
+            model.push(src)
+            result = model.dispatch(FloatTruncateDirective())
+            assert result == DirectiveErrorCode.NO_ERROR
+            val = model.pop(type=float, size=4)
+            assert val == expected
+
+
+class TestAbsFloorDirectives:
+    """Value semantics of iabs/fabs/ffloor per SPEC: iabs overflows on I64 min,
+    fabs only clears the sign bit, and ffloor preserves the sign of zero
+    while passing +-inf and NaN through."""
+
+    def _run_unary(self, directive, val):
+        model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+        model.push(val)
+        result = model.dispatch(directive)
+        assert result == DirectiveErrorCode.NO_ERROR
+        return model
+
+    def test_iabs_negative(self):
+        model = self._run_unary(IntAbsDirective(), -5)
+        val = model.pop(signed=True)
+        assert val == 5
+
+    def test_iabs_int_min_overflows(self):
+        model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+        model.push(MIN_INT64)
+        result = model.dispatch(IntAbsDirective())
+        assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
+
+    def test_iabs_int_max(self):
+        model = self._run_unary(IntAbsDirective(), MAX_INT64)
+        val = model.pop(signed=True)
+        assert val == MAX_INT64
+
+    def test_iabs_stack_underflow(self):
+        model = FpySequencerModel(cmd_dict={}, time_base=0, time_context=0)
+        model.stack = bytearray(7)
+        result = model.dispatch(IntAbsDirective())
+        assert result == DirectiveErrorCode.STACK_UNDERFLOW
+
+    def test_fabs_negative_zero(self):
+        model = self._run_unary(FloatAbsDirective(), -0.0)
+        val = model.pop(type=float)
+        assert val == 0.0
+        assert math.copysign(1.0, val) == 1.0
+
+    def test_fabs_negative_inf(self):
+        model = self._run_unary(FloatAbsDirective(), float("-inf"))
+        val = model.pop(type=float)
+        assert val == float("inf")
+
+    def test_fabs_nan(self):
+        model = self._run_unary(FloatAbsDirective(), float("nan"))
+        val = model.pop(type=float)
+        assert math.isnan(val)
+
+    def test_ffloor_preserves_negative_zero_sign(self):
+        model = self._run_unary(FloatFloorDirective(), -0.0)
+        val = model.pop(type=float)
+        assert val == 0.0
+        assert math.copysign(1.0, val) == -1.0
+
+    def test_ffloor_positive_zero(self):
+        model = self._run_unary(FloatFloorDirective(), 0.0)
+        val = model.pop(type=float)
+        assert val == 0.0
+        assert math.copysign(1.0, val) == 1.0
+
+    def test_ffloor_fraction_below_one(self):
+        model = self._run_unary(FloatFloorDirective(), 0.5)
+        val = model.pop(type=float)
+        assert val == 0.0
+
+    def test_ffloor_negative_fraction(self):
+        model = self._run_unary(FloatFloorDirective(), -0.5)
+        val = model.pop(type=float)
+        assert val == -1.0
+
+    def test_ffloor_inf_passthrough(self):
+        model = self._run_unary(FloatFloorDirective(), float("inf"))
+        val = model.pop(type=float)
+        assert val == float("inf")
+        model = self._run_unary(FloatFloorDirective(), float("-inf"))
+        val = model.pop(type=float)
+        assert val == float("-inf")
+
+    def test_ffloor_nan_passthrough(self):
+        model = self._run_unary(FloatFloorDirective(), float("nan"))
+        val = model.pop(type=float)
+        assert math.isnan(val)
+
+    def test_ffloor_integral_identity(self):
+        model = self._run_unary(FloatFloorDirective(), -2.0)
+        val = model.pop(type=float)
+        assert val == -2.0
+
 
 from fpy.types import U8, U16, U32, U64, I32, F32, F64, BOOL
 
@@ -937,30 +1196,33 @@ class TestArgPassing:
     def test_no_args_no_types(self):
         """Running with no args and no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run([NoOpDirective()])
-        assert result == DirectiveErrorCode.NO_ERROR
+        error_code, trap = model.run([NoOpDirective()])
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_single_arg(self):
         """Passing correct-size bytes for a single U32 arg should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # 42 as big-endian U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=4), NoOpDirective()],
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_correct_multiple_args(self):
         """Passing correct-size bytes for multiple args should succeed."""
         model = FpySequencerModel()
         arg_bytes = b"\x01" + b"\x00\x2a" + b"\x00\x00\x00\x03"  # U8 + U16 + U32
-        result = model.run(
+        error_code, trap = model.run(
             [AllocateDirective(size=7), NoOpDirective()],
             arg_types=[U8, U16, U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_too_short(self):
         """Should raise ValidationError if args bytes are shorter than expected."""
@@ -994,12 +1256,13 @@ class TestArgPassing:
     def test_args_none_with_no_types(self):
         """Passing args=None with no arg_types should succeed."""
         model = FpySequencerModel()
-        result = model.run(
+        error_code, trap = model.run(
             [NoOpDirective()],
             arg_types=[],
             args=None,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_args_pushed_to_stack_before_allocate(self):
         """Args should be on the stack at offset 0, before AllocateDirective runs."""
@@ -1017,7 +1280,7 @@ class TestArgPassing:
         """Sequence should be able to read arg values from the stack."""
         model = FpySequencerModel()
         arg_bytes = b"\x00\x00\x00\x2a"  # U32 = 42
-        result = model.run(
+        error_code, trap = model.run(
             [
                 AllocateDirective(size=8),  # 4 for arg + 4 for working space
                 LoadAbsDirective(global_offset=0, size=4),  # push arg value onto stack
@@ -1026,13 +1289,16 @@ class TestArgPassing:
             arg_types=[U32],
             args=arg_bytes,
         )
-        assert result == DirectiveErrorCode.NO_ERROR
+        assert trap == DirectiveErrorCode.NO_ERROR
+        assert error_code == 0
 
     def test_multiple_arg_types_size_mismatch(self):
         """Size mismatch with multiple arg types should report correct totals."""
         model = FpySequencerModel()
         # U8(1) + U32(4) + F64(8) = 13 bytes expected
-        with pytest.raises(ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"):
+        with pytest.raises(
+            ValidationError, match="3 arg.*totalling 13 bytes.*got 10 bytes"
+        ):
             model.run(
                 [NoOpDirective()],
                 arg_types=[U8, U32, F64],

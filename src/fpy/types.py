@@ -5,7 +5,11 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Iterable, Union, get_args, get_origin
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
+
+if TYPE_CHECKING:
+    from llvmlite import ir
 from fpy.syntax import (
     BinaryStackOp,
     COMPARISON_OPS,
@@ -30,9 +34,15 @@ MAX_DIRECTIVE_SIZE = DEFAULT_MAX_DIRECTIVE_SIZE
 
 COMPILER_MAX_STRING_SIZE = 128
 
-# FPP wire-format constants for boolean serialization
-FW_SERIALIZE_TRUE_VALUE = 0xFF
-FW_SERIALIZE_FALSE_VALUE = 0x00
+# FPP wire-format constants for boolean serialization.
+# The live FW_SERIALIZE_* values may be overridden from the dictionary at
+# compile time (see get_base_compile_state); the DEFAULT_* values are the
+# framework fallbacks used when the dictionary does not define them.
+DEFAULT_FW_SERIALIZE_TRUE_VALUE = 0xFF
+DEFAULT_FW_SERIALIZE_FALSE_VALUE = 0x00
+
+FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
+FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
 
 
 class TypeKind(str, Enum):
@@ -61,6 +71,7 @@ class TypeKind(str, Enum):
     NOTHING = "Nothing"  # void / no-value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
+    SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
 
 
 # struct format for each primitive kind
@@ -141,8 +152,33 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.NOTHING,
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
+        TypeKind.SIZED,
     }
 )
+
+
+@lru_cache(maxsize=1)
+def _scalar_llvm_types() -> dict[TypeKind, "ir.Type"]:
+    """LLVM types for the scalar Fpy kinds.
+
+    Built lazily (and cached) so that importing this module does not pull in
+    llvmlite / the LLVM native library on the bytecode-only path.
+    """
+    from llvmlite import ir
+
+    return {
+        TypeKind.U8: ir.IntType(8),
+        TypeKind.U16: ir.IntType(16),
+        TypeKind.U32: ir.IntType(32),
+        TypeKind.U64: ir.IntType(64),
+        TypeKind.I8: ir.IntType(8),
+        TypeKind.I16: ir.IntType(16),
+        TypeKind.I32: ir.IntType(32),
+        TypeKind.I64: ir.IntType(64),
+        TypeKind.F32: ir.FloatType(),
+        TypeKind.F64: ir.DoubleType(),
+        TypeKind.BOOL: ir.IntType(1),
+    }
 
 
 @dataclass
@@ -271,6 +307,8 @@ class FpyType:
             return "anonymous struct"
         if self.kind == TypeKind.ANON_ARRAY:
             return "anonymous array"
+        if self.kind == TypeKind.SIZED:
+            return "a serializable, statically-sized value"
         return self.name
 
     # -- size / range properties -------------------------------------------
@@ -304,6 +342,34 @@ class FpyType:
             return math.inf
         assert False, f"Cannot compute bits for {self}"
 
+    @property
+    def llvm_type(self) -> "ir.Type":
+        """The LLVM IR type used to represent this type in the wasm backend."""
+        from llvmlite import ir
+
+        scalars = _scalar_llvm_types()
+        if self.kind in scalars:
+            return scalars[self.kind]
+        if self.kind == TypeKind.ENUM:
+            # An enum is represented by its underlying integer type.
+            return self.rep_type.llvm_type
+        if self.kind == TypeKind.STRUCT:
+            return ir.LiteralStructType([m.type.llvm_type for m in self.members])
+        if self.kind == TypeKind.ARRAY:
+            return ir.ArrayType(self.elem_type.llvm_type, self.length)
+        if self.kind == TypeKind.STRING:
+            # Fprime string: 2-byte length prefix + fixed-capacity byte buffer.
+            assert self.max_length is not None, "string type needs a max_length"
+            return ir.LiteralStructType(
+                [ir.IntType(16), ir.ArrayType(ir.IntType(8), self.max_length)]
+            )
+        if self.kind == TypeKind.NOTHING:
+            return ir.VoidType()
+        # INTERNAL_STRING/RANGE/ANON_* are compiler-internal: they're coerced to
+        # concrete types (or desugared) before codegen, so they have no LLVM
+        # representation of their own.
+        raise NotImplementedError(f"No LLVM type mapping for {self.display_name}")
+
     def value_range(self) -> tuple[int | float, int | float]:
         """(min, max) inclusive range for integer types."""
         if self.kind in _INTEGER_RANGES:
@@ -311,21 +377,6 @@ class FpyType:
         if self.kind == TypeKind.INTEGER:
             return (-math.inf, math.inf)
         assert False, f"Cannot compute range for {self}"
-
-    def validate_value(self, val) -> None:
-        """Raise ValueError if *val* is invalid for this type."""
-        if self.kind == TypeKind.INTEGER:
-            if not isinstance(val, int):
-                raise ValueError(f"Expected int, got {type(val)}")
-        elif self.kind == TypeKind.FLOAT:
-            if not isinstance(val, Decimal):
-                raise ValueError(f"Expected Decimal, got {type(val)}")
-        elif self.kind in _CONCRETE_INTEGER_KINDS:
-            lo, hi = self.value_range()
-            if not (lo <= val <= hi):
-                raise ValueError(
-                    f"Value {val} out of range [{lo}, {hi}] for {self.name}"
-                )
 
 
 U8 = FpyType(TypeKind.U8, "U8")
@@ -340,7 +391,7 @@ F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
 
-# distinct singleton so that the in-place update 
+# distinct singleton so that the in-place update
 # is visible everywhere the object is referenced.
 FwSizeStoreType = FpyType(TypeKind.U16, "U16")
 
@@ -384,6 +435,9 @@ FLOAT = FpyType(TypeKind.FLOAT, "Float")
 INTERNAL_STRING = FpyType(TypeKind.INTERNAL_STRING, "InternalString")
 RANGE = FpyType(TypeKind.RANGE, "Range")
 NOTHING = FpyType(TypeKind.NOTHING, "Nothing")
+
+# Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_type_constant_size).
+SIZED = FpyType(TypeKind.SIZED, "Sized")
 
 # Tuples of concrete types for iteration / membership tests
 SPECIFIC_NUMERIC_TYPES = (U32, U16, U64, U8, I16, I32, I64, I8, F32, F64)
@@ -431,6 +485,43 @@ class FpyValue:
             return hash((self.type, self.val))
         except TypeError:
             return hash(self.type)
+
+    # -- lowering ----------------------------------------------------------
+
+    @property
+    def llvm_value(self) -> "ir.Constant":
+        """The LLVM constant representing this value. Raises an error if
+        not representable"""
+        from llvmlite import ir
+
+        kind = self.type.kind
+        # Internal/abstract types have no LLVM representation.
+        assert kind not in (
+            TypeKind.INTEGER,
+            TypeKind.FLOAT,
+            TypeKind.INTERNAL_STRING,
+        ), self
+
+        llvm_type = self.type.llvm_type
+        if self.type.is_float:
+            # float types store a Decimal; float() gives the double/float value.
+            return ir.Constant(llvm_type, float(self.val))
+        if self.type.is_integer or kind == TypeKind.BOOL:
+            # ints store a Python int; BOOL stores a bool (int(True) == 1).
+            return ir.Constant(llvm_type, int(self.val))
+        if kind == TypeKind.ENUM:
+            # an enum const stores its member name; map it to the integer rep.
+            return ir.Constant(llvm_type, self.type.enum_dict[self.val])
+        if kind == TypeKind.STRUCT:
+            return ir.Constant(
+                llvm_type, [self.val[m.name].llvm_value for m in self.type.members]
+            )
+        if kind == TypeKind.ARRAY:
+            return ir.Constant(llvm_type, [elem.llvm_value for elem in self.val])
+
+        raise NotImplementedError(
+            f"No LLVM constant for a value of type {self.type.display_name}"
+        )
 
     # -- serialization -----------------------------------------------------
 
@@ -498,9 +589,7 @@ class FpyValue:
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            size_val, offset = FpyValue.deserialize(
-                FwSizeStoreType, data, offset
-            )
+            size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len
@@ -582,9 +671,7 @@ class PrmDef:
 FLAGS_TYPE = FpyType(
     TypeKind.STRUCT,
     "$Flags",
-    members=(
-        StructMember("assert_cmd_success", BOOL),
-    ),
+    members=(StructMember("assert_cmd_success", BOOL),),
     member_defaults={"assert_cmd_success": FpyValue(BOOL, True)},
 )
 
@@ -657,7 +744,12 @@ SEQ_ARGS = FpyType(
 # Internal type (prefixed with $) not directly accessible to users,
 # used for desugaring check statements.
 _TIME_INTERVAL_DEFAULT = {"seconds": 0, "useconds": 0}
-_TIME_DEFAULT = {"timeBase": "TimeBase.TB_NONE", "timeContext": 0, "seconds": 0, "useconds": 0}
+_TIME_DEFAULT = {
+    "timeBase": "TimeBase.TB_NONE",
+    "timeContext": 0,
+    "seconds": 0,
+    "useconds": 0,
+}
 
 CHECK_STATE = FpyType(
     TypeKind.STRUCT,

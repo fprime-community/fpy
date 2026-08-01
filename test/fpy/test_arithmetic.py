@@ -2,7 +2,13 @@ import pytest
 
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+import fpy.test_helpers as test_helpers
+from fpy.model import DirectiveErrorCode
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_failure,
+    assert_run_success,
+)
 
 
 class TestConstantFolding:
@@ -16,10 +22,10 @@ val1: U8 = 256  # Should fail: value too large for U8
     def test_const_fold_specific_float_binop(self, fprime_test_api):
         """Const folding binary ops on specific float types (F64, F32).
 
-    When both operands are cast to a specific float type (e.g. F64(1.5)),
-    their .val is a Python float, not Decimal. The const folder must handle
-    the bare `float` result from `float + float` etc.
-    """
+        When both operands are cast to a specific float type (e.g. F64(1.5)),
+        their .val is a Python float, not Decimal. The const folder must handle
+        the bare `float` result from `float + float` etc.
+        """
         seq = """
 if F64(1.5) + F64(2.5) == 4.0:
     exit(0)
@@ -73,6 +79,7 @@ x: F64 = 10.0 ** 100000000000
 """
 
         assert_compile_failure(fprime_test_api, seq, match="[Oo]verflow")
+
 
 class TestBasicArithmetic:
 
@@ -204,6 +211,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestArithmeticWithBuiltins:
 
     def test_arithmetic_arg_to_builtin_bad_type(self, fprime_test_api):
@@ -217,6 +225,7 @@ sleep(1 + 2 * 0, (0 + 1 / 2))
 sleep(1 + 2 * 0, (0 + 1 // 2))
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestChainedOperations:
 
@@ -263,6 +272,7 @@ if var1 / var3 / var2 == 3/2:
 exit(1)
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestPowerModLog:
 
@@ -363,14 +373,15 @@ assert result > 1.41 and result < 1.42
         [
             ("U64", "U64", "9", "2", "U64", "4"),
             ("F64", "F64", "5.5", "2.0", "F64", "2.0"),
-            ("F64", "F64", "-5.5", "2.0", "F64", "-2.0"),
+            ("F64", "F64", "-5.5", "2.0", "F64", "-3.0"),
             ("F64", "I64", "5.5", "2", "F64", "2.0"),
             ("I64", "F64", "5", "2.5", "F64", "2.0"),
             ("U64", "F64", "9", "2.0", "F64", "4.0"),
             ("F64", "U64", "9.0", "2", "F64", "4.0"),
         ],
     )
-    def test_floor_divide_64_bit_numeric_types(self, 
+    def test_floor_divide_64_bit_numeric_types(
+        self,
         fprime_test_api,
         lhs_type,
         rhs_type,
@@ -395,7 +406,8 @@ assert result == {expected_value}
             ("U64", "I64", "9", "2", "U64", "4"),
         ],
     )
-    def test_floor_divide_64_bit_bad_type_pairs(self, 
+    def test_floor_divide_64_bit_bad_type_pairs(
+        self,
         fprime_test_api,
         lhs_type,
         rhs_type,
@@ -432,20 +444,24 @@ assert result == 2333333333333333333
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestUnaryOperators:
 
-    @pytest.mark.parametrize("type_name,value", [
-        ("U8", "1"),
-        ("I8", "1"),
-        ("U16", "1"),
-        ("I16", "1"),
-        ("U32", "1"),
-        ("I32", "1"),
-        ("U64", "1"),
-        ("I64", "1"),
-        ("F32", "1.0"),
-        ("F64", "1.0"),
-    ])
+    @pytest.mark.parametrize(
+        "type_name,value",
+        [
+            ("U8", "1"),
+            ("I8", "1"),
+            ("U16", "1"),
+            ("I16", "1"),
+            ("U32", "1"),
+            ("I32", "1"),
+            ("U64", "1"),
+            ("I64", "1"),
+            ("F32", "1.0"),
+            ("F64", "1.0"),
+        ],
+    )
     def test_unary_plus(self, fprime_test_api, type_name, value):
         seq = f"""
 var: {type_name} = {value}
@@ -482,6 +498,7 @@ exit(1)
 """
         assert_compile_failure(fprime_test_api, seq)
 
+
 class TestAbs:
 
     def test_abs_float(self, fprime_test_api):
@@ -489,6 +506,20 @@ class TestAbs:
 assert fabs(1.0) == 1.0
 assert fabs(-1.0) == 1.0
 assert fabs(0.0) == 0.0
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_abs_float_edge_cases(self, fprime_test_api):
+        seq = """
+# -0.0 has the same magnitude as 0.0
+assert fabs(-0.0) == 0.0
+# large magnitudes survive unchanged
+assert fabs(-1.5e300) == 1.5e300
+assert fabs(1.5e300) == 1.5e300
+# already-positive small values are untouched
+assert fabs(0.5) == 0.5
+assert fabs(-0.5) == 0.5
 """
 
         assert_run_success(fprime_test_api, seq)
@@ -503,6 +534,29 @@ assert iabs(I64(2**63 - 6556)) == 2**63 - 6556
 """
 
         assert_run_success(fprime_test_api, seq)
+
+    def test_abs_i64_edge_cases(self, fprime_test_api):
+        seq = """
+# I64 max is its own absolute value
+assert iabs(I64(2**63 - 1)) == 2**63 - 1
+# -(I64 max) negates cleanly to I64 max
+assert iabs(I64(-(2**63 - 1))) == 2**63 - 1
+# values just inside I64 min negate without trapping
+assert iabs(I64(-2**63 + 1)) == 2**63 - 1
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_abs_i64_int_min_overflows(self, fprime_test_api):
+        """abs(I64 min) is not representable in I64, so the sequence ends
+        with ARITHMETIC_OVERFLOW rather than wrapping."""
+        if test_helpers.USE_WASM:
+            pytest.skip("wasm backend does not implement arithmetic traps yet")
+        seq = """
+val: I64 = iabs(I64(-2**63))
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
     def test_abs_u64(self, fprime_test_api):
         seq = """
@@ -521,44 +575,71 @@ assert iabs(-1) == 1
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_abs_float_negative_zero_sign(self, fprime_test_api):
+        """fabs clears the sign bit of -0.0. The sign of a zero is observable
+        through division: 1.0 / -0.0 is -inf, 1.0 / +0.0 is +inf."""
+        seq = """
+neg: F64 = -0.0
+# -0.0 survives into the variable
+assert 1.0 / neg < 0.0
+# fabs(-0.0) is +0.0
+assert 1.0 / fabs(neg) > 0.0
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    def test_abs_float_inf_nan(self, fprime_test_api):
+        """fabs maps -inf to inf, passes inf through, and a NaN stays a NaN
+        (which never compares equal to itself)."""
+        seq = """
+zero: F64 = 0.0
+inf: F64 = 1.0 / zero
+nan: F64 = zero / zero
+assert fabs(inf) == inf
+assert fabs(0.0 - inf) == inf
+assert fabs(nan) != fabs(nan)
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestFloorDivision:
-    """Floor division uses C++ truncation semantics (toward zero).
+    """Floor division floors toward -inf (Python `//` semantics).
     Both const-folded and runtime paths should agree."""
 
-    def test_int_floor_div_negative_const_vs_runtime(self, fprime_test_api):
-        """Runtime -7 // 2 should give -3 (truncation toward zero)."""
+    def test_int_floor_div_negative_runtime(self, fprime_test_api):
+        """Runtime -7 // 2 should give -4 (floor toward -inf)."""
         seq = """
 a: I64 = -7
 b: I64 = 2
 result: I64 = a // b
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_int_floor_div_negative_const_folded(self, fprime_test_api):
-        """Const-folded (-7) // 2 should also give -3 (truncation toward zero)."""
+        """Const-folded (-7) // 2 should also give -4 (floor toward -inf)."""
         seq = """
 result: I64 = (-7) // 2
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_float_floor_div_negative_const_vs_runtime(self, fprime_test_api):
-        """Runtime float floor division: -5.5 // 2.0 = -2.0 (truncation toward zero)."""
+    def test_float_floor_div_negative_runtime(self, fprime_test_api):
+        """Runtime float floor division: -5.5 // 2.0 = -3.0 (floor toward -inf)."""
         seq = """
 a: F64 = -5.5
 b: F64 = 2.0
 result: F64 = a // b
-assert result == -2.0
+assert result == -3.0
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_float_floor_div_negative_const_folded(self, fprime_test_api):
-        """Const-folded (-5.5) // 2.0 should also give -2.0 (truncation toward zero)."""
+        """Const-folded (-5.5) // 2.0 should also give -3.0 (floor toward -inf)."""
         seq = """
 result: F64 = (-5.5) // 2.0
-assert result == -2.0
+assert result == -3.0
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -571,11 +652,45 @@ assert result == 3
         assert_run_success(fprime_test_api, seq)
 
     def test_int_floor_div_negative_divisor(self, fprime_test_api):
-        """7 // (-2) = -3 (truncation toward zero)."""
+        """7 // (-2) = -4 (floor toward -inf)."""
         seq = """
 result: I64 = 7 // (-2)
-assert result == -3
+assert result == -4
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_float_floor_div_fractional_quotients(self, fprime_test_api):
+        """Quotients in (0, 1) floor to 0.0; quotients in (-1, 0) floor to -1.0."""
+        seq = """
+x: F64 = 0.5
+y: F64 = -0.5
+assert x // 1.0 == 0.0
+assert y // 1.0 == -1.0
+"""
+        assert_run_success(fprime_test_api, seq)
 
+    def test_float_floor_div_preserves_zero_sign(self, fprime_test_api):
+        """Flooring a zero quotient preserves its sign: -0.0 // 1.0 is -0.0,
+        observable because 1.0 / -0.0 is -inf."""
+        seq = """
+neg: F64 = -0.0
+q: F64 = neg // 1.0
+assert 1.0 / q < 0.0
+pos: F64 = 0.0
+r: F64 = pos // 1.0
+assert 1.0 / r > 0.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_float_floor_div_inf_nan_passthrough(self, fprime_test_api):
+        """An infinite or NaN quotient passes through the floor unchanged."""
+        seq = """
+zero: F64 = 0.0
+inf: F64 = 1.0 / zero
+nan: F64 = zero / zero
+assert inf // 1.0 == inf
+assert (0.0 - inf) // 1.0 == 0.0 - inf
+q: F64 = nan // 1.0
+assert q != q
+"""
+        assert_run_success(fprime_test_api, seq)

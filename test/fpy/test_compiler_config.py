@@ -11,16 +11,21 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 import fpy.error
+import fpy.types
 from fpy.compiler import (
     text_to_ast,
-    ast_to_directives,
+    analyze_ast,
+    analysis_to_fpybc_directives,
+)
+from fpy.state import (
     get_base_compile_state,
     _build_global_scopes,
 )
 from fpy.dictionary import load_dictionary
 from fpy.types import DEFAULT_MAX_DIRECTIVES_COUNT, DEFAULT_MAX_DIRECTIVE_SIZE
-
 
 # Path to the test dictionary
 DEFAULT_DICTIONARY = str(Path(__file__).parent / "RefTopologyDictionary.json")
@@ -68,15 +73,14 @@ def create_test_dictionary(constants: list[dict]) -> str:
     # that aren't being overridden
     test_constant_names = {c["qualifiedName"] for c in constants}
     filtered_constants = [
-        c for c in base_dict.get("constants", [])
+        c
+        for c in base_dict.get("constants", [])
         if c.get("qualifiedName") not in test_constant_names
     ]
     base_dict["constants"] = filtered_constants + constants
 
     # Write to temp file
-    temp_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    )
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     json.dump(base_dict, temp_file)
     temp_file.close()
 
@@ -88,15 +92,17 @@ def test_custom_max_directives_count():
     _clear_caches()
 
     custom_count = 500
-    dict_path = create_test_dictionary([
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_count,
-            "annotation": "Custom max sequence statement count"
-        }
-    ])
+    dict_path = create_test_dictionary(
+        [
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_count,
+                "annotation": "Custom max sequence statement count",
+            }
+        ]
+    )
 
     try:
         state = get_base_compile_state(dict_path, {})
@@ -113,15 +119,17 @@ def test_custom_max_directive_size():
     _clear_caches()
 
     custom_size = 4096
-    dict_path = create_test_dictionary([
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_DIRECTIVE_SIZE",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_size,
-            "annotation": "Custom max directive size"
-        }
-    ])
+    dict_path = create_test_dictionary(
+        [
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_DIRECTIVE_SIZE",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_size,
+                "annotation": "Custom max directive size",
+            }
+        ]
+    )
 
     try:
         state = get_base_compile_state(dict_path, {})
@@ -139,22 +147,24 @@ def test_custom_both_limits():
 
     custom_count = 256
     custom_size = 1024
-    dict_path = create_test_dictionary([
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_count,
-            "annotation": "Custom max sequence statement count"
-        },
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_DIRECTIVE_SIZE",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_size,
-            "annotation": "Custom max directive size"
-        }
-    ])
+    dict_path = create_test_dictionary(
+        [
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_count,
+                "annotation": "Custom max sequence statement count",
+            },
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_DIRECTIVE_SIZE",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_size,
+                "annotation": "Custom max directive size",
+            },
+        ]
+    )
 
     try:
         state = get_base_compile_state(dict_path, {})
@@ -177,7 +187,8 @@ def test_missing_constants_use_defaults():
         dict_json = json.load(f)
 
     dict_json["constants"] = [
-        c for c in dict_json.get("constants", [])
+        c
+        for c in dict_json.get("constants", [])
         if not c.get("qualifiedName", "").startswith("Svc.Fpy.")
     ]
 
@@ -199,29 +210,32 @@ def test_too_many_directives_with_custom_limit():
 
     # Set a very low limit
     custom_count = 5
-    dict_path = create_test_dictionary([
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_count,
-            "annotation": "Very low limit for testing"
-        }
-    ])
+    dict_path = create_test_dictionary(
+        [
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_count,
+                "annotation": "Very low limit for testing",
+            }
+        ]
+    )
 
     try:
         # This sequence has more than 5 directives when compiled
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * (custom_count + 1)
 
         fpy.error.file_name = "<test>"
+        state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
-
         # Should fail because we exceed the custom limit
-        assert isinstance(result, fpy.error.BackendError)
-        assert "Too many directives" in str(result)
+        with pytest.raises(fpy.error.BackendError) as exc_info:
+            state = analyze_ast(body, state)
+            analysis_to_fpybc_directives(state)
+        assert "Too many directives" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -233,29 +247,122 @@ def test_within_custom_limit_succeeds():
 
     # Set a reasonable limit
     custom_count = 100
-    dict_path = create_test_dictionary([
-        {
-            "kind": "constant",
-            "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
-            "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-            "value": custom_count,
-            "annotation": "Reasonable limit for testing"
-        }
-    ])
+    dict_path = create_test_dictionary(
+        [
+            {
+                "kind": "constant",
+                "qualifiedName": "Svc.Fpy.MAX_SEQUENCE_STATEMENT_COUNT",
+                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+                "value": custom_count,
+                "annotation": "Reasonable limit for testing",
+            }
+        ]
+    )
 
     try:
         # This sequence should be within the limit
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * 10
 
         fpy.error.file_name = "<test>"
+        state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
         assert body is not None
 
-        result = ast_to_directives(body, dict_path)
-
         # Should succeed
-        assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
-            f"Compilation failed unexpectedly: {result}"
+        state = analyze_ast(body, state)
+        analysis_to_fpybc_directives(state)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+# ============================================================================
+# FW_SERIALIZE_TRUE_VALUE / FW_SERIALIZE_FALSE_VALUE loading tests
+# ============================================================================
+
+
+def fw_serialize_constant(name: str, value: int) -> dict:
+    """Build a dictionary constant descriptor for a FW_SERIALIZE_* value."""
+    return {
+        "kind": "constant",
+        "qualifiedName": name,
+        "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
+        "value": value,
+        "annotation": f"Custom {name} for testing",
+    }
+
+
+def test_load_fw_serialize_from_default_dictionary():
+    """Test that boolean wire-format values are loaded from the standard dictionary."""
+    _clear_caches()
+    from fpy.types import BOOL, FpyValue
+
+    get_base_compile_state(DEFAULT_DICTIONARY, {})
+
+    # The RefTopologyDictionary.json has FW_SERIALIZE_TRUE_VALUE=255, FALSE=0
+    assert fpy.types.FW_SERIALIZE_TRUE_VALUE == 0xFF
+    assert fpy.types.FW_SERIALIZE_FALSE_VALUE == 0x00
+    assert FpyValue(BOOL, True).serialize() == b"\xff"
+    assert FpyValue(BOOL, False).serialize() == b"\x00"
+
+
+def test_custom_fw_serialize_values():
+    """Test that custom boolean wire-format values from the dictionary are used."""
+    _clear_caches()
+    from fpy.types import (
+        BOOL,
+        DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+        DEFAULT_FW_SERIALIZE_TRUE_VALUE,
+        FpyValue,
+    )
+
+    dict_path = create_test_dictionary(
+        [
+            fw_serialize_constant("FW_SERIALIZE_TRUE_VALUE", 1),
+            fw_serialize_constant("FW_SERIALIZE_FALSE_VALUE", 2),
+        ]
+    )
+
+    try:
+        get_base_compile_state(dict_path, {})
+        assert fpy.types.FW_SERIALIZE_TRUE_VALUE == 1
+        assert fpy.types.FW_SERIALIZE_FALSE_VALUE == 2
+        # Booleans now serialize using the dictionary-provided wire values.
+        assert FpyValue(BOOL, True).serialize() == b"\x01"
+        assert FpyValue(BOOL, False).serialize() == b"\x02"
+    finally:
+        # Restore the framework defaults so we don't leak into other tests.
+        fpy.types.FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
+        fpy.types.FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_missing_fw_serialize_use_defaults():
+    """Test that missing FW_SERIALIZE constants fall back to framework defaults."""
+    _clear_caches()
+    from fpy.types import (
+        DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+        DEFAULT_FW_SERIALIZE_TRUE_VALUE,
+    )
+
+    dict_path = create_test_dictionary([])
+
+    # Remove the FW_SERIALIZE constants from the dictionary.
+    with open(dict_path, "r") as f:
+        dict_json = json.load(f)
+    dict_json["constants"] = [
+        c
+        for c in dict_json.get("constants", [])
+        if not c.get("qualifiedName", "").startswith("FW_SERIALIZE_")
+    ]
+    with open(dict_path, "w") as f:
+        json.dump(dict_json, f)
+
+    try:
+        get_base_compile_state(dict_path, {})
+        assert fpy.types.FW_SERIALIZE_TRUE_VALUE == DEFAULT_FW_SERIALIZE_TRUE_VALUE
+        assert fpy.types.FW_SERIALIZE_FALSE_VALUE == DEFAULT_FW_SERIALIZE_FALSE_VALUE
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -283,9 +390,7 @@ def create_test_dict_with_timebase(
                 type_def["representationType"] = rep_type
             break
 
-    temp_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    )
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     json.dump(base_dict, temp_file)
     temp_file.close()
     return temp_file.name
@@ -298,13 +403,12 @@ def create_test_dict_without_timebase() -> str:
 
     # Remove TimeBase from typeDefinitions
     base_dict["typeDefinitions"] = [
-        t for t in base_dict.get("typeDefinitions", [])
+        t
+        for t in base_dict.get("typeDefinitions", [])
         if t.get("qualifiedName") != "TimeBase"
     ]
 
-    temp_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    )
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     json.dump(base_dict, temp_file)
     temp_file.close()
     return temp_file.name
@@ -368,6 +472,7 @@ def test_timebase_missing_raises_error():
 
     try:
         import pytest
+
         # Dictionary parsing fails because Fw.TimeValue depends on TimeBase
         with pytest.raises(AssertionError, match="Could not resolve types"):
             get_base_compile_state(dict_path, {})
@@ -390,6 +495,7 @@ def test_timebase_missing_tb_none_raises_error():
     try:
         import pytest
         from fpy.error import DictionaryError
+
         with pytest.raises(DictionaryError, match="must include TB_NONE"):
             get_base_compile_state(dict_path, {})
     finally:
@@ -411,6 +517,7 @@ def test_timebase_tb_none_wrong_value_raises_error():
     try:
         import pytest
         from fpy.error import DictionaryError
+
         with pytest.raises(DictionaryError, match="TB_NONE constant must have value 0"):
             get_base_compile_state(dict_path, {})
     finally:
@@ -430,9 +537,9 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     fpy.error.input_text = seq
     fpy.error.input_lines = seq.splitlines()
 
+    state = get_base_compile_state(DEFAULT_DICTIONARY)
     body = text_to_ast(seq)
     assert body is not None
 
-    result = ast_to_directives(body, DEFAULT_DICTIONARY)
-    assert not isinstance(result, (fpy.error.CompileError, fpy.error.BackendError)), \
-        f"Compilation failed: {result}"
+    state = analyze_ast(body, state)
+    analysis_to_fpybc_directives(state)

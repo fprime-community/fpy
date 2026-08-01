@@ -1,0 +1,10 @@
+# Install into .git/hooks with: uv run pre-commit install
+# Both hooks run through the project venv (uv), so uv sync is the only setup.
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: uv run black
+        language: system
+        types: [python]

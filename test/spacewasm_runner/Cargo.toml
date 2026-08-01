@@ -1,0 +1,19 @@
+# Standalone harness that embeds the NASA spacewasm interpreter (the on-board
+# target runtime) so the fpy pytest suite can execute compiled .wasm sequences
+# through it when `--wasm` is passed. spacewasm ships only as a library, so this
+# tiny binary is the bridge: pytest invokes it as a subprocess with a .wasm path.
+[package]
+name = "fpy-spacewasm-runner"
+version = "0.1.0"
+edition = "2024"
+
+# Own workspace root so cargo doesn't try to fold this into any parent.
+[workspace]
+
+[[bin]]
+name = "fpy-spacewasm-runner"
+path = "src/main.rs"
+
+[dependencies]
+spacewasm = { path = "../spacewasm" }
+libm = "0.2"

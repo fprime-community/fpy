@@ -1,6 +1,7 @@
 from fpy.types import U32
 
 from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.error import WarningType
 
 
 class TestDefinition:
@@ -89,6 +90,7 @@ test(val)
 assert val == 123
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestReturns:
 
@@ -187,7 +189,9 @@ def test():
     return Fw
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        # `Fw` is a dictionary namespace (a module), not a value; using it bare
+        # is rejected before any void-return check.
+        assert_compile_failure(fprime_test_api, seq, match="Expected a value")
 
     def test_void_function_without_explicit_return(self, fprime_test_api):
         seq = """
@@ -214,6 +218,7 @@ def test() -> U32:
     return
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestCalls:
 
@@ -288,6 +293,7 @@ def noop():
 val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestScoping:
 
@@ -388,9 +394,7 @@ assert i == 1
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_call_reads_global_transitively_before_definition(
-        self, fprime_test_api
-    ):
+    def test_call_reads_global_transitively_before_definition(self, fprime_test_api):
         """Calling a function that reads a global only through a function it
         calls is still an error if the global isn't defined yet."""
         seq = """
@@ -407,9 +411,7 @@ i: I64 = 5
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_call_reads_global_transitively_after_definition(
-        self, fprime_test_api
-    ):
+    def test_call_reads_global_transitively_after_definition(self, fprime_test_api):
         """The transitive case succeeds once the global is declared before the
         top-level call."""
         seq = """
@@ -425,9 +427,7 @@ caller()
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_recursive_func_reads_global_before_definition(
-        self, fprime_test_api
-    ):
+    def test_recursive_func_reads_global_before_definition(self, fprime_test_api):
         """A recursive function that reads a global, called before that global
         is declared, is an error."""
         seq = """
@@ -443,9 +443,7 @@ g: I64 = 1
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_recursive_func_reads_global_after_definition(
-        self, fprime_test_api
-    ):
+    def test_recursive_func_reads_global_after_definition(self, fprime_test_api):
         """The same recursive function succeeds when the global is declared
         before the call."""
         seq = """
@@ -525,6 +523,7 @@ test()
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestNestedFunctions:
 
     def test_func_in_func(self, fprime_test_api):
@@ -580,6 +579,7 @@ fun()
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestDefaultArguments:
 
@@ -740,9 +740,9 @@ def test(a: U64 = helper()) -> U64:
     def test_default_arg_forward_called_function(self, fprime_test_api):
         """Default arg const values are calculated even for forward-called functions.
 
-    This tests that when a function is called before it's defined in the source,
-    the default argument's const value is still properly available.
-    """
+        This tests that when a function is called before it's defined in the source,
+        the default argument's const value is still properly available.
+        """
         seq = """
 def caller() -> U64:
     # Call test() before it's defined, using default arg
@@ -789,6 +789,7 @@ def test(a: U64 = undefined_var) -> U64:
 
         # Should fail: "Unknown value"
         assert_compile_failure(fprime_test_api, seq)
+
 
 class TestNamedArguments:
 
@@ -919,3 +920,27 @@ exit(exit_code=0)
 """
 
         assert_run_success(fprime_test_api, seq)
+
+
+class TestShadowWarnings:
+    """Defining a function whose name already resolves in an ENCLOSING scope
+    (typically a builtin command, cast, type constructor, or library function)
+    is allowed but emits the `shadow-callable` warning (never `shadow-value`),
+    and still compiles and runs. Redefining a name already in the SAME scope
+    stays a hard error (see test_redeclare_func)."""
+
+    def test_function_shadows_builtin_warns(self, fprime_test_api):
+        # `time_add` is a builtin library function; redefining it here shadows
+        # the base callable rather than colliding with a same-scope definition.
+        # expected_warnings both requires shadow-callable and (by promoting
+        # anything else) asserts it is not miscategorized as shadow-value.
+        seq = """
+def time_add() -> U32:
+    return U32(0)
+
+x: U32 = time_add()
+assert x == 0
+"""
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )

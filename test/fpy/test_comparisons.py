@@ -40,6 +40,7 @@ exit(0)
 """
         assert_run_success(fprime_test_api, seq)
 
+
 class TestCrossTypeComparisons:
 
     def test_f32_f64_cmp(self, fprime_test_api):
@@ -85,20 +86,24 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
+
 class TestAllOperatorsByType:
 
-    @pytest.mark.parametrize("type_name,big,small", [
-        ("U8", "200", "100"),
-        ("I8", "100", "-100"),
-        ("U16", "60000", "100"),
-        ("I16", "30000", "-30000"),
-        ("U32", "4294967295", "0"),
-        ("I32", "2147483647", "-2147483648"),
-        ("U64", "4294967295", "0"),
-        ("I64", "2147483647", "-2147483648"),
-        ("F32", "3.14159", "-3.14159"),
-        ("F64", "3.14159265359", "-3.14159265359"),
-    ])
+    @pytest.mark.parametrize(
+        "type_name,big,small",
+        [
+            ("U8", "200", "100"),
+            ("I8", "100", "-100"),
+            ("U16", "60000", "100"),
+            ("I16", "30000", "-30000"),
+            ("U32", "4294967295", "0"),
+            ("I32", "2147483647", "-2147483648"),
+            ("U64", "4294967295", "0"),
+            ("I64", "2147483647", "-2147483648"),
+            ("F32", "3.14159", "-3.14159"),
+            ("F64", "3.14159265359", "-3.14159265359"),
+        ],
+    )
     def test_all_comparison_operators(self, fprime_test_api, type_name, big, small):
         seq = f"""
 val1: {type_name} = {big}
@@ -111,6 +116,7 @@ if val1 > val2 and val2 < val1:
 exit(1)
 """
         assert_run_success(fprime_test_api, seq)
+
 
 class TestEdgeCases:
 
@@ -165,3 +171,19 @@ if a > b:
 exit(1)
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_nan_comparisons(self, fprime_test_api):
+        """IEEE 754 NaN semantics: every ordered comparison and == are false
+        when an operand is NaN, and != (the negation of ==) is true."""
+        seq = """
+zero: F64 = 0.0
+nan: F64 = zero / zero
+assert nan != nan
+assert nan != 0.0
+assert not (nan == nan)
+assert not (nan < 0.0)
+assert not (nan <= 0.0)
+assert not (nan > 0.0)
+assert not (nan >= 0.0)
+"""
+        assert_run_success(fprime_test_api, seq)

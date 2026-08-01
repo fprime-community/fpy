@@ -7,6 +7,7 @@ from fpy.test_helpers import (
     assert_run_failure,
 )
 from fpy.model import DirectiveErrorCode
+from fpy.error import WarningType
 from fpy.types import U8, U32, F64, BOOL, FpyValue
 
 
@@ -223,6 +224,7 @@ for i in 0..max_val:
 """
     assert_compile_success(fprime_test_api, seq)
 
+
 def test_sequence_literal_as_type(fprime_test_api):
     """Test that a literal as a type annotation fails."""
     seq = """
@@ -283,7 +285,9 @@ sequence(i: U32)
 for i in 0..10:
     pass
 """
-    assert_compile_success(fprime_test_api, seq)
+    assert_compile_success(
+        fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+    )
 
 
 def test_sequence_param_shadowed_by_func_param(fprime_test_api):
@@ -294,7 +298,9 @@ def foo(x: I32):
     pass
 foo(5)
 """
-    assert_compile_success(fprime_test_api, seq)
+    assert_compile_success(
+        fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+    )
 
 
 def test_defining_sequence_in_function(fprime_test_api):
@@ -314,6 +320,7 @@ for i in 0..5:
 """
     assert_compile_failure(fprime_test_api, seq)
 
+
 def test_defining_sequence_in_if_stmt(fprime_test_api):
     """Test defining sequence in an if stmt."""
     seq = """
@@ -325,6 +332,7 @@ if value:
 
 
 # ---- End-to-end arg passing tests ----
+
 
 def test_run_sequence_with_u32_arg(fprime_test_api):
     """Run a sequence that takes a U32 arg and uses it."""
@@ -342,7 +350,8 @@ sequence(a: U32, b: U32)
 sum: U64 = a + b
 """
     assert_run_success(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         args=[FpyValue(U32, 10), FpyValue(U32, 32)],
     )
 
@@ -361,7 +370,9 @@ def test_run_sequence_args_wrong_size(fprime_test_api):
     seq = """
 sequence(x: U32)
 """
-    assert_run_failure(fprime_test_api, seq, validation_error=True, args=[FpyValue(U8, 0)])
+    assert_run_failure(
+        fprime_test_api, seq, validation_error=True, args=[FpyValue(U8, 0)]
+    )
 
 
 def test_run_sequence_args_expected_but_missing(fprime_test_api):
@@ -408,7 +419,9 @@ def test_arg_value_arithmetic(fprime_test_api):
 sequence(a: U32, b: U32)
 assert a + b == 100
 """
-    assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 60), FpyValue(U32, 40)])
+    assert_run_success(
+        fprime_test_api, seq, args=[FpyValue(U32, 60), FpyValue(U32, 40)]
+    )
 
 
 def test_arg_value_in_if(fprime_test_api):
@@ -430,7 +443,8 @@ sequence(x: U32)
 assert x == 99
 """
     assert_run_failure(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         error_code=DirectiveErrorCode.EXIT_WITH_ERROR,
         args=[FpyValue(U32, 1)],
     )
@@ -445,7 +459,8 @@ assert b == 2
 assert c == 3
 """
     assert_run_success(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         args=[FpyValue(U32, 1), FpyValue(U32, 2), FpyValue(U32, 3)],
     )
 
@@ -488,7 +503,8 @@ assert x == 10
 assert y == 20
 """
     assert_run_success(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         args=[FpyValue(U32, 10), FpyValue(U32, 20)],
     )
 
@@ -519,7 +535,8 @@ assert flags.assert_cmd_success == False
 flags.assert_cmd_success = True
 """
     assert_run_success(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         args=[FpyValue(U32, 3), FpyValue(U32, 4)],
     )
 
@@ -563,7 +580,8 @@ assert a == 99
 assert b == 2
 """
     assert_run_success(
-        fprime_test_api, seq,
+        fprime_test_api,
+        seq,
         args=[FpyValue(U32, 1), FpyValue(U32, 2)],
     )
 

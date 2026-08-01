@@ -19,7 +19,7 @@ Fpy has a few principles:
 
 >*The art of making a good language is to restrict the user in a good way* 
 >
-> – Andrey Breslav, creator of Kotlin
+> -- Andrey Breslav, creator of Kotlin
 
 ## Overview
 
@@ -286,14 +286,16 @@ if CdhCore.cmdDisp.CommandsDispatched >= 1:
 ## Check statement
 
 A `check` statement is like an [`if`](#ifelifelse), but its condition has to hold true (or "persist") for some amount of time.
+
+Every `check` must have a `timeout` clause saying how long it is willing to wait. Use `timeout never` to wait forever:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 persist {seconds: 15}:
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never persist {seconds: 15}:
     log("more than 30 commands for 15 seconds!")
 ```
 
 If you don't specify a value for `persist`, the condition only has to be true once.
 
-You can specify a `timeout`: a `Fw.TimeInterval` duration, measured from when the `check` is entered, after which the `check` gives up:
+Instead of `never`, you can give `timeout` a `Fw.TimeInterval` duration, measured from when the `check` is entered, after which the `check` gives up:
 ```py
 check CdhCore.cmdDisp.CommandsDispatched > 30 timeout {seconds: 60} persist {seconds: 2}:
     log("more than 30 commands for 2 seconds!")
@@ -309,7 +311,7 @@ timeout:
 
 Finally, you can specify a `period` at which the condition should be checked:
 ```py
-check CdhCore.cmdDisp.CommandsDispatched > 30 period {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never period {seconds: 1}: # check every 1 second
     log("more than 30 commands!")
 ```
 
@@ -613,6 +615,66 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
+## Imports
+
+You can import sequences, but the sequence you're importing must only contain functions or other imports:
+```py
+# helper_lib.fpy
+
+def add_two(a: U64, b: U64) -> U64:
+    return a + b
+
+# underscore prefix denotes a library-internal function, warns if imported
+def _plus_one(a: U64) -> U64:
+    return a + 1
+```
+
+```py
+# main_seq.fpy
+import helper_lib
+
+
+assert helper_lib.add_two(1, 2) == 3
+```
+
+You can optionally add an alias:
+```py
+import helper_lib as aliased
+assert aliased.add_two(1, 2) == 3
+```
+
+Alternatively, you can pick specific functions to import:
+```py
+from helper_lib import (
+    add_two as helper_add_two, # optional `as` alias
+    _plus_one # <-- this warns because it starts with an underscore
+)
+
+assert helper_add_two(1, 2) == 3
+assert _plus_one(1) == 2
+```
+
+Or you can import all functions at once:
+```py
+# this doesn't import functions whose names begin with an underscore
+from helper_lib import *
+
+assert add_two(1, 2) == 3
+```
+
+You can specify paths to search for imports with the `-i/--imports` argument, which can be passed more than once.
+
+If you want to specify a path relative to the file you're writing the import statement in, you can prefix the import path with a dot:
+```py
+# search for helper lib in the script's directory
+from .helper_lib import add_two
+```
+
+Each dot you add goes up a directory level before beginning the search:
+```py
+from ...parent.dir.helper_lib import add_two
+```
+
 ## Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
@@ -621,40 +683,49 @@ Fpy does not support a fully-fledged `string` type yet. You can pass a string li
 
 # Developer's Guide
 
-## Workflow
+## Setup and workflow
 
-1. Make a venv
-2. `pip install -e .`
+This project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
+
+1. `uv sync` (creates `.venv` and installs all dependencies, including dev tools)
+2. `uv run pre-commit install` (one-time: installs the git pre-commit hooks)
 3. Make changes to the source
-4. `pytest`
+4. Run the test suite. See [Running tests](#running-tests) (some tests have additional setup requirements).
 
-## Running on a test F Prime deployment
+### Pre-commit hooks
 
-1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
-2. `cd fprime-fpy-testbed`
-3. `git submodule update --init --recursive`
-4. Make a venv, install fprime requirements
-5. `cd Ref`
-6. `fprime-util generate -f`
-7. `fprime-util build -j16`
-8. `fprime-gds`. You should see a green circle in the top right.
-9. In the `fpy` repo, `pytest --use-gds --dictionary test/fpy/RefTopologyDictionary.json test/fpy/test_seqs.py` will run all of the test sequences against the live GDS deployment.
+The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git commit` once installed:
+
+* **black** formats the staged Python files.
+
+You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 
 ## Tools
 
-### `fprime-fpyc` debugging flags
-The compiler has an optional `debug` flag. When passed, the compiler will print a stack trace of where each compile error is generated.
 
+### `fprime-fpyc`
 
-The compiler has an optional `bytecode` flag. When passed, the compiler will output human-readable `.fpybc` files instead of `.bin` files.
+The compiler. Flags worth knowing:
+
+* `--emit {fpybin,fpyasm,llvm-ir,wasm,wat}`: output format. Defaults to `fpybin` (binary fpy bytecode); `fpyasm` emits human-readable bytecode assembly, and `llvm-ir`/`wasm`/`wat` emit the LLVM/WebAssembly backend outputs.
+* `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
+* `--debug`: print a stack trace of where each compile error is generated.
 
 ### `fprime-fpy-model`
 
-`fprime-fpy-model` is a Python model of the `FpySequencer` runtime. 
+`fprime-fpy-model` is a Python model of the `FpySequencer` runtime.
 * Given a sequence binary file, it deserializes and runs the sequence as if it were running on a real `FpySequencer`.
 * Commands always return successfully, without blocking.
 * Telemetry and parameter access always raise `(PR|TL)M_CHAN_NOT_FOUND`.
-* Use `--debug` to print each directive and the stack as it executes.
+* Pass `--debug` to print each directive and the stack as it executes. Sequences that take arguments need `--args HEX` and `--dictionary`.
+
+### `fprime-fpy-cmd`
+
+Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead.
+
+### `fprime-fpy-depend`
+
+Prints the sequence dependencies (referenced `.bin` files) of an `.fpy` source file, one per line. Useful for build systems.
 
 ### `fprime-fpy-asm`
 
@@ -675,3 +746,36 @@ By default, debug output from the sequencer model is disabled for performance. T
 ```sh
 pytest test/ --fpy-debug
 ```
+
+### `--wasm`
+
+By default, tests compile sequences to fpy bytecode and run them on the Python model of the `FpySequencer` VM. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and executed through the NASA spacewasm runtime.
+
+```sh
+pytest test/ --wasm
+```
+
+Requirements for the wasm backend:
+
+* The spacewasm submodule must be checked out: `git submodule update --init test/spacewasm`
+* A Rust toolchain, version 1.85 or newer (spacewasm is edition 2024). Install via [rustup](https://rustup.rs) and update with `rustup update`.
+
+The spacewasm runner harness (`test/spacewasm_runner`) is built automatically with `cargo build --release` at the start of the test session; the first run is slower because of this build.
+
+Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
+
+### `--use-gds`
+
+By default, tests run against the Python model of the sequencer. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
+
+### Running on a test F Prime deployment
+
+1. `git clone git@github.com:zimri-leisher/fprime-fpy-testbed`
+2. `cd fprime-fpy-testbed`
+3. `git submodule update --init --recursive`
+4. Make a venv, install fprime requirements
+5. `cd Ref`
+6. `fprime-util generate -f`
+7. `fprime-util build -j16`
+8. `fprime-gds`. You should see a green circle in the top right.
+9. In the `fpy` repo, `pytest --use-gds --dictionary test/fpy/RefTopologyDictionary.json` will run all of the test sequences against the live GDS deployment. It will take several minutes.

@@ -38,27 +38,49 @@ from fpy.syntax import (
 FwChanIdType = FpyType(TypeKind.U32, "U32")
 FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
+FwIndexType = FpyType(TypeKind.I16, "I16")
+
+# write_to_port's port param type; matched by name+kind, constants come from the dictionary at compile time.
+SerialPortIndex = FpyType(TypeKind.ENUM, "Svc.Fpy.SerialPortIndex", enum_dict={}, rep_type=U8)
 
 
 ArrayIndexType = I64
 StackSizeType = U32
 SignedStackSizeType = I32
 LoopVarType = I64  # same as ArrayIndexType
+# The type an exit/assert error code is coerced to (0 == success). Also the type
+# the LLVM/wasm entry point returns and that the fpy_exit host import takes.
+ErrorCodeType = I32
 
 
 def _update_configurable_type(
     target: FpyType, type_defs: dict[str, FpyType], name: str
 ) -> None:
-    """Update *target* in place to match the dictionary's definition of *name*.
-    """
+    """Update *target* in place to match the dictionary's definition of *name*."""
     if name not in type_defs:
         return
     resolved = type_defs[name]
-    assert resolved.is_primitive, (
-        f"Configurable type {name} must resolve to a primitive, got {resolved}"
+    assert (
+        resolved.is_primitive
+    ), f"Configurable type {name} must resolve to a primitive, got {resolved}"
+    target.kind = resolved.kind
+    target.name = resolved.name
+
+
+def _update_configurable_enum(
+    target: FpyType, type_defs: dict[str, FpyType], name: str
+) -> None:
+    """Update *target* enum in place from the dictionary; leave placeholder if absent."""
+    if name not in type_defs:
+        return
+    resolved = type_defs[name]
+    assert resolved.kind == TypeKind.ENUM, (
+        f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
     )
     target.kind = resolved.kind
     target.name = resolved.name
+    target.enum_dict = resolved.enum_dict
+    target.rep_type = resolved.rep_type
 
 
 def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
@@ -66,12 +88,15 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     _update_configurable_type(FwChanIdType, type_defs, "FwChanIdType")
     _update_configurable_type(FwPrmIdType, type_defs, "FwPrmIdType")
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
+    _update_configurable_type(FwIndexType, type_defs, "FwIndexType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+    _update_configurable_enum(SerialPortIndex, type_defs, "Svc.Fpy.SerialPortIndex")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DirectiveId enum
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class DirectiveId(Enum):
     INVALID = 0
@@ -172,6 +197,10 @@ class DirectiveId(Enum):
     POP_EVENT = 75
     SET_SEED = 76
     PUSH_RAND = 77
+    POP_SERIALIZABLE = 78
+    FFLOOR = 79
+    IABS = 80
+    FABS = 81
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -205,9 +234,9 @@ class Directive:
 
             # Look up the FpyType for this field and serialize
             fpy_type = self._FIELD_TYPES.get(f.name)
-            assert fpy_type is not None, (
-                f"No type mapping for field {f.name} in {type(self).__name__}"
-            )
+            assert (
+                fpy_type is not None
+            ), f"No type mapping for field {f.name} in {type(self).__name__}"
             output += FpyValue(fpy_type, value).serialize()
 
         return output
@@ -263,6 +292,7 @@ class Directive:
 @dataclass
 class StackOpDirective(Directive):
     """Base for directives that operate on the expression stack."""
+
     pass
 
 
@@ -401,6 +431,17 @@ class ConstCmdDirective(Directive):
 class PopEventDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.POP_EVENT
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
+
+
+@dataclass
+class PopSerializableDirective(Directive):
+    opcode: ClassVar[DirectiveId] = DirectiveId.POP_SERIALIZABLE
+    portIndex: int
+    size: int
+    _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {
+        "portIndex": FwIndexType,
+        "size": StackSizeType,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -645,6 +686,32 @@ class FloatExtendDirective(StackOpDirective):
 
 
 @dataclass
+class FloatFloorDirective(StackOpDirective):
+    """Floor an F64 toward -inf (IEEE 754 roundToIntegralTowardNegative; used to
+    lower float `//`). +-0, +-inf and NaN pass through; the sign of zero is
+    preserved. A NaN result is a quiet NaN with unspecified sign and payload."""
+
+    opcode: ClassVar[DirectiveId] = DirectiveId.FFLOOR
+
+
+@dataclass
+class IntAbsDirective(StackOpDirective):
+    """Absolute value of a signed I64. abs(I64 min) is not representable in
+    I64 and raises ARITHMETIC_OVERFLOW."""
+
+    opcode: ClassVar[DirectiveId] = DirectiveId.IABS
+
+
+@dataclass
+class FloatAbsDirective(StackOpDirective):
+    """Absolute value of an F64: clears the sign bit, changes nothing else
+    (IEEE 754 abs, matching llvm.fabs). NaN payload and signaling bit are
+    preserved; never raises an error or floating-point exception."""
+
+    opcode: ClassVar[DirectiveId] = DirectiveId.FABS
+
+
+@dataclass
 class FloatToSignedIntDirective(StackOpDirective):
     opcode: ClassVar[DirectiveId] = DirectiveId.FPTOSI
 
@@ -703,6 +770,7 @@ class PushRandDirective(Directive):
 @dataclass
 class SetSeedDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.SET_SEED
+
 
 @dataclass
 class CallDirective(Directive):

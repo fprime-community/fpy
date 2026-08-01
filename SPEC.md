@@ -44,6 +44,7 @@ The list of reserved words is:
 * `def`
 * `for`
 * `if`
+* `import`
 * `not`
 * `pass`
 * `return`
@@ -54,7 +55,7 @@ The list of reserved words is:
 A **symbol** is a language construct that can be referred to by a name in the program. 
 
 The following language constructs may be symbols:
-* [namespaces](#namespaces)
+* [modules](#modules)
 * [variables](#variables)
 * [callables](#callables)
 * [types](#types)
@@ -88,7 +89,7 @@ The list of name groups is:
 * The **[type](#types) name group**
 * The **[callable](#callables) name group**
 
-Each name group only contains names which map to their particular language construct, or namespaces with the same property, recursively.
+Each name group only contains names which map to their particular language construct, or modules with the same property, recursively.
 TODO Maybe could remove this line
 
 TODO explain why we need this
@@ -109,9 +110,17 @@ TODO Does it refer to something that has a scope, or does it refer to something 
 
 The **resolving name group** is the name group that a name should be resolved in, based on its syntactic context.
 
-## Namespaces
+## Shadowing
 
-A **namespace** is a mapping of names to symbols, associated with a name.
+A [definition](#definitions) **shadows** an outer name when it introduces a name into its [resolving scope](#scopes)'s [name group](#name-groups) that is *not* already defined in that scope, but *does* resolve to a symbol in an enclosing scope's same name group.
+
+Each shadowing definition emits a warning named for the name group it shadows:
+* Shadowing a name in the [value name group](#name-groups) emits the `shadow-value` warning.
+* Shadowing a name in the [callable name group](#name-groups) emits the `shadow-callable` warning.
+
+## Modules
+
+A **module** is a mapping of names to symbols, associated with a name.
 
 ## Qualified names
 
@@ -128,29 +137,31 @@ To resolve a qualified name in a name group:
 2. Otherwise:
     1. Resolve the qualifier.
     2. If the qualifier is an expression, resolution is handled by the rules of [member access](#member-access-expression).
-    3. If the qualifier is not a namespace, an error is raised.
-    4. Resolve the name in the qualifier namespace.
+    3. If the qualifier is not a module, an error is raised.
+    4. Resolve the name in the qualifier module.
 
 If at any point a name fails to be resolved, an error is raised, unless otherwise specified.
 
 A **fully-qualified name** is a qualified name which is not itself a qualifier.
 TODO names are semantic, ident is syntactic
 TODO you can't actually tell at syntax level what is a fqn
-If a fully-qualified name resolves to a namespace, an error is raised.
+If a fully-qualified name resolves to a module, an error is raised.
+
 TODO you can think of the dict as "importing definitions"
 
 
-> Namespace symbols cannot be used anywhere, so this forces names to resolve to something "useful"
+> Module symbols cannot be used anywhere, so this forces names to resolve to something "useful"
 
 TODO I'm not sure this is clear what this means. The idea here is that the full qualified name should always reference SOMETHING--cannot just put Svc in place of a type, even though Svc does resolve in type name group and global scope.
 
 ## Definitions
 
-A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as apart of a [scope](#scopes) and [name group](#name-groups).
+A **definition** is a language construct that introduces a name-to-[symbol](#symbols) mapping as a part of a [scope](#scopes) and [name group](#name-groups).
 
 The list of definitions is:
 * [Variable definitions](#variable-definition)
 * [Function definitions](#function-definition)
+* Directory and sequence definitions, associated with names by [import statements](#imports)
 
 # Variables
 
@@ -179,9 +190,11 @@ Name:
 
 ### Semantics
 
-If `lhs` resolves to a previously-defined symbol, an error is raised.
+If `lhs` is already defined in the resolving scope's [value name group](#name-groups), an error is raised.
 
-> This prevents redefining a variable.
+> This prevents redefining a variable in the same scope.
+
+If `lhs` is not defined in the resolving scope, but resolves to a symbol in an enclosing scope's value name group, the definition [shadows](#shadowing) that outer name, and emits the `shadow-value` warning.
 
 If `rhs` cannot be coerced to type `type_ann`, an error is raised.
 
@@ -296,6 +309,25 @@ At execution:
 
 The value of the variable is unchanged except for the element.
 
+## Augmented assignment
+
+An **augmented assignment statement** combines a [binary operator](#binary-operator-expressions) with an assignment.
+
+### Syntax
+Rule:
+
+`aug_assign_stmt: expr AUG_ASSIGN_OP expr`
+
+`AUG_ASSIGN_OP: "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "//="`
+
+Name:
+
+`aug_assign_stmt: lhs op rhs`
+
+### Semantics
+
+The statement `lhs op= rhs` is rewritten into `lhs = lhs op rhs` before semantic analysis. All rules of [variable assignment](#variable-assignment), [member assignment](#member-assignment) and [element assignment](#element-assignment), as well as those of the [binary operator](#binary-operator-expressions) `op`, apply to the rewritten form.
+
 ## Variable evaluation
 
 The value produced by [evaluating](#expressions) a variable is the value most recently assigned to that variable, or the initial value if it has only been defined.
@@ -383,7 +415,11 @@ The parameter `name`s are resolved in the value name group.
 
 ### Semantics
 
-If `name` resolves to a previously-defined callable, an error is raised.
+If `name` is already defined in the resolving scope's [callable name group](#name-groups), an error is raised.
+
+> This prevents redefining a function in the same scope.
+
+If `name` is not defined in the resolving scope, but resolves to a callable in an enclosing scope's callable name group, the definition [shadows](#shadowing) that outer callable, and emits the `shadow-callable` warning.
 
 A new function [scope](#scopes) is created, accessible to the `body` and the parameter `name`s.
 
@@ -585,29 +621,37 @@ Rule:
 
 `check_stmt: "check" expr check_clause* ":" stmt_list ["timeout" ":" stmt_list]`
 
-`check_clause: "timeout" expr | "persist" expr | "freq" expr`
+`check_clause: "timeout" timeout_value | "persist" expr | "freq" expr`
 
-The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause).
+`timeout_value: expr | "never"`
+
+The clauses can appear in any order, and can be spread across multiple indented lines (with the colon after the last clause). Exactly one `timeout` clause is required.
 
 Name:
 
 `check_stmt: "check" condition "timeout" timeout "persist" persist "freq" freq ":" body "timeout" ":" timeout_body`
 
-`condition`, `timeout`, `persist`, and `freq` are resolved in the value name group.
+`condition`, `persist`, and `freq` are resolved in the value name group. `timeout` is either resolved in the value name group or is the keyword `never`.
 
 ## Semantics
 
 If `condition` cannot be [coerced](#type-coercion) to [`bool`](#boolean-type), an error is raised.
 
-If `timeout` is provided, and cannot be coerced to [`Fw.Time`](todo), an error is raised.
+A `timeout` clause is required. If no `timeout` clause is provided, an error is raised. This forces the author to make an explicit choice about how long the check may run.
+
+The `timeout` clause is either an expression or the keyword `never`:
+* If it is an expression, and it cannot be coerced to [`Fw.TimeIntervalValue`](todo), an error is raised. The expression is a relative interval, measured from the moment the check is entered.
+* If it is `never`, the check never times out.
+
+If `timeout` is `never` and a `timeout_body` is provided, the `unreachable-timeout-body` warning is emitted.
 
 If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeIntervalValue`](todo), an error is raised.
 
 At execution:
-1. If provided, `timeout`, `persist` and `freq` are evaluated and stored.
+1. `persist` and `freq` are evaluated and stored. If `timeout` is not `never`, it is evaluated as a relative interval and the timeout deadline is stored as that interval added to the current time.
 2. If `persist` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
 3. If `freq` is not provided, its stored value is a one-second `Fw.TimeIntervalValue`.
-4. If `timeout` was provided and the current time is [greater](todo) than `timeout`'s stored value, the check times out.
+4. If `timeout` is not `never` and the current time is [greater](todo) than the stored timeout deadline, the check times out.
 5. Evaluate `condition`.
 6. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.
 7. Otherwise, [sleep](todo) for `freq`'s stored duration.
@@ -618,9 +662,124 @@ If the check times out during execution:
 2. Execution continues after the check statement.
 
 > Not providing `persist`, or providing a zero-duration `persist`, means the `condition` only needs to evaluate to `True` once.
-> The timeout defaults to never, and the frequency defaults to once per second.
+> A `timeout` of `never` means the check runs until `condition` persists, however long that takes.
+> The frequency defaults to once per second.
 
 If at any point during execution, two times which are [incomparable](todo) are attempted to be compared, the check statement will halt the program as if by an [assertion](#assert-statement), and display an error code.
+
+# Imports
+
+An **import statement** makes another sequence's [function definitions](#function-definition) available in the importing sequence.
+
+## Syntax
+
+Rule:
+
+`import_stmt: import_direct | import_from`
+`import_direct: "import" "."* name ("." name)* ["as" name]`
+`import_from: "from" "."* name ("." name)* "import" ("*" | import_members | "(" import_members [","] ")")`
+`import_members: name ["as" name] ("," name ["as" name])*`
+
+Name:
+
+`import_direct: "import" [dots] import_path ["as" alias]`
+`import_from: "from" [dots] import_path "import" ("*" | members | "(" members [","] ")")`
+`members: member ["as" alias] ("," member ["as" alias])*`
+`dots: "."+`
+
+In the parenthesized form, the member list may span multiple lines.
+
+An import statement is only valid outside an indentation block.
+
+An import statement with one or more leading dots is a **relative import statement**, otherwise it is an **absolute import statement**.
+
+> Unlike Python, `import .util` is valid and `from . import util` is not.
+
+If the `import_from` syntax is used, the import statement is an **import-from statement**. If the `*` syntax is used in an import-from statement, it is an **import-star statement**.
+
+If the `import_direct` syntax is used, it is a **direct import statement**.
+
+## Semantics
+
+### Constructing the AST
+
+Let the **main sequence** refer to the sequence defined by the input file the user passes into the compiler.
+
+For each import statement in the AST, including statements added by this process:
+
+1. The import path must [resolve](#import-path-resolution) to a [sequence definition](#file-system-definitions) D, otherwise an error is raised.
+
+2. If D has previously been included in the program's AST, or if its sequence is the main sequence, skip it.
+
+3. Otherwise, D is lexed and parsed according to this specification, producing a new block B.
+
+4. If B has top-level statements which may have side effects, an error is raised.
+
+5. B is included in the program's AST as a sibling of the main sequence's block.
+
+A sequence metadata statement with one or more formal parameters is a statement which may have side effects.
+
+> Cyclical imports are allowed. This is not an issue because import statements cannot have side effects.
+
+#### File system definitions
+
+The **import directories** are an ordered list of absolute paths of directories provided by the environment in which the compiler is invoked.
+> In the command-line compiler, the import directories are passed with `-i`/`--imports`.
+
+Files and directories are definitions:
+* Each file whose name is of the form `<name>.fpy` is a **sequence definition** with name `name`. Its sequence is the sequence the file defines.
+* Each directory is a **directory definition** with the directory's name.
+
+Import paths that resolve to the same file or directory refer to the same definition. Different files or directories are different definitions, whatever their names.
+
+The file system is read only as resolution requires it: an error -- such as a directory containing two definitions with one name -- is raised only when resolution encounters it.
+
+#### Import path resolution
+
+Import path resolution is the process by which the qualified identifier `import_path` is resolved to a definition.
+
+Relative import statements have an **anchor directory**, which is the Nth parent directory of the absolute path of the sequence file containing the statement, where N is the number of dots preceding `import_path`. If the sequence was not read from a file, or if there is no Nth parent directory, an error is raised.
+
+In a directory D, an identifier I refers to the definition in D named I. If D contains two definitions named I (a sequence file and a subdirectory of one name), an error is raised.
+
+If the import statement is an absolute import statement, resolution of I is attempted in each import directory in order until it succeeds. If I cannot be resolved in any import directory, an error is raised.
+
+If the import statement is a relative import statement, resolution of I is attempted in the anchor directory. An error is raised if I cannot be resolved.
+
+To resolve qualified identifier Q.I:
+1. Recursively resolve Q.
+2. If Q refers to a directory definition, resolution of I is attempted in its directory. An error is raised if I could not be resolved.
+3. Otherwise, Q refers to a sequence definition, and an error is raised.
+
+These rules are applied to `import_path`. It must refer to a sequence definition; if it refers to a directory definition, an error is raised.
+
+> Unlike Python, an import path cannot reach inside a sequence: `import lib.func` is an error. Write `from lib import func`.
+
+### Binding
+
+The **importing sequence** is the sequence containing the import statement; the **importing scope** is its scope.
+
+An import statement associates one or more qualified names with definitions in the importing scope.
+
+Associating a name with a definition it is already associated with changes nothing. Associating a name with a definition different from the one it is associated with is an error.
+
+The **imported sequence definition** is the sequence definition the import statement's import path refers to; the **imported sequence** is its sequence.
+
+For an import-star statement:
+For each definition D with name N in the imported sequence's scope:
+1. If N begins with an underscore, skip it.
+2. Otherwise, associate N with D in the importing scope.
+
+For other import-from statements:
+For each member with name N and optional alias A in the `members` list:
+1. If there is no definition named N in the imported sequence's scope, an error is raised.
+2. Otherwise, let D be that definition.
+3. If the optional alias A is provided, associate A with D in the importing scope.
+4. Otherwise, associate N with D in the importing scope.
+
+Otherwise, the import statement is a direct import statement. Let D be the imported sequence definition:
+1. If the optional alias A is provided, A is associated with D in the importing scope.
+2. Otherwise, `import_path` is the qualified name of D in the importing sequence: each proper, non-empty prefix of `import_path` is associated with the directory definition it refers to, and `import_path` is associated with D.
 
 # Callables
 
@@ -722,17 +881,22 @@ TODO this really should be linked to the FpySequencer spec to say exactly where 
 `iabs(value: I64) -> I64`
 
 #### Semantics
-At evaluation, the function call evaluates to the absolute value of `value`.
+At evaluation, the function call evaluates to the mathematical absolute value of `value`: `value` if `value >= 0`, and its negation otherwise.
 
-TODO specify what happens if the abs value is outside of i64
+The absolute value of `I64` min (`-2**63`) is not representable in `I64`, so `iabs(-2**63)` raises a runtime error. For every other value, `iabs` does not raise an error.
 
 ### `fabs`
 #### Signature
 `fabs(value: F64) -> F64`
 
 #### Semantics
-At evaluation, the function call evaluates to the absolute value of `value`.
-TODO specify what happens if the abs value is outside of i64
+At evaluation, the function call evaluates to `value` with its sign bit cleared (the IEEE 754 `abs` operation). No bits other than the sign bit change:
+
+* `fabs(-0.0)` evaluates to `0.0`.
+* `fabs(-inf)` evaluates to `inf`.
+* A NaN remains a NaN with the same payload and signaling bit; only its sign bit is cleared.
+
+`fabs` never raises an error or floating-point exception.
 
 ## Builtin libraries
 
@@ -1009,7 +1173,7 @@ Name:
 
 If `parent` is not an expression, an error is raised.
 
-> Namespaces, types names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
+> Modules, type names, and function names are valid expressions syntactically, but not semantically. Thus, trying to access a member of either of these symbols will raise an error.
 
 If the type of `parent` is not a [struct](#structs), an error is raised.
 
@@ -1108,10 +1272,20 @@ These operators require numeric operands and produce a result in the chosen inte
 Both operands are promoted to `F64`, and the result is always an `F64`. This means you must explicitly cast the result to store it in an integer type.
 
 #### Floor division semantics
-With integer operands, `//` performs truncating division using the signed or unsigned divide directive. If either operand is a float, the compiler divides in `F64`, converts the quotient to a signed 64-bit integer (which truncates toward zero), and converts back to `F64`, so floating-point floor division also truncates toward zero.
+The floor division operator is `//`. It requires numeric operands and rounds the quotient toward negative infinity (Python `//` semantics).
+
+With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
+
+If either operand is a float, both are promoted to `F64`. The quotient is computed by IEEE 754 division and then floored toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation):
+
+* An infinite or NaN quotient is unchanged. A NaN result is a quiet NaN; its sign and payload are unspecified.
+* A zero quotient is unchanged; the sign of zero is preserved, so a quotient of `-0.0` floors to `-0.0`.
+* Otherwise the result is the largest integral `F64` value not greater than the quotient: a quotient of `0.5` floors to `0.0`, and a quotient of `-0.5` floors to `-1.0`.
 
 ### Modulus semantics
-Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. For signed integers the remainder has the same sign as the dividend.
+Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. Signed integer and float modulo follow Python's floored semantics: a nonzero remainder has the same sign as the divisor. For floats, an exact-multiple result is a zero carrying the divisor's sign.
+
+An integer modulus with a zero divisor raises a runtime error (`DOMAIN_ERROR`). A float modulus with a zero divisor evaluates to NaN. `(-2**63) % -1` evaluates to `0`, the mathematical remainder.
 
 #### Exponentiation semantics
 Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.
@@ -1238,7 +1412,7 @@ In general, the rule of thumb is that coercion is allowed if the destination typ
     * Arbitrary-precision types (`Int`/`Float`) may coerce to any finite-width numeric type.
 If no rule matches, the compiler raises an error.
 
-Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination’s representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
+Compile-time constant floats (including literals and constant-folded expressions) can only be narrowed into a smaller floating-point type when the value lies inside the destination's representable range. When the value fits, the compiler rounds it to the nearest representable floating-point number; otherwise compilation fails with an out-of-range error.
 
 
 # Execution

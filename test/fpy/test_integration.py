@@ -1,5 +1,6 @@
 from fpy.model import DirectiveErrorCode
 from fpy.types import FpyValue, U32
+from fpy.error import WarningType
 
 from fpy.test_helpers import assert_run_success, assert_run_failure
 
@@ -140,7 +141,7 @@ def recurse(limit: U64):
 recurse(5) # prints "tick" 5 times
 
 
-check CdhCore.cmdDisp.CommandsDispatched > 1 persist {seconds: 1}:
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout never persist {seconds: 1}:
     log("more than 30 commands for 15 seconds!")
 check CdhCore.cmdDisp.CommandsDispatched > 1 timeout {seconds: 60} persist {seconds: 1}:
     log("more than 30 commands for 2 seconds!")
@@ -148,7 +149,7 @@ check CdhCore.cmdDisp.CommandsDispatched > 1 timeout {seconds: 60} persist {seco
     log("more than 30 commands for 2 seconds!")
 timeout:
     log("took more than 60 seconds :(")
-check CdhCore.cmdDisp.CommandsDispatched > 1 period {seconds: 1}: # check every 1 second
+check CdhCore.cmdDisp.CommandsDispatched > 1 timeout never period {seconds: 1}: # check every 1 second
     log("more than 30 commands!")
 check CdhCore.cmdDisp.CommandsDispatched > 1
     timeout {seconds: 60}
@@ -209,11 +210,14 @@ log("uh oh", Fw.LogSeverity.WARNING_HI)
 assert 1 > 0
 exit(0)
 """
+        # The example intentionally re-declares `i` as a loop variable over an
+        # existing global `i`, which shadows it (shadow-value).
         assert_run_success(
             fprime_test_api,
             seq,
             {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
-            timeout_s=20
+            timeout_s=20,
+            expected_warnings={WarningType.SHADOW_VALUE},
         )
 
     def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
@@ -223,5 +227,7 @@ Ref.cmdSeq0.RUN("", Svc.BlockState.NO_BLOCK)
 # sequence exits with an error
 """
         assert_run_failure(
-            fprime_test_api, seq, DirectiveErrorCode.CMD_FAIL,
+            fprime_test_api,
+            seq,
+            DirectiveErrorCode.CMD_FAIL,
         )
