@@ -18,16 +18,18 @@ from llvmlite import ir
 import llvmlite.binding as llvm
 
 from fpy.codegen_llvm import (
-    ERROR_CODE_TYPE,
     FPY_ENTRY_POINT,
-    HOST_EXIT_FUNC_NAME,
     LLVM_CPU,
     LLVM_TRIPLE,
     EmitLlvmExpr,
     GenerateLlvmModule,
-    declare_host_imports,
     llvm_module_to_wasm,
     _ensure_llvm_targets,
+)
+from fpy.wasm_host import (
+    ERROR_CODE_TYPE,
+    HOST_EXIT_FUNC_NAME,
+    declare_host_imports,
 )
 from fpy.compiler import analyze_ast, text_to_ast
 from fpy.dictionary import load_dictionary

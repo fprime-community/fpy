@@ -41,7 +41,7 @@ from fpy.syntax import (
     COMPARISON_OPS,
     UnaryStackOp,
 )
-from fpy.bytecode.directives import ErrorCodeType, FwOpcodeType
+from fpy.bytecode.directives import FwOpcodeType
 from fpy.semantics import is_cmd_and_response_unhandled
 import fpy.types
 from fpy.types import (
@@ -54,6 +54,13 @@ from fpy.types import (
     is_instance_compat,
 )
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
+from fpy.wasm_host import (
+    ERROR_CODE_TYPE,
+    HOST_CMD_FUNC_NAME,
+    HOST_EXIT_FUNC_NAME,
+    HOST_FAULT_FUNC_NAME,
+    declare_host_imports,
+)
 
 LLVM_TRIPLE = "wasm32-unknown-unknown"
 
@@ -64,46 +71,6 @@ WASM_VERSION = "1.0 (MVP)"
 # TODO enable custom page sizes
 # TODO strip custom sections from the wasm / optimize for size (wasm-opt)?
 # TODO could just start with a .a and a header??
-
-ERROR_CODE_TYPE = ErrorCodeType.llvm_type
-
-HOST_EXIT_FUNC_NAME = "exit"
-HOST_FAULT_FUNC_NAME = "fault"
-HOST_EVENT_FUNC_NAME = "event"
-HOST_CMD_FUNC_NAME = "cmd"
-
-
-def declare_host_imports(module: ir.Module) -> None:
-    """Declare the full expected host interface on *module*; emit sites look
-    the functions up in ``module.globals``."""
-    # Everything the backend imports itself lives under the wasm module
-    # "fprime", the interface the flight sequencer registers. The float
-    # libcalls (env.pow/fmod/log) are deliberately absent: LLVM materializes
-    # those itself when lowering llvm.pow/llvm.log/frem, and they stay under
-    # wasm-ld's default import module "env".
-    terminator_type = ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
-    event_type = ir.FunctionType(
-        ir.VoidType(),
-        [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
-    )
-    cmd_type = ir.FunctionType(
-        ir.IntType(32),
-        [ir.IntType(8).as_pointer(), ir.IntType(32)],
-    )
-    for name, fn_type, noreturn in (
-        (HOST_EXIT_FUNC_NAME, terminator_type, True),
-        (HOST_FAULT_FUNC_NAME, terminator_type, True),
-        (HOST_EVENT_FUNC_NAME, event_type, False),
-        (HOST_CMD_FUNC_NAME, cmd_type, False),
-    ):
-        fn = ir.Function(module, fn_type, name=name)
-        if noreturn:
-            # exit/fault never return to wasm (the host unwinds the
-            # interpreter); noreturn lets LLVM drop the dead code after them.
-            fn.attributes.add("noreturn")
-        # llvmlite's attribute set only knows enum attributes; bypass its
-        # allowlist to attach the string-valued one.
-        set.add(fn.attributes, '"wasm-import-module"="fprime"')
 
 
 class EmitLlvmExpr(Emitter):
@@ -122,6 +89,14 @@ class EmitLlvmExpr(Emitter):
     def emit(self, node, state: CompileState) -> ir.Value:
         value = state.const_expr_values.get(node)
         if value is not None:
+            if not value.type.is_concrete:
+                # Only a bare expression statement leaves a constant at an
+                # abstract type (Integer/Float/InternalString/anon literal):
+                # every other position coerces its expression to a concrete
+                # contextual type. An abstract value has no machine
+                # representation, and a constant is pure (const folding only
+                # folds pure expressions), so there is nothing to emit.
+                return None
             # Const values are stored at the node's contextual type already.
             return value.llvm_value
         emitter = self.emitters.get(type(node))
@@ -184,7 +159,7 @@ class EmitLlvmExpr(Emitter):
         if is_float:
             # IEEE `!=` is the negation of `==` and is therefore true when
             # either operand is NaN (une, wasm's f64.ne, Python's !=). Every
-            # other comparison is ordered: false on NaN, matching the VM.
+            # other comparison is ordered: false on NaN, like Python's.
             if op == "!=":
                 return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
@@ -204,7 +179,8 @@ class EmitLlvmExpr(Emitter):
     def _emit_floor_divide(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
     ) -> ir.Value:
-        """Emit `lhs // rhs`, flooring toward -inf (Python `//`, matching the VM).
+        """Emit `lhs // rhs`, flooring toward -inf (Python `//`; spec "Floor
+        division semantics").
 
         Floats floor the quotient directly via llvm.floor (a native f64.floor on
         wasm). Integer sdiv/udiv truncate toward zero, which differs from floor
@@ -217,12 +193,14 @@ class EmitLlvmExpr(Emitter):
             # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
             # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0. A zero
             # divisor needs no guard: float division is IEEE (inf/nan), and
-            # floor passes that through, matching the VM.
+            # floor passes that through ("an infinite or NaN quotient is
+            # unchanged" per the spec).
             quotient = b.fdiv(lhs, rhs)
             floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
-        # wasm's integer div instructions trap uncatchably on a zero divisor;
-        # the VM reports DOMAIN_ERROR instead, so guard first.
+        # The spec makes an integer zero divisor a DOMAIN_ERROR fault; wasm's
+        # integer div instructions would instead trap uncatchably, so guard
+        # first.
         self._emit_zero_divisor_check(rhs, is_float=False)
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
@@ -254,8 +232,8 @@ class EmitLlvmExpr(Emitter):
     def _emit_modulo(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
     ) -> ir.Value:
-        """Emit `lhs % rhs` with the VM's *floored* semantics (Python `%`): the
-        result takes the sign of the divisor.
+        """Emit `lhs % rhs` with *floored* semantics (Python `%`; spec "Modulus
+        semantics"): the result takes the sign of the divisor.
 
         The IR remainder ops (srem/frem) are *truncated* -- the result takes the
         sign of the dividend -- so we correct it by adding the divisor back when
@@ -263,10 +241,10 @@ class EmitLlvmExpr(Emitter):
         lowers to an fmod libcall on wasm, hence the imported env.fmod.)
         """
         b = self.builder
-        # A zero divisor is DOMAIN_ERROR in the VM for *every* modulo,
-        # including floats (unlike float division, which is IEEE): wasm's
-        # integer rem instructions would trap uncatchably, and the host fmod
-        # would return NaN, so guard first.
+        # The spec makes a zero divisor a DOMAIN_ERROR fault for *every*
+        # modulo, including floats (unlike float division, which is IEEE):
+        # wasm's integer rem instructions would trap uncatchably, and the
+        # host fmod would return NaN, so guard first.
         self._emit_zero_divisor_check(rhs, is_float)
         if not is_float and not is_signed:
             # Unsigned operands are non-negative, so floored == truncated.
@@ -289,8 +267,9 @@ class EmitLlvmExpr(Emitter):
         return b.select(b.and_(nonzero, signs_differ), corrected, rem)
 
     def _emit_zero_divisor_check(self, rhs: ir.Value, is_float: bool) -> None:
-        """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, matching the
-        VM. (fcmp `==` treats -0.0 as zero, like the VM's `rhs == 0.0`.)"""
+        """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, per the
+        spec's modulus and floor-division semantics. (fcmp `==` treats -0.0
+        as zero, so a -0.0 divisor faults too.)"""
         b = self.builder
         zero = ir.Constant(rhs.type, 0)
         # A hardware float compare of a NaN operand against anything has no
@@ -300,9 +279,9 @@ class EmitLlvmExpr(Emitter):
         # answer true. Concretely, with rhs = NaN:
         #   fcmp_ordered("==", NaN, 0.0)   -> false  (what we want: no fault)
         #   fcmp_unordered("==", NaN, 0.0) -> true   (would fault on NaN!)
-        # A NaN divisor must not fault here because the VM doesn't: Python's
-        # `NaN == 0.0` is false, so the VM skips DOMAIN_ERROR and computes
-        # `lhs % nan` == nan -- and nan is exactly what frem/fmod return too.
+        # A NaN divisor must not fault here: the spec faults only a *zero*
+        # divisor and defines `lhs % nan` as nan -- which is exactly what
+        # frem/fmod return.
         # On the int side, signedness doesn't exist for equality: LLVM has a
         # single `icmp eq` (signed/unsigned variants exist only for order
         # predicates like slt/ult), so icmp_signed("==") and
@@ -367,8 +346,7 @@ class EmitLlvmExpr(Emitter):
             return b.not_(val)
 
         # The only remaining unary op is `-x`: float negation, or 0 - x for
-        # integers (matching the VM, which multiplies by -1; sub is the simpler
-        # equivalent here).
+        # integers.
         assert node.op == UnaryStackOp.NEGATE, node.op
         if intermediate_type.is_float:
             return b.fneg(val)
@@ -387,97 +365,90 @@ class EmitLlvmExpr(Emitter):
             raise BackendError(
                 "LLVM backend can't read telemetry channels or parameters yet"
             )
-        if is_instance_compat(sym, VariableSymbol):
-            # a variable referenced by a qualified name
-            return self.builder.load(sym.llvm_ptr, name=node.attr)
-        # all other cases are FieldAccess
+        # A qualified name can't denote a variable (an imported sequence may
+        # not declare a top-level variable), so what remains is member access.
         assert is_instance_compat(sym, FieldAccess), sym
-        if is_instance_compat(sym.parent_expr, AstAnonStruct):
-            # degenerate case for field access.
-            # Member access on an anonymous struct literal: emit just the
-            # accessed member's expression (skip building the struct).
-            for name, value_expr in sym.parent_expr.members:
-                if name == node.attr:
-                    return self.emit(value_expr, state)
-            assert False, f"member {node.attr} not found in anon struct"
-        # all other cases of field access are done by calculating a ptr
-        # to the attr we want to read, and loading it
-        return self.builder.load(self._emit_ptr(node, state), name=node.attr)
+        if self._has_storage(node, state):
+            return self.builder.load(self._emit_ptr(node, state), name=node.attr)
+        # Member access on an anonymous struct literal: the struct is never
+        # built; emit just the accessed member's expression.
+        assert is_instance_compat(sym.parent_expr, AstAnonStruct), sym.parent_expr
+        for name, value_expr in sym.parent_expr.members:
+            if name == node.attr:
+                return self.emit(value_expr, state)
+        assert False, f"member {node.attr} not found in anon struct"
 
     def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
         assert is_instance_compat(sym, FieldAccess), sym
-        if is_instance_compat(node.parent, AstAnonArray):
-            # Element access on an anonymous array literal: the index must be
-            # a compile-time constant; emit just that element's expression.
-            idx_value = state.const_expr_values.get(node.item)
-            assert (
-                idx_value is not None
-            ), "Dynamic indexing on anonymous array literals is not supported"
-            idx = idx_value.val
-            assert 0 <= idx < len(node.parent.elements), f"Index {idx} out of bounds"
-            return self.emit(node.parent.elements[idx], state)
-        return self.builder.load(self._emit_ptr(node, state))
+        if self._has_storage(node, state):
+            return self.builder.load(self._emit_ptr(node, state))
+        # Element access on an anonymous array literal: the array is never
+        # built; the index must be a compile-time constant, so emit just that
+        # element's expression.
+        assert is_instance_compat(sym.parent_expr, AstAnonArray), sym.parent_expr
+        idx_value = state.const_expr_values.get(node.item)
+        assert (
+            idx_value is not None
+        ), "Dynamic indexing on anonymous array literals is not supported"
+        idx = idx_value.val
+        assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
+        return self.emit(sym.parent_expr.elements[idx], state)
 
-    def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
-        """Emit a pointer to the storage backing *expr*.
-
-        Variables point at their own slot (alloca/global); a field or element
-        access GEPs into its parent's storage, so reads and writes touch just
-        the one field rather than copying the whole aggregate (element
-        accesses bounds-check their index first, faulting with
-        ARRAY_OUT_OF_BOUNDS like the VM does). An expression with no backing
-        storage (e.g. a constant aggregate or an anonymous literal's member)
-        is materialized into a temporary stack slot, so a runtime index can
-        still address it.
-        """
-        b = self.builder
-        i32 = ir.IntType(32)
+    def _has_storage(self, expr: AstExpr, state: CompileState) -> bool:
+        """True when a pointer to *expr*'s value can address it in place:
+        *expr* is a variable (which has its own slot), or a member/element
+        access (which addresses part of its parent's storage). An access into
+        an anonymous literal is the exception: the literal is never built, so
+        the access reduces to the accessed member's own expression instead
+        (see emit_AstGetAttr/emit_AstIndexExpr)."""
         sym = state.resolved_symbols.get(expr)
         if is_instance_compat(sym, VariableSymbol):
-            return sym.llvm_ptr
-        if is_instance_compat(sym, FieldAccess) and not is_instance_compat(
+            return True
+        return is_instance_compat(sym, FieldAccess) and not is_instance_compat(
             sym.parent_expr, (AstAnonStruct, AstAnonArray)
-        ):
-            parent_ptr = self._emit_ptr(sym.parent_expr, state)
-            parent_type = state.contextual_types[sym.parent_expr]
-            if sym.is_struct_member:
-                # GEP computes a pointer to member i of the struct behind
-                # parent_ptr, taking one index per level it steps through.
-                # The first index is in units of the *pointee* type: GEP
-                # treats parent_ptr as pointing into an array of structs, and
-                # 0 selects the very struct it points at (k would mean "the
-                # k-th struct after it"). The second index then steps into
-                # that struct, selecting member i; struct indices must be
-                # constant i32s because each member has a different type, so
-                # the result type (ptr to that member's type) must be known
-                # statically.
-                # `inbounds` promises the optimizer the address stays inside
-                # the parent object, which a valid member index always does.
-                for i, member in enumerate(parent_type.members):
-                    if member.name == sym.name:
-                        return b.gep(
-                            parent_ptr,
-                            [ir.Constant(i32, 0), ir.Constant(i32, i)],
-                            inbounds=True,
-                            name=sym.name,
-                        )
-                assert False, (sym.name, parent_type)
-            assert sym.is_array_element, sym
-            idx = self.emit(sym.idx_expr, state)
-            self._emit_array_bounds_check(idx, parent_type.length)
-            return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
-        # *expr* has no addressable storage. Either it isn't a resolved
-        # access at all (e.g. a constructor call like Svc.ComQueueDepth(1, 2),
-        # whose value is a const aggregate), or it's a field access on an
-        # anonymous literal. The anon special cases in emit_AstGetAttr/
-        # emit_AstIndexExpr don't make the latter unreachable here: they only
-        # fire when the anon access is the expression being emitted *as a
-        # value*, while _emit_ptr also recurses through the parents of a
-        # longer chain -- e.g. lowering `{a: [1, 2]}.a[i]` needs a *pointer*
-        # to the `.a` member so the runtime index can GEP into it. Either
-        # way the value exists only as an SSA value, so materialize it into
-        # a temporary stack slot to give it an address.
+        )
+
+    def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
+        """Emit a pointer to *expr*'s value, without loading it."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        if not self._has_storage(expr, state):
+            return self._emit_to_temp_slot(expr, state)
+        sym = state.resolved_symbols[expr]
+        if is_instance_compat(sym, VariableSymbol):
+            return sym.llvm_ptr
+        assert is_instance_compat(sym, FieldAccess), sym
+        parent_ptr = self._emit_ptr(sym.parent_expr, state)
+        parent_type = state.contextual_types[sym.parent_expr]
+        if sym.is_struct_member:
+            # gep(p, [0, i]) points at member i of the struct behind p: the
+            # leading 0 stays on the struct p itself points at (a GEP's first
+            # index strides in whole pointee units), and i then selects the
+            # member. A struct's member index must be a constant, since each
+            # member has its own type and the result type must be known
+            # statically. `inbounds` promises the address stays inside the
+            # parent object, which a valid member index always does.
+            member_idx = next(
+                i for i, m in enumerate(parent_type.members) if m.name == sym.name
+            )
+            return b.gep(
+                parent_ptr,
+                [ir.Constant(i32, 0), ir.Constant(i32, member_idx)],
+                inbounds=True,
+                name=sym.name,
+            )
+        assert sym.is_array_element, sym
+        idx = self.emit(sym.idx_expr, state)
+        self._emit_array_bounds_check(idx, parent_type.length)
+        return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
+
+    def _emit_to_temp_slot(self, expr: AstExpr, state: CompileState) -> ir.Value:
+        """Emit *expr* as a value and store it in a fresh stack slot (an
+        entry-block alloca), giving a value with no storage of its own an
+        address -- e.g. a folded constructor call's constant aggregate, or an
+        anonymous literal's member, so that a runtime index can GEP into it."""
+        b = self.builder
         value = self.emit(expr, state)
         with b.goto_entry_block():
             slot = b.alloca(value.type)
@@ -485,9 +456,9 @@ class EmitLlvmExpr(Emitter):
         return slot
 
     def _emit_array_bounds_check(self, idx: ir.Value, length: int) -> None:
-        """Exit with ARRAY_OUT_OF_BOUNDS unless 0 <= idx < length, matching
-        the VM's runtime check. ArrayIndexType is signed, so a negative index
-        must be caught explicitly."""
+        """Fault with ARRAY_OUT_OF_BOUNDS unless 0 <= idx < length, the
+        runtime bounds check the spec gives element accesses. ArrayIndexType
+        is signed, so a negative index must be caught explicitly."""
         b = self.builder
         too_low = b.icmp_signed("<", idx, ir.Constant(idx.type, 0))
         too_high = b.icmp_signed(">=", idx, ir.Constant(idx.type, length))
@@ -568,15 +539,21 @@ class EmitLlvmExpr(Emitter):
     def _emit_command_call(
         self, node_args: list, func: CommandSymbol, state: CompileState
     ) -> ir.Value:
-        """Lower a command call: build the command buffer -- the big-endian
+        """Lower a command call: build the command's buffer -- the big-endian
         serialized FwOpcodeType followed by the fprime-serialized arguments --
-        in linear memory and dispatch it through the host cmd import.
+        in linear memory, dispatch it through the host cmd import, and return
+        the host's Fw.CmdResponse.
         """
         b = self.builder
         module = b.module
-        template = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
-        # (byte offset in the buffer, arg node, its contextual type)
-        runtime_args = []
+
+        # Lay out the buffer as a global: the opcode, then each argument in
+        # order. A constant arg is serialized directly into the initializer
+        # (at its actual size: a string packs to its real length, not its
+        # declared capacity). A runtime arg gets a zeroed max_size slot,
+        # filled in just before the dispatch.
+        initializer = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+        runtime_args = []  # (byte offset of the arg's slot, arg expr, arg type)
         for arg in node_args:
             const_val = (
                 arg
@@ -584,35 +561,36 @@ class EmitLlvmExpr(Emitter):
                 else state.const_expr_values.get(arg)
             )
             if const_val is not None:
-                # Constants serialize at their actual size (strings pack to
-                # their real length, not their capacity).
-                template += const_val.serialize()
+                initializer += const_val.serialize()
             else:
                 arg_type = state.contextual_types[arg]
-                runtime_args.append((len(template), arg, arg_type))
-                template += bytes(arg_type.max_size)
+                runtime_args.append((len(initializer), arg, arg_type))
+                initializer += bytes(arg_type.max_size)
 
-        buf_type = ir.ArrayType(ir.IntType(8), len(template))
+        buf_type = ir.ArrayType(ir.IntType(8), len(initializer))
         buf = ir.GlobalVariable(
             module, buf_type, name=module.get_unique_name("cmd_buf")
         )
         buf.linkage = "private"
         buf.global_constant = not runtime_args
-        buf.initializer = ir.Constant(buf_type, template)
+        buf.initializer = ir.Constant(buf_type, initializer)
 
+        # Store each runtime arg's value into its slot.
         for offset, arg, arg_type in runtime_args:
             value = self.emit(arg, state)
             written = self._emit_store_big_endian(value, arg_type, buf, offset)
             assert written == arg_type.max_size, (arg_type, written)
 
-        # The host returns the command's Fw.CmdResponse, widened to i32.
+        # The host returns the response widened to i32; narrow it back to
+        # Fw.CmdResponse's type.
         response = b.call(
-            b.module.globals[HOST_CMD_FUNC_NAME],
+            module.globals[HOST_CMD_FUNC_NAME],
             [
                 b.bitcast(buf, ir.IntType(8).as_pointer()),
-                ir.Constant(ir.IntType(32), len(template)),
+                ir.Constant(ir.IntType(32), len(initializer)),
             ],
         )
+        # assumption: the response is a valid cmd response code
         return b.trunc(response, CMD_RESPONSE.llvm_type)
 
     def _emit_store_big_endian(
@@ -835,17 +813,12 @@ class EmitLlvmStmt(Emitter):
         """Lower the statements of *block* into the current basic block(s)."""
         for stmt in node.stmts:
             if is_instance_compat(stmt, AstExpr):
-                # Constants are skipped, and this is required, not just an
-                # optimization: a bare statement gives its expression no type
-                # context, so a literal keeps its *abstract* type
-                # (Integer/Float/InternalString), which has no machine
-                # representation -- emitting `10.0 ** 1000` or `"test"` would
-                # assert in FpyValue.llvm_value. They're also pure (const folding
-                # only folds pure expressions), so dropping them changes nothing.
-                if state.const_expr_values.get(stmt) is None:
-                    result = self.expr.emit(stmt, state)
-                    if is_cmd_and_response_unhandled(stmt, state):
-                        self._emit_assert_cmd_response_ok(result, state)
+                # A constant statement emits no code: emit() maps it to a bare
+                # ir.Constant no instruction uses (or to None when it has an
+                # abstract type, which only a bare statement can leave it at).
+                result = self.expr.emit(stmt, state)
+                if is_cmd_and_response_unhandled(stmt, state):
+                    self._emit_assert_cmd_response_ok(result, state)
             elif is_instance_compat(stmt, AstNodeWithSideEffects):
                 # A non-expression statement (assign, if, assert, def, ...).
                 self.emit(stmt, state)
@@ -890,8 +863,8 @@ class EmitLlvmStmt(Emitter):
         b.position_at_end(end_block)
 
     def emit_AstDef(self, node: AstDef, state: CompileState) -> None:
-        # Function definitions (incl. the prepended builtin library) aren't
-        # lowered inline; a call to one is handled at its call site.
+        # A function definition emits nothing itself; calls to it are lowered
+        # at their call sites.
         return
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
@@ -905,8 +878,11 @@ class EmitLlvmStmt(Emitter):
             self.builder.store(value, sym.llvm_ptr)
             return
         # A field/element target (x.f = ..., a[i] = ...): store through a
-        # pointer into the base variable's storage, in place.
+        # pointer into the base variable's storage, in place. Semantics only
+        # lets through targets rooted at a variable, so _emit_ptr cannot
+        # spill the target to a temp slot (which would lose the store).
         assert is_instance_compat(sym, FieldAccess), sym
+        assert is_instance_compat(sym.base_sym, VariableSymbol), sym
         self.builder.store(value, self.expr._emit_ptr(node.lhs, state))
 
     def emit_AstIf(self, node: AstIf, state: CompileState) -> None:

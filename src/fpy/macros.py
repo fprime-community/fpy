@@ -16,6 +16,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
+from fpy.wasm_host import HOST_EVENT_FUNC_NAME, HOST_EXIT_FUNC_NAME
 from fpy.syntax import Ast
 from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
@@ -138,8 +139,6 @@ def generate_exit_llvm(builder, args):
     ends the whole sequence from any call depth (code 0 is a normal exit,
     nonzero an error).
     """
-    from fpy.codegen_llvm import HOST_EXIT_FUNC_NAME
-
     [(code, _const)] = args
     builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
     builder.unreachable()
@@ -177,8 +176,6 @@ def generate_log_event_llvm(builder, args):
     """LLVM/wasm lowering of log(message, severity): place the utf-8 message
     bytes in a constant in linear memory and call the host
     event(severity, ptr, len)."""
-    from fpy.codegen_llvm import HOST_EVENT_FUNC_NAME
-
     [(_, message), (_, severity)] = args
     data = message.val.encode("utf-8")
     module = builder.module

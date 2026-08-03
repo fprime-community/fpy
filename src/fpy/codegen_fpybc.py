@@ -914,17 +914,12 @@ class GenerateFunctionBody(Emitter):
 
         dirs = []
 
+        # A qualified name can't denote a variable (an imported sequence may
+        # not declare a top-level variable), so sym is never a VariableSymbol.
         if is_instance_compat(sym, ChDef):
             dirs.append(PushTlmValDirective(sym.ch_id))
         elif is_instance_compat(sym, PrmDef):
             dirs.append(PushPrmDirective(sym.prm_id))
-        elif is_instance_compat(sym, VariableSymbol):
-            # Use global directives only when inside a function AND accessing a global variable
-            use_global = self.in_function and sym.is_global
-            if use_global:
-                dirs.append(LoadAbsDirective(sym.frame_offset, sym.type.max_size))
-            else:
-                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.max_size))
         elif is_instance_compat(sym, FieldAccess):
             if is_instance_compat(sym.parent_expr, AstAnonStruct):
                 # Direct member access on anonymous struct literal.

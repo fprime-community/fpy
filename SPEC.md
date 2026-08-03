@@ -1274,7 +1274,7 @@ Both operands are promoted to `F64`, and the result is always an `F64`. This mea
 #### Floor division semantics
 The floor division operator is `//`. It requires numeric operands and rounds the quotient toward negative infinity (Python `//` semantics).
 
-With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
+With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. A zero divisor raises a runtime error (`DOMAIN_ERROR`). The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
 
 If either operand is a float, both are promoted to `F64`. The quotient is computed by IEEE 754 division and then floored toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation):
 
@@ -1284,6 +1284,8 @@ If either operand is a float, both are promoted to `F64`. The quotient is comput
 
 ### Modulus semantics
 Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. Signed integer and float modulo follow Python's floored semantics: a nonzero remainder has the same sign as the divisor. For floats, an exact-multiple result is a zero carrying the divisor's sign.
+
+A zero divisor raises a runtime error (`DOMAIN_ERROR`), for floats as well as integers. A NaN divisor is not zero: float modulo with a NaN operand evaluates to NaN.
 
 #### Exponentiation semantics
 Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.
