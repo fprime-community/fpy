@@ -414,7 +414,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             dirs.append(
                 PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
             )
-            dirs.append(StackCmdDirective(arg_byte_count))
+            stack_cmd = StackCmdDirective(arg_byte_count)
+            stack_cmd.cmd_opcode = func.cmd.opcode
+            dirs.append(stack_cmd)
             return dirs
 
     def try_emit_expr_as_const(
@@ -1145,7 +1147,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 )
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
-                dirs.append(StackCmdDirective(arg_byte_count))
+                stack_cmd = StackCmdDirective(arg_byte_count)
+                stack_cmd.cmd_opcode = func.cmd.opcode
+                dirs.append(stack_cmd)
         elif is_instance_compat(func, BuiltinFuncSymbol):
             # collect compile-time constant args (not pushed to stack)
             const_arg_values: dict[int, FpyValue] = {}
@@ -1506,12 +1510,13 @@ class FinalChecks(IrPass):
             # commands exceed either capacity always fails at runtime
             if is_instance_compat(dir, ConstCmdDirective):
                 cmd_args_size = len(dir.args)
-                cmd_desc = f"Command {state.cmd_names_by_opcode.get(dir.cmd_opcode, hex(dir.cmd_opcode))}"
             elif is_instance_compat(dir, StackCmdDirective):
+                # codegen stamps the opcode; only codegen output reaches here
+                assert dir.cmd_opcode is not None
                 cmd_args_size = dir.args_size
-                cmd_desc = "Command with runtime-computed arguments"
             else:
                 continue
+            cmd_desc = f"Command {state.cmd_names_by_opcode.get(dir.cmd_opcode, hex(dir.cmd_opcode))}"
 
             if (
                 state.cmd_arg_buffer_max_size is not None

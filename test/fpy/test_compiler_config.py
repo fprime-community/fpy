@@ -683,6 +683,15 @@ def test_cmd_args_exceeding_cmd_arg_buffer_fails():
 
         # a command with no args is fine
         _compile(dict_path, "CdhCore.cmdDisp.CMD_NO_OP()\n")
+
+        # a non-const arg forces the STACK_CMD path; the error must still
+        # name the command (arg bytes: I32 + F32 + U8 = 9 > 8)
+        seq = "x: I32 = 1\nCdhCore.cmdDisp.CMD_TEST_CMD_1(x, 2.0, 3)\n"
+        with pytest.raises(fpy.error.BackendError) as exc_info:
+            _compile(dict_path, seq)
+        assert "FW_CMD_ARG_BUFFER_MAX_SIZE" in str(exc_info.value)
+        assert "CdhCore.cmdDisp.CMD_TEST_CMD_1" in str(exc_info.value)
+        assert "<test>:2" in str(exc_info.value)
     finally:
         Path(dict_path).unlink()
         _clear_caches()

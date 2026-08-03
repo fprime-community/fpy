@@ -219,7 +219,7 @@ class Directive:
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
     # The AST node whose emission produced this directive, stamped by
-    # Emitter.emit so backend errors can point at a source line.
+    # EmitterWithNodeInfo.emit so backend errors can point at a source line.
     # Deliberately not an annotated dataclass field: it must not participate
     # in serialization or equality.
     source_node = None
@@ -318,6 +318,12 @@ class StackCmdDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.STACK_CMD
     args_size: int
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"args_size": StackSizeType}
+
+    # The opcode of the command this directive sends. The sequencer pops it
+    # from the stack at runtime, but codegen knows it and stamps it here so
+    # errors can name the command. Deliberately not an annotated dataclass
+    # field: it is not part of the serialized form.
+    cmd_opcode = None
 
 
 @dataclass
