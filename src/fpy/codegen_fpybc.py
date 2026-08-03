@@ -272,7 +272,22 @@ class GenerateFunctions(Visitor):
         state.generated_funcs[node] = code
 
 
-class GenerateFunctionBody(Emitter):
+class EmitterWithNodeInfo(Emitter):
+    """Stamps each emitted directive with the AST node that produced it, so
+    errors raised on a directive can point at a source line."""
+
+    def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
+        dirs = super().emit(node, state)
+        # Nested emit calls run first, so an existing stamp is the more
+        # specific node. (Ir instances are frozen and are skipped; the
+        # directives they become carry no arguments worth locating.)
+        for dir in dirs:
+            if isinstance(dir, Directive) and dir.source_node is None:
+                dir.source_node = node
+        return dirs
+
+
+class GenerateFunctionBody(EmitterWithNodeInfo):
     # Flag indicating we're generating code inside a function body
     # This affects how we access global variables (need GLOBAL directives)
     in_function = True
@@ -1361,7 +1376,7 @@ class GenerateFunctionBody(Emitter):
         return dirs
 
 
-class GenerateModule(Emitter):
+class GenerateModule(EmitterWithNodeInfo):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         if node is not state.main_block:
