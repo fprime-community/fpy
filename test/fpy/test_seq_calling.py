@@ -39,7 +39,7 @@ def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None
     body = text_to_ast(seq_text)
     assert body is not None, "Failed to parse child sequence"
     state = analyze_ast(body, state)
-    directives, arg_types = analysis_to_fpybc_directives(body, state)
+    directives, arg_types = analysis_to_fpybc_directives(state)
     arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
     data, _ = serialize_directives(directives, arg_specs=arg_specs)
     out_path.write_bytes(data)
@@ -266,7 +266,7 @@ CdhCore.cmdDisp.CMD_NO_OP()
             _compile_to_bin(child_seq, Path(child_path))
 
             parent_seq = f"""\
-Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, true)
+Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, True)
 """
             assert_compile_failure(
                 fprime_test_api, parent_seq, ground_binary_dir=tmpdir
@@ -742,7 +742,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             assert body is not None
             state = analyze_ast(body, state)
             # should compile without error (fits in the 1024-byte buffer)
-            analysis_to_fpybc_directives(body, state)
+            analysis_to_fpybc_directives(state)
 
     def test_args_still_bounded_by_dictionary_capacity(self, fprime_test_api):
         """Args larger than the dictionary's buffer must still be rejected,
@@ -757,7 +757,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             body = text_to_ast(child_seq)
             assert body is not None
             state = analyze_ast(body, state)
-            directives, arg_types = analysis_to_fpybc_directives(body, state)
+            directives, arg_types = analysis_to_fpybc_directives(state)
             arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
             data, _ = serialize_directives(directives, arg_specs=arg_specs)
             Path(child_path).write_bytes(data)
@@ -775,7 +775,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             assert body is not None
             with pytest.raises(fpy.error.CompileError) as exc_info:
                 state = analyze_ast(body, state)
-                analysis_to_fpybc_directives(body, state)
+                analysis_to_fpybc_directives(state)
             assert "exceed" in str(exc_info.value) and "64 bytes" in str(
                 exc_info.value
             ), f"Diagnostic should mention the 64-byte capacity, got: {exc_info.value}"

@@ -14,11 +14,9 @@ capsys
 cbranch
 Ccsds
 Cdh
-cfgv
 chans
 cls
 codegen
-CSPRNG
 ctx
 cuz
 dedenting
@@ -63,6 +61,7 @@ gz
 hh
 HLTH
 iabs
+idempotently
 idx
 ieq
 ifelifelse
@@ -71,7 +70,6 @@ ine
 intrinsics
 ip
 itrunc
-keepends
 kinda
 lalr
 libcall
@@ -84,18 +82,19 @@ nassert
 nbackend
 nexit
 nif
+nlib
 nontrapping
 noreturn
 nsize
 oob
 oor
+passthrough
 pb
 pemdas
 postlex
 postlexer
 prm
 PRNG
-probs
 px
 py
 pytestmark
@@ -116,6 +115,7 @@ skipif
 sle
 smod
 smth
+sourced
 spacewasm
 srem
 sroa
@@ -131,11 +131,11 @@ uitofp
 uk
 ul
 umod
+une
 urem
 usec
 useconds
 usize
-usr
 vararg
 vec
 verflow
@@ -144,6 +144,7 @@ vw
 WASI
 wasmtime
 wikipedia
+workaround
 wrt
 wx
 xl

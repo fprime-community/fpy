@@ -615,6 +615,66 @@ You can also specify an error code to be raised if the expression is not true:
 assert 1 > 2, 123
 ```
 
+## Imports
+
+You can import sequences, but the sequence you're importing must only contain functions or other imports:
+```py
+# helper_lib.fpy
+
+def add_two(a: U64, b: U64) -> U64:
+    return a + b
+
+# underscore prefix denotes a library-internal function, warns if imported
+def _plus_one(a: U64) -> U64:
+    return a + 1
+```
+
+```py
+# main_seq.fpy
+import helper_lib
+
+
+assert helper_lib.add_two(1, 2) == 3
+```
+
+You can optionally add an alias:
+```py
+import helper_lib as aliased
+assert aliased.add_two(1, 2) == 3
+```
+
+Alternatively, you can pick specific functions to import:
+```py
+from helper_lib import (
+    add_two as helper_add_two, # optional `as` alias
+    _plus_one # <-- this warns because it starts with an underscore
+)
+
+assert helper_add_two(1, 2) == 3
+assert _plus_one(1) == 2
+```
+
+Or you can import all functions at once:
+```py
+# this doesn't import functions whose names begin with an underscore
+from helper_lib import *
+
+assert add_two(1, 2) == 3
+```
+
+You can specify paths to search for imports with the `-i/--imports` argument, which can be passed more than once.
+
+If you want to specify a path relative to the file you're writing the import statement in, you can prefix the import path with a dot:
+```py
+# search for helper lib in the script's directory
+from .helper_lib import add_two
+```
+
+Each dot you add goes up a directory level before beginning the search:
+```py
+from ...parent.dir.helper_lib import add_two
+```
+
 ## Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
 
@@ -637,7 +697,6 @@ This project uses [uv](https://docs.astral.sh/uv/) to manage its environment.
 The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git commit` once installed:
 
 * **black** formats the staged Python files.
-* **spec test links** runs `verify/spec_links.py`, which checks that every test link in `SPEC.md` (the `*Tests:*` lines) points at a test that exists, at its current line number. If this hook fails because tests moved or were renamed, run `uv run python verify/spec_links.py --fix` to update the line numbers and link labels, then re-stage `SPEC.md`. A missing or renamed test must be fixed by hand.
 
 You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 
@@ -698,6 +757,7 @@ pytest test/ --wasm
 
 Requirements for the wasm backend:
 
+* The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
 * The spacewasm submodule must be checked out: `git submodule update --init test/spacewasm`
 * A Rust toolchain, version 1.85 or newer (spacewasm is edition 2024). Install via [rustup](https://rustup.rs) and update with `rustup update`.
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from llvmlite import ir
 from fpy.bytecode.directives import (
     PushRandDirective,
     ExitDirective,
     FloatLogDirective,
     PopEventDirective,
+    PopSerializableDirective,
     PushTimeDirective,
     SetSeedDirective,
     PushValDirective,
@@ -16,10 +16,12 @@ from fpy.bytecode.directives import (
 from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
 from fpy.syntax import Ast
+from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
     INTERNAL_STRING,
     LOG_SEVERITY,
     NOTHING,
+    SIZED,
     TIME,
     TIME_BASE,
     BOOL,
@@ -150,6 +152,8 @@ def generate_abs_float_llvm(builder, args):
 
 
 def generate_abs_signed_int_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.abs",
@@ -160,6 +164,8 @@ def generate_abs_signed_int_llvm(builder, args):
 
 
 def generate_log_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.log",
@@ -253,5 +259,16 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             PopEventDirective(),
         ],
         const_arg_indices=frozenset({0, 1}),
+    ),
+    # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.
+    "write_to_port": BuiltinFuncSymbol(
+        "write_to_port",
+        NOTHING,
+        [
+            ("port", SerialPortIndex, None),
+            ("value", SIZED, None),
+        ],
+        lambda n, c: [],  # Placeholder; codegen.py emits the directive
+        const_arg_indices=frozenset({0}),  # port must be compile-time constant
     ),
 }

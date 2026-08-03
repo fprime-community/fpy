@@ -6,10 +6,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from llvmlite import ir
-import llvmlite.binding as llvm
-
 from fpy.error import BackendError
+
+try:
+    from llvmlite import ir
+    import llvmlite.binding as llvm
+except ImportError as exc:
+    raise BackendError(
+        "the 'llvmlite' package is required by the LLVM backend; install it "
+        "with 'pip install fprime-fpy[wasm]'"
+    ) from exc
+
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
 from fpy.symbols import BuiltinFuncSymbol, CastSymbol, VariableSymbol
@@ -150,6 +157,11 @@ class EmitLlvmExpr(Emitter):
 
         assert op in COMPARISON_OPS, op
         if is_float:
+            # IEEE `!=` is the negation of `==` and is therefore true when
+            # either operand is NaN (une, wasm's f64.ne, Python's !=). Every
+            # other comparison is ordered: false on NaN, matching the VM.
+            if op == "!=":
+                return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
         # Enums and bools lower to integers too, so any integer-typed value
         # (not just numeric types) compares with icmp; aggregates don't.
@@ -486,8 +498,15 @@ class GenerateLlvmModule:
     its storage, then lowers the root block's statements with EmitLlvmStmt.
     """
 
-    def emit(self, body: AstBlock, state: CompileState) -> ir.Module:
-        assert body is state.root, "module generator must be run on the root block"
+    def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
+        assert (
+            root_block is state.root_block
+        ), "module generator must be run on the root block"
+        # The entry function is the main sequence -- the main block -- not the
+        # library root (which also holds the builtin library and the imported
+        # sequences, all definition-only). Functions are lowered on demand at
+        # their call sites, so they need no separate walk here.
+        program = state.main_block
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
 
@@ -499,11 +518,11 @@ class GenerateLlvmModule:
         self._declare_flags(module, state)
         # Declare storage for every variable in this frame up front.
         collector = CollectFrameVariables()
-        collector.run(body, state)
+        collector.run(program, state)
         for sym in collector.symbols:
             self._declare_variable(module, builder, sym)
 
-        EmitLlvmStmt(builder).emit(body, state)
+        EmitLlvmStmt(builder).emit(program, state)
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:

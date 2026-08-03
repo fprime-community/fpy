@@ -13,6 +13,7 @@ from fpy.bytecode.directives import (
     ConstCmdDirective,
     Directive,
     PopEventDirective,
+    PopSerializableDirective,
     FwOpcodeType,
     PeekDirective,
     ExitDirective,
@@ -138,6 +139,8 @@ class DirectiveErrorCode(Enum):
     STACK_UNDERFLOW = 15
     INVALID_ARG = 16
     CMD_FAIL = 17
+    SERIAL_PORT_NOT_CONNECTED = 18
+    SERIAL_PORT_INVALID_INDEX = 19
 
 
 class FpySequencerModel:
@@ -502,7 +505,7 @@ class FpySequencerModel:
         return None
 
     def handle_push_val(self, dir: PushValDirective):
-        if len(self.stack) + 8 > self.max_stack_size:
+        if len(self.stack) + len(dir.val) > self.max_stack_size:
             return DirectiveErrorCode.STACK_OVERFLOW
         self.push(dir.val)
         return None
@@ -917,7 +920,13 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val_64 = self.pop(type=float)
-        val_32_bytes = struct.pack(">f", val_64)
+        try:
+            val_32_bytes = struct.pack(">f", val_64)
+        except OverflowError:
+            # IEEE round-to-nearest demote: a finite F64 beyond the F32 range
+            # rounds to +-inf (struct.pack only raises when a finite value
+            # would overflow; inf itself packs fine).
+            val_32_bytes = struct.pack(">f", math.copysign(float("inf"), val_64))
         self.push(val_32_bytes)
         return None
 
@@ -952,17 +961,22 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        # Match wasm's f64.floor: inf/nan pass through unchanged.
-        self.push(val if not math.isfinite(val) else float(math.floor(val)))
+        # Match f64.floor (IEEE roundToIntegralTowardNegative): +-0, +-inf and
+        # NaN pass through. The zero check preserves the sign of -0.0, which
+        # math.floor would lose by returning the int 0.
+        self.push(
+            val if not math.isfinite(val) or val == 0.0 else float(math.floor(val))
+        )
         return None
 
     def handle_iabs(self, dir: IntAbsDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop()
-        # overflow_check makes abs(I64 min) wrap back to I64 min (matching
-        # libm's llabs and llvm.abs) rather than trapping.
-        self.push(overflow_check(abs(val)))
+        # abs(I64 min) is not representable in I64
+        if val == MIN_INT64:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
+        self.push(abs(val))
         return None
 
     def handle_fabs(self, dir: FloatAbsDirective):
@@ -976,14 +990,32 @@ class FpySequencerModel:
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        self.push(int(val))
+        # Saturating conversion (llvm.fptosi.sat / wasm i64.trunc_sat_f64_s /
+        # Rust `as`): NaN -> 0, out-of-range clamps, in-range truncates toward
+        # zero. -2**63 is exactly representable; 2**63 is one past I64 max.
+        if math.isnan(val):
+            self.push(0)
+        elif val >= 2**63:
+            self.push(MAX_INT64)
+        elif val < -(2**63):
+            self.push(MIN_INT64)
+        else:
+            self.push(int(val))
         return None
 
     def handle_fptoui(self, dir: FloatToUnsignedIntDirective):
         if len(self.stack) < 8:
             return DirectiveErrorCode.STACK_UNDERFLOW
         val = self.pop(type=float)
-        self.push(int(val), signed=False)
+        # Saturating conversion (llvm.fptoui.sat / wasm i64.trunc_sat_f64_u /
+        # Rust `as`): NaN -> 0, negatives truncate to at most 0 and clamp
+        # there, values at or above 2**64 clamp to U64 max.
+        if math.isnan(val) or val < 0:
+            self.push(0, signed=False)
+        elif val >= 2**64:
+            self.push(2**64 - 1, signed=False)
+        else:
+            self.push(int(val), signed=False)
         return None
 
     def handle_sitofp(self, dir: SignedIntToFloatDirective):
@@ -1065,6 +1097,10 @@ class FpySequencerModel:
 
         if rhs == 0:
             return DirectiveErrorCode.DOMAIN_ERROR
+        # The one signed division that can overflow: |MIN_INT64 / -1| = 2**63
+        # is not representable in I64.
+        if lhs == MIN_INT64 and rhs == -1:
+            return DirectiveErrorCode.ARITHMETIC_OVERFLOW
 
         result = lhs // rhs
 
@@ -1103,7 +1139,8 @@ class FpySequencerModel:
         if rhs == 0.0:
             # IEEE 754: division by zero produces inf, -inf, or nan.
             # The sign of the result depends on the signs of BOTH operands.
-            if lhs == 0.0:
+            # A NaN numerator propagates (0/0 and nan/0 are both NaN).
+            if lhs == 0.0 or math.isnan(lhs):
                 self.push(float("nan"))
             else:
                 result_sign = math.copysign(1.0, lhs) * math.copysign(1.0, rhs)
@@ -1137,8 +1174,11 @@ class FpySequencerModel:
             return DirectiveErrorCode.STACK_UNDERFLOW
         rhs = self.pop(type=float)
         lhs = self.pop(type=float)
+        # fmod(x, 0) is NaN (matching the flight VM, wasm's frem, Rust and
+        # C#); Python's % raises instead, so it needs a guard.
         if rhs == 0.0:
-            return DirectiveErrorCode.DOMAIN_ERROR
+            self.push(float("nan"))
+            return None
         self.push(lhs % rhs)
         return None
 
@@ -1159,7 +1199,17 @@ class FpySequencerModel:
             else:
                 self.push(float("inf"))
             return None
-        except (ValueError, OverflowError):
+        except OverflowError:
+            # Overflow is a *range* error: C pow() returns +/-HUGE_VAL (inf).
+            # The result is negative only for a negative base with an odd
+            # integer exponent (a fractional exponent would be a domain error
+            # and raise ValueError instead).
+            if lhs < 0 and float(rhs).is_integer() and int(rhs) % 2 != 0:
+                self.push(float("-inf"))
+            else:
+                self.push(float("inf"))
+            return None
+        except ValueError:
             # C++ pow() returns NaN for domain errors
             self.push(float("nan"))
             return None
@@ -1352,4 +1402,17 @@ class FpySequencerModel:
         severity_name = severity_names.get(severity, f"UNKNOWN({severity})")
         if debug:
             print(f"POP_EVENT [{severity_name}]: {message.decode('utf-8')}")
+        return None
+
+    def handle_pop_serializable(self, dir: PopSerializableDirective):
+        # Check stack has enough bytes
+        if len(self.stack) < dir.size:
+            return DirectiveErrorCode.STACK_UNDERFLOW
+        # Pop the bytes (in model, we just discard them like pop_event does)
+        popped_bytes = self.pop(type=bytes, size=dir.size)
+        if debug:
+            print(
+                f"POP_SERIALIZABLE port={dir.portIndex} size={dir.size} bytes={popped_bytes.hex()}"
+            )
+        # In the model we don't have actual serial ports, so we just discard the data
         return None

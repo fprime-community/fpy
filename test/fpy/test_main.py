@@ -49,7 +49,7 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main,
@@ -92,7 +92,7 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main,
@@ -127,7 +127,7 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main,
@@ -139,9 +139,10 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
     return captured_kwargs
 
 
-def test_compile_main_include_dirs_after_input_parent(monkeypatch, tmp_path):
-    """-i/--include dirs are appended, resolved, after the input file's own dir,
-    which is always searched first."""
+def test_compile_main_include_dirs_are_import_directories(monkeypatch, tmp_path):
+    """The import directories are exactly the resolved -i/--imports dirs, in
+    order; the input file's own dir is NOT among them (it anchors relative
+    imports instead, via main_file_dir)."""
     input_path = tmp_path / "sub" / "seq.fpy"
     input_path.parent.mkdir()
     input_path.write_text("content")
@@ -160,20 +161,47 @@ def test_compile_main_include_dirs_after_input_parent(monkeypatch, tmp_path):
             str(dict_path),
             "-i",
             str(inc_a),
-            "--include",
+            "--imports",
             str(inc_b),
         ],
     )
 
-    assert captured_kwargs["import_search_dirs"] == [
-        str(input_path.parent.resolve()),
+    assert captured_kwargs["import_directories"] == [
         str(inc_a.resolve()),
         str(inc_b.resolve()),
     ]
+    assert captured_kwargs["main_file_dir"] == str(input_path.parent.resolve())
 
 
-def test_compile_main_include_defaults_to_input_parent_only(monkeypatch, tmp_path):
-    """With no -i flags, the search path is just the input file's own dir."""
+def test_compile_main_duplicate_includes_are_deduped(monkeypatch, tmp_path):
+    """A repeated -i directory (even spelled differently) collapses to one
+    import-directory entry after resolution: it carries no information."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+    inc = tmp_path / "inc"
+    inc.mkdir()
+
+    captured_kwargs = _run_compile_capturing_kwargs(
+        monkeypatch,
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "-i",
+            str(inc),
+            "-i",
+            str(tmp_path / "inc" / ".." / "inc"),
+        ],
+    )
+
+    assert captured_kwargs["import_directories"] == [str(inc.resolve())]
+
+
+def test_compile_main_no_includes_means_no_import_directories(monkeypatch, tmp_path):
+    """With no -i flags, there are no import directories; the input file's
+    own dir still anchors its relative imports."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
     dict_path = tmp_path / "dict.json"
@@ -188,7 +216,8 @@ def test_compile_main_include_defaults_to_input_parent_only(monkeypatch, tmp_pat
         ],
     )
 
-    assert captured_kwargs["import_search_dirs"] == [str(input_path.parent.resolve())]
+    assert captured_kwargs["import_directories"] == []
+    assert captured_kwargs["main_file_dir"] == str(input_path.parent.resolve())
 
 
 def test_compile_main_missing_input(tmp_path, capsys):
@@ -223,8 +252,7 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def fake_analysis_to_fpybc_directives(body, state):
-        assert body == "AST"
+    def fake_analysis_to_fpybc_directives(state):
         assert state == "STATE"
         return ["directive"], []
 
@@ -271,8 +299,7 @@ def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def fake_analysis_to_wat(body, state):
-        assert body == "AST"
+    def fake_analysis_to_wat(state):
         assert state == "STATE"
         return "WAT_TEXT", []
 
@@ -308,7 +335,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: (["directive"], []),
+        lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
         fpy_main,
@@ -454,7 +481,7 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
     directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xab\xcd")
 
     monkeypatch.setattr(
-        fpy_main, "analysis_to_fpybc_directives", lambda body, state: ([directive], [])
+        fpy_main, "analysis_to_fpybc_directives", lambda state: ([directive], [])
     )
 
     sent = {}
@@ -490,7 +517,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
-    def raise_compile_error(body, state):
+    def raise_compile_error(state):
         raise fpy_error.CompileError("bad arg", None)
 
     monkeypatch.setattr(fpy_main, "analysis_to_fpybc_directives", raise_compile_error)
@@ -521,7 +548,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([StackCmdDirective(args_size=10)], []),
+        lambda state: ([StackCmdDirective(args_size=10)], []),
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -551,7 +578,7 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([directive], []),
+        lambda state: ([directive], []),
     )
 
     def fail_send(*a):
@@ -587,7 +614,7 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []),
+        lambda state: ([ConstCmdDirective(cmd_opcode=0x10006001, args=b"")], []),
     )
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
 
@@ -621,7 +648,7 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "analysis_to_fpybc_directives",
-        lambda body, state: ([directive], []),
+        lambda state: ([directive], []),
     )
 
     sent = {}

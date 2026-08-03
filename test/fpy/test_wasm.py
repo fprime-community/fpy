@@ -43,7 +43,7 @@ def _seq_to_llvm_module(seq: str):
     state = get_base_compile_state(default_dictionary, None)
     body = text_to_ast(seq)
     state = analyze_ast(body, state)
-    return GenerateLlvmModule().emit(body, state)
+    return GenerateLlvmModule().emit(state.root_block, state)
 
 
 def _emit_wasm_asm(seq: str, cpu: str) -> str:
@@ -84,16 +84,24 @@ class TestWasmAssert:
 
 class TestWasmExit:
     """exit() lowers to the host fpy_exit call rather than a `ret`, so it ends
-    the whole sequence (code 0 is a normal exit, nonzero a fault)."""
+    the whole sequence from any call depth, returning its code verbatim (code 0
+    is a normal exit, nonzero a fault)."""
 
-    @pytest.mark.parametrize("code", [0, 5, 123])
+    @pytest.mark.parametrize("code", [0, 5, 7, 42, 123])
     def test_exit_returns_code(self, code):
         assert run_seq_wasm(f"exit({code})\n") == code
 
+    def test_exit_with_runtime_code(self):
+        # The exit code comes from a variable (read at runtime), not a literal.
+        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
+        # so a runtime code must be a signed int.
+        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
+
     def test_exit_ends_sequence_early(self):
-        # The exit happens before the (would-fail) assert, so the sequence ends
-        # with exit's code and never reaches the assert.
+        # The exit happens before the (would-fail) asserts, so the sequence ends
+        # with exit's code and never reaches them.
         assert run_seq_wasm("exit(0)\nassert 1 == 2\n") == NO_ERROR
+        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
         assert run_seq_wasm("exit(9)\nassert 1 == 1\n") == 9
 
 
@@ -270,6 +278,53 @@ class TestWasmUnaryOps:
         assert run_seq_wasm("x: I64 = 7\nassert +x == 7\n") == NO_ERROR
 
 
+class TestWasmAbsFloor:
+    """iabs/fabs lower to llvm.abs/llvm.fabs and float `//` to llvm.floor.
+    These pin the SPEC edge cases: fabs only clears the sign bit, and flooring
+    preserves the sign of a zero quotient. The sign of a zero is observed
+    through division (1.0 / -0.0 == -inf)."""
+
+    def test_iabs_basic(self):
+        assert run_seq_wasm("x: I64 = 0 - 5\nassert iabs(x) == 5\n") == NO_ERROR
+
+    def test_iabs_int_min_wraps(self):
+        # Known divergence: SPEC says iabs(I64 min) raises ARITHMETIC_OVERFLOW,
+        # but the wasm backend implements no arithmetic traps yet and llvm.abs
+        # with is_int_min_poison=0 wraps. This pins the current behavior so a
+        # future trap implementation consciously flips it.
+        seq = "x: I64 = I64(-2**63)\nassert iabs(x) == x\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_fabs_negative_zero(self):
+        seq = "neg: F64 = -0.0\nassert 1.0 / neg < 0.0\nassert 1.0 / fabs(neg) > 0.0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_fabs_inf_nan(self):
+        seq = (
+            "zero: F64 = 0.0\n"
+            "inf: F64 = 1.0 / zero\n"
+            "nan: F64 = zero / zero\n"
+            "assert fabs(0.0 - inf) == inf\n"
+            "assert fabs(nan) != fabs(nan)\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_floor_divide_preserves_zero_sign(self):
+        seq = "neg: F64 = -0.0\nq: F64 = neg // 1.0\nassert 1.0 / q < 0.0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_floor_divide_inf_nan_passthrough(self):
+        seq = (
+            "zero: F64 = 0.0\n"
+            "inf: F64 = 1.0 / zero\n"
+            "nan: F64 = zero / zero\n"
+            "assert inf // 1.0 == inf\n"
+            "q: F64 = nan // 1.0\n"
+            "assert q != q\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+
 class TestWasmExponent:
     """`**` always computes over floats and lowers to the llvm.pow intrinsic,
     which the wasm target leaves as an imported `env.pow` host call. run_seq_wasm
@@ -285,27 +340,6 @@ class TestWasmExponent:
         wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
         imports = {(i.module, i.name) for i in Module(Engine(), wasm).imports}
         assert ("env", "pow") in imports
-
-
-class TestWasmExit:
-    """The exit() builtin returns its code from the sequence entry point."""
-
-    def test_exit_returns_code_verbatim(self):
-        assert run_seq_wasm("exit(42)\n") == 42
-        assert run_seq_wasm("exit(7)\n") == EXIT_WITH_ERROR
-
-    def test_exit_zero_succeeds(self):
-        assert run_seq_wasm("exit(0)\n") == NO_ERROR
-
-    def test_exit_short_circuits_rest_of_sequence(self):
-        # exit() returns immediately, so the failing assert after it never runs.
-        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
-
-    def test_exit_with_runtime_code(self):
-        # The exit code comes from a variable (read at runtime), not a literal.
-        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
-        # so a runtime code must be a signed int.
-        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
 
 
 class TestWasmBareExpressionStatements:

@@ -22,6 +22,7 @@ goto_tag: NAME ":"
   | "store_abs_const_offset" _int _uint
   | "get_field" _uint _uint
   | "return" _uint _uint
+  | "pop_serializable" _int _uint
 
 !op_with_no_args: "no_op"
   | "siext_8_64"
@@ -78,8 +79,9 @@ goto_tag: NAME ":"
   | "push_time"
   | "push_rand"
   | "set_seed"
-  | "call" 
+  | "call"
   | "peek"
+  | "pop_event"
 _uint: [UNARY_IDENTITY] DEC_NUMBER
 _int: NEG_DEC_NUMBER
 _float: FLOAT_NUMBER
