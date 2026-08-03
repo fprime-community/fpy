@@ -265,7 +265,13 @@ def compile_main(args: list[str] = None):
         if output_path is None:
             output_path = parsed_args.input.with_suffix(".bin")
         arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
-        output_bytes, crc = serialize_directives(output, arg_specs)
+        try:
+            output_bytes, crc = serialize_directives(
+                output, arg_specs, max_directive_size=state.max_directive_size
+            )
+        except fpy.error.BackendError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
         output_path.write_bytes(output_bytes)
         print(
             f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}"
@@ -374,7 +380,11 @@ def assemble_main(args: list[str] = None):
     output = args.output
     if output is None:
         output = args.input.with_suffix(".bin")
-    output_bytes, crc = serialize_directives(directives)
+    try:
+        output_bytes, crc = serialize_directives(directives)
+    except fpy.error.BackendError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
     output.write_bytes(output_bytes)
     print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 

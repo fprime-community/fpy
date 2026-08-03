@@ -38,10 +38,13 @@ from fpy.syntax import (
 FwChanIdType = FpyType(TypeKind.U32, "U32")
 FwPrmIdType = FpyType(TypeKind.U32, "U32")
 FwOpcodeType = FpyType(TypeKind.U32, "U32")
+FwPacketDescriptorType = FpyType(TypeKind.U32, "U32")
 FwIndexType = FpyType(TypeKind.I16, "I16")
 
 # write_to_port's port param type; matched by name+kind, constants come from the dictionary at compile time.
-SerialPortIndex = FpyType(TypeKind.ENUM, "Svc.Fpy.SerialPortIndex", enum_dict={}, rep_type=U8)
+SerialPortIndex = FpyType(
+    TypeKind.ENUM, "Svc.Fpy.SerialPortIndex", enum_dict={}, rep_type=U8
+)
 
 
 ArrayIndexType = I64
@@ -74,9 +77,9 @@ def _update_configurable_enum(
     if name not in type_defs:
         return
     resolved = type_defs[name]
-    assert resolved.kind == TypeKind.ENUM, (
-        f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
-    )
+    assert (
+        resolved.kind == TypeKind.ENUM
+    ), f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
     target.kind = resolved.kind
     target.name = resolved.name
     target.enum_dict = resolved.enum_dict
@@ -90,6 +93,9 @@ def update_configurable_types_from_dict(type_defs: dict[str, FpyType]) -> None:
     _update_configurable_type(FwOpcodeType, type_defs, "FwOpcodeType")
     _update_configurable_type(FwIndexType, type_defs, "FwIndexType")
     _update_configurable_type(FwSizeStoreType, type_defs, "FwSizeStoreType")
+    _update_configurable_type(
+        FwPacketDescriptorType, type_defs, "FwPacketDescriptorType"
+    )
     _update_configurable_enum(SerialPortIndex, type_defs, "Svc.Fpy.SerialPortIndex")
 
 
@@ -212,6 +218,12 @@ class Directive:
     opcode: ClassVar[DirectiveId] = DirectiveId.INVALID
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {}
 
+    # The AST node whose emission produced this directive, stamped by
+    # EmitterWithNodeInfo.emit so backend errors can point at a source line.
+    # Deliberately not an annotated dataclass field: it must not participate
+    # in serialization or equality.
+    source_node = None
+
     def serialize(self) -> bytes:
         arg_bytes = self.serialize_args()
         output = FpyValue(U8, self.opcode.value).serialize()
@@ -306,6 +318,12 @@ class StackCmdDirective(Directive):
     opcode: ClassVar[DirectiveId] = DirectiveId.STACK_CMD
     args_size: int
     _FIELD_TYPES: ClassVar[dict[str, FpyType]] = {"args_size": StackSizeType}
+
+    # The opcode of the command this directive sends. The sequencer pops it
+    # from the stack at runtime, but codegen knows it and stamps it here so
+    # errors can name the command. Deliberately not an annotated dataclass
+    # field: it is not part of the serialized form.
+    cmd_opcode = None
 
 
 @dataclass
