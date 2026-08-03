@@ -757,6 +757,7 @@ pytest test/ --wasm
 
 Requirements for the wasm backend:
 
+* The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
 * The spacewasm submodule must be checked out: `git submodule update --init test/spacewasm`
 * A Rust toolchain, version 1.85 or newer (spacewasm is edition 2024). Install via [rustup](https://rustup.rs) and update with `rustup update`.
 

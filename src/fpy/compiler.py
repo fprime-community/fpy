@@ -1,8 +1,8 @@
 from __future__ import annotations
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING
 from lark import Lark, LarkError
-from llvmlite import ir
 from fpy.bytecode.directives import Directive
 from fpy.codegen_fpybc import (
     CalculateFrameSizes,
@@ -13,11 +13,6 @@ from fpy.codegen_fpybc import (
     GenerateModule,
     IrPass,
     ResolveLabels,
-)
-from fpy.codegen_llvm import (
-    GenerateLlvmModule,
-    llvm_module_to_wasm,
-    llvm_module_to_wasm_text,
 )
 from fpy.desugaring import (
     DesugarAugmentedAssignments,
@@ -83,6 +78,9 @@ from fpy.visitors import Visitor
 
 from fpy.error import BackendError, handle_lark_error
 import fpy.error
+
+if TYPE_CHECKING:
+    from llvmlite import ir
 
 # Load grammar once at module level
 _fpy_grammar_path = Path(__file__).parent / "grammar.lark"
@@ -358,6 +356,9 @@ def analysis_to_llvm_module(
     """Runs LLVM codegen passes on analysis results, returning an llvmlite ir.Module (the LLVM backend).
 
     Raises BackendError on failure."""
+    # Imported here, not at module scope: the LLVM backend is an optional
+    # install, and importing it raises BackendError when it isn't present.
+    from fpy.codegen_llvm import GenerateLlvmModule
 
     module = GenerateLlvmModule().emit(state.root_block, state)
 
@@ -374,6 +375,8 @@ def analysis_to_wasm(
     """Runs the LLVM backend and lowers the result to a runnable wasm module.
 
     Raises BackendError on failure."""
+    from fpy.codegen_llvm import llvm_module_to_wasm
+
     module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm(module), seq_arg_types
 
@@ -384,6 +387,8 @@ def analysis_to_wat(
     """Runs the LLVM backend and lowers the result to WebAssembly text.
 
     Raises BackendError on failure."""
+    from fpy.codegen_llvm import llvm_module_to_wasm_text
+
     module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm_text(module), seq_arg_types
 

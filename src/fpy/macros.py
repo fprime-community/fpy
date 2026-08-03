@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from llvmlite import ir
 from fpy.bytecode.directives import (
     PushRandDirective,
     ExitDirective,
@@ -153,6 +152,8 @@ def generate_abs_float_llvm(builder, args):
 
 
 def generate_abs_signed_int_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.abs",
@@ -163,6 +164,8 @@ def generate_abs_signed_int_llvm(builder, args):
 
 
 def generate_log_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.log",
@@ -259,7 +262,9 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     ),
     # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.
     "write_to_port": BuiltinFuncSymbol(
-        "write_to_port", NOTHING, [
+        "write_to_port",
+        NOTHING,
+        [
             ("port", SerialPortIndex, None),
             ("value", SIZED, None),
         ],
