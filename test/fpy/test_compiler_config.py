@@ -635,7 +635,7 @@ def test_seq_arg_total_size_exceeding_stack_size_fails():
         _clear_caches()
 
 
-def test_seq_arg_total_size_exceeding_seqargs_buffer_fails():
+def test_seq_arg_total_size_exceeding_seq_args_buffer_fails():
     """Sequence args that cannot fit in the Svc.SeqArgs buffer are a compile error."""
     _clear_caches()
     # 13 x Ref.DpDemo.U32Array (20 bytes each) = 260 > the 255-byte SeqArgs buffer,
