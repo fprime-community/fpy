@@ -58,7 +58,7 @@ from fpy.wasm_host import (
     ERROR_CODE_TYPE,
     HOST_CMD_FUNC_NAME,
     HOST_EXIT_FUNC_NAME,
-    HOST_FAULT_FUNC_NAME,
+    HOST_PANIC_FUNC_NAME,
     declare_host_imports,
 )
 
@@ -297,7 +297,7 @@ class EmitLlvmExpr(Emitter):
         b.cbranch(is_zero, fail_block, ok_block)
         b.position_at_end(fail_block)
         b.call(
-            b.module.globals[HOST_FAULT_FUNC_NAME],
+            b.module.globals[HOST_PANIC_FUNC_NAME],
             [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)],
         )
         b.unreachable()
@@ -468,7 +468,7 @@ class EmitLlvmExpr(Emitter):
         b.cbranch(oob, fail_block, ok_block)
         b.position_at_end(fail_block)
         b.call(
-            b.module.globals[HOST_FAULT_FUNC_NAME],
+            b.module.globals[HOST_PANIC_FUNC_NAME],
             [
                 ir.Constant(
                     ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
@@ -700,7 +700,7 @@ class EmitLlvmExpr(Emitter):
             b.cbranch(b.or_(is_true, is_false), ok_block, fail_block)
             b.position_at_end(fail_block)
             b.call(
-                b.module.globals[HOST_FAULT_FUNC_NAME],
+                b.module.globals[HOST_PANIC_FUNC_NAME],
                 [
                     ir.Constant(
                         ERROR_CODE_TYPE,

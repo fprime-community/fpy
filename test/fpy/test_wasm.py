@@ -760,10 +760,10 @@ class TestWasmCommands:
 
     def test_cmd_emits_fprime_cmd_import(self):
         # Document the host-call contract: the linked module imports
-        # fprime.cmd. An import-section entry encodes as
+        # fprime_v1.cmd. An import-section entry encodes as
         # <len>module <len>name <kind>, so this byte run is exactly that entry.
         wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
-        assert b"\x06fprime\x03cmd\x00" in wasm
+        assert b"\x09fprime_v1\x03cmd\x00" in wasm
 
     def test_const_no_arg_command(self):
         code, cmds = run_seq_wasm_with_cmds("CdhCore.cmdDisp.CMD_NO_OP()\n")

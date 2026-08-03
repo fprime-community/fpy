@@ -259,13 +259,11 @@ def run_wasm(
         SPACEWASM_RUNNER is not None
     ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
 
-    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    wasm_file.write(wasm)
-    wasm_file.close()
+    wasm_path = _write_wasm_to_tmpfile(wasm)
 
     d = load_dictionary(default_dictionary)
     always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
-    argv = [SPACEWASM_RUNNER, wasm_file.name]
+    argv = [SPACEWASM_RUNNER, wasm_path]
     for opcode in sorted(always_failing | set(failing_opcodes or ())):
         argv += ["--fail-opcode", str(opcode)]
     if cmd_response is not None:
@@ -298,6 +296,14 @@ def run_wasm(
 def lookup_type(fprime_test_api, type_name: str):
     d = load_dictionary(default_dictionary)
     return d["type_defs"][type_name]
+
+
+def _write_wasm_to_tmpfile(wasm: bytes) -> str:
+    """Write a compiled wasm module to a temp .wasm file and return its path."""
+    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
+    wasm_file.write(wasm)
+    wasm_file.close()
+    return wasm_file.name
 
 
 def _write_seq_to_tmpfile(
@@ -461,6 +467,19 @@ def assert_run_success(
     main_file_dir: str | None = None,
 ):
     if USE_WASM:
+        if fprime_test_api is not None:
+            wasm = compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_directories=import_directories,
+                expected_warnings=expected_warnings,
+                main_file_dir=main_file_dir,
+            )
+            wasm_path = _write_wasm_to_tmpfile(wasm)
+            fprime_test_api.send_and_assert_command(
+                "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
+            )
+            return
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
@@ -568,6 +587,22 @@ def assert_run_failure(
     ), "Must specify either error_code or validation_error"
 
     if USE_WASM:
+        if fprime_test_api is not None:
+            # GDS mode: send the wasm module and assert that it fails via
+            # OpCodeError event, mirroring the bytecode GDS failure path.
+            wasm = compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_directories=import_directories,
+            )
+            wasm_path = _write_wasm_to_tmpfile(wasm)
+            fprime_test_api.send_and_assert_event(
+                "Ref.wasmSeq.RUN",
+                [wasm_path, "BLOCK"],
+                events="CdhCore.cmdDisp.OpCodeError",
+                timeout=4,
+            )
+            return
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one that reports a nonzero code
         # through the exit/fault host imports.

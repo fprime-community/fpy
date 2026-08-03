@@ -5,21 +5,22 @@
 //!             [--fail-opcode <u32>]... [--cmd-response <i32>]`
 //!
 //! On success it prints the sequence's i32 error code as a decimal on the
-//! final line of stdout and exits 0. The code comes from `fprime.exit` when
-//! the sequence calls exit() or fails an assert, or from `fprime.fault` when
-//! it hits an implicit runtime trap (array index out of bounds, zero
-//! divisor). The entry itself is a `void main()` -- no arguments, no return
-//! value -- since every failure (and explicit exit) leaves through exit/fault
-//! and never comes back, so returning at all means success (reported as code
-//! 0). The caller reads the printed code; the process exit status only
-//! distinguishes "ran cleanly" (0) from "harness/runtime fault" (2), so a
-//! nonzero error code is not conflated with a trap.
+//! final line of stdout and exits 0. The code comes from `fprime_v1.exit`
+//! when the sequence calls exit() or fails an assert, or from
+//! `fprime_v1.panic` when it hits an implicit runtime trap (array index out
+//! of bounds, zero divisor). The entry itself is a `void main()` -- no
+//! arguments, no return value -- since every failure (and explicit exit)
+//! leaves through exit/panic and never comes back, so returning at all means
+//! success (reported as code 0). The caller reads the printed code; the
+//! process exit status only distinguishes "ran cleanly" (0) from
+//! "harness/runtime fault" (2), so a nonzero error code is not conflated
+//! with a trap.
 //!
-//! Each `fprime.event` call the sequence makes (the log() builtin) is
+//! Each `fprime_v1.event` call the sequence makes (the log() builtin) is
 //! reported before the code line as `event <severity> <message>`, one line
 //! per event, with the message Rust-escaped so it stays on one line.
 //!
-//! Each `fprime.cmd` call is reported the same way as a `cmd <hex>` line
+//! Each `fprime_v1.cmd` call is reported the same way as a `cmd <hex>` line
 //! holding the received command buffer (the big-endian FwOpcodeType followed
 //! by the serialized arguments) as lowercase hex. The call returns
 //! `--cmd-response` (an Fw.CmdResponse value, default 0 = OK), except that a
@@ -29,8 +30,9 @@
 //!
 //! Two host modules are provided: `env` holds the float libcalls
 //! (`pow`/`fmod`/`log`) LLVM materializes itself, backed by libm so they
-//! match the C/IEEE semantics the LLVM intrinsics lower to; `fprime` mirrors
-//! the flight sequencer's host interface (`exit`, `fault`, `event`, `cmd`).
+//! match the C/IEEE semantics the LLVM intrinsics lower to; `fprime_v1`
+//! mirrors the flight sequencer's host interface (`exit`, `panic`, `event`,
+//! `cmd`).
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -185,15 +187,15 @@ fn env_host_module() -> HostModule {
     }
 }
 
-/// The `fprime` host module, mirroring the host interface the flight
+/// The `fprime_v1` host module, mirroring the host interface the flight
 /// sequencer (Svc/WasmSequencer) registers under that wasm module name.
 ///
-/// `exit(code)` and `fault(code)` end the whole sequence: they record the code
+/// `exit(code)` and `panic(code)` end the whole sequence: they record the code
 /// into *exit_code* and unwind the interpreter with a host trap, so they
 /// terminate the program from any call depth (a `ret` would only unwind the
 /// current function). The recorded code -- not the trap -- carries the result.
 /// `exit` is a termination the sequence asked for (exit(), a failing assert;
-/// code 0 is a normal exit, nonzero an error), `fault` an implicit runtime
+/// code 0 is a normal exit, nonzero an error), `panic` an implicit runtime
 /// trap (array index out of bounds, zero divisor; always an error). This
 /// harness reports both the same way, as the sequence's resulting error code.
 ///
@@ -229,16 +231,16 @@ fn fprime_host_module(
         // Unwind the whole interpreter; run() reads the code back.
         ControlFlow::Break(HostFunctionBreak::Trap)
     }
-    let fault_code = exit_code.clone();
+    let panic_code = exit_code.clone();
     HostModule {
-        name: "fprime".into(),
+        name: "fprime_v1".into(),
         globals: spacewasm::vec![],
         functions: spacewasm::vec![
             HostFunction::new("exit", "i".into(), "".into(), move |_, args| {
                 record_code_and_unwind(&exit_code, args)
             }),
-            HostFunction::new("fault", "i".into(), "".into(), move |_, args| {
-                record_code_and_unwind(&fault_code, args)
+            HostFunction::new("panic", "i".into(), "".into(), move |_, args| {
+                record_code_and_unwind(&panic_code, args)
             }),
             HostFunction::new("event", "iii".into(), "".into(), |engine, args| {
                 let severity = arg_i32(args, 0);
@@ -297,7 +299,7 @@ fn run(
 ) -> Result<i32, String> {
     let wasm = std::fs::read(wasm_path).map_err(|e| format!("read {wasm_path}: {e}"))?;
 
-    // exit/fault write the sequence's error code here and unwind the interpreter.
+    // exit/panic write the sequence's error code here and unwind the interpreter.
     let exit_code: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
     let mut engine = Engine::new(
@@ -337,7 +339,7 @@ fn run(
         StartInvocation::Pause => InterpreterResult::Pause,
         StartInvocation::Running => Interpreter.run(code_builder.pages(), &mut engine, FUEL),
     };
-    // exit/fault during the start function is still the sequence's verdict.
+    // exit/panic during the start function is still the sequence's verdict.
     if let Some(code) = exit_code.get() {
         return Ok(code);
     }
@@ -376,7 +378,7 @@ fn run(
         .map_err(|e| format!("invoke: {e:?}"))?;
     let result = Interpreter.run(code_builder.pages(), &mut engine, FUEL);
 
-    // If exit/fault ran, the recorded code is authoritative -- they unwind via
+    // If exit/panic ran, the recorded code is authoritative -- they unwind via
     // a host trap, so the interpreter result is a trap we must not treat as a
     // harness fault. exit()/assert/implicit traps take this path; falling off
     // the end of main does not (it returns normally below).
@@ -385,7 +387,7 @@ fn run(
     }
 
     match result {
-        // main returned without calling exit/fault. The entry is void, so
+        // main returned without calling exit/panic. The entry is void, so
         // reaching its end is the only way here and it always means success.
         InterpreterResult::Finished => Ok(0),
         InterpreterResult::Trap(t) => Err(format!("trap: {t:?}")),

@@ -6,10 +6,10 @@ from llvmlite import ir
 
 from fpy.bytecode.directives import ErrorCodeType
 
-HOST_MODULE_NAME = "fprime"
+HOST_MODULE_NAME = "fprime_v1"
 
 HOST_EXIT_FUNC_NAME = "exit"
-HOST_FAULT_FUNC_NAME = "fault"
+HOST_PANIC_FUNC_NAME = "panic"
 HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
 
@@ -47,11 +47,11 @@ def declare_host_imports(module: ir.Module) -> None:
     )
     exit_fn.attributes.add("noreturn")
 
-    # fault(code) reports a runtime error; like exit, it never returns.
-    fault_fn = _declare_host_func(
-        module, HOST_FAULT_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
+    # panic(code) reports a runtime error; like exit, it never returns.
+    panic_fn = _declare_host_func(
+        module, HOST_PANIC_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
     )
-    fault_fn.attributes.add("noreturn")
+    panic_fn.attributes.add("noreturn")
 
     # event(severity, msg_ptr, msg_len) emits a log message.
     _declare_host_func(
