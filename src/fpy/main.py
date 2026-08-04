@@ -33,7 +33,6 @@ from fpy.compiler import (
     analysis_to_fpybc_directives,
     ast_to_dependencies,
 )
-from fpy.codegen_llvm import backend_version_str
 from fpy.dictionary import load_dictionary
 from fpy.state import get_base_compile_state
 from fpy.error import parse_warning_set
@@ -60,8 +59,20 @@ def get_version_str() -> str:
     return f"package {get_package_version()}, langauge {MAJOR_VERSION}.{MINOR_VERSION}.{PATCH_VERSION}, schema {SCHEMA_VERSION}"
 
 
+def get_backend_version_str() -> str | None:
+    """The LLVM backend's toolchain versions, or None if it isn't installed."""
+    try:
+        from fpy.codegen_llvm import backend_version_str
+    except fpy.error.BackendError:
+        return None
+    return backend_version_str()
+
+
 def compile_main(args: list[str] = None):
-    compiler_version = f"{get_version_str()}\nbackend:\n{backend_version_str()}"
+    backend_version = get_backend_version_str()
+    compiler_version = get_version_str()
+    if backend_version is not None:
+        compiler_version += f"\nbackend:\n{backend_version}"
     arg_parser = argparse.ArgumentParser(description=f"Fpy compiler {compiler_version}")
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {compiler_version}"
@@ -254,7 +265,13 @@ def compile_main(args: list[str] = None):
         if output_path is None:
             output_path = parsed_args.input.with_suffix(".bin")
         arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
-        output_bytes, crc = serialize_directives(output, arg_specs)
+        try:
+            output_bytes, crc = serialize_directives(
+                output, arg_specs, max_directive_size=state.max_directive_size
+            )
+        except fpy.error.BackendError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
         output_path.write_bytes(output_bytes)
         print(
             f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}"
@@ -363,7 +380,11 @@ def assemble_main(args: list[str] = None):
     output = args.output
     if output is None:
         output = args.input.with_suffix(".bin")
-    output_bytes, crc = serialize_directives(directives)
+    try:
+        output_bytes, crc = serialize_directives(directives)
+    except fpy.error.BackendError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
     output.write_bytes(output_bytes)
     print(f"{output}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}")
 

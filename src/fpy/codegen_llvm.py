@@ -6,10 +6,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from llvmlite import ir
-import llvmlite.binding as llvm
-
 from fpy.error import BackendError
+
+try:
+    from llvmlite import ir
+    import llvmlite.binding as llvm
+except ImportError as exc:
+    raise BackendError(
+        "the 'llvmlite' package is required by the LLVM backend; install it "
+        "with 'pip install fprime-fpy[wasm]'"
+    ) from exc
+
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
 from fpy.symbols import (

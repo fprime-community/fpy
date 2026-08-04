@@ -825,6 +825,18 @@ class TestIntegerOverflow:
         result = model.dispatch(SignedIntDivideDirective())
         assert result == DirectiveErrorCode.ARITHMETIC_OVERFLOW
 
+    def test_smod_int_min_by_minus_one_is_zero(self):
+        """MIN_INT64 % -1 is 0, the mathematical remainder: unlike the sdiv
+        quotient it is representable, so no trap (matching wasm i64.rem_s and
+        Rust's wrapping_rem)."""
+        model = self._make_model()
+        model.push(MIN_INT64)
+        model.push(-1)
+        result = model.dispatch(SignedModuloDirective())
+        assert result == DirectiveErrorCode.NO_ERROR
+        val = model.pop(signed=True)
+        assert val == 0
+
 
 class TestFpow:
     """The model's handle_fpow should return NaN on domain errors
@@ -1002,6 +1014,13 @@ class TestFmodZeroSign:
         val = self._fmod(-1.5, 0.5)
         assert val == 0.0
         assert math.copysign(1.0, val) == 1.0
+
+    def test_zero_divisor_is_nan(self):
+        """x % 0.0 is NaN, not an error (fmod semantics, matching the flight
+        VM, the wasm backend, Rust, and C#; issue #120)."""
+        for zero in (0.0, -0.0):
+            val = self._fmod(2.0, zero)
+            assert math.isnan(val)
 
 
 class TestFloatCastSaturation:

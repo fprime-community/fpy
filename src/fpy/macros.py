@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from llvmlite import ir
 from fpy.bytecode.directives import (
     PushRandDirective,
     ExitDirective,
@@ -153,6 +152,8 @@ def generate_abs_float_llvm(builder, args):
 
 
 def generate_abs_signed_int_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.abs",
@@ -163,6 +164,8 @@ def generate_abs_signed_int_llvm(builder, args):
 
 
 def generate_log_llvm(builder, args):
+    from llvmlite import ir
+
     [(value, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.log",
@@ -176,6 +179,8 @@ def generate_log_event_llvm(builder, args):
     """LLVM/wasm lowering of log(message, severity): place the utf-8 message
     bytes in a constant in linear memory and call the host
     event(severity, ptr, len)."""
+    from llvmlite import ir
+
     [(_, message), (_, severity)] = args
     data = message.val.encode("utf-8")
     module = builder.module

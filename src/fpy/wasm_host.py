@@ -2,9 +2,14 @@
 sequencer provides to the sequence. All of them are imported under the wasm
 import module named by HOST_MODULE_NAME."""
 
-from llvmlite import ir
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fpy.bytecode.directives import ErrorCodeType
+
+if TYPE_CHECKING:
+    from llvmlite import ir
 
 HOST_MODULE_NAME = "fprime_v1"
 
@@ -13,7 +18,14 @@ HOST_PANIC_FUNC_NAME = "panic"
 HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
 
-ERROR_CODE_TYPE = ErrorCodeType.llvm_type
+
+def __getattr__(name: str):
+    # ERROR_CODE_TYPE is an llvmlite ir.Type, so building it needs llvmlite --
+    # an optional dependency (the `wasm` extra). Serving it lazily keeps this
+    # module importable (for the HOST_*_NAME constants) without llvmlite.
+    if name == "ERROR_CODE_TYPE":
+        return ErrorCodeType.llvm_type
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _declare_host_func(
@@ -29,6 +41,8 @@ def _declare_host_func(
     "import_module" in https://clang.llvm.org/docs/AttributeReference.html.
     llvmlite's attribute set only knows enum attributes, so bypass its
     allowlist to attach the string-valued one."""
+    from llvmlite import ir
+
     fn = ir.Function(module, fn_type, name=name)
     set.add(fn.attributes, f'"wasm-import-module"="{HOST_MODULE_NAME}"')
     return fn
@@ -40,16 +54,20 @@ def declare_host_imports(module: ir.Module) -> None:
     (env.pow/fmod/log) are deliberately absent: LLVM materializes those itself
     when lowering llvm.pow/llvm.log/frem, and they stay under wasm-ld's
     default import module "env"."""
+    from llvmlite import ir
+
+    error_code_type = ErrorCodeType.llvm_type
+
     # exit(code) ends the whole sequence. It never returns to wasm (the host
     # unwinds the interpreter); noreturn lets LLVM drop the dead code after it.
     exit_fn = _declare_host_func(
-        module, HOST_EXIT_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
+        module, HOST_EXIT_FUNC_NAME, ir.FunctionType(ir.VoidType(), [error_code_type])
     )
     exit_fn.attributes.add("noreturn")
 
     # panic(code) reports a runtime error; like exit, it never returns.
     panic_fn = _declare_host_func(
-        module, HOST_PANIC_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE])
+        module, HOST_PANIC_FUNC_NAME, ir.FunctionType(ir.VoidType(), [error_code_type])
     )
     panic_fn.attributes.add("noreturn")
 

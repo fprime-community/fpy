@@ -115,6 +115,29 @@ class TestWasmAssert:
         assert run_seq_wasm(f"assert 1 == 2{suffix}\n") == expected
 
 
+class TestWasmExit:
+    """exit() lowers to the host `exit` call rather than a `ret`, so it ends
+    the whole sequence from any call depth, returning its code verbatim (code 0
+    is a normal exit, nonzero a fault)."""
+
+    @pytest.mark.parametrize("code", [0, 5, 7, 42, 123])
+    def test_exit_returns_code(self, code):
+        assert run_seq_wasm(f"exit({code})\n") == code
+
+    def test_exit_with_runtime_code(self):
+        # The exit code comes from a variable (read at runtime), not a literal.
+        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
+        # so a runtime code must be a signed int.
+        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
+
+    def test_exit_ends_sequence_early(self):
+        # The exit happens before the (would-fail) asserts, so the sequence ends
+        # with exit's code and never reaches them.
+        assert run_seq_wasm("exit(0)\nassert 1 == 2\n") == NO_ERROR
+        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
+        assert run_seq_wasm("exit(9)\nassert 1 == 1\n") == 9
+
+
 class TestWasmVariables:
     """Variables give us genuine *runtime* computation: reading a variable is not
     const-foldable, so these exercise the load/store/convert/arithmetic emitters
@@ -523,32 +546,6 @@ class TestWasmExponent:
         # function import of env.pow is exactly this byte run.
         wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
         assert b"\x03env\x03pow\x00" in wasm
-
-
-class TestWasmExit:
-    """exit() lowers to the host `exit` call rather than a `ret`, so it ends
-    the whole sequence with its code (0 is a normal exit, nonzero an error)."""
-
-    def test_exit_returns_code_verbatim(self):
-        assert run_seq_wasm("exit(42)\n") == 42
-        assert run_seq_wasm("exit(7)\n") == EXIT_WITH_ERROR
-
-    def test_exit_ends_sequence_early(self):
-        # A nonzero exit also returns immediately; nothing after it runs.
-        assert run_seq_wasm("exit(9)\nassert False\n") == 9
-
-    def test_exit_zero_succeeds(self):
-        assert run_seq_wasm("exit(0)\n") == NO_ERROR
-
-    def test_exit_short_circuits_rest_of_sequence(self):
-        # exit() returns immediately, so the failing assert after it never runs.
-        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
-
-    def test_exit_with_runtime_code(self):
-        # The exit code comes from a variable (read at runtime), not a literal.
-        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
-        # so a runtime code must be a signed int.
-        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
 
 
 class TestWasmLog:
