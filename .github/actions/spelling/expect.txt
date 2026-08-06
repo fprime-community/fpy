@@ -4,8 +4,10 @@ alloca
 asmprinters
 astassign
 autouse
+backpatch
 BBBBBHI
 binop
+bitcast
 bitwidth
 Breslav
 brk
@@ -17,6 +19,7 @@ Cdh
 chans
 cls
 codegen
+crt
 ctx
 cuz
 dedenting
@@ -50,6 +53,7 @@ fpybin
 fqn
 frem
 fsw
+gep
 getattrs
 getcontext
 getfixturevalue
@@ -74,6 +78,7 @@ kinda
 lalr
 libcall
 libm
+llo
 lvar
 miscompiling
 mvp
@@ -91,6 +96,7 @@ oor
 passthrough
 pb
 pemdas
+pointee
 postlex
 postlexer
 prm
@@ -131,6 +137,7 @@ uitofp
 uk
 ul
 umod
+uncatchably
 une
 urem
 usec
@@ -152,3 +159,4 @@ zext
 ziext
 ziglang
 zmq
+zstack
