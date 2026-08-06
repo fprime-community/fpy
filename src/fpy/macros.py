@@ -15,6 +15,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
+from fpy.wasm_host import HOST_EVENT_FUNC_NAME, HOST_EXIT_FUNC_NAME
 from fpy.syntax import Ast
 from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
@@ -133,14 +134,13 @@ def generate_log_signed_int(
 
 
 def generate_exit_llvm(builder, args):
-    """LLVM/wasm lowering of exit(code): call the host fpy_exit function, which
+    """LLVM/wasm lowering of exit(code): call the host exit function, which
     ends the whole sequence from any call depth (code 0 is a normal exit,
-    nonzero a fault).
+    nonzero an error).
     """
-    from fpy.codegen_llvm import emit_host_exit
-
     [(code, _const)] = args
-    emit_host_exit(builder, code)
+    builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
+    builder.unreachable()
     builder.position_at_end(builder.function.append_basic_block("after_exit"))
     return None
 
@@ -173,6 +173,33 @@ def generate_log_llvm(builder, args):
         ir.FunctionType(value.type, [value.type]),
     )
     return builder.call(fn, [value])
+
+
+def generate_log_event_llvm(builder, args):
+    """LLVM/wasm lowering of log(message, severity): place the utf-8 message
+    bytes in a constant in linear memory and call the host
+    event(severity, ptr, len)."""
+    from llvmlite import ir
+
+    [(_, message), (_, severity)] = args
+    data = message.val.encode("utf-8")
+    module = builder.module
+    msg_type = ir.ArrayType(ir.IntType(8), len(data))
+    msg = ir.GlobalVariable(module, msg_type, name=module.get_unique_name("log_msg"))
+    msg.linkage = "private"
+    msg.global_constant = True
+    msg.initializer = ir.Constant(msg_type, bytearray(data))
+
+    i32 = ir.IntType(32)
+    builder.call(
+        builder.module.globals[HOST_EVENT_FUNC_NAME],
+        [
+            ir.Constant(i32, severity.type.enum_dict[severity.val]),
+            builder.bitcast(msg, ir.IntType(8).as_pointer()),
+            ir.Constant(i32, len(data)),
+        ],
+    )
+    return None
 
 
 MACRO_ABS_FLOAT = BuiltinFuncSymbol(
@@ -258,6 +285,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             ),
             PopEventDirective(),
         ],
+        generate_log_event_llvm,
         const_arg_indices=frozenset({0, 1}),
     ),
     # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.

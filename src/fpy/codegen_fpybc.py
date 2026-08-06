@@ -15,6 +15,7 @@ except ImportError:
 from fpy.error import BackendError
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
+from fpy.semantics import is_cmd_and_response_unhandled
 from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
@@ -674,12 +675,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dirs.append(IntMultiplyDirective())
         return dirs
 
-    def _is_cmd_and_response_unhandled(self, stmt: Ast, state: CompileState) -> bool:
-        """True when *stmt* is a command call whose response is not captured."""
-        return is_instance_compat(stmt, AstFuncCall) and is_instance_compat(
-            state.resolved_symbols.get(stmt.func), CommandSymbol
-        )
-
     def _should_lower_stmt(self, stmt: Ast, state: CompileState) -> bool:
         """Whether a statement needs code generated for it.
 
@@ -707,7 +702,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
-            if self._is_cmd_and_response_unhandled(stmt, state):
+            if is_cmd_and_response_unhandled(stmt, state):
                 dirs.extend(self.assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
@@ -788,7 +783,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 # last stmt, it must be the inc stmt, add the label before it
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
-            if self._is_cmd_and_response_unhandled(stmt, state):
+            if is_cmd_and_response_unhandled(stmt, state):
                 dirs.extend(self.assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
@@ -937,17 +932,12 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
         dirs = []
 
+        # A qualified name can't denote a variable (an imported sequence may
+        # not declare a top-level variable), so sym is never a VariableSymbol.
         if is_instance_compat(sym, ChDef):
             dirs.append(PushTlmValDirective(sym.ch_id))
         elif is_instance_compat(sym, PrmDef):
             dirs.append(PushPrmDirective(sym.prm_id))
-        elif is_instance_compat(sym, VariableSymbol):
-            # Use global directives only when inside a function AND accessing a global variable
-            use_global = self.in_function and sym.is_global
-            if use_global:
-                dirs.append(LoadAbsDirective(sym.frame_offset, sym.type.max_size))
-            else:
-                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.max_size))
         elif is_instance_compat(sym, FieldAccess):
             if is_instance_compat(sym.parent_expr, AstAnonStruct):
                 # Direct member access on anonymous struct literal.

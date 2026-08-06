@@ -151,17 +151,87 @@ def run_seq_wasm(
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
+    failing_opcodes: set[int] = None,
 ) -> int:
-    """Compile *seq* to wasm and run it, returning fpy_main's error code.
+    """Compile *seq* to wasm and run it, returning the sequence's error code
+    (reported via the exit/fault host imports; 0 when the void entrypoint
+    falls off its end without failing).
 
     Runs the compiled module through the NASA spacewasm interpreter (the
     on-board target runtime) via the runner harness built by conftest."""
-    import subprocess
+    code, _, _ = _run_seq_wasm(
+        seq,
+        ground_binary_dir,
+        import_directories=import_directories,
+        expected_warnings=expected_warnings,
+        main_file_dir=main_file_dir,
+        failing_opcodes=failing_opcodes,
+    )
+    return code
 
-    assert (
-        SPACEWASM_RUNNER is not None
-    ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
 
+def run_seq_wasm_with_events(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] | None = None,
+    expected_warnings=None,
+    main_file_dir: str | None = None,
+) -> tuple[int, list[tuple[int, str]]]:
+    """Like run_seq_wasm, but also returns the events the sequence reported
+    through the event host import (the log() builtin) as (severity, message)
+    pairs, in call order. Messages are Rust-escaped by the runner harness, so
+    a plain ASCII message round-trips verbatim."""
+    code, events, _ = _run_seq_wasm(
+        seq,
+        ground_binary_dir,
+        import_directories=import_directories,
+        expected_warnings=expected_warnings,
+        main_file_dir=main_file_dir,
+    )
+    return code, events
+
+
+def run_seq_wasm_with_cmds(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] | None = None,
+    expected_warnings=None,
+    main_file_dir: str | None = None,
+    failing_opcodes: set[int] = None,
+    cmd_response: int = None,
+) -> tuple[int, list[bytes]]:
+    """Like run_seq_wasm, but also returns the command buffers the sequence
+    dispatched through the cmd host import (the big-endian serialized
+    FwOpcodeType + arguments), in call order. Every command completes with
+    *cmd_response* (an Fw.CmdResponse value, default OK) unless its opcode is
+    in *failing_opcodes*, which makes it complete with EXECUTION_ERROR."""
+    code, _, cmds = _run_seq_wasm(
+        seq,
+        ground_binary_dir,
+        import_directories=import_directories,
+        expected_warnings=expected_warnings,
+        main_file_dir=main_file_dir,
+        failing_opcodes=failing_opcodes,
+        cmd_response=cmd_response,
+    )
+    return code, cmds
+
+
+def _run_seq_wasm(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] | None = None,
+    expected_warnings=None,
+    main_file_dir: str | None = None,
+    failing_opcodes: set[int] = None,
+    cmd_response: int = None,
+) -> tuple[int, list[tuple[int, str]], list[bytes]]:
+    """Compile *seq* to wasm, run it through the spacewasm runner harness, and
+    return (error code, reported events, dispatched command buffers).
+
+    The commands that fail are *failing_opcodes* plus the RUN commands that
+    always fail when called from within a running sequence on the same
+    sequencer instance -- the same set the bytecode reference model uses."""
     wasm = compile_seq_wasm(
         seq,
         ground_binary_dir,
@@ -169,26 +239,71 @@ def run_seq_wasm(
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
-    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    wasm_file.write(wasm)
-    wasm_file.close()
+    return run_wasm(wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response)
 
-    result = subprocess.run(
-        [SPACEWASM_RUNNER, wasm_file.name],
-        capture_output=True,
-        text=True,
-    )
+
+def run_wasm(
+    wasm: bytes,
+    failing_opcodes: set[int] = None,
+    cmd_response: int = None,
+) -> tuple[int, list[tuple[int, str]], list[bytes]]:
+    """Run an already-linked wasm module through the spacewasm runner harness
+    and return (error code, reported events, dispatched command buffers).
+
+    The commands that fail are *failing_opcodes* plus the RUN commands that
+    always fail when called from within a running sequence on the same
+    sequencer instance -- the same set the bytecode reference model uses."""
+    import subprocess
+
+    assert (
+        SPACEWASM_RUNNER is not None
+    ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
+
+    wasm_path = _write_wasm_to_tmpfile(wasm)
+
+    d = load_dictionary(default_dictionary)
+    always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
+    argv = [SPACEWASM_RUNNER, wasm_path]
+    for opcode in sorted(always_failing | set(failing_opcodes or ())):
+        argv += ["--fail-opcode", str(opcode)]
+    if cmd_response is not None:
+        argv += ["--cmd-response", str(cmd_response)]
+
+    result = subprocess.run(argv, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
             f"spacewasm runner faulted (exit {result.returncode}): "
             f"{result.stderr.strip()}"
         )
-    return int(result.stdout.strip())
+    # The runner prints one `event <severity> <message>` line per event host
+    # call and one `cmd <hex>` line per cmd host call, then the sequence's
+    # error code as the final line.
+    *host_call_lines, code_line = result.stdout.strip().splitlines()
+    events = []
+    cmds = []
+    for line in host_call_lines:
+        kind, rest = line.split(" ", 1)
+        if kind == "event":
+            severity, message = rest.split(" ", 1)
+            events.append((int(severity), message))
+        elif kind == "cmd":
+            cmds.append(bytes.fromhex(rest))
+        else:
+            assert False, f"unexpected runner output line: {line!r}"
+    return int(code_line), events, cmds
 
 
 def lookup_type(fprime_test_api, type_name: str):
     d = load_dictionary(default_dictionary)
     return d["type_defs"][type_name]
+
+
+def _write_wasm_to_tmpfile(wasm: bytes) -> str:
+    """Write a compiled wasm module to a temp .wasm file and return its path."""
+    wasm_file = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
+    wasm_file.write(wasm)
+    wasm_file.close()
+    return wasm_file.name
 
 
 def _write_seq_to_tmpfile(
@@ -352,12 +467,26 @@ def assert_run_success(
     main_file_dir: str | None = None,
 ):
     if USE_WASM:
+        if fprime_test_api is not None:
+            wasm = compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_directories=import_directories,
+                expected_warnings=expected_warnings,
+                main_file_dir=main_file_dir,
+            )
+            wasm_path = _write_wasm_to_tmpfile(wasm)
+            fprime_test_api.send_and_assert_command(
+                "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
+            )
+            return
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
             import_directories=import_directories,
             expected_warnings=expected_warnings,
             main_file_dir=main_file_dir,
+            failing_opcodes=failing_opcodes,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
@@ -458,12 +587,30 @@ def assert_run_failure(
     ), "Must specify either error_code or validation_error"
 
     if USE_WASM:
+        if fprime_test_api is not None:
+            # GDS mode: send the wasm module and assert that it fails via
+            # OpCodeError event, mirroring the bytecode GDS failure path.
+            wasm = compile_seq_wasm(
+                seq,
+                ground_binary_dir=ground_binary_dir,
+                import_directories=import_directories,
+            )
+            wasm_path = _write_wasm_to_tmpfile(wasm)
+            fprime_test_api.send_and_assert_event(
+                "Ref.wasmSeq.RUN",
+                [wasm_path, "BLOCK"],
+                events="CdhCore.cmdDisp.OpCodeError",
+                timeout=4,
+            )
+            return
         # The wasm backend has no separate validation step or VM-internal
-        # faults: a failed sequence is one whose entry point returns nonzero.
+        # faults: a failed sequence is one that reports a nonzero code
+        # through the exit/fault host imports.
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
             import_directories=import_directories,
+            failing_opcodes=failing_opcodes,
         )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")

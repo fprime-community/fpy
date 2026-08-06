@@ -2709,12 +2709,12 @@ class TestLoadDictionary:
 
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["type_defs"]) == 106
+        assert len(d["type_defs"]) == 110
 
     def test_command_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["cmd_id_dict"]) == 147
-        assert len(d["cmd_name_dict"]) == 147
+        assert len(d["cmd_id_dict"]) == 161
+        assert len(d["cmd_name_dict"]) == 161
 
     def test_channel_counts(self):
         d = load_dictionary(REF_DICT_PATH)
@@ -2723,8 +2723,8 @@ class TestLoadDictionary:
 
     def test_parameter_counts(self):
         d = load_dictionary(REF_DICT_PATH)
-        assert len(d["prm_id_dict"]) == 15
-        assert len(d["prm_name_dict"]) == 15
+        assert len(d["prm_id_dict"]) == 18
+        assert len(d["prm_name_dict"]) == 18
 
     def test_constant_counts(self):
         d = load_dictionary(REF_DICT_PATH)

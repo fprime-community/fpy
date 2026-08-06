@@ -47,6 +47,11 @@ FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
 FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
 
 
+class DeserializeError(ValueError):
+    """Bytes that cannot be deserialized as a value of the requested type
+    (fprime's FW_DESERIALIZE_* error statuses)."""
+
+
 class TypeKind(str, Enum):
     # Concrete primitive types
     U8 = "U8"
@@ -579,20 +584,41 @@ class FpyValue:
     @staticmethod
     def deserialize(typ: FpyType, data: bytes, offset: int = 0) -> tuple[FpyValue, int]:
         """Deserialize a value of *typ* from *data* at *offset*.
-        Returns ``(value, new_offset)``."""
+        Returns ``(value, new_offset)``. Raises DeserializeError on bytes the
+        fprime C++ deserializer would reject"""
         kind = typ.kind
 
         if kind in _PRIMITIVE_FORMATS:
             fmt = _PRIMITIVE_FORMATS[kind]
             size = _PRIMITIVE_SIZES[kind]
+            if offset + size > len(data):
+                raise DeserializeError(
+                    f"Buffer too short for {typ.display_name}: need {size} bytes "
+                    f"at offset {offset}, have {len(data) - offset}"
+                )
             raw = struct.unpack_from(fmt, data, offset)[0]
             if kind == TypeKind.BOOL:
-                raw = bool(raw)
+                if raw == FW_SERIALIZE_TRUE_VALUE:
+                    raw = True
+                elif raw == FW_SERIALIZE_FALSE_VALUE:
+                    raw = False
+                else:
+                    raise DeserializeError(f"Invalid bool byte 0x{raw:02x}")
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
             size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
+            if typ.max_length is not None and str_len > typ.max_length:
+                raise DeserializeError(
+                    f"String length {str_len} exceeds max length "
+                    f"{typ.max_length} of {typ.display_name}"
+                )
+            if offset + str_len > len(data):
+                raise DeserializeError(
+                    f"Buffer too short for {typ.display_name}: need {str_len} "
+                    f"bytes at offset {offset}, have {len(data) - offset}"
+                )
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len
             return FpyValue(typ, s), offset

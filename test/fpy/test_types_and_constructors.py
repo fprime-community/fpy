@@ -320,6 +320,19 @@ val[idx] = 111
 
         assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS)
 
+    def test_assign_rhs_evaluated_before_lhs_bounds_check(self, fprime_test_api):
+        """In `a[i] = rhs` the rhs is evaluated before the lhs index is
+        bounds-checked: the rhs's zero divisor reports DOMAIN_ERROR before the
+        out-of-bounds store could report ARRAY_OUT_OF_BOUNDS."""
+        seq = """
+val: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)
+idx: I8 = 2
+zero: U32 = 0
+val[idx] = U32(456 // zero)
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
     def test_set_variable_array_idx(self, fprime_test_api):
         seq = """
 val: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)

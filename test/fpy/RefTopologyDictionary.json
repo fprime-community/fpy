@@ -3,8 +3,7 @@
     "deploymentName" : "Ref.Ref",
     "projectVersion" : "b22321f",
     "frameworkVersion" : "v4.2.0-299-g48dba77e31",
-    "libraryVersions" : [
-    ],
+    "libraryVersions" : [],
     "dictionarySpecVersion" : "1.0.0"
   },
   "typeDefinitions" : [
@@ -25,6 +24,40 @@
     },
     {
       "kind" : "alias",
+      "qualifiedName" : "Svc.Fpy.StackSizeType",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
+    },
+    {
+      "kind" : "alias",
+      "qualifiedName" : "FwTlmPacketizeIdType",
+      "type" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "underlyingType" : {
+        "name" : "U16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : false
+      },
+      "annotation" : "The type of a telemetry packet identifier"
+    },
+    {
+      "kind" : "alias",
       "qualifiedName" : "Ref.DpDemo.BoolAlias",
       "type" : {
         "name" : "bool",
@@ -36,6 +69,50 @@
         "kind" : "bool",
         "size" : 8
       }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Fpy.SerialPortIndex",
+      "representationType" : {
+        "name" : "I16",
+        "kind" : "integer",
+        "size" : 16,
+        "signed" : true
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "EXAMPLE_PORT_0",
+          "value" : 0,
+          "annotation" : "Example serial port 0 - rename to application-specific name (e.g., TIME_SYNC_PORT)"
+        },
+        {
+          "name" : "EXAMPLE_PORT_1",
+          "value" : 1,
+          "annotation" : "Example serial port 1 - rename to application-specific name (e.g., SENSOR_DATA_PORT)"
+        },
+        {
+          "name" : "EXAMPLE_PORT_2",
+          "value" : 2,
+          "annotation" : "Example serial port 2 - rename to application-specific name"
+        },
+        {
+          "name" : "EXAMPLE_PORT_3",
+          "value" : 3,
+          "annotation" : "Example serial port 3 - rename to application-specific name"
+        },
+        {
+          "name" : "EXAMPLE_PORT_4",
+          "value" : 4,
+          "annotation" : "Example serial port 4 - rename to application-specific name"
+        },
+        {
+          "name" : "MAX_SERIAL_PORTS",
+          "value" : 5,
+          "annotation" : "REQUIRED: Maximum number of serial ports. This sentinel value MUST be named"
+        }
+      ],
+      "default" : "Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0",
+      "annotation" : "Serial port indices for FpySequencer serialOut port array.\nMAX_SERIAL_PORTS must be defined with this exact name for Fpy compiler bounds checking."
     },
     {
       "kind" : "alias",
@@ -482,6 +559,21 @@
       }
     },
     {
+      "kind" : "array",
+      "qualifiedName" : "Svc.BuffQueueDepth",
+      "size" : 1,
+      "elementType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "default" : [
+        0
+      ],
+      "annotation" : "Array of queue depths for Fw::Buffer types"
+    },
+    {
       "kind" : "enum",
       "qualifiedName" : "Svc.Fpy.DirectiveErrorCode",
       "representationType" : {
@@ -573,58 +665,6 @@
         }
       ],
       "default" : "Svc.Fpy.DirectiveErrorCode.NO_ERROR"
-    },
-    {
-      "kind" : "array",
-      "qualifiedName" : "Svc.BuffQueueDepth",
-      "size" : 1,
-      "elementType" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "default" : [
-        0
-      ],
-      "annotation" : "Array of queue depths for Fw::Buffer types"
-    },
-    {
-      "kind" : "struct",
-      "qualifiedName" : "Ref.FpyExampleStruct",
-      "members" : {
-        "flag" : {
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "index" : 0
-        },
-        "count" : {
-          "type" : {
-            "name" : "U32",
-            "kind" : "integer",
-            "size" : 32,
-            "signed" : false
-          },
-          "index" : 1
-        },
-        "ratio" : {
-          "type" : {
-            "name" : "F32",
-            "kind" : "float",
-            "size" : 32
-          },
-          "index" : 2
-        }
-      },
-      "default" : {
-        "flag" : false,
-        "count" : 0,
-        "ratio" : 0.0
-      },
-      "annotation" : "Example struct for exercising FpySequencer serial port type checks"
     },
     {
       "kind" : "enum",
@@ -952,6 +992,58 @@
     },
     {
       "kind" : "enum",
+      "qualifiedName" : "Svc.WasmSequencer.SequencerStateMachine.State",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "__FPRIME_UNINITIALIZED",
+          "value" : 0,
+          "annotation" : "The uninitialized state"
+        },
+        {
+          "name" : "IDLE",
+          "value" : 1,
+          "annotation" : "Interpreter does not have any modules loaded or a store initialized"
+        },
+        {
+          "name" : "LOADING",
+          "value" : 2,
+          "annotation" : "Interpreter is loading a Wasm module into the store"
+        },
+        {
+          "name" : "READY",
+          "value" : 3,
+          "annotation" : "Interpreter has modules loaded into the store and is ready to execute"
+        },
+        {
+          "name" : "RUNNING_AWAITING_RESPONSE",
+          "value" : 4,
+          "annotation" : "a host function paused the interpreter to dispatch an F\u00b4 command;\nwaiting for the command response to come back in"
+        },
+        {
+          "name" : "RUNNING_PAUSED",
+          "value" : 5
+        },
+        {
+          "name" : "RUNNING_SPINNING",
+          "value" : 6,
+          "annotation" : "sequencer is spinning the interpreter loop"
+        },
+        {
+          "name" : "STARTING",
+          "value" : 7,
+          "annotation" : "A module finished loading and the start function needs to be invoked/run"
+        }
+      ],
+      "default" : "Svc.WasmSequencer.SequencerStateMachine.State.__FPRIME_UNINITIALIZED"
+    },
+    {
+      "kind" : "enum",
       "qualifiedName" : "Fw.StringFormatStatus",
       "representationType" : {
         "name" : "U8",
@@ -1002,6 +1094,94 @@
         "kind" : "float",
         "size" : 64
       }
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.WasmSequencer.TrapReason",
+      "representationType" : {
+        "name" : "I32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : true
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "UNREACHABLE",
+          "value" : 0,
+          "annotation" : "Triggered by unreachable instruction"
+        },
+        {
+          "name" : "HOST",
+          "value" : 1,
+          "annotation" : "A host function has noted an unrecoverable failure"
+        },
+        {
+          "name" : "DIVIDE_BY_ZERO",
+          "value" : 2,
+          "annotation" : "Integer or floating point division by zero"
+        },
+        {
+          "name" : "INVALID_TABLE_INDEX",
+          "value" : 3,
+          "annotation" : "An indirect call tried to map to a table function out of range"
+        },
+        {
+          "name" : "INVALID_TABLE_FUNCTION_TYPE",
+          "value" : 4,
+          "annotation" : "The function type in an indirect call does not match the function pointer's type"
+        },
+        {
+          "name" : "UNINTIIALIZED_TABLE_ELEMENT",
+          "value" : 5,
+          "annotation" : "An indirect call tried to map to a table function out of range"
+        },
+        {
+          "name" : "GLOBAL_GET_FAILED",
+          "value" : 6,
+          "annotation" : "An imported global could not be read"
+        },
+        {
+          "name" : "GLOBAL_SET_FAILED",
+          "value" : 7,
+          "annotation" : "An imported global could not be set"
+        },
+        {
+          "name" : "OUT_OF_MEMORY",
+          "value" : 8,
+          "annotation" : "A memory operation is out of bounds"
+        },
+        {
+          "name" : "MEMORY_REF_NOT_UNIQUE",
+          "value" : 9,
+          "annotation" : "memory.grow failed because a host function has taken ownership of a memory"
+        },
+        {
+          "name" : "MEMORY_OUT_OF_BOUNDS",
+          "value" : 10,
+          "annotation" : "A memory operation is out of bounds"
+        },
+        {
+          "name" : "STACK_OVERFLOW",
+          "value" : 11,
+          "annotation" : "Ran out of stack space"
+        },
+        {
+          "name" : "UNREPRESENTABLE_RESULT",
+          "value" : 12,
+          "annotation" : "Attempting to convert Inf to integer"
+        },
+        {
+          "name" : "INTEGER_OVERFLOW",
+          "value" : 13,
+          "annotation" : "Signed division causes integer overflow"
+        },
+        {
+          "name" : "BAD_CONVERSION_TO_INTEGER",
+          "value" : 14,
+          "annotation" : "Attempting to convert NaN to integer"
+        }
+      ],
+      "default" : "Svc.WasmSequencer.TrapReason.UNREACHABLE"
     },
     {
       "kind" : "enum",
@@ -1413,6 +1593,47 @@
     },
     {
       "kind" : "enum",
+      "qualifiedName" : "Svc.WasmSequencer.HostFunction",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "NONE",
+          "value" : 0
+        },
+        {
+          "name" : "TELEMETRY",
+          "value" : 1
+        },
+        {
+          "name" : "PARAMETER",
+          "value" : 2
+        },
+        {
+          "name" : "COMMAND",
+          "value" : 3
+        },
+        {
+          "name" : "EVENT",
+          "value" : 4
+        },
+        {
+          "name" : "RSLEEP",
+          "value" : 5
+        },
+        {
+          "name" : "ASLEEP",
+          "value" : 6
+        }
+      ],
+      "default" : "Svc.WasmSequencer.HostFunction.NONE"
+    },
+    {
+      "kind" : "enum",
       "qualifiedName" : "Ref.Choice",
       "representationType" : {
         "name" : "I32",
@@ -1778,21 +1999,425 @@
       "annotation" : "Enabled and disabled state"
     },
     {
-      "kind" : "array",
-      "qualifiedName" : "Ref.FpyExampleArray",
-      "size" : 3,
-      "elementType" : {
-        "name" : "U32",
+      "kind" : "enum",
+      "qualifiedName" : "Svc.WasmSequencer.Status",
+      "representationType" : {
+        "name" : "I32",
         "kind" : "integer",
         "size" : 32,
-        "signed" : false
+        "signed" : true
       },
-      "default" : [
-        0,
-        0,
-        0
+      "enumeratedConstants" : [
+        {
+          "name" : "OK",
+          "value" : 0
+        },
+        {
+          "name" : "ERR_NULL_ARG",
+          "value" : 1
+        },
+        {
+          "name" : "ERR_BAD_ARG",
+          "value" : 2
+        },
+        {
+          "name" : "ERR_BAD_UTF8",
+          "value" : 3
+        },
+        {
+          "name" : "ERR_NAME_TOO_LONG",
+          "value" : 4
+        },
+        {
+          "name" : "ERR_BAD_SIGNATURE",
+          "value" : 5
+        },
+        {
+          "name" : "ERR_CAPACITY",
+          "value" : 6
+        },
+        {
+          "name" : "ERR_NOT_FOUND",
+          "value" : 7
+        },
+        {
+          "name" : "ERR_WRONG_STATE",
+          "value" : 8
+        },
+        {
+          "name" : "ERR_GUEST_MEMORY_ALLOC_FAILED",
+          "value" : 15
+        },
+        {
+          "name" : "ERR_ALLOC_FAILED",
+          "value" : 16
+        },
+        {
+          "name" : "ERR_OUT_OF_MEMORY",
+          "value" : 17
+        },
+        {
+          "name" : "ERR_PAGE_TOO_SMALL",
+          "value" : 18
+        },
+        {
+          "name" : "ERR_MEM_OUT_OF_BOUNDS",
+          "value" : 32
+        },
+        {
+          "name" : "ERR_PARAM_LEN_MISMATCH",
+          "value" : 48
+        },
+        {
+          "name" : "ERR_PARAM_TYPE_MISMATCH",
+          "value" : 49
+        },
+        {
+          "name" : "ERR_STACK_OVERFLOW",
+          "value" : 50
+        },
+        {
+          "name" : "ERR_EOF",
+          "value" : 64
+        },
+        {
+          "name" : "ERR_MALFORMED_INTEGER",
+          "value" : 65
+        },
+        {
+          "name" : "ERR_I33_IS_NEGATIVE",
+          "value" : 66
+        },
+        {
+          "name" : "ERR_MALFORMED_MAGIC",
+          "value" : 67
+        },
+        {
+          "name" : "ERR_MALFORMED_VERSION",
+          "value" : 68
+        },
+        {
+          "name" : "ERR_MALFORMED_UTF8",
+          "value" : 69
+        },
+        {
+          "name" : "ERR_DUPLICATE_MODULE_NAME",
+          "value" : 70
+        },
+        {
+          "name" : "ERR_DUPLICATE_EXPORT_NAME",
+          "value" : 71
+        },
+        {
+          "name" : "ERR_MALFORMED_SECTION_ID",
+          "value" : 72
+        },
+        {
+          "name" : "ERR_MALFORMED_VALUE_TYPE",
+          "value" : 73
+        },
+        {
+          "name" : "ERR_MALFORMED_FUNCTION",
+          "value" : 74
+        },
+        {
+          "name" : "ERR_MALFORMED_LIMIT",
+          "value" : 75
+        },
+        {
+          "name" : "ERR_MALFORMED_ELEM_TYPE",
+          "value" : 76
+        },
+        {
+          "name" : "ERR_MALFORMED_SECTION_SIZE",
+          "value" : 77
+        },
+        {
+          "name" : "ERR_EXPECTED_CONST_OR_VAR",
+          "value" : 78
+        },
+        {
+          "name" : "ERR_MALFORMED_IMPORT_EXPORT_DESC",
+          "value" : 79
+        },
+        {
+          "name" : "ERR_MALFORMED_MEM_TYPE",
+          "value" : 80
+        },
+        {
+          "name" : "ERR_INVALID_PAGE_SIZE",
+          "value" : 81
+        },
+        {
+          "name" : "ERR_INVALID_SECTION_ORDERING",
+          "value" : 82
+        },
+        {
+          "name" : "ERR_DUPLICATE_SECTION",
+          "value" : 83
+        },
+        {
+          "name" : "ERR_INVALID_MAX_LIMIT",
+          "value" : 84
+        },
+        {
+          "name" : "ERR_EXPECTED_TERMINAL",
+          "value" : 85
+        },
+        {
+          "name" : "ERR_INVALID_OPCODE",
+          "value" : 86
+        },
+        {
+          "name" : "ERR_MALFORMED_CODE_SIZE",
+          "value" : 87
+        },
+        {
+          "name" : "ERR_INVALID_CODE_SECTION_FUNCTION_COUNT",
+          "value" : 88
+        },
+        {
+          "name" : "ERR_VEC_TOO_LONG",
+          "value" : 89
+        },
+        {
+          "name" : "ERR_IDX_TOO_LARGE",
+          "value" : 90
+        },
+        {
+          "name" : "ERR_MODULE_IDX_TOO_LARGE",
+          "value" : 91
+        },
+        {
+          "name" : "ERR_MEMORY_TOO_LARGE",
+          "value" : 92
+        },
+        {
+          "name" : "ERR_MEMORY_IMPORT_TOO_LARGE",
+          "value" : 93
+        },
+        {
+          "name" : "ERR_MEM_ALIGN_TOO_LARGE",
+          "value" : 94
+        },
+        {
+          "name" : "ERR_CONTROL_FLOW_TOO_DEEP",
+          "value" : 96
+        },
+        {
+          "name" : "ERR_STACK_UNDERFLOW",
+          "value" : 97
+        },
+        {
+          "name" : "ERR_STACK_TOO_LARGE",
+          "value" : 98
+        },
+        {
+          "name" : "ERR_LABEL_STACK_JUMP_TOO_DEEP",
+          "value" : 99
+        },
+        {
+          "name" : "ERR_LABEL_JUMP_TOO_LARGE",
+          "value" : 100
+        },
+        {
+          "name" : "ERR_TYPE_MISMATCH",
+          "value" : 101
+        },
+        {
+          "name" : "ERR_BLOCK_RESULT_TYPE_MISMATCH",
+          "value" : 102
+        },
+        {
+          "name" : "ERR_FUNCTION_RESULT_TYPE_MISMATCH",
+          "value" : 103
+        },
+        {
+          "name" : "ERR_ILLEGAL_MEMORY_GROW",
+          "value" : 112
+        },
+        {
+          "name" : "ERR_INVALID_ELEMENT_OFFSET",
+          "value" : 113
+        },
+        {
+          "name" : "ERR_INVALID_ELEMENT_OUT_OF_BOUNDS",
+          "value" : 114
+        },
+        {
+          "name" : "ERR_INVALID_TABLE_INDEX",
+          "value" : 115
+        },
+        {
+          "name" : "ERR_TABLE_NOT_DEFINED",
+          "value" : 116
+        },
+        {
+          "name" : "ERR_INVALID_ELEMENT_COUNT",
+          "value" : 117
+        },
+        {
+          "name" : "ERR_INVALID_MEM_INDEX",
+          "value" : 118
+        },
+        {
+          "name" : "ERR_MEMORY_NOT_DEFINED",
+          "value" : 119
+        },
+        {
+          "name" : "ERR_INVALID_MEM_OFFSET_TYPE",
+          "value" : 120
+        },
+        {
+          "name" : "ERR_INVALID_NEGATIVE_MEM_OFFSET",
+          "value" : 121
+        },
+        {
+          "name" : "ERR_INVALID_MEM_OFFSET",
+          "value" : 122
+        },
+        {
+          "name" : "ERR_MULTIPLE_MEMORIES",
+          "value" : 123
+        },
+        {
+          "name" : "ERR_MULTIPLE_TABLES",
+          "value" : 124
+        },
+        {
+          "name" : "ERR_INVALID_LABEL_INDEX",
+          "value" : 128
+        },
+        {
+          "name" : "ERR_INVALID_ELSE_BLOCK",
+          "value" : 129
+        },
+        {
+          "name" : "ERR_INVALID_END_BLOCK",
+          "value" : 130
+        },
+        {
+          "name" : "ERR_INSTRUCTION_OUTSIDE_OF_FUNCTION",
+          "value" : 131
+        },
+        {
+          "name" : "ERR_LOCAL_IDX_OUT_OF_RANGE",
+          "value" : 132
+        },
+        {
+          "name" : "ERR_FUNCTION_IDX_OUT_OF_RANGE",
+          "value" : 133
+        },
+        {
+          "name" : "ERR_TYPE_IDX_OUT_OF_RANGE",
+          "value" : 134
+        },
+        {
+          "name" : "ERR_FUNCTION_TEXT_OUT_OF_RANGE",
+          "value" : 135
+        },
+        {
+          "name" : "ERR_GLOBAL_IDX_OUT_OF_RANGE",
+          "value" : 136
+        },
+        {
+          "name" : "ERR_FUNCTION_IMPORT_NOT_FOUND",
+          "value" : 144
+        },
+        {
+          "name" : "ERR_GLOBAL_IMPORT_NOT_FOUND",
+          "value" : 145
+        },
+        {
+          "name" : "ERR_MEMORY_IMPORT_NOT_FOUND",
+          "value" : 146
+        },
+        {
+          "name" : "ERR_TABLE_IMPORT_NOT_FOUND",
+          "value" : 147
+        },
+        {
+          "name" : "ERR_FUNCTION_IMPORT_OUT_OF_RANGE",
+          "value" : 148
+        },
+        {
+          "name" : "ERR_FUNCTION_IMPORT_TYPE_MISMATCH",
+          "value" : 149
+        },
+        {
+          "name" : "ERR_GLOBAL_IS_NOT_MUTABLE",
+          "value" : 150
+        },
+        {
+          "name" : "ERR_GLOBAL_IMPORT_TYPE_MISMATCH",
+          "value" : 151
+        },
+        {
+          "name" : "ERR_MEMORY_IMPORT_TYPE_MISMATCH",
+          "value" : 152
+        },
+        {
+          "name" : "ERR_TABLE_IMPORT_TYPE_MISMATCH",
+          "value" : 153
+        },
+        {
+          "name" : "ERR_TABLE_IMPORT_INCOMPATIBLE_SIZE",
+          "value" : 154
+        },
+        {
+          "name" : "ERR_FUNCTION_PARAMETERS_TOO_LARGE",
+          "value" : 160
+        },
+        {
+          "name" : "ERR_FUNCTION_RETURNS_TOO_LARGE",
+          "value" : 161
+        },
+        {
+          "name" : "ERR_TOO_MANY_LOCALS",
+          "value" : 162
+        },
+        {
+          "name" : "ERR_INVALID_CONST_INSTRUCTION",
+          "value" : 163
+        },
+        {
+          "name" : "ERR_GLOBAL_TYPE_MISMATCH",
+          "value" : 164
+        },
+        {
+          "name" : "ERR_ALIGNMENT_LARGER_THAN_TYPE",
+          "value" : 165
+        },
+        {
+          "name" : "ERR_INVALID_START_FUNCTION_SIGNATURE",
+          "value" : 166
+        },
+        {
+          "name" : "ERR_CONST_ALREADY_HAS_VALUE",
+          "value" : 176
+        },
+        {
+          "name" : "ERR_CONST_NO_VALUE",
+          "value" : 177
+        },
+        {
+          "name" : "ERR_CONST_INVALID_GLOBAL",
+          "value" : 178
+        },
+        {
+          "name" : "ERR_POSSIBLE_BACKPATCH_CYCLE",
+          "value" : 192
+        },
+        {
+          "name" : "ERR_PAGE_FAULT",
+          "value" : 193
+        },
+        {
+          "name" : "ERR_READER_ERROR",
+          "value" : 194
+        }
       ],
-      "annotation" : "Example array for exercising FpySequencer serial port type checks"
+      "default" : "Svc.WasmSequencer.Status.OK"
     },
     {
       "kind" : "alias",
@@ -1809,460 +2434,6 @@
         "size" : 32,
         "signed" : true
       }
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "Svc.Fpy.StackSizeType",
-      "type" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "annotation" : "the type which everything referencing a size or offset on the stack is represented in"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.DirectiveId",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "INVALID",
-          "value" : 0
-        },
-        {
-          "name" : "WAIT_REL",
-          "value" : 1
-        },
-        {
-          "name" : "WAIT_ABS",
-          "value" : 2
-        },
-        {
-          "name" : "GOTO",
-          "value" : 3
-        },
-        {
-          "name" : "IF",
-          "value" : 4
-        },
-        {
-          "name" : "NO_OP",
-          "value" : 5
-        },
-        {
-          "name" : "PUSH_TLM_VAL",
-          "value" : 6
-        },
-        {
-          "name" : "PUSH_PRM",
-          "value" : 7
-        },
-        {
-          "name" : "CONST_CMD",
-          "value" : 8
-        },
-        {
-          "name" : "OR",
-          "value" : 9
-        },
-        {
-          "name" : "AND",
-          "value" : 10
-        },
-        {
-          "name" : "IEQ",
-          "value" : 11
-        },
-        {
-          "name" : "INE",
-          "value" : 12
-        },
-        {
-          "name" : "ULT",
-          "value" : 13
-        },
-        {
-          "name" : "ULE",
-          "value" : 14
-        },
-        {
-          "name" : "UGT",
-          "value" : 15
-        },
-        {
-          "name" : "UGE",
-          "value" : 16
-        },
-        {
-          "name" : "SLT",
-          "value" : 17
-        },
-        {
-          "name" : "SLE",
-          "value" : 18
-        },
-        {
-          "name" : "SGT",
-          "value" : 19
-        },
-        {
-          "name" : "SGE",
-          "value" : 20
-        },
-        {
-          "name" : "FEQ",
-          "value" : 21
-        },
-        {
-          "name" : "FNE",
-          "value" : 22
-        },
-        {
-          "name" : "FLT",
-          "value" : 23
-        },
-        {
-          "name" : "FLE",
-          "value" : 24
-        },
-        {
-          "name" : "FGT",
-          "value" : 25
-        },
-        {
-          "name" : "FGE",
-          "value" : 26
-        },
-        {
-          "name" : "NOT",
-          "value" : 27
-        },
-        {
-          "name" : "FPTOSI",
-          "value" : 28
-        },
-        {
-          "name" : "FPTOUI",
-          "value" : 29
-        },
-        {
-          "name" : "SITOFP",
-          "value" : 30
-        },
-        {
-          "name" : "UITOFP",
-          "value" : 31
-        },
-        {
-          "name" : "ADD",
-          "value" : 32
-        },
-        {
-          "name" : "SUB",
-          "value" : 33
-        },
-        {
-          "name" : "MUL",
-          "value" : 34
-        },
-        {
-          "name" : "UDIV",
-          "value" : 35
-        },
-        {
-          "name" : "SDIV",
-          "value" : 36
-        },
-        {
-          "name" : "UMOD",
-          "value" : 37
-        },
-        {
-          "name" : "SMOD",
-          "value" : 38
-        },
-        {
-          "name" : "FADD",
-          "value" : 39
-        },
-        {
-          "name" : "FSUB",
-          "value" : 40
-        },
-        {
-          "name" : "FMUL",
-          "value" : 41
-        },
-        {
-          "name" : "FDIV",
-          "value" : 42
-        },
-        {
-          "name" : "FPOW",
-          "value" : 43
-        },
-        {
-          "name" : "FLOG",
-          "value" : 44
-        },
-        {
-          "name" : "FMOD",
-          "value" : 45
-        },
-        {
-          "name" : "FPEXT",
-          "value" : 46
-        },
-        {
-          "name" : "FPTRUNC",
-          "value" : 47
-        },
-        {
-          "name" : "SIEXT_8_64",
-          "value" : 48
-        },
-        {
-          "name" : "SIEXT_16_64",
-          "value" : 49
-        },
-        {
-          "name" : "SIEXT_32_64",
-          "value" : 50
-        },
-        {
-          "name" : "ZIEXT_8_64",
-          "value" : 51
-        },
-        {
-          "name" : "ZIEXT_16_64",
-          "value" : 52
-        },
-        {
-          "name" : "ZIEXT_32_64",
-          "value" : 53
-        },
-        {
-          "name" : "ITRUNC_64_8",
-          "value" : 54
-        },
-        {
-          "name" : "ITRUNC_64_16",
-          "value" : 55
-        },
-        {
-          "name" : "ITRUNC_64_32",
-          "value" : 56
-        },
-        {
-          "name" : "EXIT",
-          "value" : 57
-        },
-        {
-          "name" : "ALLOCATE",
-          "value" : 58
-        },
-        {
-          "name" : "STORE_REL_CONST_OFFSET",
-          "value" : 59
-        },
-        {
-          "name" : "LOAD_REL",
-          "value" : 60
-        },
-        {
-          "name" : "PUSH_VAL",
-          "value" : 61
-        },
-        {
-          "name" : "DISCARD",
-          "value" : 62
-        },
-        {
-          "name" : "MEMCMP",
-          "value" : 63
-        },
-        {
-          "name" : "STACK_CMD",
-          "value" : 64
-        },
-        {
-          "name" : "PUSH_TLM_VAL_AND_TIME",
-          "value" : 65
-        },
-        {
-          "name" : "PUSH_TIME",
-          "value" : 66
-        },
-        {
-          "name" : "GET_FIELD",
-          "value" : 67
-        },
-        {
-          "name" : "PEEK",
-          "value" : 68
-        },
-        {
-          "name" : "STORE_REL",
-          "value" : 69
-        },
-        {
-          "name" : "CALL",
-          "value" : 70
-        },
-        {
-          "name" : "RETURN",
-          "value" : 71
-        },
-        {
-          "name" : "LOAD_ABS",
-          "value" : 72
-        },
-        {
-          "name" : "STORE_ABS",
-          "value" : 73
-        },
-        {
-          "name" : "STORE_ABS_CONST_OFFSET",
-          "value" : 74
-        },
-        {
-          "name" : "POP_EVENT",
-          "value" : 75
-        },
-        {
-          "name" : "SET_SEED",
-          "value" : 76
-        },
-        {
-          "name" : "PUSH_RAND",
-          "value" : 77
-        },
-        {
-          "name" : "POP_SERIALIZABLE",
-          "value" : 78
-        },
-        {
-          "name" : "FFLOOR",
-          "value" : 79
-        },
-        {
-          "name" : "IABS",
-          "value" : 80
-        },
-        {
-          "name" : "FABS",
-          "value" : 81
-        }
-      ],
-      "default" : "Svc.Fpy.DirectiveId.INVALID"
-    },
-    {
-      "kind" : "struct",
-      "qualifiedName" : "Ref.FpyExampleMulti",
-      "members" : {
-        "enumVal" : {
-          "type" : {
-            "name" : "Ref.FpyExampleEnum",
-            "kind" : "qualifiedIdentifier"
-          },
-          "index" : 0
-        },
-        "boolVal" : {
-          "type" : {
-            "name" : "bool",
-            "kind" : "bool",
-            "size" : 8
-          },
-          "index" : 1
-        },
-        "floatVal" : {
-          "type" : {
-            "name" : "F64",
-            "kind" : "float",
-            "size" : 64
-          },
-          "index" : 2
-        }
-      },
-      "default" : {
-        "enumVal" : "Ref.FpyExampleEnum.OFF",
-        "boolVal" : false,
-        "floatVal" : 0.0
-      },
-      "annotation" : "Serialization twin of the Svc.FpyCheckMulti port args: lets a sequence\nproduce the multi-arg byte layout with a single write_to_port value"
-    },
-    {
-      "kind" : "alias",
-      "qualifiedName" : "FwTlmPacketizeIdType",
-      "type" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "underlyingType" : {
-        "name" : "U16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : false
-      },
-      "annotation" : "The type of a telemetry packet identifier"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Svc.Fpy.SerialPortIndex",
-      "representationType" : {
-        "name" : "I16",
-        "kind" : "integer",
-        "size" : 16,
-        "signed" : true
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "EXAMPLE_PORT_0",
-          "value" : 0,
-          "annotation" : "Example serial port 0 - rename to application-specific name (e.g., TIME_SYNC_PORT)"
-        },
-        {
-          "name" : "EXAMPLE_PORT_1",
-          "value" : 1,
-          "annotation" : "Example serial port 1 - rename to application-specific name (e.g., SENSOR_DATA_PORT)"
-        },
-        {
-          "name" : "EXAMPLE_PORT_2",
-          "value" : 2,
-          "annotation" : "Example serial port 2 - rename to application-specific name"
-        },
-        {
-          "name" : "EXAMPLE_PORT_3",
-          "value" : 3,
-          "annotation" : "Example serial port 3 - rename to application-specific name"
-        },
-        {
-          "name" : "EXAMPLE_PORT_4",
-          "value" : 4,
-          "annotation" : "Example serial port 4 - rename to application-specific name"
-        },
-        {
-          "name" : "MAX_SERIAL_PORTS",
-          "value" : 5,
-          "annotation" : "REQUIRED: Maximum number of serial ports. This sentinel value MUST be named"
-        }
-      ],
-      "default" : "Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0",
-      "annotation" : "Serial port indices for FpySequencer serialOut port array.\nMAX_SERIAL_PORTS must be defined with this exact name for Fpy compiler bounds checking."
     },
     {
       "kind" : "alias",
@@ -2697,32 +2868,6 @@
         "Ref.DpDemo.ColorEnum.RED"
       ],
       "annotation" : "Array of enumerations"
-    },
-    {
-      "kind" : "enum",
-      "qualifiedName" : "Ref.FpyExampleEnum",
-      "representationType" : {
-        "name" : "U8",
-        "kind" : "integer",
-        "size" : 8,
-        "signed" : false
-      },
-      "enumeratedConstants" : [
-        {
-          "name" : "OFF",
-          "value" : 0
-        },
-        {
-          "name" : "ON",
-          "value" : 1
-        },
-        {
-          "name" : "STANDBY",
-          "value" : 2
-        }
-      ],
-      "default" : "Ref.FpyExampleEnum.OFF",
-      "annotation" : "Example enum for exercising FpySequencer serial port type checks"
     },
     {
       "kind" : "array",
@@ -3482,6 +3627,347 @@
       "annotation" : "APIDs are 11 bits in the Space Packet protocol, so we use U16. Max value 7FF"
     },
     {
+      "kind" : "enum",
+      "qualifiedName" : "Svc.Fpy.DirectiveId",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "INVALID",
+          "value" : 0
+        },
+        {
+          "name" : "WAIT_REL",
+          "value" : 1
+        },
+        {
+          "name" : "WAIT_ABS",
+          "value" : 2
+        },
+        {
+          "name" : "GOTO",
+          "value" : 3
+        },
+        {
+          "name" : "IF",
+          "value" : 4
+        },
+        {
+          "name" : "NO_OP",
+          "value" : 5
+        },
+        {
+          "name" : "PUSH_TLM_VAL",
+          "value" : 6
+        },
+        {
+          "name" : "PUSH_PRM",
+          "value" : 7
+        },
+        {
+          "name" : "CONST_CMD",
+          "value" : 8
+        },
+        {
+          "name" : "OR",
+          "value" : 9
+        },
+        {
+          "name" : "AND",
+          "value" : 10
+        },
+        {
+          "name" : "IEQ",
+          "value" : 11
+        },
+        {
+          "name" : "INE",
+          "value" : 12
+        },
+        {
+          "name" : "ULT",
+          "value" : 13
+        },
+        {
+          "name" : "ULE",
+          "value" : 14
+        },
+        {
+          "name" : "UGT",
+          "value" : 15
+        },
+        {
+          "name" : "UGE",
+          "value" : 16
+        },
+        {
+          "name" : "SLT",
+          "value" : 17
+        },
+        {
+          "name" : "SLE",
+          "value" : 18
+        },
+        {
+          "name" : "SGT",
+          "value" : 19
+        },
+        {
+          "name" : "SGE",
+          "value" : 20
+        },
+        {
+          "name" : "FEQ",
+          "value" : 21
+        },
+        {
+          "name" : "FNE",
+          "value" : 22
+        },
+        {
+          "name" : "FLT",
+          "value" : 23
+        },
+        {
+          "name" : "FLE",
+          "value" : 24
+        },
+        {
+          "name" : "FGT",
+          "value" : 25
+        },
+        {
+          "name" : "FGE",
+          "value" : 26
+        },
+        {
+          "name" : "NOT",
+          "value" : 27
+        },
+        {
+          "name" : "FPTOSI",
+          "value" : 28
+        },
+        {
+          "name" : "FPTOUI",
+          "value" : 29
+        },
+        {
+          "name" : "SITOFP",
+          "value" : 30
+        },
+        {
+          "name" : "UITOFP",
+          "value" : 31
+        },
+        {
+          "name" : "ADD",
+          "value" : 32
+        },
+        {
+          "name" : "SUB",
+          "value" : 33
+        },
+        {
+          "name" : "MUL",
+          "value" : 34
+        },
+        {
+          "name" : "UDIV",
+          "value" : 35
+        },
+        {
+          "name" : "SDIV",
+          "value" : 36
+        },
+        {
+          "name" : "UMOD",
+          "value" : 37
+        },
+        {
+          "name" : "SMOD",
+          "value" : 38
+        },
+        {
+          "name" : "FADD",
+          "value" : 39
+        },
+        {
+          "name" : "FSUB",
+          "value" : 40
+        },
+        {
+          "name" : "FMUL",
+          "value" : 41
+        },
+        {
+          "name" : "FDIV",
+          "value" : 42
+        },
+        {
+          "name" : "FPOW",
+          "value" : 43
+        },
+        {
+          "name" : "FLOG",
+          "value" : 44
+        },
+        {
+          "name" : "FMOD",
+          "value" : 45
+        },
+        {
+          "name" : "FPEXT",
+          "value" : 46
+        },
+        {
+          "name" : "FPTRUNC",
+          "value" : 47
+        },
+        {
+          "name" : "SIEXT_8_64",
+          "value" : 48
+        },
+        {
+          "name" : "SIEXT_16_64",
+          "value" : 49
+        },
+        {
+          "name" : "SIEXT_32_64",
+          "value" : 50
+        },
+        {
+          "name" : "ZIEXT_8_64",
+          "value" : 51
+        },
+        {
+          "name" : "ZIEXT_16_64",
+          "value" : 52
+        },
+        {
+          "name" : "ZIEXT_32_64",
+          "value" : 53
+        },
+        {
+          "name" : "ITRUNC_64_8",
+          "value" : 54
+        },
+        {
+          "name" : "ITRUNC_64_16",
+          "value" : 55
+        },
+        {
+          "name" : "ITRUNC_64_32",
+          "value" : 56
+        },
+        {
+          "name" : "EXIT",
+          "value" : 57
+        },
+        {
+          "name" : "ALLOCATE",
+          "value" : 58
+        },
+        {
+          "name" : "STORE_REL_CONST_OFFSET",
+          "value" : 59
+        },
+        {
+          "name" : "LOAD_REL",
+          "value" : 60
+        },
+        {
+          "name" : "PUSH_VAL",
+          "value" : 61
+        },
+        {
+          "name" : "DISCARD",
+          "value" : 62
+        },
+        {
+          "name" : "MEMCMP",
+          "value" : 63
+        },
+        {
+          "name" : "STACK_CMD",
+          "value" : 64
+        },
+        {
+          "name" : "PUSH_TLM_VAL_AND_TIME",
+          "value" : 65
+        },
+        {
+          "name" : "PUSH_TIME",
+          "value" : 66
+        },
+        {
+          "name" : "GET_FIELD",
+          "value" : 67
+        },
+        {
+          "name" : "PEEK",
+          "value" : 68
+        },
+        {
+          "name" : "STORE_REL",
+          "value" : 69
+        },
+        {
+          "name" : "CALL",
+          "value" : 70
+        },
+        {
+          "name" : "RETURN",
+          "value" : 71
+        },
+        {
+          "name" : "LOAD_ABS",
+          "value" : 72
+        },
+        {
+          "name" : "STORE_ABS",
+          "value" : 73
+        },
+        {
+          "name" : "STORE_ABS_CONST_OFFSET",
+          "value" : 74
+        },
+        {
+          "name" : "POP_EVENT",
+          "value" : 75
+        },
+        {
+          "name" : "SET_SEED",
+          "value" : 76
+        },
+        {
+          "name" : "PUSH_RAND",
+          "value" : 77
+        },
+        {
+          "name" : "POP_SERIALIZABLE",
+          "value" : 78
+        },
+        {
+          "name" : "FFLOOR",
+          "value" : 79
+        },
+        {
+          "name" : "IABS",
+          "value" : 80
+        },
+        {
+          "name" : "FABS",
+          "value" : 81
+        }
+      ],
+      "default" : "Svc.Fpy.DirectiveId.INVALID"
+    },
+    {
       "kind" : "array",
       "qualifiedName" : "Ref.TooManyChoices",
       "size" : 2,
@@ -3703,6 +4189,121 @@
         ]
       },
       "annotation" : "Structure of enums (with an multi-dimensional array and structure)"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.FpyExampleStruct",
+      "members" : {
+        "flag" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 0
+        },
+        "count" : {
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "index" : 1
+        },
+        "ratio" : {
+          "type" : {
+            "name" : "F32",
+            "kind" : "float",
+            "size" : 32
+          },
+          "index" : 2
+        }
+      },
+      "default" : {
+        "flag" : false,
+        "count" : 0,
+        "ratio" : 0.0
+      },
+      "annotation" : "Example struct for exercising FpySequencer serial port type checks"
+    },
+    {
+      "kind" : "array",
+      "qualifiedName" : "Ref.FpyExampleArray",
+      "size" : 3,
+      "elementType" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "default" : [
+        0,
+        0,
+        0
+      ],
+      "annotation" : "Example array for exercising FpySequencer serial port type checks"
+    },
+    {
+      "kind" : "struct",
+      "qualifiedName" : "Ref.FpyExampleMulti",
+      "members" : {
+        "enumVal" : {
+          "type" : {
+            "name" : "Ref.FpyExampleEnum",
+            "kind" : "qualifiedIdentifier"
+          },
+          "index" : 0
+        },
+        "boolVal" : {
+          "type" : {
+            "name" : "bool",
+            "kind" : "bool",
+            "size" : 8
+          },
+          "index" : 1
+        },
+        "floatVal" : {
+          "type" : {
+            "name" : "F64",
+            "kind" : "float",
+            "size" : 64
+          },
+          "index" : 2
+        }
+      },
+      "default" : {
+        "enumVal" : "Ref.FpyExampleEnum.OFF",
+        "boolVal" : false,
+        "floatVal" : 0.0
+      },
+      "annotation" : "Serialization twin of the Svc.FpyCheckMulti port args: lets a sequence\nproduce the multi-arg byte layout with a single write_to_port value"
+    },
+    {
+      "kind" : "enum",
+      "qualifiedName" : "Ref.FpyExampleEnum",
+      "representationType" : {
+        "name" : "U8",
+        "kind" : "integer",
+        "size" : 8,
+        "signed" : false
+      },
+      "enumeratedConstants" : [
+        {
+          "name" : "OFF",
+          "value" : 0
+        },
+        {
+          "name" : "ON",
+          "value" : 1
+        },
+        {
+          "name" : "STANDBY",
+          "value" : 2
+        }
+      ],
+      "default" : "Ref.FpyExampleEnum.OFF",
+      "annotation" : "Example enum for exercising FpySequencer serial port type checks"
     }
   ],
   "constants" : [
@@ -4000,8 +4601,7 @@
       "name" : "CdhCore.cmdDisp.CMD_NO_OP",
       "commandKind" : "async",
       "opcode" : 16777216,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "No-op command"
     },
@@ -4069,8 +4669,7 @@
       "name" : "CdhCore.cmdDisp.CMD_CLEAR_TRACKING",
       "commandKind" : "async",
       "opcode" : 16777219,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Clear command tracking info to recover from components not returning status"
     },
@@ -4130,8 +4729,7 @@
       "name" : "CdhCore.events.DUMP_FILTER_STATE",
       "commandKind" : "async",
       "opcode" : 16781315,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Dump the filter states via events"
     },
@@ -4287,8 +4885,7 @@
       "name" : "ComCcsds.comQueue.FLUSH_ALL_QUEUES",
       "commandKind" : "async",
       "opcode" : 33554433,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Flush all queues. This will discard all queued data removing it from eventual downlink. Buffers requiring\nownership return will be returned via the bufferReturnOut port."
     },
@@ -4332,8 +4929,7 @@
       "name" : "DataProducts.dpCat.BUILD_CATALOG",
       "commandKind" : "async",
       "opcode" : 67108864,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Build catalog from data product directory. Will block until complete"
     },
@@ -4369,8 +4965,7 @@
       "name" : "DataProducts.dpCat.STOP_XMIT_CATALOG",
       "commandKind" : "async",
       "opcode" : 67108866,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Stop transmitting catalog"
     },
@@ -4378,8 +4973,7 @@
       "name" : "DataProducts.dpCat.CLEAR_CATALOG",
       "commandKind" : "async",
       "opcode" : 67108867,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "clear existing catalog"
     },
@@ -4387,8 +4981,7 @@
       "name" : "DataProducts.dpMgr.CLEAR_EVENT_THROTTLE",
       "commandKind" : "async",
       "opcode" : 67112960,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Clear event throttling"
     },
@@ -4396,8 +4989,7 @@
       "name" : "DataProducts.dpWriter.CLEAR_EVENT_THROTTLE",
       "commandKind" : "async",
       "opcode" : 67117056,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Clear event throttling"
     },
@@ -4478,8 +5070,7 @@
       "name" : "FileHandling.fileDownlink.Cancel",
       "commandKind" : "async",
       "opcode" : 83890177,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Cancel the downlink in progress, if any"
     },
@@ -4720,8 +5311,7 @@
       "name" : "FileHandling.prmDb.PRM_SAVE_FILE",
       "commandKind" : "async",
       "opcode" : 83898368,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Command to save parameter image to file. Uses file name passed to constructor"
     },
@@ -4757,8 +5347,7 @@
       "name" : "FileHandling.prmDb.PRM_COMMIT_STAGED",
       "commandKind" : "async",
       "opcode" : 83898370,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Commits the backup database to become the prime (active) database"
     },
@@ -4766,8 +5355,7 @@
       "name" : "Ref.pingRcvr.PR_StopPings",
       "commandKind" : "async",
       "opcode" : 268451840,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Command to disable ping response"
     },
@@ -4808,8 +5396,7 @@
       "name" : "Ref.typeDemo.CHOICE_PRM_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268455938,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Single enumeration parameter"
     },
     {
@@ -4888,8 +5475,7 @@
       "name" : "Ref.typeDemo.CHOICES_PRM_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268455942,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Multiple enumeration parameter via Array"
     },
     {
@@ -4968,8 +5554,7 @@
       "name" : "Ref.typeDemo.EXTRA_CHOICES_PRM_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268455946,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Too many enumeration parameter via Array"
     },
     {
@@ -5048,8 +5633,7 @@
       "name" : "Ref.typeDemo.CHOICE_PAIR_PRM_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268455950,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Multiple enumeration parameter via Structure"
     },
     {
@@ -5128,24 +5712,21 @@
       "name" : "Ref.typeDemo.GLUTTON_OF_CHOICE_PRM_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268455954,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Multiple enumeration parameter via Complex Structure"
     },
     {
       "name" : "Ref.typeDemo.DUMP_TYPED_PARAMETERS",
       "commandKind" : "sync",
       "opcode" : 268455955,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Dump the typed parameters"
     },
     {
       "name" : "Ref.typeDemo.DUMP_FLOATS",
       "commandKind" : "sync",
       "opcode" : 268455956,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "Dump the float values"
     },
     {
@@ -5302,8 +5883,7 @@
       "name" : "Ref.cmdSeq0.CANCEL",
       "commandKind" : "async",
       "opcode" : 268460037,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 8,
       "queueFullBehavior" : "assert",
       "annotation" : "Cancels a running or validated sequence. After running CANCEL, the sequencer\nshould return to IDLE"
@@ -5343,8 +5923,7 @@
       "name" : "Ref.cmdSeq0.BREAK",
       "commandKind" : "async",
       "opcode" : 268460039,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Pauses the execution of the sequencer, just before it is about to dispatch the next directive,\nuntil unpaused by the CONTINUE command, or stepped by the STEP command. This command is only valid\nsubstates of the RUNNING state that are not RUNNING.PAUSED."
@@ -5353,8 +5932,7 @@
       "name" : "Ref.cmdSeq0.CONTINUE",
       "commandKind" : "async",
       "opcode" : 268460040,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Continues the automatic execution of the sequence after it has been paused. If a breakpoint is still\nset, it may pause again on that breakpoint. This command is only valid in the RUNNING.PAUSED state."
@@ -5363,8 +5941,7 @@
       "name" : "Ref.cmdSeq0.CLEAR_BREAKPOINT",
       "commandKind" : "async",
       "opcode" : 268460041,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Clears the breakpoint, but does not continue executing the sequence. This command\nis valid in all states. This happens automatically when a sequence ends execution."
@@ -5373,8 +5950,7 @@
       "name" : "Ref.cmdSeq0.STEP",
       "commandKind" : "async",
       "opcode" : 268460042,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Dispatches and awaits the result of the next directive, or ends the sequence if no more directives remain. Returns\nto the RUNNING.PAUSED state if the directive executes successfully. This command is only valid in the RUNNING.PAUSED state."
@@ -5420,8 +5996,7 @@
       "name" : "Ref.cmdSeq0.STATEMENT_TIMEOUT_SECS_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268460045,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
@@ -5445,8 +6020,7 @@
       "name" : "Ref.cmdSeq0.SEQ_BASE_DIR_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268460047,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
     {
@@ -5587,8 +6161,7 @@
       "name" : "Ref.cmdSeq1.CANCEL",
       "commandKind" : "async",
       "opcode" : 268464133,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 8,
       "queueFullBehavior" : "assert",
       "annotation" : "Cancels a running or validated sequence. After running CANCEL, the sequencer\nshould return to IDLE"
@@ -5628,8 +6201,7 @@
       "name" : "Ref.cmdSeq1.BREAK",
       "commandKind" : "async",
       "opcode" : 268464135,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Pauses the execution of the sequencer, just before it is about to dispatch the next directive,\nuntil unpaused by the CONTINUE command, or stepped by the STEP command. This command is only valid\nsubstates of the RUNNING state that are not RUNNING.PAUSED."
@@ -5638,8 +6210,7 @@
       "name" : "Ref.cmdSeq1.CONTINUE",
       "commandKind" : "async",
       "opcode" : 268464136,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Continues the automatic execution of the sequence after it has been paused. If a breakpoint is still\nset, it may pause again on that breakpoint. This command is only valid in the RUNNING.PAUSED state."
@@ -5648,8 +6219,7 @@
       "name" : "Ref.cmdSeq1.CLEAR_BREAKPOINT",
       "commandKind" : "async",
       "opcode" : 268464137,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Clears the breakpoint, but does not continue executing the sequence. This command\nis valid in all states. This happens automatically when a sequence ends execution."
@@ -5658,8 +6228,7 @@
       "name" : "Ref.cmdSeq1.STEP",
       "commandKind" : "async",
       "opcode" : 268464138,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Dispatches and awaits the result of the next directive, or ends the sequence if no more directives remain. Returns\nto the RUNNING.PAUSED state if the directive executes successfully. This command is only valid in the RUNNING.PAUSED state."
@@ -5705,8 +6274,7 @@
       "name" : "Ref.cmdSeq1.STATEMENT_TIMEOUT_SECS_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268464141,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
@@ -5730,8 +6298,7 @@
       "name" : "Ref.cmdSeq1.SEQ_BASE_DIR_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268464143,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
     {
@@ -5803,29 +6370,9 @@
       "name" : "Ref.seqDisp.LOG_STATUS",
       "commandKind" : "async",
       "opcode" : 268468226,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Logs via Events the state of each connected command sequencer"
-    },
-    {
-      "name" : "Ref.seqDisp.CANCEL_NAME",
-      "commandKind" : "async",
-      "opcode" : 268468227,
-      "formalParams" : [
-        {
-          "name" : "fileName",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 240
-          },
-          "ref" : false,
-          "annotation" : "The name of the sequence file to cancel"
-        }
-      ],
-      "queueFullBehavior" : "assert",
-      "annotation" : "Cancels any running sequence matching the given file name"
     },
     {
       "name" : "Ref.cmdSeq2.RUN",
@@ -5965,8 +6512,7 @@
       "name" : "Ref.cmdSeq2.CANCEL",
       "commandKind" : "async",
       "opcode" : 268472325,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 8,
       "queueFullBehavior" : "assert",
       "annotation" : "Cancels a running or validated sequence. After running CANCEL, the sequencer\nshould return to IDLE"
@@ -6006,8 +6552,7 @@
       "name" : "Ref.cmdSeq2.BREAK",
       "commandKind" : "async",
       "opcode" : 268472327,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Pauses the execution of the sequencer, just before it is about to dispatch the next directive,\nuntil unpaused by the CONTINUE command, or stepped by the STEP command. This command is only valid\nsubstates of the RUNNING state that are not RUNNING.PAUSED."
@@ -6016,8 +6561,7 @@
       "name" : "Ref.cmdSeq2.CONTINUE",
       "commandKind" : "async",
       "opcode" : 268472328,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Continues the automatic execution of the sequence after it has been paused. If a breakpoint is still\nset, it may pause again on that breakpoint. This command is only valid in the RUNNING.PAUSED state."
@@ -6026,8 +6570,7 @@
       "name" : "Ref.cmdSeq2.CLEAR_BREAKPOINT",
       "commandKind" : "async",
       "opcode" : 268472329,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Clears the breakpoint, but does not continue executing the sequence. This command\nis valid in all states. This happens automatically when a sequence ends execution."
@@ -6036,8 +6579,7 @@
       "name" : "Ref.cmdSeq2.STEP",
       "commandKind" : "async",
       "opcode" : 268472330,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "priority" : 7,
       "queueFullBehavior" : "assert",
       "annotation" : "Dispatches and awaits the result of the next directive, or ends the sequence if no more directives remain. Returns\nto the RUNNING.PAUSED state if the directive executes successfully. This command is only valid in the RUNNING.PAUSED state."
@@ -6083,8 +6625,7 @@
       "name" : "Ref.cmdSeq2.STATEMENT_TIMEOUT_SECS_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268472333,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
     },
     {
@@ -6108,16 +6649,218 @@
       "name" : "Ref.cmdSeq2.SEQ_BASE_DIR_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268472335,
+      "formalParams" : [],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.wasmSeq.RUN",
+      "commandKind" : "async",
+      "opcode" : 268476416,
       "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file"
+        },
+        {
+          "name" : "block",
+          "type" : {
+            "name" : "Svc.BlockState",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false,
+          "annotation" : "Return command status when complete or not"
+        }
       ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Run a Wasm module main function on it's own in the interpreter\nThis command is short-hand for:\n1. LOAD_NAME [fileName] \"\"\n2. INVOKE \"\" \"main\"\n3. CONTINUE\n\nIf $block == Svc.BlockState.BLOCK this command will wait for complemention."
+    },
+    {
+      "name" : "Ref.wasmSeq.WAIT",
+      "commandKind" : "async",
+      "opcode" : 268476417,
+      "formalParams" : [],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Wait for the interpreter to finish and return it's result as a CmdResponse"
+    },
+    {
+      "name" : "Ref.wasmSeq.LOAD",
+      "commandKind" : "async",
+      "opcode" : 268476418,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file"
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Loads and validates a WebAssembly module into the store.\nThis command loads the module with a empty name meaning only a single module may be loaded.\nTo allow multiple modules, use the `LOAD_NAME` command instead."
+    },
+    {
+      "name" : "Ref.wasmSeq.LOAD_NAME",
+      "commandKind" : "async",
+      "opcode" : 268476419,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file"
+        },
+        {
+          "name" : "name",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 16
+          },
+          "ref" : false,
+          "annotation" : "WebAssembly module name, must not conflict with previously loaded modules"
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Load and validate a WebAssembly module into the store. This module is given a name so that\nit's exports can be referenced by other modules."
+    },
+    {
+      "name" : "Ref.wasmSeq.INVOKE",
+      "commandKind" : "async",
+      "opcode" : 268476420,
+      "formalParams" : [
+        {
+          "name" : "module",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 16
+          },
+          "ref" : false,
+          "annotation" : "Name of the module to invoke a function from"
+        },
+        {
+          "name" : "block",
+          "type" : {
+            "name" : "Svc.BlockState",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Invoke a main function from a loaded module"
+    },
+    {
+      "name" : "Ref.wasmSeq.CANCEL",
+      "commandKind" : "sync",
+      "opcode" : 268476421,
+      "formalParams" : [],
+      "annotation" : "Cancels a running or validated sequence. After running CANCEL, the sequencer should return to IDLE\nThis completely clears the store.\nCancelling during LOADING will trigger a fail response in the reader and\nreturn to IDLE mode."
+    },
+    {
+      "name" : "Ref.wasmSeq.PAUSE",
+      "commandKind" : "sync",
+      "opcode" : 268476422,
+      "formalParams" : [],
+      "annotation" : "Pauses the execution of the sequencer, just before it is about to dispatch the next directive,\nuntil unpaused by the CONTINUE command, or stepped by the STEP command. This command is only valid\nsubstates of the RUNNING state that are not RUNNING.PAUSED."
+    },
+    {
+      "name" : "Ref.wasmSeq.CONTINUE",
+      "commandKind" : "async",
+      "opcode" : 268476423,
+      "formalParams" : [],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Resume the sequence from a paused state"
+    },
+    {
+      "name" : "Ref.wasmSeq.STATEMENT_TIMEOUT_SECS_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268476424,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "F32",
+            "kind" : "float",
+            "size" : 32
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
+    },
+    {
+      "name" : "Ref.wasmSeq.STATEMENT_TIMEOUT_SECS_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268476425,
+      "formalParams" : [],
+      "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
+    },
+    {
+      "name" : "Ref.wasmSeq.INSTRUCTION_FUEL_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268476426,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "FwSizeType",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "Number of Wasm instructions to execute per interpreter cycle.\nLarger numbers will effect the responsiveness of the interpreter to\n`PAUSE` commands. The interpreter will always pause before commands.\n\nLarger numbers make the interpreter faster because the engine doesn't\nneed to feed itself through a queue to fuel more cycles."
+    },
+    {
+      "name" : "Ref.wasmSeq.INSTRUCTION_FUEL_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268476427,
+      "formalParams" : [],
+      "annotation" : "Number of Wasm instructions to execute per interpreter cycle.\nLarger numbers will effect the responsiveness of the interpreter to\n`PAUSE` commands. The interpreter will always pause before commands.\n\nLarger numbers make the interpreter faster because the engine doesn't\nneed to feed itself through a queue to fuel more cycles."
+    },
+    {
+      "name" : "Ref.wasmSeq.SEQ_BASE_DIR_PRM_SET",
+      "commandKind" : "set",
+      "opcode" : 268476428,
+      "formalParams" : [
+        {
+          "name" : "val",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.wasmSeq.SEQ_BASE_DIR_PRM_SAVE",
+      "commandKind" : "save",
+      "opcode" : 268476429,
+      "formalParams" : [],
       "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
     {
       "name" : "Ref.sendBuffComp.SB_START_PKTS",
       "commandKind" : "async",
       "opcode" : 268500992,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Command to start sending packets"
     },
@@ -6125,8 +6868,7 @@
       "name" : "Ref.sendBuffComp.SB_INJECT_PKT_ERROR",
       "commandKind" : "async",
       "opcode" : 268500993,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Send a bad packet"
     },
@@ -6269,8 +7011,7 @@
       "name" : "Ref.sendBuffComp.PARAMETER3_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268501003,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "A test parameter"
     },
     {
@@ -6294,8 +7035,7 @@
       "name" : "Ref.sendBuffComp.PARAMETER4_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268501005,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "A test parameter"
     },
     {
@@ -6347,8 +7087,7 @@
       "name" : "Ref.SG1.Toggle",
       "commandKind" : "async",
       "opcode" : 268505089,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Toggle Signal Generator On/Off."
     },
@@ -6356,8 +7095,7 @@
       "name" : "Ref.SG1.Skip",
       "commandKind" : "async",
       "opcode" : 268505090,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Skip next sample"
     },
@@ -6447,8 +7185,7 @@
       "name" : "Ref.SG2.Toggle",
       "commandKind" : "async",
       "opcode" : 268509185,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Toggle Signal Generator On/Off."
     },
@@ -6456,8 +7193,7 @@
       "name" : "Ref.SG2.Skip",
       "commandKind" : "async",
       "opcode" : 268509186,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Skip next sample"
     },
@@ -6547,8 +7283,7 @@
       "name" : "Ref.SG3.Toggle",
       "commandKind" : "async",
       "opcode" : 268513281,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Toggle Signal Generator On/Off."
     },
@@ -6556,8 +7291,7 @@
       "name" : "Ref.SG3.Skip",
       "commandKind" : "async",
       "opcode" : 268513282,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Skip next sample"
     },
@@ -6647,8 +7381,7 @@
       "name" : "Ref.SG4.Toggle",
       "commandKind" : "async",
       "opcode" : 268517377,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Toggle Signal Generator On/Off."
     },
@@ -6656,8 +7389,7 @@
       "name" : "Ref.SG4.Skip",
       "commandKind" : "async",
       "opcode" : 268517378,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Skip next sample"
     },
@@ -6747,8 +7479,7 @@
       "name" : "Ref.SG5.Toggle",
       "commandKind" : "async",
       "opcode" : 268521473,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Toggle Signal Generator On/Off."
     },
@@ -6756,8 +7487,7 @@
       "name" : "Ref.SG5.Skip",
       "commandKind" : "async",
       "opcode" : 268521474,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "queueFullBehavior" : "assert",
       "annotation" : "Skip next sample"
     },
@@ -6820,8 +7550,7 @@
       "name" : "Ref.recvBuffComp.PARAMETER1_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268574721,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "A test parameter"
     },
     {
@@ -6846,8 +7575,7 @@
       "name" : "Ref.recvBuffComp.PARAMETER2_PRM_SAVE",
       "commandKind" : "save",
       "opcode" : 268574723,
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "annotation" : "A test parameter"
     },
     {
@@ -6866,6 +7594,25 @@
         }
       ],
       "annotation" : "A command to enable or disable system resource telemetry"
+    },
+    {
+      "name" : "Ref.seqDisp.CANCEL_NAME",
+      "commandKind" : "async",
+      "opcode" : 268468227,
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false,
+          "annotation" : "The name of the sequence file to cancel"
+        }
+      ],
+      "queueFullBehavior" : "assert",
+      "annotation" : "Cancels any running sequence matching the given file name"
     }
   ],
   "parameters" : [
@@ -6977,6 +7724,38 @@
         "size" : 240
       },
       "id" : 268472321,
+      "default" : "",
+      "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
+    },
+    {
+      "name" : "Ref.wasmSeq.STATEMENT_TIMEOUT_SECS",
+      "type" : {
+        "name" : "F32",
+        "kind" : "float",
+        "size" : 32
+      },
+      "id" : 268476416,
+      "default" : 0.0,
+      "annotation" : "the number of seconds to wait before giving up\non a directive or command. if <= 0 or greater than U32 max, never time out.\naccuracy of this timeout is determined by the rate group driving this\ncomponent. it will be rounded up"
+    },
+    {
+      "name" : "Ref.wasmSeq.INSTRUCTION_FUEL",
+      "type" : {
+        "name" : "FwSizeType",
+        "kind" : "qualifiedIdentifier"
+      },
+      "id" : 268476417,
+      "default" : 1000,
+      "annotation" : "Number of Wasm instructions to execute per interpreter cycle.\nLarger numbers will effect the responsiveness of the interpreter to\n`PAUSE` commands. The interpreter will always pause before commands.\n\nLarger numbers make the interpreter faster because the engine doesn't\nneed to feed itself through a queue to fuel more cycles."
+    },
+    {
+      "name" : "Ref.wasmSeq.SEQ_BASE_DIR",
+      "type" : {
+        "name" : "string",
+        "kind" : "string",
+        "size" : 240
+      },
+      "id" : 268476418,
       "default" : "",
       "annotation" : "the base directory relative to which sequence file paths are resolved.\na '/' separator is always inserted between this base dir and the input\nsequence file path before resolution occurs following the rules of\nOs::File::open."
     },
@@ -7147,16 +7926,14 @@
     {
       "name" : "Ref.dpDemo.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 2582,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.dpDemo.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 2583,
       "format" : "DP Ports not connected!"
     },
@@ -7330,8 +8107,7 @@
     {
       "name" : "CdhCore.cmdDisp.NoOpReceived",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 16777223,
       "format" : "Received a NO-OP command",
       "annotation" : "The command dispatcher has successfully received a NO-OP command"
@@ -8436,8 +9212,7 @@
     {
       "name" : "ComCcsds.frameAccumulator.NoBufferAvailable",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 33558528,
       "format" : "Could not allocate a valid buffer to fit the detected frame",
       "annotation" : "An error occurred while deserializing a packet"
@@ -8462,8 +9237,7 @@
     {
       "name" : "ComCcsds.frameAccumulator.FrameDetectionValidFrameDropped",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 33558530,
       "format" : "A valid frame was detected but dropped",
       "annotation" : "A frame was detected but dropped because there was no buffer to hold it"
@@ -8493,8 +9267,7 @@
     {
       "name" : "ComCcsds.commsBufferManager.NullEmptyBuffer",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 33562625,
       "format" : "Received null pointer and zero size buffer",
       "annotation" : "The buffer manager received a null pointer and zero-sized buffer as a return. Probably undetected failed buffer allocation",
@@ -8546,8 +9319,7 @@
     {
       "name" : "ComCcsds.tcDeframer.InvalidPacket",
       "severity" : "WARNING_LO",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 33570816,
       "format" : "Invalid packet received refusing to deframe",
       "annotation" : "Invalid packet received that will be dropped"
@@ -8669,8 +9441,7 @@
     {
       "name" : "ComCcsds.spacePacketDeframer.InvalidPacket",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 33574912,
       "format" : "Malformed packet received refusing to deframe",
       "annotation" : "Deframing received a malformed packet"
@@ -8852,8 +9623,7 @@
     {
       "name" : "DataProducts.dpCat.CatalogBuildComplete",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108868,
       "format" : "Catalog build complete",
       "annotation" : "Catalog processing complete"
@@ -8880,8 +9650,7 @@
     {
       "name" : "DataProducts.dpCat.CatalogXmitStarted",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108874,
       "format" : "Catalog transmission started",
       "annotation" : "Catalog transmission started"
@@ -9011,8 +9780,7 @@
     {
       "name" : "DataProducts.dpCat.ComponentNotInitialized",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108884,
       "format" : "DpCatalog not initialized!",
       "annotation" : "Component not initialized error",
@@ -9024,8 +9792,7 @@
     {
       "name" : "DataProducts.dpCat.ComponentNoMemory",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108885,
       "format" : "DpCatalog couldn't get memory",
       "annotation" : "Component didn't get memory error",
@@ -9281,8 +10048,7 @@
     {
       "name" : "DataProducts.dpCat.DpXmitInProgress",
       "severity" : "WARNING_LO",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108894,
       "format" : "Cannot build new catalog while DPs are being transmitted",
       "annotation" : "Tried to build catalog while downlink process active",
@@ -9327,16 +10093,14 @@
     {
       "name" : "DataProducts.dpCat.NoDpMemory",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108896,
       "format" : "No memory for DP"
     },
     {
       "name" : "DataProducts.dpCat.XmitNotActive",
       "severity" : "WARNING_LO",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108898,
       "format" : "DpCatalog transmit not active"
     },
@@ -9447,8 +10211,7 @@
     {
       "name" : "DataProducts.dpCat.NoStateFileSpecified",
       "severity" : "WARNING_LO",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108902,
       "format" : "No specified state file"
     },
@@ -9617,8 +10380,7 @@
     {
       "name" : "DataProducts.dpCat.XmitUnbuiltCatalog",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67108910,
       "format" : "Cannot Transmit a Catalog before Building"
     },
@@ -9741,8 +10503,7 @@
     {
       "name" : "DataProducts.dpWriter.InvalidBuffer",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67117056,
       "format" : "Received buffer is invalid",
       "annotation" : "Received buffer is invalid",
@@ -10061,8 +10822,7 @@
     {
       "name" : "DataProducts.dpBufferManager.NullEmptyBuffer",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67121153,
       "format" : "Received null pointer and zero size buffer",
       "annotation" : "The buffer manager received a null pointer and zero-sized buffer as a return. Probably undetected failed buffer allocation",
@@ -10074,8 +10834,7 @@
     {
       "name" : "DataProducts.dpBufferAccumulator.BA_BufferAccepted",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67125248,
       "format" : "Buffer accepted",
       "annotation" : "The Buffer Accumulator instance accepted and enqueued a buffer. To avoid uncontrolled sending of events, this event occurs only when the previous buffer received caused a QueueFull error."
@@ -10083,8 +10842,7 @@
     {
       "name" : "DataProducts.dpBufferAccumulator.BA_QueueFull",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67125249,
       "format" : "Queue full",
       "annotation" : "The Buffer Accumulator instance received a buffer when its queue was full. To avoid uncontrolled sending of events, this event occurs only when the previous buffer received did not cause a QueueFull error."
@@ -10121,8 +10879,7 @@
     {
       "name" : "DataProducts.dpBufferAccumulator.BA_AlreadyDraining",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 67125251,
       "format" : "Already in DRAIN mode",
       "annotation" : "Got DrainBuffers command while in DRAIN mode"
@@ -10435,8 +11192,7 @@
     {
       "name" : "FileHandling.fileUplink.UplinkCanceled",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 83886088,
       "format" : "Received CANCEL packet",
       "annotation" : "The File Uplink component received a CANCEL packet"
@@ -10791,8 +11547,7 @@
     {
       "name" : "FileHandling.fileDownlink.FilenameSourceOverflow",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 83890192,
       "format" : "Commanded source filename too long",
       "annotation" : "Supplied filename has overflowed. This intentionally discards the filename to avoid cascading overflows."
@@ -10800,8 +11555,7 @@
     {
       "name" : "FileHandling.fileDownlink.FilenameDestinationOverflow",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 83890193,
       "format" : "Commanded destination filename too long",
       "annotation" : "Supplied filename has overflowed"
@@ -11786,8 +12540,7 @@
     {
       "name" : "FileHandling.prmDb.PrmDbCommitComplete",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 83898376,
       "format" : "Parameter DB commit complete, staged updates are now active.",
       "annotation" : "Committed staged parameter updates"
@@ -11824,8 +12577,7 @@
     {
       "name" : "FileHandling.prmDb.PrmDbFileLoadFailed",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 83898378,
       "format" : "Parameter file load failed. Clearing staging database and abandoning parameter file load.",
       "annotation" : "Parameter file load failed, not staging any update"
@@ -11891,8 +12643,7 @@
     {
       "name" : "Ref.rateGroup1Comp.RateGroupStarted",
       "severity" : "DIAGNOSTIC",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268439552,
       "format" : "Rate group started.",
       "annotation" : "Informational event that rate group has started"
@@ -11942,8 +12693,7 @@
     {
       "name" : "Ref.rateGroup2Comp.RateGroupStarted",
       "severity" : "DIAGNOSTIC",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268443648,
       "format" : "Rate group started.",
       "annotation" : "Informational event that rate group has started"
@@ -11993,8 +12743,7 @@
     {
       "name" : "Ref.rateGroup3Comp.RateGroupStarted",
       "severity" : "DIAGNOSTIC",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268447744,
       "format" : "Rate group started.",
       "annotation" : "Informational event that rate group has started"
@@ -12044,8 +12793,7 @@
     {
       "name" : "Ref.pingRcvr.PR_PingsDisabled",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268451840,
       "format" : "PingReceiver ping responses disabled",
       "annotation" : "Disabled ping responses"
@@ -13416,8 +14164,7 @@
     {
       "name" : "Ref.cmdSeq0.BreakpointCleared",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268460068,
       "format" : "Breakpoint cleared"
     },
@@ -14678,8 +15425,7 @@
     {
       "name" : "Ref.cmdSeq1.BreakpointCleared",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268464164,
       "format" : "Breakpoint cleared"
     },
@@ -14886,8 +15632,7 @@
     {
       "name" : "Ref.seqDisp.NoAvailableSequencers",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268468225,
       "format" : "No available cmd sequencers to dispatch a sequence to"
     },
@@ -15006,50 +15751,6 @@
       ],
       "id" : 268468229,
       "format" : "Sequencer {} with state {} is running file {}"
-    },
-    {
-      "name" : "Ref.seqDisp.SequenceCanceled",
-      "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-        {
-          "name" : "idx",
-          "type" : {
-            "name" : "U16",
-            "kind" : "integer",
-            "size" : 16,
-            "signed" : false
-          },
-          "ref" : false
-        },
-        {
-          "name" : "filename",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 240
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268468230,
-      "format" : "Sequencer {} canceled running sequence {}"
-    },
-    {
-      "name" : "Ref.seqDisp.CancelSequenceNotFound",
-      "severity" : "WARNING_LO",
-      "formalParams" : [
-        {
-          "name" : "filename",
-          "type" : {
-            "name" : "string",
-            "kind" : "string",
-            "size" : 240
-          },
-          "ref" : false
-        }
-      ],
-      "id" : 268468231,
-      "format" : "No running sequence matched file {} to cancel"
     },
     {
       "name" : "Ref.cmdSeq2.InvalidCommand",
@@ -16126,8 +16827,7 @@
     {
       "name" : "Ref.cmdSeq2.BreakpointCleared",
       "severity" : "ACTIVITY_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268472356,
       "format" : "Breakpoint cleared"
     },
@@ -16312,6 +17012,436 @@
       ],
       "id" : 268472363,
       "format" : "Sequence {}: {}"
+    },
+    {
+      "name" : "Ref.wasmSeq.StoreAllocationSucceeded",
+      "severity" : "DIAGNOSTIC",
+      "formalParams" : [
+        {
+          "name" : "moduleCount",
+          "type" : {
+            "name" : "U16",
+            "kind" : "integer",
+            "size" : 16,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476416,
+      "format" : "Successfully allocated store with {} modules"
+    },
+    {
+      "name" : "Ref.wasmSeq.InvalidCommand",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "state",
+          "type" : {
+            "name" : "Svc.WasmSequencer.SequencerStateMachine.State",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476417,
+      "format" : "Command not valid in state {}",
+      "annotation" : "A command was issued in a state where it is not valid"
+    },
+    {
+      "name" : "Ref.wasmSeq.ModuleNotFound",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "module_name",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 16
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476418,
+      "format" : "Failed to invoke main on module with name {}",
+      "annotation" : "A command was issued in a state where it is not valid"
+    },
+    {
+      "name" : "Ref.wasmSeq.FileOpenError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "fileName",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        },
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476419,
+      "format" : "Failed to open Wasm module file {}: status {}",
+      "annotation" : "Failed to open the requested Wasm module file"
+    },
+    {
+      "name" : "Ref.wasmSeq.ModuleLoadFailed",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Svc.WasmSequencer.Status",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476420,
+      "format" : "Module load failed: {}",
+      "annotation" : "A module failed to decode/validate while loading"
+    },
+    {
+      "name" : "Ref.wasmSeq.ModuleInvokeFailed",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Svc.WasmSequencer.Status",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476421,
+      "format" : "Module main invoke failed: {}",
+      "annotation" : "A module failed to decode/validate while loading"
+    },
+    {
+      "name" : "Ref.wasmSeq.TooManyBlockingCommands",
+      "severity" : "WARNING_HI",
+      "formalParams" : [],
+      "id" : 268476422,
+      "format" : "Too many commands blocking on sequencer finish"
+    },
+    {
+      "name" : "Ref.wasmSeq.SequenceSucceeded",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [],
+      "id" : 268476423,
+      "format" : "Wasm program completed successfully",
+      "annotation" : "The interpreter ran a program to completion"
+    },
+    {
+      "name" : "Ref.wasmSeq.BufferTooLarge",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "host_function",
+          "type" : {
+            "name" : "Svc.WasmSequencer.HostFunction",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "size",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "maxSize",
+          "type" : {
+            "name" : "U32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : false
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476424,
+      "format" : "Host function {} buffer payload size {} larger than host maximum size {}"
+    },
+    {
+      "name" : "Ref.wasmSeq.HostFunctionInvalidPointer",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "host_function",
+          "type" : {
+            "name" : "Svc.WasmSequencer.HostFunction",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        },
+        {
+          "name" : "code",
+          "type" : {
+            "name" : "Svc.WasmSequencer.Status",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476425,
+      "format" : "Failed to read guest pointer in host function {}: {}"
+    },
+    {
+      "name" : "Ref.wasmSeq.HostFunctionInvalidSeverity",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "raw",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476426,
+      "format" : "Invalid event severity '{}'"
+    },
+    {
+      "name" : "Ref.wasmSeq.SequenceCancelled",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [],
+      "id" : 268476427,
+      "format" : "Wasm program cancelled",
+      "annotation" : "The sequence was cancelled"
+    },
+    {
+      "name" : "Ref.wasmSeq.SequenceFailed",
+      "severity" : "WARNING_HI",
+      "formalParams" : [],
+      "id" : 268476428,
+      "format" : "Wasm program failed",
+      "annotation" : "The sequence failed to execute successfully"
+    },
+    {
+      "name" : "Ref.wasmSeq.SequenceTrap",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "reason",
+          "type" : {
+            "name" : "Svc.WasmSequencer.TrapReason",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476429,
+      "format" : "Wasm program trapped: {}",
+      "annotation" : "The interpreter trapped"
+    },
+    {
+      "name" : "Ref.wasmSeq.SequenceBroken",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [],
+      "id" : 268476430,
+      "format" : "Wasm program paused at breakpoint",
+      "annotation" : "Execution was paused at a breakpoint"
+    },
+    {
+      "name" : "Ref.wasmSeq.ProgramExited",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "code",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476431,
+      "format" : "Wasm program exited with code {}",
+      "annotation" : "The guest program called fprime.exit with a non-zero code"
+    },
+    {
+      "name" : "Ref.wasmSeq.PanicOccurred",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "code",
+          "type" : {
+            "name" : "I32",
+            "kind" : "integer",
+            "size" : 32,
+            "signed" : true
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476432,
+      "format" : "Wasm program panicked: code {}",
+      "annotation" : "The guest program called fprime.panic, or the interpreter itself panicked"
+    },
+    {
+      "name" : "Ref.wasmSeq.GuestMemoryError",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "status",
+          "type" : {
+            "name" : "Svc.WasmSequencer.Status",
+            "kind" : "qualifiedIdentifier"
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476433,
+      "format" : "Guest memory access failed: spacewasm status {}",
+      "annotation" : "A guest host function could not access guest linear memory"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogFatal",
+      "severity" : "FATAL",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476434,
+      "format" : "{}",
+      "annotation" : "A FATAL event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogWarningHi",
+      "severity" : "WARNING_HI",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476435,
+      "format" : "{}",
+      "annotation" : "A WARNING_HI event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogWarningLo",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476436,
+      "format" : "{}",
+      "annotation" : "A WARNING_LO event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogCommand",
+      "severity" : "COMMAND",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476437,
+      "format" : "{}",
+      "annotation" : "A COMMAND event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogActivityHi",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476438,
+      "format" : "{}",
+      "annotation" : "An ACTIVITY_HI event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogActivityLo",
+      "severity" : "ACTIVITY_LO",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476439,
+      "format" : "{}",
+      "annotation" : "An ACTIVITY_LO event emitted by the guest program"
+    },
+    {
+      "name" : "Ref.wasmSeq.LogDiagnostic",
+      "severity" : "DIAGNOSTIC",
+      "formalParams" : [
+        {
+          "name" : "msg",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 128
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268476440,
+      "format" : "{}",
+      "annotation" : "A DIAGNOSTIC event emitted by the guest program"
     },
     {
       "name" : "Ref.sendBuffComp.FirstPacketSent",
@@ -16537,24 +17667,21 @@
     {
       "name" : "Ref.SG1.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268505092,
       "format" : "DP Ports not connected!"
     },
     {
       "name" : "Ref.SG1.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268505093,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.SG1.InSufficientDpRecords",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268505094,
       "format" : "Need to request at least one record"
     },
@@ -16716,24 +17843,21 @@
     {
       "name" : "Ref.SG2.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268509188,
       "format" : "DP Ports not connected!"
     },
     {
       "name" : "Ref.SG2.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268509189,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.SG2.InSufficientDpRecords",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268509190,
       "format" : "Need to request at least one record"
     },
@@ -16895,24 +18019,21 @@
     {
       "name" : "Ref.SG3.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268513284,
       "format" : "DP Ports not connected!"
     },
     {
       "name" : "Ref.SG3.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268513285,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.SG3.InSufficientDpRecords",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268513286,
       "format" : "Need to request at least one record"
     },
@@ -17074,24 +18195,21 @@
     {
       "name" : "Ref.SG4.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268517380,
       "format" : "DP Ports not connected!"
     },
     {
       "name" : "Ref.SG4.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268517381,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.SG4.InSufficientDpRecords",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268517382,
       "format" : "Need to request at least one record"
     },
@@ -17253,24 +18371,21 @@
     {
       "name" : "Ref.SG5.DpsNotConnected",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268521476,
       "format" : "DP Ports not connected!"
     },
     {
       "name" : "Ref.SG5.DpMemoryFail",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268521477,
       "format" : "Failed to acquire a DP buffer"
     },
     {
       "name" : "Ref.SG5.InSufficientDpRecords",
       "severity" : "WARNING_HI",
-      "formalParams" : [
-      ],
+      "formalParams" : [],
       "id" : 268521478,
       "format" : "Need to request at least one record"
     },
@@ -17369,6 +18484,50 @@
       "id" : 268574722,
       "format" : "BuffRecv Parameter {} was updated",
       "annotation" : "Report parameter update"
+    },
+    {
+      "name" : "Ref.seqDisp.SequenceCanceled",
+      "severity" : "ACTIVITY_HI",
+      "formalParams" : [
+        {
+          "name" : "idx",
+          "type" : {
+            "name" : "U16",
+            "kind" : "integer",
+            "size" : 16,
+            "signed" : false
+          },
+          "ref" : false
+        },
+        {
+          "name" : "filename",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268468230,
+      "format" : "Sequencer {} canceled running sequence {}"
+    },
+    {
+      "name" : "Ref.seqDisp.CancelSequenceNotFound",
+      "severity" : "WARNING_LO",
+      "formalParams" : [
+        {
+          "name" : "filename",
+          "type" : {
+            "name" : "string",
+            "kind" : "string",
+            "size" : 240
+          },
+          "ref" : false
+        }
+      ],
+      "id" : 268468231,
+      "format" : "No running sequence matched file {} to cancel"
     },
     {
       "name" : "Ref.fpySerialRcvr.DataReceived",
@@ -18941,18 +20100,6 @@
       "annotation" : "Number of sequencers in an available state"
     },
     {
-      "name" : "Ref.seqDisp.canceledCount",
-      "type" : {
-        "name" : "U32",
-        "kind" : "integer",
-        "size" : 32,
-        "signed" : false
-      },
-      "id" : 268468227,
-      "telemetryUpdate" : "always",
-      "annotation" : "Number of sequences canceled by the CANCEL_NAME command"
-    },
-    {
       "name" : "Ref.cmdSeq2.State",
       "type" : {
         "name" : "FwEnumStoreType",
@@ -20009,6 +21156,18 @@
       "telemetryUpdate" : "always",
       "format" : "{.2f} percent",
       "annotation" : "System's CPU Percentage"
+    },
+    {
+      "name" : "Ref.seqDisp.canceledCount",
+      "type" : {
+        "name" : "U32",
+        "kind" : "integer",
+        "size" : 32,
+        "signed" : false
+      },
+      "id" : 268468227,
+      "telemetryUpdate" : "always",
+      "annotation" : "Number of sequences canceled by the CANCEL_NAME command"
     }
   ],
   "records" : [
@@ -20262,6 +21421,5 @@
       "annotation" : "Data product container"
     }
   ],
-  "telemetryPacketSets" : [
-  ]
+  "telemetryPacketSets" : []
 }

@@ -1274,7 +1274,7 @@ Both operands are promoted to `F64`, and the result is always an `F64`. This mea
 #### Floor division semantics
 The floor division operator is `//`. It requires numeric operands and rounds the quotient toward negative infinity (Python `//` semantics).
 
-With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
+With integer operands, the result is the largest integer not greater than the exact quotient: `-7 // 2` evaluates to `-4`. A zero divisor raises a runtime error (`DOMAIN_ERROR`). The one signed quotient that overflows, `(-2**63) // -1` (its true value `2**63` is not representable in `I64`), raises a runtime error (`ARITHMETIC_OVERFLOW`).
 
 If either operand is a float, both are promoted to `F64`. The quotient is computed by IEEE 754 division and then floored toward negative infinity (the IEEE 754 `roundToIntegralTowardNegative` operation):
 
