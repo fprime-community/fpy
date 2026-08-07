@@ -4,7 +4,7 @@ from fpy.test_helpers import (
     assert_run_success,
     assert_run_failure,
 )
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.error import WarningType
 from fpy.types import U8, U32, F64, BOOL, FpyValue
 

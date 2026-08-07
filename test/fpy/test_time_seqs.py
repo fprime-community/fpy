@@ -9,7 +9,7 @@ Tests for:
 """
 
 from fpy.error import WarningType
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,

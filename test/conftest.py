@@ -3,7 +3,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-import fpy.model
 
 # Repo layout: this file lives in test/.
 _TEST_DIR = Path(__file__).parent
@@ -21,24 +20,11 @@ _HARNESS_BIN = _HARNESS_BUILD / "bin" / "Linux" / "FpyHarness"
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--fpy-debug",
-        action="store_true",
-        default=False,
-        help="Enable debug output from the FPY sequencer model",
-    )
-    parser.addoption(
         "--wasm",
         action="store_true",
         default=False,
         help="Compile and run sequences through the LLVM/wasm backend "
         "(NASA spacewasm) instead of the fpy bytecode VM",
-    )
-    parser.addoption(
-        "--harness",
-        action="store_true",
-        default=False,
-        help="Run sequences on the real Svc::FpySequencer (built from the "
-        "test/fprime submodule) instead of the Python model",
     )
 
 
@@ -147,9 +133,6 @@ def pytest_configure(config):
     if test_helpers.USE_WASM:
         test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
 
-    if not config.getoption("--harness"):
-        return
-
     from fpy.harness import Harness
 
     harness = Harness(_build_harness())
@@ -207,12 +190,3 @@ def _ensure_wasm_runner(request):
 
     if test_helpers.SPACEWASM_RUNNER is None:
         test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
-
-
-@pytest.fixture(autouse=True)
-def configure_fpy_debug(request):
-    """Automatically configure fpy.model.debug based on --fpy-debug flag."""
-    original_debug = fpy.model.debug
-    fpy.model.debug = request.config.getoption("--fpy-debug")
-    yield
-    fpy.model.debug = original_debug

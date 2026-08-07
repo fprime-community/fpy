@@ -3,7 +3,6 @@ from pathlib import Path
 import tempfile
 import fpy.error
 from fpy.bytecode.errors import DirectiveErrorCode, ValidationError
-from fpy.model import FpySequencerModel
 from fpy.bytecode.directives import (
     AllocateDirective,
     Directive,
@@ -351,20 +350,28 @@ def _assert_no_stack_leak(
         raise RuntimeError(f"Sequence leaked {final_size - expected} bytes")
 
 
-def _run_seq_harness(
+def run_seq(
     directives: list[Directive],
-    tlm: dict[str, bytes],
-    time_base: int,
-    time_context: int,
-    initial_time_us: int,
-    failing_opcodes: set[int],
-    args: bytes,
-    arg_types: list[FpyType],
-    seq_run_opcodes: set[int],
-    ground_binary_dir: str,
-    arg_name_types: list[tuple[str, FpyType]],
+    tlm: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
+    failing_opcodes: set[int] = None,
+    args: bytes = None,
+    arg_types: list[FpyType] = None,
+    seq_run_opcodes: set[int] = None,
+    ground_binary_dir: str = None,
+    arg_name_types: list[tuple[str, FpyType]] = None,
 ):
-    """Run *directives* on the real sequencer and raise what the model would."""
+    """Run a list of directives on the sequencer.
+
+    Raises ValidationError if the sequence does not load, or RuntimeError
+    carrying the directive error (or the code an exit() reported) if it fails
+    while running."""
+    assert HARNESS is not None, "harness not started; see conftest.pytest_configure"
+    if tlm is None:
+        tlm = {}
+
     d = load_dictionary(default_dictionary)
     ch_name_dict = d["ch_name_dict"]
     cmd_name_dict = d["cmd_name_dict"]
@@ -406,90 +413,6 @@ def _run_seq_harness(
             raise RuntimeError(result.exit_code)
         raise RuntimeError(DirectiveErrorCode(result.error_code))
     _assert_no_stack_leak(result.stack_size, directives, arg_types)
-
-
-def run_seq(
-    directives: list[Directive],
-    tlm: dict[str, bytes] = None,
-    time_base: int = 0,
-    time_context: int = 0,
-    initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
-    args: bytes = None,
-    arg_types: list[FpyType] = None,
-    seq_run_opcodes: set[int] = None,
-    ground_binary_dir: str = None,
-    arg_name_types: list[tuple[str, FpyType]] = None,
-):
-    """Run a list of directives.
-
-    Runs on the real Svc::FpySequencer when the harness is enabled (pytest
-    --harness), otherwise on the Python sequencer model."""
-    if tlm is None:
-        tlm = {}
-
-    d = load_dictionary(default_dictionary)
-    ch_name_dict = d["ch_name_dict"]
-    cmd_id_dict = d["cmd_id_dict"]
-    cmd_name_dict = d["cmd_name_dict"]
-    type_defs = d["type_defs"]
-
-    if HARNESS is not None:
-        _run_seq_harness(
-            directives,
-            tlm=tlm,
-            time_base=time_base,
-            time_context=time_context,
-            initial_time_us=initial_time_us,
-            failing_opcodes=failing_opcodes,
-            args=args,
-            arg_types=arg_types,
-            seq_run_opcodes=seq_run_opcodes,
-            ground_binary_dir=ground_binary_dir,
-            arg_name_types=arg_name_types,
-        )
-        return
-
-    # These RUN commands always fail when called from within a running sequence
-    # on the same sequencer instance; mark them as failing for the model.
-    always_failing = {
-        cmd_name_dict["Ref.cmdSeq0.RUN"].opcode,
-    }
-    if failing_opcodes:
-        always_failing |= failing_opcodes
-    model = FpySequencerModel(
-        cmd_dict=cmd_id_dict,
-        time_base=time_base,
-        time_context=time_context,
-        initial_time_us=initial_time_us,
-        failing_opcodes=always_failing,
-        seq_run_opcodes=seq_run_opcodes or set(),
-        arg_type_defs=type_defs,
-    )
-    tlm_db = {}
-    for chan_name, val in tlm.items():
-        ch_template = ch_name_dict[chan_name]
-        tlm_db[ch_template.ch_id] = val
-
-    import os
-
-    old_cwd = None
-    if ground_binary_dir is not None:
-        old_cwd = os.getcwd()
-        os.chdir(ground_binary_dir)
-    try:
-        error_code, trap = model.run(directives, tlm_db, args=args, arg_types=arg_types)
-    finally:
-        if old_cwd is not None:
-            os.chdir(old_cwd)
-
-    # A trap (VM fault) surfaces as its DirectiveErrorCode; an exit with a nonzero
-    # code surfaces as the raw error code int.
-    if trap != DirectiveErrorCode.NO_ERROR:
-        raise RuntimeError(trap)
-    if error_code != 0:
-        raise RuntimeError(error_code)
-    _assert_no_stack_leak(len(model.stack), directives, arg_types)
 
 
 def assert_compile_success(

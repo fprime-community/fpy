@@ -77,7 +77,6 @@ Repository = "https://github.com/fprime-community/fpy"
 ####
 [project.scripts]
 fprime-fpyc = "fpy.main:compile_main"
-fprime-fpy-model = "fpy.main:model_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
 fprime-fpy-cmd = "fpy.main:cmd_main"

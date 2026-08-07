@@ -5,7 +5,6 @@ import pytest
 from fpy import main as fpy_main
 from fpy.bytecode.directives import ConstCmdDirective
 import fpy.error as fpy_error
-import fpy.model as fpy_model
 
 
 def fake_compile_state(**kwargs):
@@ -356,52 +355,6 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert "CRC 0xabcd" in captured.out
     assert "2 B" in captured.out
-
-
-def test_model_main_success(monkeypatch, tmp_path):
-    binary = tmp_path / "seq.bin"
-    binary.write_bytes(b"data")
-
-    monkeypatch.setattr(fpy_model, "debug", False, raising=False)
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
-
-    instances = []
-
-    class DummyModel:
-        def __init__(self):
-            instances.append(self)
-            self.ran_with = None
-
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
-            self.ran_with = directives
-            return 0, fpy_main.DirectiveErrorCode.NO_ERROR
-
-    monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
-
-    fpy_main.model_main([str(binary), "--debug"])
-
-    assert fpy_model.debug is True
-    assert instances[0].ran_with == ["dir"]
-
-
-def test_model_main_failure(monkeypatch, tmp_path, capsys):
-    binary = tmp_path / "seq.bin"
-    binary.write_bytes(b"data")
-
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
-
-    class DummyModel:
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
-            return 0, fpy_main.DirectiveErrorCode.STACK_OVERFLOW
-
-    monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
-
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.model_main([str(binary)])
-
-    assert exc.value.code == 1
-    captured = capsys.readouterr()
-    assert "Sequence trapped" in captured.out
 
 
 def test_assemble_main_missing_input(tmp_path, capsys):

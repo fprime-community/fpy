@@ -3,7 +3,7 @@ import pytest
 from fpy.types import U32
 
 import fpy.test_helpers as test_helpers
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
@@ -678,5 +678,167 @@ assert inf // 1.0 == inf
 assert (0.0 - inf) // 1.0 == 0.0 - inf
 q: F64 = nan // 1.0
 assert q != q
+"""
+        assert_run_success(seq)
+
+
+class TestArithmeticEdgeCases:
+    """Runtime arithmetic at the edges of the integer and float ranges.
+
+    Every operand is routed through a variable: an all-literal expression
+    folds at compile time, which would test the folder rather than the
+    sequencer."""
+
+    def test_int_add_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+one: I64 = 1
+sum: I64 = big + one
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_add_underflows(self):
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+sum: I64 = small + minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_int_add_at_limit_succeeds(self):
+        seq = """
+big: I64 = I64(2**63 - 2)
+one: I64 = 1
+sum: I64 = big + one
+assert sum == I64(2**63 - 1)
+"""
+        assert_run_success(seq)
+
+    def test_int_sub_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+minus: I64 = -1
+diff: I64 = big - minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_sub_underflows(self):
+        seq = """
+small: I64 = I64(-2**63)
+one: I64 = 1
+diff: I64 = small - one
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_int_mul_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+two: I64 = 2
+product: I64 = big * two
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_mul_underflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+two: I64 = -2
+product: I64 = big * two
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_signed_div_int_min_by_minus_one_overflows(self):
+        """The one signed division whose true result leaves the range."""
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+q: I64 = small // minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_signed_mod_int_min_by_minus_one_is_zero(self):
+        """Unlike the division, the remainder is representable, so it is 0
+        rather than an overflow."""
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+r: I64 = small % minus
+assert r == 0
+"""
+        assert_run_success(seq)
+
+    def test_float_pow_overflow_is_inf(self):
+        seq = """
+base: F64 = 10.0
+exp: F64 = 400.0
+result: F64 = base ** exp
+assert result > 1.0e308
+assert result == result * 2.0
+"""
+        assert_run_success(seq)
+
+    def test_float_pow_negative_base_fractional_exponent_is_nan(self):
+        """A negative base raised to a fractional exponent has no real result."""
+        seq = """
+base: F64 = -1.0
+exp: F64 = 0.5
+result: F64 = base ** exp
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_log_of_zero_is_domain_error(self):
+        seq = """
+zero: F64 = 0.0
+result: F64 = ln(zero)
+"""
+        assert_run_failure(seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_float_log_of_negative_is_domain_error(self):
+        seq = """
+neg: F64 = -1.0
+result: F64 = ln(neg)
+"""
+        assert_run_failure(seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_float_div_by_zero_signs(self):
+        """Float division by zero is infinite, signed by both operands."""
+        seq = """
+one: F64 = 1.0
+pos: F64 = 0.0
+neg: F64 = -0.0
+assert one / pos > 1.0e308
+assert one / neg < -1.0e308
+assert -one / neg > 1.0e308
+"""
+        assert_run_success(seq)
+
+    def test_float_zero_divided_by_zero_is_nan(self):
+        seq = """
+zero: F64 = 0.0
+result: F64 = zero / zero
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_mod_by_zero_is_nan(self):
+        seq = """
+one: F64 = 1.0
+zero: F64 = 0.0
+result: F64 = one % zero
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_mod_zero_result_takes_divisor_sign(self):
+        """An exact division leaves a zero remainder whose sign follows the
+        divisor, observable through division by it."""
+        seq = """
+four: F64 = 4.0
+neg_two: F64 = -2.0
+r: F64 = four % neg_two
+assert 1.0 / r < 0.0
+pos_two: F64 = 2.0
+s: F64 = four % pos_two
+assert 1.0 / s > 0.0
 """
         assert_run_success(seq)

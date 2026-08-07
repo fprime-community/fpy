@@ -1,4 +1,9 @@
-import pytest
+"""Tests for the random number directives.
+
+The seeded expectations are the sequencer's std::mt19937 output. They are
+exact: the standard specifies the generator, so the same seed gives the same
+values on every standard library.
+"""
 
 from fpy.test_helpers import assert_run_success
 
@@ -23,19 +28,6 @@ assert value < 1.0
     def test_rand_seeded_sequence(self):
         seq = """
 set_seed(123456789)
-assert rand() == 2754794679
-assert rand() == 1899526012
-set_seed(123456789)
-assert rand() == 2754794679
-"""
-        assert_run_success(seq)
-
-    @pytest.mark.skip(
-        reason="C++ PRNG expectations; unskipped when the harness becomes the runner"
-    )
-    def test_rand_seeded_sequence_gds(self):
-        seq = """
-set_seed(123456789)
 assert rand() == 2288500408
 assert rand() == 4254805660
 set_seed(123456789)
@@ -46,19 +38,6 @@ assert rand() == 2288500408
     def test_randf_seeded_sequence(self):
         seq = """
 set_seed(123456789)
-assert randf() == 0.6414006182458252
-assert randf() == 0.4422678640112281
-set_seed(123456789)
-assert randf() == 0.6414006182458252
-"""
-        assert_run_success(seq)
-
-    @pytest.mark.skip(
-        reason="C++ PRNG expectations; unskipped when the harness becomes the runner"
-    )
-    def test_randf_seeded_sequence_gds(self):
-        seq = """
-set_seed(123456789)
 assert randf() == 0.5328330229967833
 assert randf() == 0.9906491404399276
 set_seed(123456789)
@@ -67,8 +46,10 @@ assert randf() == 0.5328330229967833
         assert_run_success(seq)
 
     def test_rand_uses_time_as_initial_seed(self):
+        # Unseeded, the generator is seeded from the current time, so the value
+        # follows from the clock the sequence starts with.
         seq = """
-assert rand() == 1309080412
+assert rand() == 3962384540
 """
         assert_run_success(seq, initial_time_us=5_000_000)
 
@@ -76,17 +57,6 @@ assert rand() == 1309080412
         seq = """
 ignored: U32 = rand()
 set_seed(123456789)
-assert rand() == 2754794679
-"""
-        assert_run_success(seq, initial_time_us=5_000_000)
-
-    @pytest.mark.skip(
-        reason="C++ PRNG expectations; unskipped when the harness becomes the runner"
-    )
-    def test_set_seed_overrides_time_initialized_rng_gds(self):
-        seq = """
-ignored: U32 = rand()
-set_seed(123456789)
 assert rand() == 2288500408
 """
-        assert_run_success(seq)
+        assert_run_success(seq, initial_time_us=5_000_000)
