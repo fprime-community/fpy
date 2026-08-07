@@ -49,6 +49,21 @@ wasm = [
     "ziglang>=0.16.0",
 ]
 
+####
+# Pytest:
+#
+# The vendored trees under test/ carry their own tests and build output, none of
+# which belong to this suite.
+####
+[tool.pytest.ini_options]
+testpaths = ["test"]
+norecursedirs = [
+    "test/fprime",
+    "test/spacewasm",
+    "test/spacewasm_runner",
+    "test/harness",
+]
+
 [project.urls]
 Homepage = "https://fprime.jpl.nasa.gov"
 Documentation = "https://nasa.github.io/fprime/"
@@ -84,6 +99,13 @@ dev = [
     "fprime-fpy[wasm]",
     "black>=26.5.1",
     "pre-commit>=4.6.0",
+    "libcst>=1.9.0",
+]
+harness = [
+    "cmake==3.26.0",
+    "fprime-fpp==3.3.0a15",
+    "fprime-tools==4.3.0a5",
+    "ninja==1.11.1.4",
 ]
 
 
