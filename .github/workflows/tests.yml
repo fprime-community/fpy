@@ -1,0 +1,71 @@
+name: fprime-fpy tests
+
+on:
+  push:
+    branches: [ devel ]
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [ devel ]
+# Cancel in-progress runs if a newer run is started on a given PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !contains(github.ref, 'devel') && !contains(github.ref, 'release/')}}
+
+jobs:
+  # The sequencer harness is the same binary for every Python version, so it is
+  # built once here and handed to the matrix below rather than four times over.
+  Build-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Check out the fprime submodule
+        run: git submodule update --init --depth 1 test/fprime
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - name: Install the build toolchain
+        # The submodule pins the fpp tools it needs; cmake refuses to configure
+        # against a different version, so they come from there rather than
+        # being pinned again here.
+        run: pip install -r test/fprime/requirements.txt
+      - name: Build the harness
+        run: |
+          cmake -S . -B test/harness/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=17 -DBUILD_TESTING=OFF
+          cmake --build test/harness/build --target FpyHarness
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpy-harness
+          path: test/harness/build/bin/Linux/FpyHarness
+          retention-days: 1
+
+  Unit-tests:
+    needs: Build-harness
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[wasm]'
+          git submodule update --init test/spacewasm
+      - uses: actions/download-artifact@v4
+        with:
+          name: fpy-harness
+          path: harness-bin
+      - name: Test with pytest
+        env:
+          FPY_HARNESS_BIN: ${{ github.workspace }}/harness-bin/FpyHarness
+        run: |
+          chmod +x "$FPY_HARNESS_BIN"
+          pytest

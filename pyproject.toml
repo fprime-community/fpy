@@ -55,6 +55,14 @@ wasm = [
 # The vendored trees under test/ carry their own tests and build output, none of
 # which belong to this suite.
 ####
+####
+# Black:
+#
+# The vendored trees under test/ are not ours to reformat.
+####
+[tool.black]
+extend-exclude = "^/test/(fprime|spacewasm)/"
+
 [tool.pytest.ini_options]
 testpaths = ["test"]
 norecursedirs = [

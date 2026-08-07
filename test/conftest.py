@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -31,8 +32,20 @@ def pytest_addoption(parser):
 def _build_harness():
     """Build the sequencer harness once and return the binary path.
 
+    FPY_HARNESS_BIN names an already-built harness and skips the build, which
+    is how CI builds it once and shares it across the Python matrix.
+
     Surfaces the setup gaps -- submodule not checked out, no C++ compiler --
     with an actionable message rather than a wall of CMake output."""
+    prebuilt = os.environ.get("FPY_HARNESS_BIN")
+    if prebuilt:
+        if not Path(prebuilt).exists():
+            pytest.exit(
+                f"FPY_HARNESS_BIN points at {prebuilt}, which does not exist",
+                returncode=1,
+            )
+        return prebuilt
+
     if not (_FPRIME_DIR / "CMakeLists.txt").exists():
         pytest.exit(
             "fprime submodule is not checked out. Run:\n"
