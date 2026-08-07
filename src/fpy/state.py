@@ -43,6 +43,7 @@ from fpy.types import (
     DEFAULT_FW_SERIALIZE_FALSE_VALUE,
     DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
+    DEFAULT_MAX_CMD_STRING_SIZE,
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_SEQ_ARG_COUNT,
     DEFAULT_MAX_STACK_SIZE,
@@ -89,6 +90,7 @@ class CompileState:
     # is not in the dictionary, in which case the corresponding check is skipped.
     com_buffer_max_size: int | None = None
     cmd_arg_buffer_max_size: int | None = None
+    max_cmd_string_size: int = DEFAULT_MAX_CMD_STRING_SIZE
     cmd_names_by_opcode: dict[int, str] = field(default_factory=dict)
     """Map of command opcode to fully-qualified command name, for error messages."""
 
@@ -704,6 +706,9 @@ def get_base_compile_state(
         max_stack_size=_const_int("Svc.Fpy.MAX_STACK_SIZE", DEFAULT_MAX_STACK_SIZE),
         com_buffer_max_size=_const_int("FW_COM_BUFFER_MAX_SIZE", None),
         cmd_arg_buffer_max_size=_const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        max_cmd_string_size=_const_int(
+            "FW_CMD_STRING_MAX_SIZE", DEFAULT_MAX_CMD_STRING_SIZE
+        ),
         cmd_names_by_opcode={
             opcode: cmd.name
             for opcode, cmd in load_dictionary(dictionary)["cmd_id_dict"].items()

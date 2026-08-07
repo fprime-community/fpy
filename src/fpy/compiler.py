@@ -39,6 +39,7 @@ from fpy.semantics import (
     CollectFunctionGlobalUses,
     ResolveTransitiveGlobalUses,
     CheckGlobalsInitializedBeforeCall,
+    CheckCommandStringArgs,
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
@@ -283,6 +284,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CheckFunctionReturns(),
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
+        CheckCommandStringArgs(),
         CheckSequenceArgs(),
     ]
     desugaring_passes: list[Visitor] = [

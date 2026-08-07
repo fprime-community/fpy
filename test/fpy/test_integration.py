@@ -7,7 +7,7 @@ from fpy.test_helpers import assert_run_success, assert_run_failure
 
 class TestReadmeExamples:
 
-    def test_readme_examples(self, fprime_test_api):
+    def test_readme_examples(self):
         seq = """
 Ref.sendBuffComp.PARAMETER4_PRM_SET(1 - 2 + 3 * 4 + 10 / 5 * 2)
 param4: F32 = 15.0
@@ -213,21 +213,16 @@ exit(0)
         # The example intentionally re-declares `i` as a loop variable over an
         # existing global `i`, which shadows it (shadow-value).
         assert_run_success(
-            fprime_test_api,
             seq,
             {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
             timeout_s=20,
             expected_warnings={WarningType.SHADOW_VALUE},
         )
 
-    def test_readme_bare_cmd_fail_exits(self, fprime_test_api):
+    def test_readme_bare_cmd_fail_exits(self):
         """README: CdhCore.exampleComponent.CMD_THAT_WILL_FAIL() / sequence exits with an error"""
         seq = """
 Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 # sequence exits with an error
 """
-        assert_run_failure(
-            fprime_test_api,
-            seq,
-            DirectiveErrorCode.CMD_FAIL,
-        )
+        assert_run_failure(seq, DirectiveErrorCode.CMD_FAIL)
