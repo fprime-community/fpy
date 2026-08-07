@@ -1,5 +1,4 @@
 from __future__ import annotations
-from enum import Enum
 import inspect
 import math
 import random
@@ -92,12 +91,14 @@ from fpy.bytecode.directives import (
     IntegerTruncate64To8Directive,
 )
 from fpy.types import DeserializeError, FpyValue, LOG_SEVERITY, TIME, U32
+from fpy.bytecode.errors import (
+    DirectiveErrorCode,
+    STACK_FRAME_HEADER_SIZE,
+    ValidationError,
+)
 
 debug = False
 
-# store return addr and prev stack frame offset in stack frame header
-# each is StackSizeType (U32), so 4 bytes each = 8 bytes total
-STACK_FRAME_HEADER_SIZE = StackSizeType.max_size * 2
 MAX_INT64 = 2**63 - 1
 MIN_INT64 = -(2**63)
 MASK_64_BIT = 2**64 - 1
@@ -114,34 +115,6 @@ def _trunc_div(a: int, b: int) -> int:
     """C-style integer division: truncate toward zero (not Python's floor)."""
     sign = -1 if (a < 0) != (b < 0) else 1
     return sign * (abs(a) // abs(b))
-
-
-class ValidationError(Exception):
-    pass
-
-
-class DirectiveErrorCode(Enum):
-    NO_ERROR = 0
-    STMT_OUT_OF_BOUNDS = 1
-    TLM_GET_NOT_CONNECTED = 2
-    TLM_CHAN_NOT_FOUND = 3
-    PRM_GET_NOT_CONNECTED = 4
-    PRM_NOT_FOUND = 5
-    CMD_SERIALIZE_FAILURE = 6
-    EXIT_WITH_ERROR = 7
-    STACK_ACCESS_OUT_OF_BOUNDS = 8
-    STACK_OVERFLOW = 9
-    DOMAIN_ERROR = 10
-    ARRAY_OUT_OF_BOUNDS = 11
-    ARITHMETIC_OVERFLOW = 12
-    ARITHMETIC_UNDERFLOW = 13
-    FRAME_START_OUT_OF_BOUNDS = 14
-    STACK_UNDERFLOW = 15
-    INVALID_ARG = 16
-    CMD_FAIL = 17
-    SERIAL_PORT_NOT_CONNECTED = 18
-    SERIAL_PORT_INVALID_INDEX = 19
-    DESERIALIZE_ERROR_INVALID_BOOL = 20
 
 
 class FpySequencerModel:

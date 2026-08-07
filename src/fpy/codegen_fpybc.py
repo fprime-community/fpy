@@ -14,7 +14,7 @@ except ImportError:
 
 from fpy.error import BackendError
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
-from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
+from fpy.bytecode.errors import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.semantics import is_cmd_and_response_unhandled
 from fpy.types import (
     SIGNED_INTEGER_TYPES,

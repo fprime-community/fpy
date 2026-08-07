@@ -23,7 +23,8 @@ from fpy.bytecode.assembler import (
 from fpy.bytecode.directives import ConstCmdDirective, StackCmdDirective
 import fpy.error
 import fpy.model
-from fpy.model import DirectiveErrorCode, FpySequencerModel
+from fpy.bytecode.errors import DirectiveErrorCode
+from fpy.model import FpySequencerModel
 from fpy.compiler import (
     analysis_to_llvm_module,
     analysis_to_wasm,
