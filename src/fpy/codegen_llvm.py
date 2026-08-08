@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fpy.error import BackendError
@@ -18,13 +19,14 @@ except ImportError as exc:
     ) from exc
 
 from fpy.model import DirectiveErrorCode
-from fpy.state import CompileState
+from fpy.state import BackendState, CompileState
 from fpy.symbols import (
     BuiltinFuncSymbol,
     CastSymbol,
     CommandSymbol,
     FieldAccess,
     FunctionSymbol,
+    NameGroup,
     TypeCtorSymbol,
     VariableSymbol,
 )
@@ -78,6 +80,51 @@ WASM_VERSION = "1.0 (MVP)"
 # TODO enable custom page sizes
 # TODO strip custom sections from the wasm / optimize for size (wasm-opt)?
 # TODO could just start with a .a and a header??
+
+
+@dataclass
+class CommandBuffer:
+    """The buffer one command call dispatches: the big-endian serialized
+    FwOpcodeType followed by the fprime-serialized arguments, in linear
+    memory."""
+
+    buf: "ir.GlobalVariable"
+    size: int
+    runtime_args: list[tuple[int, AstExpr, FpyType]]
+    """the arguments not known at compile time, as (byte offset of the zeroed
+    slot the buffer leaves for it, argument expression, argument type)"""
+
+
+@dataclass
+class LlvmBackendState(BackendState):
+    """The LLVM backend's view of a program: the module it is building, and
+    where in that module everything the program stores lives."""
+
+    module: "ir.Module"
+
+    variable_ptrs: dict[VariableSymbol, "ir.Value"] = field(default_factory=dict)
+    """variable to the pointer to its storage"""
+
+    temp_slots: dict[AstExpr, "ir.Value"] = field(default_factory=dict)
+    """expression that is addressed but denotes no location of its own, to the
+    stack slot holding its value"""
+
+    cmd_buffers: dict[AstFuncCall, CommandBuffer] = field(default_factory=dict)
+    """command call to the buffer it dispatches"""
+
+
+def is_addressable(expr: AstExpr, state: CompileState) -> bool:
+    """True when *expr* denotes a location rather than a computed value, so
+    that a pointer to it can be formed: *expr* is a variable, or a
+    member/element access. An access into an anonymous literal is the
+    exception -- that literal is never built, so the access reduces to the
+    accessed member's own expression instead."""
+    sym = state.resolved_symbols.get(expr)
+    if is_instance_compat(sym, VariableSymbol):
+        return True
+    return is_instance_compat(sym, FieldAccess) and not is_instance_compat(
+        sym.parent_expr, (AstAnonStruct, AstAnonArray)
+    )
 
 
 class EmitLlvmExpr(Emitter):
@@ -364,7 +411,7 @@ class EmitLlvmExpr(Emitter):
         assert isinstance(sym, VariableSymbol), sym
         # Load the variable at its stored (declared) type, which is the ident's
         # synthesized type; emit() handles any widening to the contextual type.
-        return self.builder.load(sym.llvm_ptr, name=str(node.name))
+        return self.builder.load(state.backend.variable_ptrs[sym], name=str(node.name))
 
     def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
@@ -375,7 +422,7 @@ class EmitLlvmExpr(Emitter):
         # A qualified name can't denote a variable (an imported sequence may
         # not declare a top-level variable), so what remains is member access.
         assert is_instance_compat(sym, FieldAccess), sym
-        if self._has_storage(node, state):
+        if is_addressable(node, state):
             return self.builder.load(self._emit_ptr(node, state), name=node.attr)
         # Member access on an anonymous struct literal: the struct is never
         # built; emit just the accessed member's expression.
@@ -388,7 +435,7 @@ class EmitLlvmExpr(Emitter):
     def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
         assert is_instance_compat(sym, FieldAccess), sym
-        if self._has_storage(node, state):
+        if is_addressable(node, state):
             return self.builder.load(self._emit_ptr(node, state))
         # Element access on an anonymous array literal: the array is never
         # built; the index must be a compile-time constant, so emit just that
@@ -402,29 +449,15 @@ class EmitLlvmExpr(Emitter):
         assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
         return self.emit(sym.parent_expr.elements[idx], state)
 
-    def _has_storage(self, expr: AstExpr, state: CompileState) -> bool:
-        """True when a pointer to *expr*'s value can address it in place:
-        *expr* is a variable (which has its own slot), or a member/element
-        access (which addresses part of its parent's storage). An access into
-        an anonymous literal is the exception: the literal is never built, so
-        the access reduces to the accessed member's own expression instead
-        (see emit_AstGetAttr/emit_AstIndexExpr)."""
-        sym = state.resolved_symbols.get(expr)
-        if is_instance_compat(sym, VariableSymbol):
-            return True
-        return is_instance_compat(sym, FieldAccess) and not is_instance_compat(
-            sym.parent_expr, (AstAnonStruct, AstAnonArray)
-        )
-
     def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
         """Emit a pointer to *expr*'s value, without loading it."""
         b = self.builder
         i32 = ir.IntType(32)
-        if not self._has_storage(expr, state):
+        if not is_addressable(expr, state):
             return self._emit_to_temp_slot(expr, state)
         sym = state.resolved_symbols[expr]
         if is_instance_compat(sym, VariableSymbol):
-            return sym.llvm_ptr
+            return state.backend.variable_ptrs[sym]
         assert is_instance_compat(sym, FieldAccess), sym
         parent_ptr = self._emit_ptr(sym.parent_expr, state)
         parent_type = state.contextual_types[sym.parent_expr]
@@ -451,15 +484,10 @@ class EmitLlvmExpr(Emitter):
         return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
 
     def _emit_to_temp_slot(self, expr: AstExpr, state: CompileState) -> ir.Value:
-        """Emit *expr* as a value and store it in a fresh stack slot (an
-        entry-block alloca), giving a value with no storage of its own an
-        address -- e.g. a folded constructor call's constant aggregate, or an
-        anonymous literal's member, so that a runtime index can GEP into it."""
-        b = self.builder
-        value = self.emit(expr, state)
-        with b.goto_entry_block():
-            slot = b.alloca(value.type)
-        b.store(value, slot)
+        """Emit *expr* as a value into the stack slot it was given, so that a
+        value that denotes no location has an address to GEP into."""
+        slot = state.backend.temp_slots[expr]
+        self.builder.store(self.emit(expr, state), slot)
         return slot
 
     def _emit_array_bounds_check(self, idx: ir.Value, length: int) -> None:
@@ -496,7 +524,7 @@ class EmitLlvmExpr(Emitter):
                     "LLVM backend can't lower sequence-run commands with "
                     "arguments yet"
                 )
-            return self._emit_command_call(node_args, func, state)
+            return self._emit_command_call(node, state)
         elif is_instance_compat(func, BuiltinFuncSymbol):
             return self._emit_builtin_call(node_args, func, state)
         elif is_instance_compat(func, TypeCtorSymbol):
@@ -543,58 +571,25 @@ class EmitLlvmExpr(Emitter):
                 args.append((self.emit(arg, state), const_val))
         return func.generate_llvm(self.builder, args)
 
-    def _emit_command_call(
-        self, node_args: list, func: CommandSymbol, state: CompileState
-    ) -> ir.Value:
-        """Lower a command call: build the command's buffer -- the big-endian
-        serialized FwOpcodeType followed by the fprime-serialized arguments --
-        in linear memory, dispatch it through the host cmd import, and return
-        the host's Fw.CmdResponse.
-        """
+    def _emit_command_call(self, node: AstFuncCall, state: CompileState) -> ir.Value:
+        """Lower a command call: write the arguments only known at runtime into
+        the call's buffer, dispatch it through the host cmd import, and return
+        the host's Fw.CmdResponse."""
         b = self.builder
-        module = b.module
+        command = state.backend.cmd_buffers[node]
 
-        # Lay out the buffer as a global: the opcode, then each argument in
-        # order. A constant arg is serialized directly into the initializer
-        # (at its actual size: a string packs to its real length, not its
-        # declared capacity). A runtime arg gets a zeroed max_size slot,
-        # filled in just before the dispatch.
-        initializer = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
-        runtime_args = []  # (byte offset of the arg's slot, arg expr, arg type)
-        for arg in node_args:
-            const_val = (
-                arg
-                if is_instance_compat(arg, FpyValue)
-                else state.const_expr_values.get(arg)
-            )
-            if const_val is not None:
-                initializer += const_val.serialize()
-            else:
-                arg_type = state.contextual_types[arg]
-                runtime_args.append((len(initializer), arg, arg_type))
-                initializer += bytes(arg_type.max_size)
-
-        buf_type = ir.ArrayType(ir.IntType(8), len(initializer))
-        buf = ir.GlobalVariable(
-            module, buf_type, name=module.get_unique_name("cmd_buf")
-        )
-        buf.linkage = "private"
-        buf.global_constant = not runtime_args
-        buf.initializer = ir.Constant(buf_type, initializer)
-
-        # Store each runtime arg's value into its slot.
-        for offset, arg, arg_type in runtime_args:
+        for offset, arg, arg_type in command.runtime_args:
             value = self.emit(arg, state)
-            written = self._emit_store_big_endian(value, arg_type, buf, offset)
+            written = self._emit_store_big_endian(value, arg_type, command.buf, offset)
             assert written == arg_type.max_size, (arg_type, written)
 
         # The host returns the response widened to i32; narrow it back to
         # Fw.CmdResponse's type.
         response = b.call(
-            module.globals[HOST_CMD_FUNC_NAME],
+            b.module.globals[HOST_CMD_FUNC_NAME],
             [
-                b.bitcast(buf, ir.IntType(8).as_pointer()),
-                ir.Constant(ir.IntType(32), len(initializer)),
+                b.bitcast(command.buf, ir.IntType(8).as_pointer()),
+                ir.Constant(ir.IntType(32), command.size),
             ],
         )
         # assumption: the response is a valid cmd response code
@@ -782,22 +777,137 @@ class EmitLlvmExpr(Emitter):
 FPY_ENTRY_POINT = "main"
 
 
-class CollectFrameVariables(TopDownVisitor):
-    """Collects every variable declared in a frame"""
+class AssignAddresses(TopDownVisitor):
+    """Gives an address to everything one function's code addresses -- its
+    variables, each expression that is addressed without denoting a location of
+    its own, and each command call's buffer -- before any of that function is
+    lowered, so that an emitter only ever looks an address up."""
 
-    def __init__(self):
+    def __init__(self, builder: ir.IRBuilder):
         super().__init__()
-        self.symbols: list[VariableSymbol] = []
+        self.builder: ir.IRBuilder = builder
 
-    def visit_AstAssign(self, node: AstAssign, state: CompileState):
-        sym = state.resolved_symbols.get(node.lhs)
-        # Only variable declarations/reassignments need storage; a field or
-        # element target (x.f = ..., a[i] = ...) resolves to something else.
-        if isinstance(sym, VariableSymbol):
-            self.symbols.append(sym)
+    def run(self, start: AstBlock, state: CompileState):
+        # `flags` is in no block's scope, so the walk never reaches it.
+        self._create_flags_slot(state)
+        super().run(start, state)
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        # A block's scope holds every variable declared in it, including the
+        # ones no assignment declares (a loop's variable and its bound).
+        for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
+            if is_instance_compat(sym, VariableSymbol):
+                self._create_variable_slot(sym, state)
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        return STOP_DESCENT  # a def's locals belong to its own frame
+        return STOP_DESCENT  # a def is a function of its own, with its own storage
+
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        self._create_temp_slot(node, state)
+
+    def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
+        self._create_temp_slot(node, state)
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        # A sequence-run command with arguments has no buffer layout yet;
+        # lowering the call is what reports that.
+        if is_instance_compat(func, CommandSymbol) and not func.is_seq_run_with_args:
+            self._create_command_buffer(node, func, state)
+
+    def _create_flags_slot(self, state: CompileState) -> None:
+        """Create the built-in `flags` struct, initialized to its defaults."""
+        flags = state.flags_var
+        g = ir.GlobalVariable(
+            state.backend.module, flags.type.llvm_type, name=flags.name
+        )
+        g.linkage = "internal"
+        g.initializer = FpyValue(
+            flags.type, dict(flags.type.member_defaults)
+        ).llvm_value
+        state.backend.variable_ptrs[flags] = g
+
+    def _create_variable_slot(self, sym: VariableSymbol, state: CompileState) -> None:
+        """Create *sym*'s slot: a module-level global when it is a global
+        variable, so that a function reaches the same slot the entry function
+        does, and an entry-block alloca otherwise."""
+        ptrs = state.backend.variable_ptrs
+        assert sym not in ptrs, sym
+        if sym.is_global:
+            gvar = ir.GlobalVariable(
+                state.backend.module, sym.type.llvm_type, name=sym.name
+            )
+            gvar.linkage = "internal"
+            # Zero-initialized; the declaring assignment writes the real value.
+            gvar.initializer = ir.Constant(sym.type.llvm_type, None)
+            ptrs[sym] = gvar
+        else:
+            ptrs[sym] = self.builder.alloca(sym.type.llvm_type, name=sym.name)
+
+    def _create_temp_slot(self, access: AstExpr, state: CompileState) -> None:
+        """Give the expression the member/element access *access* addresses
+        into -- its parent -- a slot to be copied into, when the parent does not
+        already denote a location. A folded constructor call's constant
+        aggregate is the case that arises: a runtime index has to GEP into it.
+
+        Only the parent one level up is considered, because every link of a
+        chain like ``Ctor(...)[i].m`` is itself an access this pass visits, so
+        each link creates its own parent's slot when its turn comes.
+        """
+        # _emit_ptr is what takes the parent's address, and it is only ever
+        # reached for an access that survives folding and is addressable -- the
+        # same two tests the emitter makes before it calls _emit_ptr.
+        if state.const_expr_values.get(access) is not None:
+            return  # folded to a constant, so no address is taken
+        if not is_addressable(access, state):
+            return  # a qualified name, or a never-built anonymous literal
+
+        # _emit_ptr copies its argument to a slot on exactly this condition.
+        parent = state.resolved_symbols[access].parent_expr
+        if is_addressable(parent, state):
+            return
+
+        slots = state.backend.temp_slots
+        if parent not in slots:
+            # The AST can share one expression between two places (a default
+            # argument), so a parent may be reached more than once.
+            slots[parent] = self.builder.alloca(
+                state.contextual_types[parent].llvm_type, name="temp"
+            )
+
+    def _create_command_buffer(
+        self, node: AstFuncCall, func: CommandSymbol, state: CompileState
+    ) -> None:
+        """Lay out the buffer *node* dispatches: the opcode, then each argument
+        in order. An argument known at compile time is serialized straight into
+        the buffer at its actual size -- a string packs to its real length, not
+        its declared capacity. Every other gets a zeroed max_size slot."""
+        contents = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+        runtime_args = []  # (byte offset of the arg's slot, arg expr, arg type)
+        for arg in node.args if node.args is not None else []:
+            const_val = (
+                arg
+                if is_instance_compat(arg, FpyValue)
+                else state.const_expr_values.get(arg)
+            )
+            if const_val is not None:
+                contents += const_val.serialize()
+            else:
+                arg_type = state.contextual_types[arg]
+                runtime_args.append((len(contents), arg, arg_type))
+                contents += bytes(arg_type.max_size)
+
+        module = state.backend.module
+        buf_type = ir.ArrayType(ir.IntType(8), len(contents))
+        buf = ir.GlobalVariable(
+            module, buf_type, name=module.get_unique_name("cmd_buf")
+        )
+        buf.linkage = "private"
+        buf.global_constant = not runtime_args
+        buf.initializer = ir.Constant(buf_type, contents)
+        state.backend.cmd_buffers[node] = CommandBuffer(
+            buf, len(contents), runtime_args
+        )
 
 
 class EmitLlvmStmt(Emitter):
@@ -855,7 +965,7 @@ class EmitLlvmStmt(Emitter):
             if m.name == "assert_cmd_success"
         )
         flag_ptr = b.gep(
-            state.flags_var.llvm_ptr,
+            state.backend.variable_ptrs[state.flags_var],
             [ir.Constant(i32, 0), ir.Constant(i32, member_idx)],
             inbounds=True,
         )
@@ -882,12 +992,12 @@ class EmitLlvmStmt(Emitter):
         # rhs first
         value = self.expr.emit(node.rhs, state)
         if is_instance_compat(sym, VariableSymbol):
-            self.builder.store(value, sym.llvm_ptr)
+            self.builder.store(value, state.backend.variable_ptrs[sym])
             return
         # A field/element target (x.f = ..., a[i] = ...): store through a
         # pointer into the base variable's storage, in place. Semantics only
-        # lets through targets rooted at a variable, so _emit_ptr cannot
-        # spill the target to a temp slot (which would lose the store).
+        # lets through targets rooted at a variable, so _emit_ptr cannot copy
+        # the target to a temp slot (which would lose the store).
         assert is_instance_compat(sym, FieldAccess), sym
         assert is_instance_compat(sym.base_sym, VariableSymbol), sym
         self.builder.store(value, self.expr._emit_ptr(node.lhs, state))
@@ -946,14 +1056,17 @@ class EmitLlvmStmt(Emitter):
 
 
 class GenerateLlvmModule:
-    """Builds the LLVM module for a sequence: declares the entry function and
-    its storage, then lowers the root block's statements with EmitLlvmStmt.
-    """
+    """Builds the LLVM module for a sequence: defines the entry function,
+    assigns its storage, then lowers the main block's statements."""
 
     def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
         assert (
             root_block is state.root_block
         ), "module generator must be run on the root block"
+        if state.this_seq_arg_specs:
+            # A parameter's value comes from whoever runs the sequence, and the
+            # host interface has no way to deliver one.
+            raise BackendError("LLVM backend can't lower sequences with parameters yet")
         # The entry function is the main sequence -- the main block -- not the
         # library root (which also holds the builtin library and the imported
         # sequences, all definition-only). Functions are lowered on demand at
@@ -962,6 +1075,7 @@ class GenerateLlvmModule:
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
         declare_host_imports(module)
+        state.backend = LlvmBackendState(module)
 
         # The user entrypoint (see FPY_ENTRY_POINT): void main(), where
         # returning at all means success.
@@ -969,53 +1083,13 @@ class GenerateLlvmModule:
         func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
-        # The built-in flags struct (a global with no declaring statement).
-        self._declare_flags(module, state)
-        # Declare storage for every variable in this frame up front.
-        collector = CollectFrameVariables()
-        collector.run(program, state)
-        for sym in collector.symbols:
-            self._declare_variable(module, builder, sym)
-
+        AssignAddresses(builder).run(program, state)
         EmitLlvmStmt(builder).emit(program, state)
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
             builder.ret_void()
         return module
-
-    def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
-        """Create the built-in ``flags`` struct as a global, seeded with its
-        defaults (e.g. assert_cmd_success = True). It has no declaring statement,
-        so it isn't reached by the variable walk."""
-        flags = state.flags_var
-        g = ir.GlobalVariable(module, flags.type.llvm_type, name=flags.name)
-        g.linkage = "internal"
-        g.initializer = FpyValue(
-            flags.type, dict(flags.type.member_defaults)
-        ).llvm_value
-        flags.llvm_ptr = g
-
-    def _declare_variable(
-        self, module: ir.Module, builder: ir.IRBuilder, sym: VariableSymbol
-    ) -> None:
-        """Declare storage for *sym*, once.
-
-        is_global variables become module-level globals in linear memory, so a
-        function can read/write the same slot main does. Locals become an
-        entry-block alloca. Any type works for either; promoting slots to
-        registers (sroa/mem2reg/globalopt) is left to optimization passes.
-        """
-        if sym.llvm_ptr is not None:
-            return  # already declared (a reassignment to the same symbol)
-        if sym.is_global:
-            gvar = ir.GlobalVariable(module, sym.type.llvm_type, name=sym.name)
-            gvar.linkage = "internal"
-            # Zero-initialized; the declaring assignment writes the real value.
-            gvar.initializer = ir.Constant(sym.type.llvm_type, None)
-            sym.llvm_ptr = gvar
-        else:
-            sym.llvm_ptr = builder.alloca(sym.type.llvm_type, name=sym.name)
 
 
 _llvm_targets_initialized = False

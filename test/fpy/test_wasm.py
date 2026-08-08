@@ -321,7 +321,7 @@ class TestWasmMemberAccess:
 
     def test_runtime_index_into_const_array(self):
         # The parent is a constant expression, not a variable, so it has no
-        # storage; it gets spilled to a temporary stack slot to be indexed.
+        # storage; it gets copied to a temporary stack slot to be indexed.
         assert (
             run_seq_wasm(
                 "i: I8 = 1\n"
@@ -602,6 +602,15 @@ class TestWasmBareExpressionStatements:
         # compiled to a (wrong) no-op with no error at all.
         seq = "def f() -> U32:\n    return 0\nf() == 0\n"
         with pytest.raises(BackendError, match="script-defined function"):
+            _seq_to_llvm_module(seq)
+
+
+class TestWasmSequenceParameters:
+    def test_sequence_with_parameters_is_rejected(self):
+        # The host interface has no way to deliver a parameter's value, so the
+        # parameter would silently read as zero. Refuse the sequence instead.
+        seq = "sequence(x: U32)\nassert x == 1\n"
+        with pytest.raises(BackendError, match="sequences with parameters"):
             _seq_to_llvm_module(seq)
 
 
