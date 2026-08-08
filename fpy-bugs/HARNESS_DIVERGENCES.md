@@ -92,3 +92,35 @@ packing), which is a stronger check than "the arguments deserialize". `test_asse
 covers `ConstCmdDirective`/`StackCmdDirective` serialization round-trips on the bytecode
 side. Nothing new is needed; the harness now returns dispatched command buffers, so
 byte-exact assertions can be added for the bytecode path later if a gap shows up.
+
+---
+
+## 4. WasmSeq: a compiled module loads but never finishes
+
+The `WasmSeqHarness` (`test/harness/WasmSeqHarnessMain.cpp`) drives a real
+`Svc::WasmSequencer` through the same protocol as the bytecode harness. A module
+compiled by fpy loads and starts, then spins: the state machine sits in
+`RUNNING_SPINNING` and never reaches a terminal state, so the run ends on the
+harness's dispatch bound rather than on an outcome.
+
+What is known:
+
+- **The component builds against devel unchanged.** Its branch has diverged 48
+  commits against devel's 59, but nothing it uses has moved. No merge is needed.
+- **Guest memory has to be raised.** The component's own config allows a 2048
+  byte guest, and fpy links every module with a 4 KiB stack
+  (`-zstack-size=4096`, `codegen_llvm.py`), so a module fails to load with
+  `ERR_GUEST_MEMORY_ALLOC_FAILED` until the config is widened. The harness
+  overrides it (`test/harness/config/WasmSequencerConfig.hpp`); **a real
+  deployment running fpy sequences would have to do the same**, which is worth
+  knowing before anyone tries.
+- **Execution is sliced.** `INSTRUCTION_FUEL` defaults to 1000 instructions,
+  after which the guest yields and something must resume it. The harness ticks
+  `checkTimers`, which moves the state machine but does not appear to advance
+  the guest -- so either resumption comes from elsewhere, or the module cannot
+  make progress. That is the next thing to pin down.
+
+The two gaps recorded earlier still stand and are the reason this cannot be
+green yet: flight `wasmExit`/`wasmPanic` discard the code and trap (so even
+`exit(0)` cannot report success), and there is no `env` module for the float
+libcalls LLVM materialises.

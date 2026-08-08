@@ -1,10 +1,10 @@
 // ======================================================================
-// \title  FpySequencerHarness.hpp
-// \brief  Runs sequences on a real Svc::FpySequencer
+// \title  WasmSequencerHarness.hpp
+// \brief  Runs wasm sequences on a real Svc::WasmSequencer
 // ======================================================================
 
-#ifndef FPY_SEQUENCER_HARNESS_HPP
-#define FPY_SEQUENCER_HARNESS_HPP
+#ifndef WASM_SEQUENCER_HARNESS_HPP
+#define WASM_SEQUENCER_HARNESS_HPP
 
 #include <cstdint>
 #include <map>
@@ -19,67 +19,47 @@
 #include "Fw/Log/LogPortAc.hpp"
 #include "Fw/Log/LogTextPortAc.hpp"
 #include "Fw/Port/InputSerializePort.hpp"
-#include "Fw/Types/MallocAllocator.hpp"
-#include "Fw/Types/Serializable.hpp"
-#include "HarnessRequest.hpp"
 #include "Fw/Prm/PrmGetPortAc.hpp"
 #include "Fw/Prm/PrmSetPortAc.hpp"
 #include "Fw/Time/TimePortAc.hpp"
 #include "Fw/Tlm/TlmGetPortAc.hpp"
 #include "Fw/Tlm/TlmPortAc.hpp"
-#include "Svc/FpySequencer/FpySequencer.hpp"
-#include "Svc/Ping/PingPortAc.hpp"
-#include "Svc/Seq/CmdSeqInPortAc.hpp"
+#include "Fw/Types/Serializable.hpp"
+#include "HarnessRequest.hpp"
+#include "Svc/Sched/SchedPortAc.hpp"
+#include "Svc/WasmSequencer/WasmSequencer.hpp"
 #include "config/SerialPortIndexEnumAc.hpp"
 
 namespace Svc {
 
-//! Drives a real Svc::FpySequencer with no topology and no wall clock.
+//! Drives a real Svc::WasmSequencer with no topology and no wall clock.
 //!
-//! Named FpySequencerTester because Svc::FpySequencer declares that class a
-//! friend, which is what grants access to the component's runtime state.
-class FpySequencerTester final : public Fw::PassiveComponentBase {
+//! Named WasmSequencerTester because Svc::WasmSequencer declares that class a
+//! friend, which is what grants access to the component's internals.
+class WasmSequencerTester final : public Fw::PassiveComponentBase {
   public:
     static const FwSizeType QUEUE_DEPTH = 100;
     static const FwSizeType INSTANCE_ID = 0;
+    static const FwIndexType SERIAL_PORTS =
+        static_cast<FwIndexType>(Fpy::SerialPortIndex::MAX_SERIAL_PORTS);
 
-    FpySequencerTester();
-    ~FpySequencerTester();
+    WasmSequencerTester();
+    ~WasmSequencerTester();
 
-    //! Runs one sequence to completion.
+    //! Runs one wasm module to completion.
     HarnessResult run(const HarnessRequest& request);
 
   private:
     void connectPorts(const HarnessRequest& request);
-
-    //! Advances the run until the component goes idle, blocks, or hits the
-    //! dispatch bound.
     void pump(const HarnessRequest& request, HarnessResult& result);
+    Fw::CmdResponse respondTo(FwOpcodeType opcode, const HarnessRequest& request);
 
-    //! Completes *opcode*, running a child sequence first when the request
-    //! says the opcode names one.
-    Fw::CmdResponse respondTo(FwOpcodeType opcode,
-                              const Fw::ComBuffer& command,
-                              const HarnessRequest& request);
-
-    //! Runs the child sequence named by a seq-run command's arguments.
-    Fw::CmdResponse runChild(const Fw::ComBuffer& command, const HarnessRequest& request);
-
-    Fw::Time now() const;
-
-    // Port handlers, reached through the static thunks below.
     void handleCmdOut(Fw::ComBuffer& data, U32 context);
     void handleTime(Fw::Time& time);
     Fw::TlmValid handleGetTlmChan(FwChanIdType id, Fw::Time& timeTag, Fw::TlmBuffer& val);
     Fw::ParamValid handleGetParam(FwPrmIdType id, Fw::ParamBuffer& val);
-    void handleLogText(FwEventIdType id,
-                       Fw::Time& timeTag,
-                       const Fw::LogSeverity& severity,
-                       Fw::TextLogString& text);
-    void handleLog(FwEventIdType id,
-                   Fw::Time& timeTag,
-                   const Fw::LogSeverity& severity,
-                   Fw::LogBuffer& args);
+    void handleLogText(const Fw::LogSeverity& severity, Fw::TextLogString& text);
+    void handleLog(FwEventIdType id, Fw::LogBuffer& args);
     void handleSerialOut(FwIndexType portNum, Fw::LinearBufferBase& buffer);
 
     static void cmdOutThunk(Fw::PassiveComponentBase* comp,
@@ -117,23 +97,19 @@ class FpySequencerTester final : public Fw::PassiveComponentBase {
                             FwChanIdType id,
                             Fw::Time& timeTag,
                             Fw::TlmBuffer& val);
-    static void cmdRegThunk(Fw::PassiveComponentBase* comp, FwIndexType portNum, FwOpcodeType opCode);
+    static void cmdRegThunk(Fw::PassiveComponentBase* comp,
+                            FwIndexType portNum,
+                            FwOpcodeType opCode);
     static void cmdResponseThunk(Fw::PassiveComponentBase* comp,
                                  FwIndexType portNum,
                                  FwOpcodeType opCode,
                                  U32 cmdSeq,
                                  const Fw::CmdResponse& response);
-    static void pingThunk(Fw::PassiveComponentBase* comp, FwIndexType portNum, U32 key);
-    static void seqStartThunk(Fw::PassiveComponentBase* comp,
-                              FwIndexType portNum,
-                              const Fw::StringBase& fileName,
-                              const Svc::SeqArgs& args);
     static void serialOutThunk(Fw::PassiveComponentBase* comp,
-                                              FwIndexType portNum,
-                                              Fw::LinearBufferBase& buffer);
+                               FwIndexType portNum,
+                               Fw::LinearBufferBase& buffer);
 
-    FpySequencer m_component;
-    Fw::MallocAllocator m_allocator;
+    WasmSequencer m_component;
 
     Fw::InputComPort m_cmdOut;
     Fw::InputTimePort m_timeCaller;
@@ -146,12 +122,9 @@ class FpySequencerTester final : public Fw::PassiveComponentBase {
     Fw::InputTlmPort m_tlmOut;
     Fw::InputCmdRegPort m_cmdRegOut;
     Fw::InputCmdResponsePort m_cmdResponseOut;
-    Fw::InputCmdResponsePort m_seqDoneOut;
-    Svc::InputPingPort m_pingOut;
-    Svc::InputCmdSeqInPort m_seqStartOut;
-    Fw::InputSerializePort m_serialOut[Fpy::SerialPortIndex::MAX_SERIAL_PORTS];
+    Fw::InputSerializePort m_serialSyncOut[SERIAL_PORTS];
+    Fw::InputSerializePort m_serialAsyncOut[SERIAL_PORTS];
 
-    //! The request and result in flight, so port handlers can reach them.
     const HarnessRequest* m_request;
     HarnessResult* m_result;
     Fw::Time m_now;

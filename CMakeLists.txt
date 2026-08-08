@@ -45,7 +45,10 @@ include("${FPRIME_FRAMEWORK_PATH}/cmake/FPrime-Code.cmake")
 # project root get.
 if (CARGO AND EXISTS "${FPY_WASM_SEQUENCER_ROOT}/Svc/WasmSequencer/WasmSequencer.fpp")
     fprime_add_location_pair("${FPY_WASM_SEQUENCER_ROOT}" "${CMAKE_BINARY_DIR}")
-    # The component's config header lives with its checkout, not with ours.
+    # The harness's own config comes first so it shadows the component's
+    # flight defaults; the checkout's config supplies anything we do not
+    # override.
+    include_directories(BEFORE "${CMAKE_CURRENT_LIST_DIR}/test/harness")
     include_directories("${FPY_WASM_SEQUENCER_ROOT}/default")
     # Its own CMakeLists builds the Rust interpreter and sets its include
     # paths, so it is used as-is rather than restated here: updating the

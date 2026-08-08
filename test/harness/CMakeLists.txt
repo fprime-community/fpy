@@ -35,3 +35,28 @@ register_fprime_deployment(
 # is aimed at flight code; the harness is host-only test scaffolding.
 target_compile_options(FpyHarness PRIVATE
     -Wno-old-style-cast -Wno-conversion -Wno-shadow -Wno-error)
+
+####
+# WasmSeqHarness: the same protocol over Svc::WasmSequencer. Only built when
+# that component is available (see FPY_WASM_SEQUENCER_ROOT in the root
+# CMakeLists), so a checkout without it still builds the bytecode harness.
+####
+if (TARGET Svc_WasmSequencer)
+    register_fprime_deployment(
+        WasmSeqHarness
+      SOURCES
+        "${CMAKE_CURRENT_LIST_DIR}/WasmSeqHarnessMain.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/WasmSequencerHarness.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/Json.cpp"
+      HEADERS
+        "${CMAKE_CURRENT_LIST_DIR}/WasmSequencerHarness.hpp"
+        "${CMAKE_CURRENT_LIST_DIR}/HarnessRequest.hpp"
+        "${CMAKE_CURRENT_LIST_DIR}/Json.hpp"
+      DEPENDS
+        Svc_WasmSequencer
+        Svc_Ping Svc_Sched Svc_Seq
+        Fw_Comp Fw_Cmd Fw_Log Fw_Tlm Fw_Prm Fw_Time Fw_Com Fw_Types Os
+    )
+    target_compile_options(WasmSeqHarness PRIVATE
+        -Wno-old-style-cast -Wno-conversion -Wno-shadow -Wno-error)
+endif()
