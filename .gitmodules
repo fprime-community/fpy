@@ -5,3 +5,8 @@
 	path = test/fprime
 	url = https://github.com/nasa/fprime.git
 	shallow = true
+[submodule "test/fprime-wasm"]
+	path = test/fprime-wasm
+	url = https://github.com/Kronos3/fprime.git
+	shallow = true
+	branch = wasm

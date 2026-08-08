@@ -6,7 +6,7 @@ running the real `Svc::FpySequencer` (`test/harness`, `pytest --harness`).
 Status of the suite: **1612/1616 pass on the real sequencer** (40s, versus 1616 in 41s on
 the model). The 4 failures are item 2 below.
 
-Nothing here has been filed. Each needs a decision.
+All three are resolved; nothing was filed upstream.
 
 ---
 
@@ -53,11 +53,10 @@ the dictionary (it is a plain `constant` in `test/fprime/default/config/FpConsta
 not a `dictionary constant`), so today the default is what applies. Exporting it would make
 the check track a deployment that configures the limit differently.
 
-**Still open upstream.** The declared and actual widths disagree: `RUN`, `RUN_ARGS`,
-`VALIDATE`, `VALIDATE_ARGS` and `DUMP_STACK_TO_FILE` all advertise `string size 240` for a
-field that can only ever carry 40. Either the declaration should say 40, or
-`FW_CMD_STRING_MAX_SIZE` should be raised for deployments that need real paths — 40
-characters is not much for an absolute path. Worth raising on nasa/fprime.
+**Not being raised upstream** (decided 2026-08-07). The declared and actual widths still
+disagree — `RUN`, `RUN_ARGS`, `VALIDATE`, `VALIDATE_ARGS` and `DUMP_STACK_TO_FILE` advertise
+`string size 240` for a field that can only carry 40 — but fpy's compile-time check makes it
+a clear error at the point a user could hit it, which is where it matters.
 
 ---
 
