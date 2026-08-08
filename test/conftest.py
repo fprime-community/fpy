@@ -17,9 +17,17 @@ _FPRIME_DIR = _TEST_DIR / "fprime"
 _HARNESS_DIR = _TEST_DIR / "harness"
 _HARNESS_BUILD = _HARNESS_DIR / "build"
 _HARNESS_BIN = _HARNESS_BUILD / "bin" / "Linux" / "FpyHarness"
+_WASM_HARNESS_BIN = _HARNESS_BUILD / "bin" / "Linux" / "WasmSeqHarness"
 
 
 def pytest_addoption(parser):
+    parser.addoption(
+        "--wasm-seq",
+        action="store_true",
+        default=False,
+        help="Run wasm sequences on the real Svc::WasmSequencer instead of the "
+        "spacewasm interpreter the runner harness embeds",
+    )
     parser.addoption(
         "--wasm",
         action="store_true",
@@ -78,6 +86,28 @@ def _build_harness():
                 returncode=1,
             )
     return str(_HARNESS_BIN)
+
+
+def _build_wasm_harness():
+    """Build the WasmSequencer harness and return its binary path.
+
+    Shares the build the bytecode harness already configures; the component
+    only builds when its checkout and cargo are both present."""
+    _build_harness()
+    result = subprocess.run(
+        ["cmake", "--build", str(_HARNESS_BUILD), "--target", "WasmSeqHarness"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not _WASM_HARNESS_BIN.exists():
+        pytest.exit(
+            "Failed to build the WasmSequencer harness. It needs cargo and the "
+            "component checkout:\n"
+            "  git submodule update --init --depth 1 test/fprime-wasm\n\n"
+            f"{result.stdout[-2000:]}\n{result.stderr[-2000:]}",
+            returncode=1,
+        )
+    return str(_WASM_HARNESS_BIN)
 
 
 def _build_spacewasm_runner():
@@ -153,6 +183,9 @@ def pytest_configure(config):
     _assert_harness_matches_dictionary(info)
     test_helpers.HARNESS = harness
 
+    if config.getoption("--wasm-seq"):
+        test_helpers.WASM_HARNESS = Harness(_build_wasm_harness())
+
 
 def _assert_harness_matches_dictionary(info):
     """The harness and the compiler must agree on the sequencer's limits.
@@ -190,6 +223,8 @@ def _close_harness():
 
     if test_helpers.HARNESS is not None:
         test_helpers.HARNESS.close()
+    if test_helpers.WASM_HARNESS is not None:
+        test_helpers.WASM_HARNESS.close()
 
 
 @pytest.fixture(autouse=True)

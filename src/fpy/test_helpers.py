@@ -68,9 +68,12 @@ USE_WASM = False
 # pytest_configure when --wasm is passed.
 SPACEWASM_RUNNER: str | None = None
 
-# Set by conftest's pytest_configure when --harness is passed, routing the
-# bytecode run helpers at the real Svc::FpySequencer instead of the model.
+# The harnesses, set by conftest's pytest_configure. HARNESS runs bytecode on
+# the real Svc::FpySequencer; WASM_HARNESS runs wasm on the real
+# Svc::WasmSequencer when --wasm-seq is passed, in place of the spacewasm
+# interpreter the runner harness embeds.
 HARNESS = None
+WASM_HARNESS = None
 
 # Short-lived directory the harness runs sequences from. It is deliberately
 # short: the sequencer receives the path through a 40-character command string.
@@ -257,6 +260,39 @@ def _run_seq_wasm(
     return run_wasm(wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response)
 
 
+def _run_wasm_on_wasmseq(
+    wasm: bytes, failing_opcodes: set[int] = None, cmd_response: int = None
+) -> tuple[int, list[tuple[int, str]], list[bytes]]:
+    """Run *wasm* on the real Svc::WasmSequencer.
+
+    The sequencer reports an outcome through events rather than returning a
+    code, so a run that ends without an explicit exit is success."""
+    d = load_dictionary(default_dictionary)
+    always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
+    if failing_opcodes:
+        always_failing |= failing_opcodes
+
+    run_dir = _harness_scratch_dir()
+    Path(run_dir, "seq.wasm").write_bytes(wasm)
+    result = WASM_HARNESS.run(
+        seq_path="seq.wasm",
+        cwd=run_dir,
+        fail_opcodes=always_failing,
+        cmd_response=cmd_response if cmd_response is not None else 0,
+    )
+    if result.error:
+        raise RuntimeError(f"WasmSeq run did not finish: {result.error}")
+    code = result.exit_code if result.exit_code is not None else result.error_code
+    # The log() builtin arrives as a component event; the module's own name
+    # prefixes nothing, so the message is the event text verbatim.
+    events = [
+        (sev, text.split(" : ", 1)[1])
+        for sev, text in result.events
+        if " : " in text and "LogActivity" in text or "LogWarning" in text
+    ]
+    return code, events, result.cmds
+
+
 def run_wasm(
     wasm: bytes,
     failing_opcodes: set[int] = None,
@@ -269,6 +305,9 @@ def run_wasm(
     always fail when called from within a running sequence on the same
     sequencer instance -- the same set the bytecode reference model uses."""
     import subprocess
+
+    if WASM_HARNESS is not None:
+        return _run_wasm_on_wasmseq(wasm, failing_opcodes, cmd_response)
 
     assert (
         SPACEWASM_RUNNER is not None

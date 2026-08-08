@@ -124,6 +124,10 @@ HarnessResult WasmSequencerTester::run(const HarnessRequest& request) {
 
     this->connectPorts(request);
     this->m_component.regCommands();
+    // A deployment loads parameters at init. Without it INSTRUCTION_FUEL reads
+    // as zero, so each interpreter slice runs no instructions and the module
+    // spins out of fuel forever.
+    this->m_component.loadParameters();
 
     std::string previousDir;
     if (!request.cwd.empty()) {

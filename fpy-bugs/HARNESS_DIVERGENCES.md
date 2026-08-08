@@ -124,3 +124,33 @@ The two gaps recorded earlier still stand and are the reason this cannot be
 green yet: flight `wasmExit`/`wasmPanic` discard the code and trap (so even
 `exit(0)` cannot report success), and there is no `env` module for the float
 libcalls LLVM materialises.
+
+### WasmSeq: current test results
+
+`pytest --wasm-seq test/fpy/test_wasm.py` runs the wasm suite on the real
+component: **106 of 137 pass**, against 137 on the spacewasm runner.
+
+**30 of the 31 failures are one bug**, not thirty: every one is
+`assert 0 == <code>`, because flight's `wasmExit`/`wasmPanic` discard the code
+and trap, so no error code ever reaches the caller. The expected codes span
+EXIT_WITH_ERROR (7), DOMAIN_ERROR (10), ARRAY_OUT_OF_BOUNDS (11), CMD_FAIL (17)
+and DESERIALIZE_ERROR_INVALID_BOOL (20) -- all of which the spacewasm runner
+reports correctly. Fixing the host functions to carry their code should convert
+essentially all of them in one go.
+
+The 31st is a FATAL-severity `log()` not arriving as an event.
+
+Two harness-side prerequisites were needed to get this far, both worth knowing
+for anyone wiring the component into a deployment:
+
+- **`loadParameters()` must be called at init.** Without it
+  `INSTRUCTION_FUEL` reads as zero, `spacewasm_run` executes no instructions,
+  and the module spins out of fuel forever with no diagnostic.
+- **Guest memory must exceed the linked stack** (see above).
+
+One genuine defect found in the component while debugging that spin:
+`WasmSequencer`'s constructor initialises every flag except **`m_pendingRun`
+and `m_pendingPause`**, so `PAUSE_CHECK` branches on indeterminate memory and a
+run may park in PAUSED depending on stack garbage. Fixed locally in the
+submodule working tree; it needs reporting upstream or the fix will be lost on
+the next bump.
