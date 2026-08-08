@@ -18,6 +18,8 @@ _HARNESS_DIR = _TEST_DIR / "harness"
 _HARNESS_BUILD = _HARNESS_DIR / "build"
 _HARNESS_BIN = _HARNESS_BUILD / "bin" / "Linux" / "FpyHarness"
 _WASM_HARNESS_BIN = _HARNESS_BUILD / "bin" / "Linux" / "WasmSeqHarness"
+_WASM_FPRIME_DIR = _TEST_DIR / "fprime-wasm"
+_WASM_PATCH = _HARNESS_DIR / "patches" / "wasm-sequencer-local-fixes.patch"
 
 
 def pytest_addoption(parser):
@@ -25,15 +27,16 @@ def pytest_addoption(parser):
         "--wasm-seq",
         action="store_true",
         default=False,
-        help="Run wasm sequences on the real Svc::WasmSequencer instead of the "
-        "spacewasm interpreter the runner harness embeds",
+        help="Run the wasm-marked tests on the real Svc::WasmSequencer rather "
+        "than the spacewasm interpreter the runner harness embeds. Implied by "
+        "--wasm, which puts the whole suite on WasmSeq.",
     )
     parser.addoption(
         "--wasm",
         action="store_true",
         default=False,
-        help="Compile and run sequences through the LLVM/wasm backend "
-        "(NASA spacewasm) instead of the fpy bytecode VM",
+        help="Compile the whole suite to wasm and run it on the real "
+        "Svc::WasmSequencer instead of the fpy bytecode VM",
     )
 
 
@@ -88,11 +91,27 @@ def _build_harness():
     return str(_HARNESS_BIN)
 
 
+def _assert_wasm_patch_applied():
+    """The WasmSequencer checkout carries local fixes without which nothing
+    runs; a submodule bump silently drops them, so say so plainly."""
+    host = _WASM_FPRIME_DIR / "Svc" / "WasmSequencer" / "WasmSequencerHost.cpp"
+    if host.exists() and "FPY-LOCAL" in host.read_text():
+        return
+    pytest.exit(
+        "The WasmSequencer checkout is missing its local fixes, without which "
+        "a sequence cannot report an exit code. Reapply them:\n"
+        f"  git -C {_WASM_FPRIME_DIR} apply {_WASM_PATCH.resolve()}\n"
+        f"See {_WASM_PATCH.parent / 'README.md'} for what they are.",
+        returncode=1,
+    )
+
+
 def _build_wasm_harness():
     """Build the WasmSequencer harness and return its binary path.
 
     Shares the build the bytecode harness already configures; the component
     only builds when its checkout and cargo are both present."""
+    _assert_wasm_patch_applied()
     _build_harness()
     result = subprocess.run(
         ["cmake", "--build", str(_HARNESS_BUILD), "--target", "WasmSeqHarness"],
@@ -173,8 +192,6 @@ def pytest_configure(config):
     import fpy.test_helpers as test_helpers
 
     test_helpers.USE_WASM = config.getoption("--wasm")
-    if test_helpers.USE_WASM:
-        test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()
 
     from fpy.harness import Harness
 
@@ -183,7 +200,10 @@ def pytest_configure(config):
     _assert_harness_matches_dictionary(info)
     test_helpers.HARNESS = harness
 
-    if config.getoption("--wasm-seq"):
+    # --wasm puts the whole suite on the wasm backend, and the sequencer that
+    # runs it is the real component; the spacewasm runner stays behind
+    # --wasm-seq's absence only for the wasm-marked tests on a default run.
+    if config.getoption("--wasm-seq") or test_helpers.USE_WASM:
         test_helpers.WASM_HARNESS = Harness(_build_wasm_harness())
 
 

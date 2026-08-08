@@ -127,18 +127,30 @@ libcalls LLVM materialises.
 
 ### WasmSeq: current test results
 
-`pytest --wasm-seq test/fpy/test_wasm.py` runs the wasm suite on the real
-component: **106 of 137 pass**, against 137 on the spacewasm runner.
+`--wasm` now puts the whole suite on the real component, and `--wasm-seq` does
+the same for just the wasm-marked tests. Both are at parity with the spacewasm
+runner:
 
-**30 of the 31 failures are one bug**, not thirty: every one is
-`assert 0 == <code>`, because flight's `wasmExit`/`wasmPanic` discard the code
-and trap, so no error code ever reaches the caller. The expected codes span
-EXIT_WITH_ERROR (7), DOMAIN_ERROR (10), ARRAY_OUT_OF_BOUNDS (11), CMD_FAIL (17)
-and DESERIALIZE_ERROR_INVALID_BOOL (20) -- all of which the spacewasm runner
-reports correctly. Fixing the host functions to carry their code should convert
-essentially all of them in one go.
+| run | WasmSeq | spacewasm runner |
+|---|---|---|
+| `pytest --wasm` (whole suite) | **1294 pass / 366 fail** | 1294 / 366 -- identical |
+| `pytest --wasm-seq test/fpy/test_wasm.py` | **135 / 137** | 137 / 137 |
 
-The 31st is a FATAL-severity `log()` not arriving as an event.
+The 366 are not the sequencer: ~351 are the LLVM backend refusing to lower
+something (script-defined function calls 180, runtime type constructors 52,
+`while` 36, seq-run-with-args 22, builtins with no lowering 33, plus 21 compiler
+crashes worth their own look). They fail identically on both runtimes.
+
+Two wasm-marked tests still fail on WasmSeq: `test_modulus_by_zero_faults` and
+`test_explicit_severity` (a FATAL-severity `log()` not arriving as an event).
+
+Getting there took one fix: `wasmExit`/`wasmPanic` discarded the guest's code
+and left through a trap, so no sequence could report why it failed. That single
+bug accounted for 30 of the 31 original failures. They now raise the
+`ProgramExited`/`PanicOccurred` events the component already declares, which
+took the wasm suite from 106 to 135 of 137. The change lives in
+`test/harness/patches/` -- see that README for why it is a workaround rather
+than the real fix.
 
 Two harness-side prerequisites were needed to get this far, both worth knowing
 for anyone wiring the component into a deployment:

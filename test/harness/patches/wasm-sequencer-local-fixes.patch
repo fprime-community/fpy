@@ -1,0 +1,54 @@
+diff --git a/Svc/WasmSequencer/WasmSequencer.cpp b/Svc/WasmSequencer/WasmSequencer.cpp
+index 9cc2338..71dc820 100644
+--- a/Svc/WasmSequencer/WasmSequencer.cpp
++++ b/Svc/WasmSequencer/WasmSequencer.cpp
+@@ -36,6 +36,8 @@ WasmSequencer ::WasmSequencer(const char* const compName)
+       m_guest_offset(0),
+       m_wasm(nullptr),
+       m_moduleIndex(0),
++      m_pendingRun(false),
++      m_pendingPause(false),
+       m_hasPendingLoadCmd(false),
+       m_hasPendingLoad(false),
+       m_pendingTimer(),
+diff --git a/Svc/WasmSequencer/WasmSequencerHost.cpp b/Svc/WasmSequencer/WasmSequencerHost.cpp
+index aff3f72..13e28b0 100644
+--- a/Svc/WasmSequencer/WasmSequencerHost.cpp
++++ b/Svc/WasmSequencer/WasmSequencerHost.cpp
+@@ -58,20 +58,28 @@ void WasmSequencer ::hostFprimeV1(spacewasm_host_t* host) {
+ }
+ 
+ spacewasm_hostcall_result_t WasmSequencer::wasmExit(spacewasm_caller_t*,
+-                                                    const spacewasm_value_t*,
+-                                                    size_t,
++                                                    const spacewasm_value_t* params,
++                                                    size_t n_params,
+                                                     spacewasm_value_t*) {
+-    // TODO(tumbar) Add "exit" return code to SpaceWasm host functions
+-    //              This is basically the same as trap but not 'error-ey'
+-    // Exit the interpreter
++    // FPY-LOCAL: report the code the guest exited with. SpaceWasm has no
++    // "exit" hostcall result, so leaving the interpreter still means a trap;
++    // the event is what carries the code out.
++    FW_ASSERT(params != nullptr);
++    FW_ASSERT(n_params == 1, static_cast<FwAssertArgType>(n_params));
++    FW_ASSERT(params[0].tag == spacewasm_valtype_t::SPACEWASM_I32, params[0].tag);
++    this->log_WARNING_HI_ProgramExited(params[0].u.i32_);
+     return SPACEWASM_TRAP;
+ }
+ 
+ spacewasm_hostcall_result_t WasmSequencer::wasmPanic(spacewasm_caller_t*,
+-                                                     const spacewasm_value_t*,
+-                                                     size_t,
++                                                     const spacewasm_value_t* params,
++                                                     size_t n_params,
+                                                      spacewasm_value_t*) {
+-    // TODO(tumbar) Extract status code
++    // FPY-LOCAL: as above, for the panic path.
++    FW_ASSERT(params != nullptr);
++    FW_ASSERT(n_params == 1, static_cast<FwAssertArgType>(n_params));
++    FW_ASSERT(params[0].tag == spacewasm_valtype_t::SPACEWASM_I32, params[0].tag);
++    this->log_WARNING_HI_PanicOccurred(params[0].u.i32_);
+     return SPACEWASM_TRAP;
+ }
+ 
