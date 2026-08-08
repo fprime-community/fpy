@@ -7,43 +7,43 @@ from fpy.test_helpers import assert_compile_failure, assert_run_success
 
 class TestBasicComparisons:
 
-    def test_geq(self, fprime_test_api):
+    def test_geq(self):
         seq = """
 if 2 >= 1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_cmp(self, fprime_test_api):
+    def test_float_cmp(self):
         seq = """
 if 4.0 > 5.0:
     exit(1)
 exit(0)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_literal_comparison(self, fprime_test_api):
+    def test_literal_comparison(self):
         seq = """
 if 255 > 254:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_literal_comparison_false(self, fprime_test_api):
+    def test_literal_comparison_false(self):
         seq = """
 if 255 < 254:
     exit(1)
 exit(0)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestCrossTypeComparisons:
 
-    def test_f32_f64_cmp(self, fprime_test_api):
+    def test_f32_f64_cmp(self):
         seq = """
 val: F32 = 0.0
 val2: F64 = 1.0
@@ -52,9 +52,9 @@ if val > val2:
 exit(0)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_i32_f64_cmp(self, fprime_test_api):
+    def test_i32_f64_cmp(self):
         seq = """
 val: I32 = 2
 val2: F64 = 1.0
@@ -63,9 +63,9 @@ if val > val2:
 exit(1)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_i32_u32_cmp(self, fprime_test_api):
+    def test_i32_u32_cmp(self):
         seq = """
 val: I32 = -2
 val2: U32 = 2
@@ -75,16 +75,16 @@ if val < val2:
 exit(0)
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_float_int_literal_cmp(self, fprime_test_api):
+    def test_float_int_literal_cmp(self):
         seq = """
 if 1 < 2.0:
     exit(0)
 exit(1)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestAllOperatorsByType:
@@ -104,7 +104,7 @@ class TestAllOperatorsByType:
             ("F64", "3.14159265359", "-3.14159265359"),
         ],
     )
-    def test_all_comparison_operators(self, fprime_test_api, type_name, big, small):
+    def test_all_comparison_operators(self, type_name, big, small):
         seq = f"""
 val1: {type_name} = {big}
 val2: {type_name} = {small}
@@ -115,12 +115,12 @@ if val1 > val2 and val2 < val1:
             exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestEdgeCases:
 
-    def test_equality_edge_cases(self, fprime_test_api):
+    def test_equality_edge_cases(self):
         seq = """
 val1: U8 = 0
 val2: U8 = 0
@@ -133,9 +133,9 @@ if val1 == val2 and val3 == val4 and val4 == val5:
         exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_maximum_integer_comparisons(self, fprime_test_api):
+    def test_maximum_integer_comparisons(self):
         seq = """
 val_max: I64 = 9223372036854775807  # Max I64
 val_mid: I64 = 1
@@ -146,9 +146,9 @@ if val_max > val_mid and val_mid > val_min:
         exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_complex_type_assignments(self, fprime_test_api):
+    def test_complex_type_assignments(self):
         seq = """
 val1: I8 = 127
 val2: U8 = 255
@@ -159,9 +159,9 @@ if val1 == val3:  # Integer to float comparison
         exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_bool_inequality_fails(self, fprime_test_api):
+    def test_bool_inequality_fails(self):
         """Booleans do not support <, >, <=, >= operators."""
         seq = """
 a: bool = True
@@ -170,9 +170,9 @@ if a > b:
     exit(0)
 exit(1)
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_nan_comparisons(self, fprime_test_api):
+    def test_nan_comparisons(self):
         """IEEE 754 NaN semantics: every ordered comparison and == are false
         when an operand is NaN, and != (the negation of ==) is true."""
         seq = """
@@ -186,4 +186,4 @@ assert not (nan <= 0.0)
 assert not (nan > 0.0)
 assert not (nan >= 0.0)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)

@@ -1,4 +1,4 @@
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
@@ -8,38 +8,38 @@ from fpy.test_helpers import (
 
 class TestAssert:
 
-    def test_assert(self, fprime_test_api):
+    def test_assert(self):
         seq = """
 assert True
 assert not False
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_assert_failure(self, fprime_test_api):
+    def test_assert_failure(self):
         seq = """
 assert False
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.EXIT_WITH_ERROR)
+        assert_run_failure(seq, DirectiveErrorCode.EXIT_WITH_ERROR)
 
-    def test_assert_failure_with_exit_code(self, fprime_test_api):
+    def test_assert_failure_with_exit_code(self):
         seq = """
 assert False, 123
 """
 
-        assert_run_failure(fprime_test_api, seq, 123)
+        assert_run_failure(seq, 123)
 
-    def test_assert_wrong_bool_type(self, fprime_test_api):
+    def test_assert_wrong_bool_type(self):
         seq = """
 assert 123
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_assert_wrong_exit_code_type(self, fprime_test_api):
+    def test_assert_wrong_exit_code_type(self):
         seq = """
 assert True, True
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)

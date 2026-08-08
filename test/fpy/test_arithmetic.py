@@ -3,7 +3,7 @@ import pytest
 from fpy.types import U32
 
 import fpy.test_helpers as test_helpers
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
@@ -13,13 +13,13 @@ from fpy.test_helpers import (
 
 class TestConstantFolding:
 
-    def test_overflow_compile_error(self, fprime_test_api):
+    def test_overflow_compile_error(self):
         seq = """
 val1: U8 = 256  # Should fail: value too large for U8
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_const_fold_specific_float_binop(self, fprime_test_api):
+    def test_const_fold_specific_float_binop(self):
         """Const folding binary ops on specific float types (F64, F32).
 
         When both operands are cast to a specific float type (e.g. F64(1.5)),
@@ -31,9 +31,9 @@ if F64(1.5) + F64(2.5) == 4.0:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_truncate_stack_size(self, fprime_test_api):
+    def test_float_truncate_stack_size(self):
         seq = """
 var2: F64 = 123.0
 var1: F32 = F32(-var2)
@@ -41,30 +41,30 @@ if var1 == -123.0:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_const_divide_by_zero(self, fprime_test_api):
+    def test_const_divide_by_zero(self):
         seq = """
 1 / 0
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_const_complex_pow(self, fprime_test_api):
+    def test_const_complex_pow(self):
         seq = """
 (-1) ** 0.5
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_very_large_const_pow(self, fprime_test_api):
+    def test_very_large_const_pow(self):
         seq = """
 10.0 ** 1000
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_const_pow_decimal_overflow(self, fprime_test_api):
+    def test_const_pow_decimal_overflow(self):
         """A huge constant exponent must produce a clean compile error.
 
         Folding ``10.0 ** 100000000000`` evaluates ``Decimal ** Decimal``,
@@ -78,12 +78,12 @@ exit(1)
 x: F64 = 10.0 ** 100000000000
 """
 
-        assert_compile_failure(fprime_test_api, seq, match="[Oo]verflow")
+        assert_compile_failure(seq, match="[Oo]verflow")
 
 
 class TestBasicArithmetic:
 
-    def test_add_unsigned(self, fprime_test_api):
+    def test_add_unsigned(self):
         seq = """
 var1: U32 = 500
 var2: U32 = 1000
@@ -91,9 +91,9 @@ if var1 + var2 == 1500 and (var1 + 1) > var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_add_signed(self, fprime_test_api):
+    def test_add_signed(self):
         seq = """
 var1: I32 = -255
 var2: I32 = 255
@@ -101,9 +101,9 @@ if var1 + var2 == 0 and (var1 + 1) > (var1 + -1):
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_add_float(self, fprime_test_api):
+    def test_add_float(self):
         seq = """
 var1: F32 = -255.0
 var2: F32 = 255.0
@@ -111,9 +111,9 @@ if var1 + var2 == 0.0 and (var1 + 1.0) > (var1 + -1.0):
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_sub_unsigned(self, fprime_test_api):
+    def test_sub_unsigned(self):
         seq = """
 var1: U32 = 1000
 var2: U32 = 500
@@ -121,9 +121,9 @@ if var1 - var2 == 500 and (var1 - 1) < var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_sub_signed(self, fprime_test_api):
+    def test_sub_signed(self):
         seq = """
 var1: I32 = 255
 var2: I32 = 255
@@ -131,9 +131,9 @@ if var1 - var2 == 0 and (var1 - 1) < (var1 - -1):
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_sub_float(self, fprime_test_api):
+    def test_sub_float(self):
         seq = """
 var1: F32 = 255.0
 var2: F32 = 255.0
@@ -141,9 +141,9 @@ if var1 - var2 == 0.0 and (var1 - 1.0) < (var1 - -1.0):
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mul_unsigned(self, fprime_test_api):
+    def test_mul_unsigned(self):
         seq = """
 var1: U32 = 5
 var2: U32 = 20
@@ -151,9 +151,9 @@ if var1 * var2 == 100 and (var1 * 2) > var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mul_signed(self, fprime_test_api):
+    def test_mul_signed(self):
         seq = """
 var1: I32 = -5
 var2: I32 = 20
@@ -161,9 +161,9 @@ if var1 * var2 == -100 and (var1 * 2) < var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mul_float(self, fprime_test_api):
+    def test_mul_float(self):
         seq = """
 var1: F32 = 5.0
 var2: F32 = 20.0
@@ -171,9 +171,9 @@ if var1 * var2 == 100.0 and (var1 * 2.0) > var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_div_unsigned(self, fprime_test_api):
+    def test_div_unsigned(self):
         seq = """
 var1: U32 = 20
 var2: U32 = 5
@@ -181,9 +181,9 @@ if var1 / var2 == 4.0 and (var1 / 2) < var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_div_signed(self, fprime_test_api):
+    def test_div_signed(self):
         seq = """
 var1: I32 = -20
 var2: I32 = 5
@@ -191,9 +191,9 @@ if var1 / var2 == -4.0: # and (var1 / -2) > var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_div_float(self, fprime_test_api):
+    def test_div_float(self):
         seq = """
 var1: F32 = -20.0
 var2: F32 = 5.0
@@ -201,35 +201,35 @@ if var1 / var2 == -4.0 and (var1 / -2.0) > var1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_order_of_operations(self, fprime_test_api):
+    def test_order_of_operations(self):
         seq = """
 if 1 - 2 + 3 * 4 == 11 and 10.0 / 5.0 * 2.0 == 4.0:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestArithmeticWithBuiltins:
 
-    def test_arithmetic_arg_to_builtin_bad_type(self, fprime_test_api):
+    def test_arithmetic_arg_to_builtin_bad_type(self):
         seq = """
 sleep(1 + 2 * 0, (0 + 1 / 2))
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_arithmetic_arg_to_builtin(self, fprime_test_api):
+    def test_arithmetic_arg_to_builtin(self):
         seq = """
 sleep(1 + 2 * 0, (0 + 1 // 2))
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestChainedOperations:
 
-    def test_chain_mul(self, fprime_test_api):
+    def test_chain_mul(self):
         seq = """
 var1: I32 = 1
 var2: I32 = 2
@@ -238,9 +238,9 @@ if var1 * var2 * var3 == 6:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_chain_add(self, fprime_test_api):
+    def test_chain_add(self):
         seq = """
 var1: I32 = 1
 var2: I32 = 2
@@ -249,9 +249,9 @@ if var1 + var2 + var3 == 6:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_chain_sub(self, fprime_test_api):
+    def test_chain_sub(self):
         seq = """
 var1: I32 = 1
 var2: I32 = 2
@@ -260,9 +260,9 @@ if var1 - var2 - var3 == -4:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_chain_div(self, fprime_test_api):
+    def test_chain_div(self):
         seq = """
 var1: I32 = 3
 var2: I32 = 2
@@ -271,12 +271,12 @@ if var1 / var3 / var2 == 3/2:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestPowerModLog:
 
-    def test_pow_unsigned(self, fprime_test_api):
+    def test_pow_unsigned(self):
         seq = """
 var1: U32 = 20
 var2: U32 = 2
@@ -284,9 +284,9 @@ if var1 ** var2 == 400:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_pow_signed(self, fprime_test_api):
+    def test_pow_signed(self):
         seq = """
 var1: I32 = -20
 var2: I32 = 2
@@ -294,9 +294,9 @@ if var1 ** var2 == 400:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_pow_float(self, fprime_test_api):
+    def test_pow_float(self):
         seq = """
 var1: F32 = 4.0
 var2: F32 = 0.5
@@ -304,9 +304,9 @@ if var1 ** var2 == 2:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_pow_zero_to_negative_is_inf(self, fprime_test_api):
+    def test_pow_zero_to_negative_is_inf(self):
         """0 ** <negative> is a pole: C/IEEE pow() yields +inf, not a crash.
 
         With runtime (non-constant) operands the VM evaluates ``base ** exp``
@@ -320,17 +320,17 @@ result: F64 = base ** -1.0
 assert result > 100000000000000000000.0
 exit(0)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_log(self, fprime_test_api):
+    def test_log(self):
         seq = """
 if ln(4.0) > 1.385 and ln(4.0) < 1.387:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mod_float(self, fprime_test_api):
+    def test_mod_float(self):
         seq = """
 var1: F32 = 25.25
 var2: F32 = 5
@@ -338,9 +338,9 @@ if var1 % var2 == 0.25 and (var1 + 1) % var2 == 1.25:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mod_unsigned(self, fprime_test_api):
+    def test_mod_unsigned(self):
         seq = """
 var1: U32 = 5
 var2: U32 = 20
@@ -348,9 +348,9 @@ if var2 % var1 == 0 and (var2 + 1) % var1 == 1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_mod_signed(self, fprime_test_api):
+    def test_mod_signed(self):
         seq = """
 var1: I32 = -5
 var2: I32 = 20
@@ -358,15 +358,15 @@ if var2 % var1 == 0 and (var2 + 1) % var1 == -4:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_pow_result_is_f64(self, fprime_test_api):
+    def test_pow_result_is_f64(self):
         """pow() of integers should produce F64 so fractional exponents work."""
         seq = """
 result: F64 = 2 ** 0.5
 assert result > 1.41 and result < 1.42
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
     @pytest.mark.parametrize(
         "lhs_type,rhs_type,lhs_value,rhs_value,result_type,expected_value",
@@ -381,14 +381,7 @@ assert result > 1.41 and result < 1.42
         ],
     )
     def test_floor_divide_64_bit_numeric_types(
-        self,
-        fprime_test_api,
-        lhs_type,
-        rhs_type,
-        lhs_value,
-        rhs_value,
-        result_type,
-        expected_value,
+        self, lhs_type, rhs_type, lhs_value, rhs_value, result_type, expected_value
     ):
         seq = f"""
 lhs: {lhs_type} = {lhs_value}
@@ -397,7 +390,7 @@ result: {result_type} = lhs // rhs
 assert result == {expected_value}
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
     @pytest.mark.parametrize(
         "lhs_type,rhs_type,lhs_value,rhs_value,result_type,expected_value",
@@ -407,14 +400,7 @@ assert result == {expected_value}
         ],
     )
     def test_floor_divide_64_bit_bad_type_pairs(
-        self,
-        fprime_test_api,
-        lhs_type,
-        rhs_type,
-        lhs_value,
-        rhs_value,
-        result_type,
-        expected_value,
+        self, lhs_type, rhs_type, lhs_value, rhs_value, result_type, expected_value
     ):
         seq = f"""
 lhs: {lhs_type} = {lhs_value}
@@ -423,9 +409,9 @@ result: {result_type} = lhs // rhs
 assert result == {expected_value}
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_const_floor_divide_large_int_precision(self, fprime_test_api):
+    def test_const_floor_divide_large_int_precision(self):
         """Constant folding of integer floor division must be exact.
 
         The compiler folds ``a // b`` for integer operands via Python's
@@ -442,7 +428,7 @@ assert result == {expected_value}
 result: I64 = 7000000000000000001 // 3
 assert result == 2333333333333333333
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestUnaryOperators:
@@ -462,55 +448,55 @@ class TestUnaryOperators:
             ("F64", "1.0"),
         ],
     )
-    def test_unary_plus(self, fprime_test_api, type_name, value):
+    def test_unary_plus(self, type_name, value):
         seq = f"""
 var: {type_name} = {value}
 if +var == var:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_unary_minus_signed(self, fprime_test_api):
+    def test_unary_minus_signed(self):
         seq = """
 var: I32 = 1
 if -var == -1:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_unary_minus_float(self, fprime_test_api):
+    def test_unary_minus_float(self):
         seq = """
 var: F32 = 1.0
 if -var == -1.0:
     exit(0)
 exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_negative_int_literal_unsigned_op(self, fprime_test_api):
+    def test_negative_int_literal_unsigned_op(self):
         seq = """
 var: U32 = 1
 if -var == -1:
     exit(0)
 exit(1)
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
 
 class TestAbs:
 
-    def test_abs_float(self, fprime_test_api):
+    def test_abs_float(self):
         seq = """
 assert fabs(1.0) == 1.0
 assert fabs(-1.0) == 1.0
 assert fabs(0.0) == 0.0
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_float_edge_cases(self, fprime_test_api):
+    def test_abs_float_edge_cases(self):
         seq = """
 # -0.0 has the same magnitude as 0.0
 assert fabs(-0.0) == 0.0
@@ -522,9 +508,9 @@ assert fabs(0.5) == 0.5
 assert fabs(-0.5) == 0.5
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_i64(self, fprime_test_api):
+    def test_abs_i64(self):
         seq = """
 assert iabs(I64(-1)) == 1
 assert iabs(I64(1)) == 1
@@ -533,9 +519,9 @@ assert iabs(I64(0)) == 0
 assert iabs(I64(2**63 - 6556)) == 2**63 - 6556
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_i64_edge_cases(self, fprime_test_api):
+    def test_abs_i64_edge_cases(self):
         seq = """
 # I64 max is its own absolute value
 assert iabs(I64(2**63 - 1)) == 2**63 - 1
@@ -545,9 +531,9 @@ assert iabs(I64(-(2**63 - 1))) == 2**63 - 1
 assert iabs(I64(-2**63 + 1)) == 2**63 - 1
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_i64_int_min_overflows(self, fprime_test_api):
+    def test_abs_i64_int_min_overflows(self):
         """abs(I64 min) is not representable in I64, so the sequence ends
         with ARITHMETIC_OVERFLOW rather than wrapping."""
         if test_helpers.USE_WASM:
@@ -556,26 +542,26 @@ assert iabs(I64(-2**63 + 1)) == 2**63 - 1
 val: I64 = iabs(I64(-2**63))
 """
 
-        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
-    def test_abs_u64(self, fprime_test_api):
+    def test_abs_u64(self):
         seq = """
 # fails, iabs takes signed
 assert iabs(U64(1)) == 1
 assert iabs(U64(0)) == 0
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(seq)
 
-    def test_abs_literal_int(self, fprime_test_api):
+    def test_abs_literal_int(self):
         seq = """
 assert iabs(1) == 1
 assert iabs(-1) == 1
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_float_negative_zero_sign(self, fprime_test_api):
+    def test_abs_float_negative_zero_sign(self):
         """fabs clears the sign bit of -0.0. The sign of a zero is observable
         through division: 1.0 / -0.0 is -inf, 1.0 / +0.0 is +inf."""
         seq = """
@@ -586,9 +572,9 @@ assert 1.0 / neg < 0.0
 assert 1.0 / fabs(neg) > 0.0
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_abs_float_inf_nan(self, fprime_test_api):
+    def test_abs_float_inf_nan(self):
         """fabs maps -inf to inf, passes inf through, and a NaN stays a NaN
         (which never compares equal to itself)."""
         seq = """
@@ -600,14 +586,14 @@ assert fabs(0.0 - inf) == inf
 assert fabs(nan) != fabs(nan)
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
 
 class TestFloorDivision:
     """Floor division floors toward -inf (Python `//` semantics).
     Both const-folded and runtime paths should agree."""
 
-    def test_int_floor_div_negative_runtime(self, fprime_test_api):
+    def test_int_floor_div_negative_runtime(self):
         """Runtime -7 // 2 should give -4 (floor toward -inf)."""
         seq = """
 a: I64 = -7
@@ -615,17 +601,17 @@ b: I64 = 2
 result: I64 = a // b
 assert result == -4
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_int_floor_div_negative_const_folded(self, fprime_test_api):
+    def test_int_floor_div_negative_const_folded(self):
         """Const-folded (-7) // 2 should also give -4 (floor toward -inf)."""
         seq = """
 result: I64 = (-7) // 2
 assert result == -4
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_floor_div_negative_runtime(self, fprime_test_api):
+    def test_float_floor_div_negative_runtime(self):
         """Runtime float floor division: -5.5 // 2.0 = -3.0 (floor toward -inf)."""
         seq = """
 a: F64 = -5.5
@@ -633,33 +619,33 @@ b: F64 = 2.0
 result: F64 = a // b
 assert result == -3.0
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_floor_div_negative_const_folded(self, fprime_test_api):
+    def test_float_floor_div_negative_const_folded(self):
         """Const-folded (-5.5) // 2.0 should also give -3.0 (floor toward -inf)."""
         seq = """
 result: F64 = (-5.5) // 2.0
 assert result == -3.0
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_int_floor_div_positive(self, fprime_test_api):
+    def test_int_floor_div_positive(self):
         """Positive floor division: 7 // 2 = 3."""
         seq = """
 result: I64 = 7 // 2
 assert result == 3
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_int_floor_div_negative_divisor(self, fprime_test_api):
+    def test_int_floor_div_negative_divisor(self):
         """7 // (-2) = -4 (floor toward -inf)."""
         seq = """
 result: I64 = 7 // (-2)
 assert result == -4
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_floor_div_fractional_quotients(self, fprime_test_api):
+    def test_float_floor_div_fractional_quotients(self):
         """Quotients in (0, 1) floor to 0.0; quotients in (-1, 0) floor to -1.0."""
         seq = """
 x: F64 = 0.5
@@ -667,9 +653,9 @@ y: F64 = -0.5
 assert x // 1.0 == 0.0
 assert y // 1.0 == -1.0
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_floor_div_preserves_zero_sign(self, fprime_test_api):
+    def test_float_floor_div_preserves_zero_sign(self):
         """Flooring a zero quotient preserves its sign: -0.0 // 1.0 is -0.0,
         observable because 1.0 / -0.0 is -inf."""
         seq = """
@@ -680,9 +666,9 @@ pos: F64 = 0.0
 r: F64 = pos // 1.0
 assert 1.0 / r > 0.0
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
 
-    def test_float_floor_div_inf_nan_passthrough(self, fprime_test_api):
+    def test_float_floor_div_inf_nan_passthrough(self):
         """An infinite or NaN quotient passes through the floor unchanged."""
         seq = """
 zero: F64 = 0.0
@@ -693,4 +679,166 @@ assert (0.0 - inf) // 1.0 == 0.0 - inf
 q: F64 = nan // 1.0
 assert q != q
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(seq)
+
+
+class TestArithmeticEdgeCases:
+    """Runtime arithmetic at the edges of the integer and float ranges.
+
+    Every operand is routed through a variable: an all-literal expression
+    folds at compile time, which would test the folder rather than the
+    sequencer."""
+
+    def test_int_add_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+one: I64 = 1
+sum: I64 = big + one
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_add_underflows(self):
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+sum: I64 = small + minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_int_add_at_limit_succeeds(self):
+        seq = """
+big: I64 = I64(2**63 - 2)
+one: I64 = 1
+sum: I64 = big + one
+assert sum == I64(2**63 - 1)
+"""
+        assert_run_success(seq)
+
+    def test_int_sub_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+minus: I64 = -1
+diff: I64 = big - minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_sub_underflows(self):
+        seq = """
+small: I64 = I64(-2**63)
+one: I64 = 1
+diff: I64 = small - one
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_int_mul_overflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+two: I64 = 2
+product: I64 = big * two
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_int_mul_underflows(self):
+        seq = """
+big: I64 = I64(2**63 - 1)
+two: I64 = -2
+product: I64 = big * two
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_UNDERFLOW)
+
+    def test_signed_div_int_min_by_minus_one_overflows(self):
+        """The one signed division whose true result leaves the range."""
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+q: I64 = small // minus
+"""
+        assert_run_failure(seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
+
+    def test_signed_mod_int_min_by_minus_one_is_zero(self):
+        """Unlike the division, the remainder is representable, so it is 0
+        rather than an overflow."""
+        seq = """
+small: I64 = I64(-2**63)
+minus: I64 = -1
+r: I64 = small % minus
+assert r == 0
+"""
+        assert_run_success(seq)
+
+    def test_float_pow_overflow_is_inf(self):
+        seq = """
+base: F64 = 10.0
+exp: F64 = 400.0
+result: F64 = base ** exp
+assert result > 1.0e308
+assert result == result * 2.0
+"""
+        assert_run_success(seq)
+
+    def test_float_pow_negative_base_fractional_exponent_is_nan(self):
+        """A negative base raised to a fractional exponent has no real result."""
+        seq = """
+base: F64 = -1.0
+exp: F64 = 0.5
+result: F64 = base ** exp
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_log_of_zero_is_domain_error(self):
+        seq = """
+zero: F64 = 0.0
+result: F64 = ln(zero)
+"""
+        assert_run_failure(seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_float_log_of_negative_is_domain_error(self):
+        seq = """
+neg: F64 = -1.0
+result: F64 = ln(neg)
+"""
+        assert_run_failure(seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_float_div_by_zero_signs(self):
+        """Float division by zero is infinite, signed by both operands."""
+        seq = """
+one: F64 = 1.0
+pos: F64 = 0.0
+neg: F64 = -0.0
+assert one / pos > 1.0e308
+assert one / neg < -1.0e308
+assert -one / neg > 1.0e308
+"""
+        assert_run_success(seq)
+
+    def test_float_zero_divided_by_zero_is_nan(self):
+        seq = """
+zero: F64 = 0.0
+result: F64 = zero / zero
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_mod_by_zero_is_nan(self):
+        seq = """
+one: F64 = 1.0
+zero: F64 = 0.0
+result: F64 = one % zero
+assert result != result
+"""
+        assert_run_success(seq)
+
+    def test_float_mod_zero_result_takes_divisor_sign(self):
+        """An exact division leaves a zero remainder whose sign follows the
+        divisor, observable through division by it."""
+        seq = """
+four: F64 = 4.0
+neg_two: F64 = -2.0
+r: F64 = four % neg_two
+assert 1.0 / r < 0.0
+pos_two: F64 = 2.0
+s: F64 = four % pos_two
+assert 1.0 / s > 0.0
+"""
+        assert_run_success(seq)

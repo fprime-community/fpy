@@ -49,6 +49,23 @@ wasm = [
     "ziglang>=0.16.0",
 ]
 
+####
+# Black and Pytest:
+#
+# The vendored trees under test/ carry their own tests and build output, and are
+# not ours to reformat.
+####
+[tool.black]
+extend-exclude = "^/test/(fprime|fprime-wasm)/"
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+norecursedirs = [
+    "test/fprime",
+    "test/fprime-wasm",
+    "test/harness",
+]
+
 [project.urls]
 Homepage = "https://fprime.jpl.nasa.gov"
 Documentation = "https://nasa.github.io/fprime/"
@@ -62,7 +79,6 @@ Repository = "https://github.com/fprime-community/fpy"
 ####
 [project.scripts]
 fprime-fpyc = "fpy.main:compile_main"
-fprime-fpy-model = "fpy.main:model_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
 fprime-fpy-cmd = "fpy.main:cmd_main"
@@ -84,6 +100,13 @@ dev = [
     "fprime-fpy[wasm]",
     "black>=26.5.1",
     "pre-commit>=4.6.0",
+    "libcst>=1.9.0",
+]
+harness = [
+    "cmake==3.26.0",
+    "fprime-fpp==3.3.0a15",
+    "fprime-tools==4.3.0a5",
+    "ninja==1.11.1.4",
 ]
 
 

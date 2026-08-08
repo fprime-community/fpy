@@ -2,10 +2,6 @@
 
 These tests compile a child sequence to a .bin file in a temp directory,
 then compile+run a parent sequence that calls the child via Ref.seqDisp.RUN_ARGS.
-
-All tests accept the ``fprime_test_api`` fixture so they can optionally run
-against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
-(the default) the Python sequencer model is used instead.
 """
 
 import json
@@ -16,7 +12,7 @@ import pytest
 
 import fpy.error
 from fpy.bytecode.assembler import serialize_directives
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.errors import DirectiveErrorCode
 from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
 from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.dictionary import load_dictionary
@@ -46,10 +42,39 @@ def _compile_to_bin(seq_text: str, out_path: Path, ground_binary_dir: str = None
     return directives, arg_types
 
 
+class TestCommandStringLimit:
+    """A command carries string arguments in an Fw::CmdStringArg, which holds
+    FW_CMD_STRING_MAX_SIZE characters whatever width the command declares. The
+    sequencer's RUN_ARGS declares 240, so a path between the two lengths
+    compiles but cannot be deserialized by the receiving component."""
+
+    def _child_named(self, tmpdir: str, name: str) -> str:
+        _compile_to_bin("assert 1 == 1\n", Path(tmpdir) / name)
+        return f'Ref.seqDisp.RUN_ARGS("{name}", Svc.BlockState.BLOCK)\n'
+
+    def test_path_at_limit_compiles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            name = "c" * 36 + ".bin"
+            assert len(name) == 40
+            assert_run_success(
+                self._child_named(tmpdir, name), ground_binary_dir=tmpdir
+            )
+
+    def test_path_over_limit_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            name = "c" * 37 + ".bin"
+            assert len(name) == 41
+            assert_compile_failure(
+                self._child_named(tmpdir, name),
+                match="exceeds FW_CMD_STRING_MAX_SIZE",
+                ground_binary_dir=tmpdir,
+            )
+
+
 class TestSeqRunDetection:
     """Test that the compiler correctly detects seq-run commands."""
 
-    def test_run_args_detected_as_seq_run(self, fprime_test_api):
+    def test_run_args_detected_as_seq_run(self):
         """Ref.seqDisp.RUN_ARGS should be detected as a seq-run CommandSymbol."""
         from fpy.state import _build_global_scopes
         from fpy.state import CommandSymbol
@@ -67,7 +92,7 @@ class TestSeqRunDetection:
         assert sym.args[0][0] == "fileName"
         assert sym.args[1][0] == "block"
 
-    def test_regular_run_not_seq_run(self, fprime_test_api):
+    def test_regular_run_not_seq_run(self):
         """Ref.seqDisp.RUN should NOT be detected as a seq-run command."""
         from fpy.state import _build_global_scopes
         from fpy.state import CommandSymbol
@@ -84,7 +109,7 @@ class TestSeqRunDetection:
 class TestSeqCallingNoArgs:
     """Test calling a child sequence that takes no arguments."""
 
-    def test_call_child_no_args(self, fprime_test_api):
+    def test_call_child_no_args(self):
         """Parent calls a child sequence with no arguments."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -96,13 +121,13 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingWithArgs:
     """Test calling child sequences with various argument types."""
 
-    def test_call_child_one_u32_arg(self, fprime_test_api):
+    def test_call_child_one_u32_arg(self):
         """Parent calls child with a single U32 argument; child asserts value."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -115,9 +140,9 @@ assert x == 42
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_call_child_multiple_args(self, fprime_test_api):
+    def test_call_child_multiple_args(self):
         """Parent calls child with multiple arguments; child asserts values."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -131,9 +156,9 @@ assert y == 7
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 100, 7)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_call_child_with_variable_args(self, fprime_test_api):
+    def test_call_child_with_variable_args(self):
         """Parent passes variables as arguments to child; child asserts value."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -147,9 +172,9 @@ assert val == 99
 my_val: U32 = 99
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, my_val)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_call_child_with_expression_arg(self, fprime_test_api):
+    def test_call_child_with_expression_arg(self):
         """Parent passes an arithmetic expression; child asserts the result."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -162,9 +187,9 @@ assert val == 30
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 10 + 20)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_child_uses_arg_in_arithmetic(self, fprime_test_api):
+    def test_child_uses_arg_in_arithmetic(self):
         """Child sequence uses the arg in arithmetic and asserts the result."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -178,9 +203,9 @@ assert result == 50
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_call_child_u8_arg(self, fprime_test_api):
+    def test_call_child_u8_arg(self):
         """Parent passes a U8 argument; child asserts value."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -193,9 +218,9 @@ assert b == 255
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 255)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_call_child_f32_arg(self, fprime_test_api):
+    def test_call_child_f32_arg(self):
         """Parent passes an F32 argument; child asserts approximate value."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -209,9 +234,9 @@ assert f < 3.15
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 3.14)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_wrong_value_causes_failure(self, fprime_test_api):
+    def test_wrong_value_causes_failure(self):
         """Child assert fails when the wrong value is passed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -225,7 +250,6 @@ assert x == 999
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 1)
 """
             assert_run_failure(
-                fprime_test_api,
                 parent_seq,
                 error_code=DirectiveErrorCode.CMD_FAIL,
                 ground_binary_dir=tmpdir,
@@ -235,7 +259,7 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 1)
 class TestSeqCallingErrors:
     """Test error handling for malformed sequence calls."""
 
-    def test_wrong_arg_count(self, fprime_test_api):
+    def test_wrong_arg_count(self):
         """Providing wrong number of varargs should fail at compile time."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -249,13 +273,12 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
             assert_compile_failure(
-                fprime_test_api,
                 parent_seq,
                 match="Missing required argument 'y'",
                 ground_binary_dir=tmpdir,
             )
 
-    def test_wrong_arg_type(self, fprime_test_api):
+    def test_wrong_arg_type(self):
         """Providing incompatible vararg types should fail at compile time."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -268,11 +291,9 @@ CdhCore.cmdDisp.CMD_NO_OP()
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, True)
 """
-            assert_compile_failure(
-                fprime_test_api, parent_seq, ground_binary_dir=tmpdir
-            )
+            assert_compile_failure(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_missing_bin_file(self, fprime_test_api):
+    def test_missing_bin_file(self):
         """Calling a nonexistent .bin file should fail at compile time."""
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_path = str(Path(tmpdir).resolve() / "nonexistent.bin")
@@ -280,10 +301,10 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, True)
 Ref.seqDisp.RUN_ARGS("{fake_path}", Svc.BlockState.BLOCK)
 """
             assert_compile_failure(
-                fprime_test_api, parent_seq, match="not found", ground_binary_dir=tmpdir
+                parent_seq, match="not found", ground_binary_dir=tmpdir
             )
 
-    def test_no_binary_dir(self, fprime_test_api):
+    def test_no_binary_dir(self):
         """Calling without binary_dir should fail at compile time."""
         with tempfile.TemporaryDirectory() as tmpdir:
             child_path = str(Path(tmpdir).resolve() / "child.bin")
@@ -296,15 +317,13 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
 """
             # No binary_dir passed
-            assert_compile_failure(
-                fprime_test_api, parent_seq, match="binary directory"
-            )
+            assert_compile_failure(parent_seq, match="binary directory")
 
 
 class TestSeqCallingNested:
     """Test nested sequence execution: parent -> child -> grandchild."""
 
-    def test_nested_two_levels(self, fprime_test_api):
+    def test_nested_two_levels(self):
         """Parent calls child which calls grandchild; all args verified."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -330,9 +349,9 @@ Ref.seqDisp.RUN_ARGS("{grandchild_path}", Svc.BlockState.BLOCK, 7)
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_nested_pass_through_arg(self, fprime_test_api):
+    def test_nested_pass_through_arg(self):
         """Parent passes a value through two levels of sequence calls."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -355,13 +374,13 @@ Ref.seqDisp.RUN_ARGS("{grandchild_path}", Svc.BlockState.BLOCK, val)
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 123)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingReturnStatus:
     """Test branching on the return status of a seq-run command."""
 
-    def test_branch_on_success(self, fprime_test_api):
+    def test_branch_on_success(self):
         """Parent branches on OK response from a successful child."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -378,9 +397,9 @@ if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_branch_on_child_failure(self, fprime_test_api):
+    def test_branch_on_child_failure(self):
         """Parent detects EXECUTION_ERROR when child asserts false."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -397,9 +416,9 @@ if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_branch_on_success_with_args(self, fprime_test_api):
+    def test_branch_on_success_with_args(self):
         """Parent branches on OK response from a child that receives args."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -417,9 +436,9 @@ if resp == Fw.CmdResponse.OK:
     exit(0)
 exit(1)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_branch_on_failure_wrong_arg(self, fprime_test_api):
+    def test_branch_on_failure_wrong_arg(self):
         """Parent detects failure when child gets wrong arg value."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -437,13 +456,13 @@ if resp == Fw.CmdResponse.EXECUTION_ERROR:
     exit(0)
 exit(1)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingNamedArgs:
     """Test calling child sequences with named arguments."""
 
-    def test_single_named_arg(self, fprime_test_api):
+    def test_single_named_arg(self):
         """Parent passes a single named argument to child sequence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -458,9 +477,9 @@ assert x == 42
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_multiple_named_args(self, fprime_test_api):
+    def test_multiple_named_args(self):
         """Parent passes multiple named args to child sequence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -476,9 +495,9 @@ assert b == 7
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, a=100, b=7)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_named_args_reordered(self, fprime_test_api):
+    def test_named_args_reordered(self):
         """Named args passed in different order than declared should be reordered."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -494,9 +513,9 @@ assert second == 2
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, second=2, first=1)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_mixed_positional_and_named(self, fprime_test_api):
+    def test_mixed_positional_and_named(self):
         """First arg positional, second arg named."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -513,9 +532,9 @@ assert c == 30
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 10, c=30, b=20)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_named_arg_with_variable(self, fprime_test_api):
+    def test_named_arg_with_variable(self):
         """Pass a variable by name to child sequence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -531,9 +550,9 @@ assert val == 55
 val: U32 = 55
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, val=val)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
-    def test_named_arg_with_expression(self, fprime_test_api):
+    def test_named_arg_with_expression(self):
         """Pass an expression by name to child sequence."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -548,13 +567,13 @@ assert result == 30
             parent_seq = f"""\
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, result=10 + 20)
 """
-            assert_run_success(fprime_test_api, parent_seq, ground_binary_dir=tmpdir)
+            assert_run_success(parent_seq, ground_binary_dir=tmpdir)
 
 
 class TestSeqCallingNamedArgErrors:
     """Test error handling for named varargs in sequence calls."""
 
-    def test_unknown_named_arg(self, fprime_test_api):
+    def test_unknown_named_arg(self):
         """Named arg that doesn't match any child parameter should fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -570,13 +589,10 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, z=42)
 """
             assert_compile_failure(
-                fprime_test_api,
-                parent_seq,
-                match="Unknown argument 'z'",
-                ground_binary_dir=tmpdir,
+                parent_seq, match="Unknown argument 'z'", ground_binary_dir=tmpdir
             )
 
-    def test_duplicate_named_arg(self, fprime_test_api):
+    def test_duplicate_named_arg(self):
         """Same named arg specified twice should fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -592,13 +608,10 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=1, x=2)
 """
             assert_compile_failure(
-                fprime_test_api,
-                parent_seq,
-                match="specified multiple times",
-                ground_binary_dir=tmpdir,
+                parent_seq, match="specified multiple times", ground_binary_dir=tmpdir
             )
 
-    def test_positional_and_named_conflict(self, fprime_test_api):
+    def test_positional_and_named_conflict(self):
         """Same arg specified both by position and by name should fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -614,13 +627,10 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, 42, x=99)
 """
             assert_compile_failure(
-                fprime_test_api,
-                parent_seq,
-                match="specified multiple times",
-                ground_binary_dir=tmpdir,
+                parent_seq, match="specified multiple times", ground_binary_dir=tmpdir
             )
 
-    def test_missing_named_arg(self, fprime_test_api):
+    def test_missing_named_arg(self):
         """Missing a required arg when using named args should fail."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -636,7 +646,6 @@ CdhCore.cmdDisp.CMD_NO_OP()
 Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 """
             assert_compile_failure(
-                fprime_test_api,
                 parent_seq,
                 match="Missing required argument 'y'",
                 ground_binary_dir=tmpdir,
@@ -646,16 +655,16 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, x=42)
 class TestSeqArgLimits:
     """Test compile-time limits on sequence argument names and counts."""
 
-    def test_arg_name_too_long(self, fprime_test_api):
+    def test_arg_name_too_long(self):
         """Arg name exceeding 255 UTF-8 bytes should be a compile error."""
         long_name = "a" * 256
         seq = f"""\
 sequence({long_name}: U32)
 CdhCore.cmdDisp.CMD_NO_OP()
 """
-        assert_compile_failure(fprime_test_api, seq, match="too long")
+        assert_compile_failure(seq, match="too long")
 
-    def test_arg_name_exactly_255_bytes(self, fprime_test_api):
+    def test_arg_name_exactly_255_bytes(self):
         """Arg name of exactly 255 bytes should compile fine."""
         name_255 = "a" * 255
         seq = f"""\
@@ -721,7 +730,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             assert seq_args.members[1].type.length == 1024
             assert seq_args.members[1].type.name == "Array_U8_1024"
 
-    def test_oversized_args_use_dictionary_capacity(self, fprime_test_api):
+    def test_oversized_args_use_dictionary_capacity(self):
         """A sequence whose args exceed 255 bytes but fit in a 1024-byte
         buffer should compile cleanly under a dictionary that defines the
         larger capacity."""
@@ -744,7 +753,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             # should compile without error (fits in the 1024-byte buffer)
             analysis_to_fpybc_directives(state)
 
-    def test_args_still_bounded_by_dictionary_capacity(self, fprime_test_api):
+    def test_args_still_bounded_by_dictionary_capacity(self):
         """Args larger than the dictionary's buffer must still be rejected,
         and the diagnostic should report the dictionary capacity."""
         with tempfile.TemporaryDirectory() as tmpdir:

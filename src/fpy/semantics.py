@@ -2959,6 +2959,39 @@ class WarnRangesAreNotEmpty(Visitor):
             state.warn(WarningType.EMPTY_RANGE, "Range is empty", node)
 
 
+class CheckCommandStringArgs(Visitor):
+    """Check that a command's string arguments fit in the command wire format.
+
+    A command carries its string arguments in an Fw::CmdStringArg, which holds
+    FW_CMD_STRING_MAX_SIZE characters however wide the command declares them.
+    A longer string fails to deserialize on arrival, so the command comes back
+    a format error rather than running."""
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, CommandSymbol):
+            return
+        resolved = state.resolved_args.get(node)
+        if resolved is None:
+            return
+
+        limit = state.max_cmd_string_size
+        for (arg_name, arg_type, *_), value in zip(func.args, resolved):
+            if not arg_type.is_string or value is None:
+                continue
+            literal = getattr(value, "value", None)
+            if not isinstance(literal, str):
+                continue
+            length = len(literal.encode("utf-8"))
+            if length > limit:
+                state.err(
+                    f"String argument '{arg_name}' is too long for a command: "
+                    f"{length} bytes exceeds FW_CMD_STRING_MAX_SIZE ({limit})",
+                    node,
+                )
+                return
+
+
 class CheckSequenceArgs(Visitor):
     """Check sequence argument constraints:
     - vararg data fits in the SeqArgs buffer

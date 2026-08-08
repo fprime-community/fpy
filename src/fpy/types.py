@@ -29,6 +29,9 @@ DEFAULT_MAX_DIRECTIVES_COUNT = 1024
 DEFAULT_MAX_DIRECTIVE_SIZE = 2048
 DEFAULT_MAX_SEQ_ARG_COUNT = 16
 DEFAULT_MAX_STACK_SIZE = 65535
+# A command's string arguments are carried in an Fw::CmdStringArg, which holds
+# FW_CMD_STRING_MAX_SIZE characters whatever width the command declares.
+DEFAULT_MAX_CMD_STRING_SIZE = 40
 
 # Keep old names as aliases for backward compatibility
 MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT

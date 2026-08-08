@@ -147,4 +147,9 @@ cython_debug/
 *.fpy
 *.ll
 *.wasm
-*.watTODO.txt
+*.wat
+TODO.txt
+
+# F Prime harness build (test/harness/build is covered by the build/ rule above)
+build-artifacts/
+
