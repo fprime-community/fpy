@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING
 from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen_fpybc import (
-    CalculateFrameSizes,
+    AssignFrameOffsets,
     CollectUsedFunctions,
     FinalChecks,
+    FpybcBackendState,
     GenerateFunctionEntryPoints,
     GenerateFunctions,
-    GenerateModule,
+    GenerateSequence,
     IrPass,
     ResolveLabels,
 )
@@ -318,10 +319,11 @@ def analysis_to_fpybc_directives(
     """Runs fpybc codegen passes on analysis results, returning fpybc directives.
 
     Raises BackendError on failure."""
+    state.backend = FpybcBackendState()
     codegen_passes = [
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
-        CalculateFrameSizes(),
+        AssignFrameOffsets(),
         # Collect which functions are called anywhere in the code
         CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
@@ -333,7 +335,7 @@ def analysis_to_fpybc_directives(
         if len(state.errors) != 0:
             raise state.errors[0]
 
-    ir = GenerateModule().emit(state.main_block, state)
+    ir = GenerateSequence().emit(state.main_block, state)
 
     ir_passes: list[IrPass] = [ResolveLabels(), FinalChecks()]
     for compile_pass in ir_passes:

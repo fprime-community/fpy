@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
-from fpy.ir import Ir, IrLabel
 from fpy.macros import MACROS
 from fpy.symbols import (
     CallableSymbol,
@@ -59,7 +58,13 @@ from fpy.types import (
     FpyValue,
     TypeKind,
 )
-from fpy.bytecode.directives import Directive, update_configurable_types_from_dict
+from fpy.bytecode.directives import update_configurable_types_from_dict
+
+
+class BackendState:
+    """Base for what a backend works out about a program while lowering it.
+    Each backend defines its own subclass and installs it on
+    CompileState.backend."""
 
 
 @dataclass
@@ -164,26 +169,11 @@ class CompileState:
     function_callees: dict[AstDef, list[AstDef]] = field(default_factory=dict)
     """function definition -> the user function definitions it directly calls"""
 
-    while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """while loop node mapped to the label pointing to the end of the loop"""
-    while_loop_start_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """while loop node mapped to the label pointing to the start of the loop, just before the conditional"""
-    # store keys as while because for loops are desugared to while
-    for_loop_inc_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """for loop node (desugared into a while) mapped to a label pointing to its increment stmt"""
-
     does_return: dict[Ast, bool] = field(default_factory=dict)
 
-    used_funcs: set[AstDef] = field(default_factory=set)
-    """set of function definitions that are actually called and need code generated"""
-
-    func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
-    """function to entry point label"""
-
-    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
-
-    frame_sizes: dict[Ast, int] = field(default_factory=dict)
-    """map of frame root node to the total size in bytes of all local variables in that frame"""
+    backend: BackendState | None = None
+    """the state of the backend lowering this program, or None if none is.
+    Written and read only by that backend."""
 
     flags_var: VariableSymbol = None
     """The built-in 'flags' variable ($Flags struct) that controls sequencer behavior."""
