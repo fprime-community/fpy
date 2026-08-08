@@ -8,11 +8,6 @@ import pytest
 # Repo layout: this file lives in test/.
 _TEST_DIR = Path(__file__).parent
 _REPO_ROOT = _TEST_DIR.parent
-_SPACEWASM_DIR = _TEST_DIR / "spacewasm"
-_RUNNER_DIR = _TEST_DIR / "spacewasm_runner"
-_RUNNER_MANIFEST = _RUNNER_DIR / "Cargo.toml"
-_RUNNER_BIN = _RUNNER_DIR / "target" / "release" / "fpy-spacewasm-runner"
-
 _FPRIME_DIR = _TEST_DIR / "fprime"
 _HARNESS_DIR = _TEST_DIR / "harness"
 _HARNESS_BUILD = _HARNESS_DIR / "build"
@@ -23,14 +18,6 @@ _WASM_PATCH = _HARNESS_DIR / "patches" / "wasm-sequencer-local-fixes.patch"
 
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--wasm-seq",
-        action="store_true",
-        default=False,
-        help="Run the wasm-marked tests on the real Svc::WasmSequencer rather "
-        "than the spacewasm interpreter the runner harness embeds. Implied by "
-        "--wasm, which puts the whole suite on WasmSeq.",
-    )
     parser.addoption(
         "--wasm",
         action="store_true",
@@ -129,40 +116,6 @@ def _build_wasm_harness():
     return str(_WASM_HARNESS_BIN)
 
 
-def _build_spacewasm_runner():
-    """Build the spacewasm runner harness once and return the binary path.
-
-    Surfaces the two common setup gaps (submodule not checked out, toolchain too
-    old) with an actionable message rather than a cryptic cargo error.
-    """
-    if not (_SPACEWASM_DIR / "Cargo.toml").exists():
-        pytest.exit(
-            "spacewasm submodule is not checked out. Run:\n"
-            "  git submodule update --init test/spacewasm",
-            returncode=1,
-        )
-    try:
-        subprocess.run(
-            ["cargo", "build", "--release", "--manifest-path", str(_RUNNER_MANIFEST)],
-            check=True,
-        )
-    except FileNotFoundError:
-        pytest.exit(
-            "cargo not found. Install Rust (>=1.85, spacewasm is edition 2024):\n"
-            "  https://rustup.rs",
-            returncode=1,
-        )
-    except subprocess.CalledProcessError as e:
-        pytest.exit(
-            "Failed to build the spacewasm runner harness "
-            f"({_RUNNER_MANIFEST}). If this is a toolchain version error, "
-            "spacewasm needs Rust >=1.85; run `rustup update`.\n"
-            f"cargo exited with {e.returncode}.",
-            returncode=1,
-        )
-    return str(_RUNNER_BIN)
-
-
 def _use_short_temp_root():
     """Put temp files somewhere short enough for the sequencer to name.
 
@@ -185,7 +138,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "wasm: end-to-end LLVM/wasm tests; always run on the wasm backend, "
-        "even without --wasm (requires the spacewasm submodule and Rust)",
+        "even without --wasm (requires the fprime-wasm submodule and cargo)",
     )
 
     # Flip the test helpers over to the LLVM/wasm backend for the whole run.
@@ -200,11 +153,9 @@ def pytest_configure(config):
     _assert_harness_matches_dictionary(info)
     test_helpers.HARNESS = harness
 
-    # --wasm puts the whole suite on the wasm backend, and the sequencer that
-    # runs it is the real component; the spacewasm runner stays behind
-    # --wasm-seq's absence only for the wasm-marked tests on a default run.
-    if config.getoption("--wasm-seq") or test_helpers.USE_WASM:
-        test_helpers.WASM_HARNESS = Harness(_build_wasm_harness())
+    # The wasm-marked tests always run on the wasm backend, so its harness is
+    # needed whether or not --wasm puts the whole suite there.
+    test_helpers.WASM_HARNESS = Harness(_build_wasm_harness())
 
 
 def _assert_harness_matches_dictionary(info):
@@ -245,16 +196,3 @@ def _close_harness():
         test_helpers.HARNESS.close()
     if test_helpers.WASM_HARNESS is not None:
         test_helpers.WASM_HARNESS.close()
-
-
-@pytest.fixture(autouse=True)
-def _ensure_wasm_runner(request):
-    # wasm-marked tests always run on the wasm backend, regardless of --wasm, so
-    # make sure the spacewasm runner is built before any of them run. The build
-    # result is cached on the module global, so this only builds once per session.
-    if "wasm" not in request.keywords:
-        return
-    import fpy.test_helpers as test_helpers
-
-    if test_helpers.SPACEWASM_RUNNER is None:
-        test_helpers.SPACEWASM_RUNNER = _build_spacewasm_runner()

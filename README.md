@@ -749,7 +749,7 @@ git submodule update --init --depth 1 test/fprime
 ### `--wasm`
 
 By default, tests compile sequences to fpy bytecode and run them on the real
-`FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and executed through the NASA spacewasm runtime.
+`FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and executed on the real `Svc::WasmSequencer`.
 
 ```sh
 pytest test/ --wasm
@@ -758,10 +758,17 @@ pytest test/ --wasm
 Requirements for the wasm backend:
 
 * The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
-* The spacewasm submodule must be checked out: `git submodule update --init test/spacewasm`
-* A Rust toolchain, version 1.85 or newer (spacewasm is edition 2024). Install via [rustup](https://rustup.rs) and update with `rustup update`.
+* The WasmSequencer submodule must be checked out, and it carries local fixes
+  that a bump discards (see `test/harness/patches/README.md`):
+  ```sh
+  git submodule update --init --depth 1 test/fprime-wasm
+  git -C test/fprime-wasm apply ../harness/patches/wasm-sequencer-local-fixes.patch
+  ```
+* A Rust toolchain, for the sequencer's WebAssembly interpreter. Install via
+  [rustup](https://rustup.rs).
 
-The spacewasm runner harness (`test/spacewasm_runner`) is built automatically with `cargo build --release` at the start of the test session; the first run is slower because of this build.
+The `WasmSeqHarness` is built automatically at the start of the test session;
+the first run is slower because of this build.
 
 Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
 

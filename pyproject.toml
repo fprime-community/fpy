@@ -56,15 +56,13 @@ wasm = [
 # not ours to reformat.
 ####
 [tool.black]
-extend-exclude = "^/test/(fprime|fprime-wasm|spacewasm)/"
+extend-exclude = "^/test/(fprime|fprime-wasm)/"
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
 norecursedirs = [
     "test/fprime",
     "test/fprime-wasm",
-    "test/spacewasm",
-    "test/spacewasm_runner",
     "test/harness",
 ]
 

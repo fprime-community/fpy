@@ -60,18 +60,13 @@ class CompilationFailed(Exception):
 
 
 # Flipped to True by conftest's pytest_configure when --wasm is passed, routing
-# the assert_* helpers through the LLVM/wasm backend (run via the NASA spacewasm
-# interpreter, the on-board target runtime) instead of the bytecode VM.
+# the assert_* helpers through the LLVM/wasm backend and the real
+# Svc::WasmSequencer instead of the bytecode sequencer.
 USE_WASM = False
 
-# Path to the built spacewasm runner harness, set by conftest's
-# pytest_configure when --wasm is passed.
-SPACEWASM_RUNNER: str | None = None
-
-# The harnesses, set by conftest's pytest_configure. HARNESS runs bytecode on
-# the real Svc::FpySequencer; WASM_HARNESS runs wasm on the real
-# Svc::WasmSequencer when --wasm-seq is passed, in place of the spacewasm
-# interpreter the runner harness embeds.
+# The harnesses, set by conftest's pytest_configure: HARNESS runs bytecode on
+# the real Svc::FpySequencer, WASM_HARNESS runs wasm on the real
+# Svc::WasmSequencer.
 HARNESS = None
 WASM_HARNESS = None
 
@@ -175,8 +170,7 @@ def run_seq_wasm(
     (reported via the exit/fault host imports; 0 when the void entrypoint
     falls off its end without failing).
 
-    Runs the compiled module through the NASA spacewasm interpreter (the
-    on-board target runtime) via the runner harness built by conftest."""
+    Runs the compiled module on the real Svc::WasmSequencer."""
     code, _, _ = _run_seq_wasm(
         seq,
         ground_binary_dir,
@@ -244,8 +238,8 @@ def _run_seq_wasm(
     failing_opcodes: set[int] = None,
     cmd_response: int = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
-    """Compile *seq* to wasm, run it through the spacewasm runner harness, and
-    return (error code, reported events, dispatched command buffers).
+    """Compile *seq* to wasm, run it on the sequencer, and return
+    (error code, reported events, dispatched command buffers).
 
     The commands that fail are *failing_opcodes* plus the RUN commands that
     always fail when called from within a running sequence on the same
@@ -260,13 +254,22 @@ def _run_seq_wasm(
     return run_wasm(wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response)
 
 
-def _run_wasm_on_wasmseq(
-    wasm: bytes, failing_opcodes: set[int] = None, cmd_response: int = None
+def run_wasm(
+    wasm: bytes,
+    failing_opcodes: set[int] = None,
+    cmd_response: int = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
-    """Run *wasm* on the real Svc::WasmSequencer.
+    """Run an already-linked wasm module on the sequencer and return
+    (error code, reported events, dispatched command buffers).
 
     The sequencer reports an outcome through events rather than returning a
-    code, so a run that ends without an explicit exit is success."""
+    code, so a module that ends without an explicit exit succeeded.
+
+    The commands that fail are *failing_opcodes* plus the RUN commands that
+    always fail when called from within a running sequence on the same
+    sequencer instance."""
+    assert WASM_HARNESS is not None, "wasm harness not started; see conftest"
+
     d = load_dictionary(default_dictionary)
     always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
     if failing_opcodes:
@@ -281,70 +284,20 @@ def _run_wasm_on_wasmseq(
         cmd_response=cmd_response if cmd_response is not None else 0,
     )
     if result.error:
-        raise RuntimeError(f"WasmSeq run did not finish: {result.error}")
+        raise RuntimeError(f"wasm sequence did not finish: {result.error}")
+
     code = result.exit_code if result.exit_code is not None else result.error_code
-    # The log() builtin arrives as a component event; the module's own name
-    # prefixes nothing, so the message is the event text verbatim.
-    events = [
-        (sev, text.split(" : ", 1)[1])
-        for sev, text in result.events
-        if " : " in text and "LogActivity" in text or "LogWarning" in text
-    ]
-    return code, events, result.cmds
-
-
-def run_wasm(
-    wasm: bytes,
-    failing_opcodes: set[int] = None,
-    cmd_response: int = None,
-) -> tuple[int, list[tuple[int, str]], list[bytes]]:
-    """Run an already-linked wasm module through the spacewasm runner harness
-    and return (error code, reported events, dispatched command buffers).
-
-    The commands that fail are *failing_opcodes* plus the RUN commands that
-    always fail when called from within a running sequence on the same
-    sequencer instance -- the same set the bytecode reference model uses."""
-    import subprocess
-
-    if WASM_HARNESS is not None:
-        return _run_wasm_on_wasmseq(wasm, failing_opcodes, cmd_response)
-
-    assert (
-        SPACEWASM_RUNNER is not None
-    ), "SPACEWASM_RUNNER not set; run pytest with --wasm"
-
-    wasm_path = _write_wasm_to_tmpfile(wasm)
-
-    d = load_dictionary(default_dictionary)
-    always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
-    argv = [SPACEWASM_RUNNER, wasm_path]
-    for opcode in sorted(always_failing | set(failing_opcodes or ())):
-        argv += ["--fail-opcode", str(opcode)]
-    if cmd_response is not None:
-        argv += ["--cmd-response", str(cmd_response)]
-
-    result = subprocess.run(argv, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"spacewasm runner faulted (exit {result.returncode}): "
-            f"{result.stderr.strip()}"
-        )
-    # The runner prints one `event <severity> <message>` line per event host
-    # call and one `cmd <hex>` line per cmd host call, then the sequence's
-    # error code as the final line.
-    *host_call_lines, code_line = result.stdout.strip().splitlines()
+    # A log() arrives as one of the component's Log<Severity> events, formatted
+    # "(Component) EventName : message"; everything else it emits is its own
+    # reporting and not the sequence's.
     events = []
-    cmds = []
-    for line in host_call_lines:
-        kind, rest = line.split(" ", 1)
-        if kind == "event":
-            severity, message = rest.split(" ", 1)
-            events.append((int(severity), message))
-        elif kind == "cmd":
-            cmds.append(bytes.fromhex(rest))
-        else:
-            assert False, f"unexpected runner output line: {line!r}"
-    return int(code_line), events, cmds
+    for sev, text in result.events:
+        if " : " not in text:
+            continue
+        name, message = text.split(" : ", 1)
+        if name.rsplit(" ", 1)[-1].startswith("Log"):
+            events.append((sev, message))
+    return code, events, result.cmds
 
 
 def lookup_type(type_name: str):

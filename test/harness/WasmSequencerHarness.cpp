@@ -298,6 +298,14 @@ void WasmSequencerTester::handleLog(FwEventIdType id, Fw::LogBuffer& args) {
     }
     if (relativeId == WasmSequencerComponentBase::EVENTID_SEQUENCEFAILED) {
         this->m_result->errorCode = 1;
+        return;
+    }
+    // A module that never loads runs nothing, so it would otherwise leave a
+    // clean result behind and read as success.
+    if (relativeId == WasmSequencerComponentBase::EVENTID_MODULELOADFAILED) {
+        this->m_result->error = "module_load_failed";
+    } else if (relativeId == WasmSequencerComponentBase::EVENTID_MODULEINVOKEFAILED) {
+        this->m_result->error = "module_invoke_failed";
     }
 }
 
