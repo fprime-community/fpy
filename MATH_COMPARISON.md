@@ -1,9 +1,8 @@
 # Fpy arithmetic semantics vs Rust and C#
 
-How fpy's arithmetic rules (MATH.md, mechanized in `verify/arith_properties.py`)
-compare to Rust and C#. **Every Rust and C# claim in this document was verified
-empirically** by compiling and running probe programs; the raw outputs are in
-the appendix.
+How fpy's arithmetic rules (MATH.md) compare to Rust and C#. **Every Rust and
+C# claim in this document was verified empirically** by compiling and running
+probe programs; the raw outputs are in the appendix.
 
 Verified with:
 
@@ -32,12 +31,12 @@ Notes:
   hardware/LLVM operation is undefined there. fpy's always-halt rule for
   `+ - *` is Rust's debug behavior made permanent, which fpy's VM already
   implements (`ARITHMETIC_OVERFLOW`/`UNDERFLOW`); the LLVM backend still wraps
-  (open question OQ-1 in `verify/arith_properties.py`).
+  instead of halting, so the two backends disagree here. Open.
 * `MIN % -1` halting (rather than evaluating to 0) was decided 2026-07-06 to
   match Rust and C#: **both** error here in every mode, even though the
   mathematical remainder is 0. It also keeps `//` and `%` halting on exactly
   the same inputs, so `a == (a // b) * b + (a % b)` holds wherever the pair is
-  defined (proved in `verify/arith_properties.py`).
+  defined.
 * fpy is alone in floored division. Rust and C# are C-style truncating. fpy
   follows Python because sequences are written by Python users; the VM,
   the LLVM backend, and the spec all agree on floored.

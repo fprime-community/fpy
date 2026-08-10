@@ -1,6 +1,6 @@
 # Casts — draft normative section for MATH.md
 
-> Draft to be merged into MATH.md. Mechanized checks: `verify/cast_properties.py`.
+> Draft to be merged into MATH.md.
 
 ## Value sets
 
@@ -108,8 +108,7 @@ exactly on an `F32` tie (double rounding).
 
 ## Theorems
 
-The following hold for all numeric `S`, `T` and all `x ∈ ⟦S⟧`
-(mechanically checked in `verify/cast_properties.py`):
+The following hold for all numeric `S`, `T` and all `x ∈ ⟦S⟧`:
 
 * **T1 (totality, determinism).** `cast_{S→T}` assigns exactly one value of
   `⟦T⟧` to every `x ∈ ⟦S⟧`. *(By construction: each equation is a
