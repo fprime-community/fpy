@@ -159,8 +159,11 @@ class CompileError(Exception):
 @dataclass
 class BackendError(Exception):
     msg: str
+    node: Any = None
 
     def __repr__(self):
+        if self.node is not None:
+            return format_diagnostic(self.msg, self.node, color=Colors.red)
         file_name_str = file_name if file_name is not None else "<unknown file>"
         return f"{Colors.cyan(file_name_str)}: {Colors.bold(Colors.red(self.msg))}"
 
@@ -196,7 +199,11 @@ class WarningType(str, Enum):
     """The set of diagnostics the compiler may warn about."""
 
     EMPTY_RANGE = "empty-range"
-    IMPORT_SIDE_EFFECTS = "import-side-effects"
+    IMPORT_DUPLICATE = "import-duplicate"
+    IMPORT_UNDERSCORE = "import-underscore"
+    SHADOW_VALUE = "shadow-value"
+    SHADOW_CALLABLE = "shadow-callable"
+    UNREACHABLE_TIMEOUT_BODY = "unreachable-timeout-body"
 
     @classmethod
     def from_value(cls, value: str) -> "WarningType":

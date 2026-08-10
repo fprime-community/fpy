@@ -41,8 +41,3 @@ add an `include::` line to `spec.adoc` -- keep a blank line after each
 Cross references use `<<slug,link text>>`, where `slug` is a heading's anchor
 (lowercase, spaces to hyphens); the `:idprefix:`/`:idseparator:` settings in
 `spec.adoc` make Asciidoctor generate those IDs.
-
-Each statement may be followed by a `_Tests:_` line linking to the tests that
-verify it. Those links are checked by `verify/spec_links.py` (a pre-commit
-hook); run `uv run python verify/spec_links.py --fix` to refresh stale line
-numbers.

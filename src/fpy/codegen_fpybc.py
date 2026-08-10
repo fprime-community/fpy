@@ -15,6 +15,7 @@ except ImportError:
 from fpy.error import BackendError
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.model import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
+from fpy.semantics import is_cmd_and_response_unhandled
 from fpy.types import (
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
@@ -43,6 +44,7 @@ from fpy.symbols import (
     CommandSymbol,
     FieldAccess,
     FunctionSymbol,
+    NameGroup,
     TypeCtorSymbol,
     VariableSymbol,
 )
@@ -71,6 +73,7 @@ from fpy.bytecode.directives import (
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
     FwOpcodeType,
+    FwPacketDescriptorType,
     GotoDirective,
     IfDirective,
     IntegerSignedExtend16To64Directive,
@@ -83,6 +86,7 @@ from fpy.bytecode.directives import (
     IntegerZeroExtend8To64Directive,
     OrDirective,
     PeekDirective,
+    PopSerializableDirective,
     FloatMultiplyDirective,
     GetFieldDirective,
     IntAddDirective,
@@ -152,53 +156,90 @@ class CollectUsedFunctions(Visitor):
         state.used_funcs.add(func.definition)
 
 
-class CalculateFrameSizes(TopDownVisitor):
-    """Assigns frame offsets to variables before code generation.
+class _LayOutFrameLocals(TopDownVisitor):
+    """Walk one frame's blocks, giving each not-yet-placed local variable the
+    next offset. Does not descend into nested function bodies -- each of those
+    owns its own frame.
 
-    Each instance handles one frame (global or function). Visits blocks
-    top-down, assigning sequential offsets to variables. At function
-    boundaries, spawns a fresh instance for the function's frame and
-    returns STOP_DESCENT to isolate frames from each other.
+    `offset` starts past the frame's prologue (the sequence args and flags slot
+    # FIXME what do you mean by "nothing" here
+    for the main frame; nothing for a function frame, whose parameters sit at
+    negative offsets) and ends past the last local, i.e. at the frame size."""
 
-    This must run before GenerateFunctions so that global variable offsets
-    are known when generating function bodies that access them.
-    """
-
-    def __init__(self):
+    def __init__(self, offset: int):
         super().__init__()
-        self.offset = 0
-
-    def run(self, start: Ast, state: CompileState):
-        # For the global frame, lay out sequence args (already on stack) first,
-        # then start body variables after them.
-        if start is state.root:
-            for name, arg_type in state.this_seq_arg_specs:
-                arg_var = state.global_value_scope[name]
-                arg_var.frame_offset = self.offset
-                self.offset += arg_type.max_size
-        super().run(start, state)
-        state.frame_sizes[start] = self.offset
+        self.offset = offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        scope = state.enclosing_value_scope[node]
-        for _name, sym in scope.items():
+        for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
             if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
                 sym.frame_offset = self.offset
                 self.offset += sym.type.max_size
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        # Assign argument offsets (negative offsets before frame start)
-        func = state.resolved_symbols[node.name]
-        if func.args:
-            arg_offset = -STACK_FRAME_HEADER_SIZE
-            for arg in reversed(func.args):
-                arg_name, arg_type, _ = arg
-                arg_var = state.enclosing_value_scope[node.body][arg_name]
-                arg_offset -= arg_type.max_size
-                arg_var.frame_offset = arg_offset
-        # Assign body variable offsets in a fresh frame
-        CalculateFrameSizes().run(node.body, state)
         return STOP_DESCENT
+
+
+class CalculateFrameSizes(Visitor):
+    """Assign every local variable its offset within its stack frame, and record
+    each frame's total size in state.frame_sizes.
+
+    A frame is owned by a block: the main block (the global frame) or a
+    function body. Its locals are the variables declared in that block and its
+    nested blocks, except nested function bodies, which own their own frames.
+    Ahead of the locals sits the frame's prologue:
+      * the main frame: the sequence arguments, then the flags slot
+      * a function frame: the formal parameters, at negative offsets (before the
+        frame start)
+
+    We walk the whole tree only to find the frame owners: run() lays out the
+    main frame, then visit_AstDef lays out each function's frame.
+
+    This must run before GenerateFunctions so global variable offsets are known
+    when generating function bodies that access them."""
+
+    def run(self, start: Ast, state: CompileState):
+        self._layout_main_frame(state)
+        # The rest of the walk just finds the function definitions; each lays out
+        # its own frame in visit_AstDef.
+        super().run(start, state)
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        self._layout_function_frame(node, state)
+
+    def _layout_main_frame(self, state: CompileState):
+        # Sequence args arrive on the stack first, then the flags slot -- which
+        # lives in the base scope but occupies a slot in the main frame here.
+        offset = 0
+        for name, arg_type in state.this_seq_arg_specs:
+            arg_var = state.main_scope.group(NameGroup.VALUE)[name]
+            arg_var.frame_offset = offset
+            offset += arg_type.max_size
+        state.flags_var.frame_offset = offset
+        offset += state.flags_var.type.max_size
+
+        state.frame_sizes[state.main_block] = self._layout_locals(
+            state.main_block, offset, state
+        )
+
+    def _layout_function_frame(self, node: AstDef, state: CompileState):
+        # FIXME you can inline this func
+        # Formal parameters sit before the frame start, at negative offsets.
+        func = state.resolved_symbols[node.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg_name, arg_type, _default in reversed(func.args):
+            arg_offset -= arg_type.max_size
+            body_values[arg_name].frame_offset = arg_offset
+
+        state.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
+
+    def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
+        """Lay out every local in *frame_block*'s frame, starting at *offset*,
+        and return the offset past the last one (the frame's total size)."""
+        layout = _LayOutFrameLocals(offset)
+        layout.run(frame_block, state)
+        return layout.offset
 
 
 class GenerateFunctionEntryPoints(Visitor):
@@ -232,7 +273,22 @@ class GenerateFunctions(Visitor):
         state.generated_funcs[node] = code
 
 
-class GenerateFunctionBody(Emitter):
+class EmitterWithNodeInfo(Emitter):
+    """Stamps each emitted directive with the AST node that produced it, so
+    errors raised on a directive can point at a source line."""
+
+    def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
+        dirs = super().emit(node, state)
+        # Nested emit calls run first, so an existing stamp is the more
+        # specific node. (Ir instances are frozen and are skipped; the
+        # directives they become carry no arguments worth locating.)
+        for dir in dirs:
+            if isinstance(dir, Directive) and dir.source_node is None:
+                dir.source_node = node
+        return dirs
+
+
+class GenerateFunctionBody(EmitterWithNodeInfo):
     # Flag indicating we're generating code inside a function body
     # This affects how we access global variables (need GLOBAL directives)
     in_function = True
@@ -359,7 +415,9 @@ class GenerateFunctionBody(Emitter):
             dirs.append(
                 PushValDirective(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
             )
-            dirs.append(StackCmdDirective(arg_byte_count))
+            stack_cmd = StackCmdDirective(arg_byte_count)
+            stack_cmd.cmd_opcode = func.cmd.opcode
+            dirs.append(stack_cmd)
             return dirs
 
     def try_emit_expr_as_const(
@@ -617,12 +675,6 @@ class GenerateFunctionBody(Emitter):
         dirs.append(IntMultiplyDirective())
         return dirs
 
-    def _is_cmd_and_response_unhandled(self, stmt: Ast, state: CompileState) -> bool:
-        """True when *stmt* is a command call whose response is not captured."""
-        return is_instance_compat(stmt, AstFuncCall) and is_instance_compat(
-            state.resolved_symbols.get(stmt.func), CommandSymbol
-        )
-
     def _should_lower_stmt(self, stmt: Ast, state: CompileState) -> bool:
         """Whether a statement needs code generated for it.
 
@@ -642,10 +694,15 @@ class GenerateFunctionBody(Emitter):
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         dirs = []
         for stmt in node.stmts:
+            if is_instance_compat(stmt, AstBlock):
+                # a sub block. this is only possible if it is an imported sequence
+                # emit its statements inline in this frame
+                dirs.extend(self.emit(stmt, state))
+                continue
             if not self._should_lower_stmt(stmt, state):
                 continue
             dirs.extend(self.emit(stmt, state))
-            if self._is_cmd_and_response_unhandled(stmt, state):
+            if is_cmd_and_response_unhandled(stmt, state):
                 dirs.extend(self.assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
@@ -726,7 +783,7 @@ class GenerateFunctionBody(Emitter):
                 # last stmt, it must be the inc stmt, add the label before it
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
-            if self._is_cmd_and_response_unhandled(stmt, state):
+            if is_cmd_and_response_unhandled(stmt, state):
                 dirs.extend(self.assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
@@ -875,17 +932,12 @@ class GenerateFunctionBody(Emitter):
 
         dirs = []
 
+        # A qualified name can't denote a variable (an imported sequence may
+        # not declare a top-level variable), so sym is never a VariableSymbol.
         if is_instance_compat(sym, ChDef):
             dirs.append(PushTlmValDirective(sym.ch_id))
         elif is_instance_compat(sym, PrmDef):
             dirs.append(PushPrmDirective(sym.prm_id))
-        elif is_instance_compat(sym, VariableSymbol):
-            # Use global directives only when inside a function AND accessing a global variable
-            use_global = self.in_function and sym.is_global
-            if use_global:
-                dirs.append(LoadAbsDirective(sym.frame_offset, sym.type.max_size))
-            else:
-                dirs.append(LoadRelDirective(sym.frame_offset, sym.type.max_size))
         elif is_instance_compat(sym, FieldAccess):
             if is_instance_compat(sym.parent_expr, AstAnonStruct):
                 # Direct member access on anonymous struct literal.
@@ -1085,7 +1137,9 @@ class GenerateFunctionBody(Emitter):
                 )
                 # now that all args are pushed to the stack, pop them and opcode off the stack
                 # as a command
-                dirs.append(StackCmdDirective(arg_byte_count))
+                stack_cmd = StackCmdDirective(arg_byte_count)
+                stack_cmd.cmd_opcode = func.cmd.opcode
+                dirs.append(stack_cmd)
         elif is_instance_compat(func, BuiltinFuncSymbol):
             # collect compile-time constant args (not pushed to stack)
             const_arg_values: dict[int, FpyValue] = {}
@@ -1101,12 +1155,25 @@ class GenerateFunctionBody(Emitter):
                 ), f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
-            # put non-const arg values on stack
-            for i, arg_node in enumerate(node_args):
-                if i not in func.const_arg_indices:
-                    dirs.extend(self._emit_func_arg(arg_node, state))
+            # Residual hook: only the size/port directive params need emitting; validation is handled by the SIZED/SerialPortIndex signature.
+            if func.name == "write_to_port":
+                value_arg = node_args[1]
+                # Push the value for the directive to pop and send.
+                dirs.extend(self._emit_func_arg(value_arg, state))
+                # Value is coerced to a concrete sized type, so max_size is the exact size to pop.
+                size = state.contextual_types[value_arg].max_size
+                # Port is a const dictionary SerialPortIndex enum; .val is the constant name, resolve to its int index.
+                port_val = const_arg_values[0]
+                assert isinstance(port_val.val, str), port_val
+                port_index = port_val.type.enum_dict[port_val.val]
+                dirs.append(PopSerializableDirective(portIndex=port_index, size=size))
+            else:
+                # put non-const arg values on stack
+                for i, arg_node in enumerate(node_args):
+                    if i not in func.const_arg_indices:
+                        dirs.extend(self._emit_func_arg(arg_node, state))
 
-            dirs.extend(func.generate_fpybc(node, const_arg_values))
+                dirs.extend(func.generate_fpybc(node, const_arg_values))
         elif is_instance_compat(func, TypeCtorSymbol):
             # put arg values onto stack in correct order for serialization
             for arg_node in node_args:
@@ -1303,10 +1370,10 @@ class GenerateFunctionBody(Emitter):
         return dirs
 
 
-class GenerateModule(Emitter):
+class GenerateModule(EmitterWithNodeInfo):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
-        if node is not state.root:
+        if node is not state.main_block:
             return []
 
         main_body = []
@@ -1410,11 +1477,59 @@ class FinalChecks(IrPass):
     def run(self, ir, state):
         if len(ir) > state.max_directives_count:
             return BackendError(
-                f"Too many directives in sequence (expected less than {state.max_directives_count}, had {len(ir)})"
+                f"Too many directives in sequence (expected at most {state.max_directives_count}, had {len(ir)})"
             )
 
         for dir in ir:
             # double check we've got rid of all the IR
             assert is_instance_compat(dir, Directive), dir
+
+            # mirrors the sequencer's statement deserialization limit
+            # (Svc.Fpy.MAX_DIRECTIVE_SIZE)
+            dir_size = len(dir.serialize())
+            if dir_size > state.max_directive_size:
+                return BackendError(
+                    f"Directive {dir.opcode.name} in sequence too large (expected at most "
+                    f"{state.max_directive_size} bytes, was {dir_size})",
+                    dir.source_node,
+                )
+
+            # commands are serialized into an Fw::ComBuffer as
+            # (packet descriptor, opcode, args) and their args are copied into
+            # an Fw::CmdArgBuffer by the command dispatcher; a sequence whose
+            # commands exceed either capacity always fails at runtime
+            if is_instance_compat(dir, ConstCmdDirective):
+                cmd_args_size = len(dir.args)
+            elif is_instance_compat(dir, StackCmdDirective):
+                # codegen stamps the opcode; only codegen output reaches here
+                assert dir.cmd_opcode is not None
+                cmd_args_size = dir.args_size
+            else:
+                continue
+            cmd_desc = f"Command {state.cmd_names_by_opcode.get(dir.cmd_opcode, hex(dir.cmd_opcode))}"
+
+            if (
+                state.cmd_arg_buffer_max_size is not None
+                and cmd_args_size > state.cmd_arg_buffer_max_size
+            ):
+                return BackendError(
+                    f"{cmd_desc} has {cmd_args_size} bytes of arguments, which "
+                    f"exceeds FW_CMD_ARG_BUFFER_MAX_SIZE ({state.cmd_arg_buffer_max_size})",
+                    dir.source_node,
+                )
+
+            cmd_packet_size = (
+                FwPacketDescriptorType.max_size + FwOpcodeType.max_size + cmd_args_size
+            )
+            if (
+                state.com_buffer_max_size is not None
+                and cmd_packet_size > state.com_buffer_max_size
+            ):
+                return BackendError(
+                    f"{cmd_desc} serializes to a {cmd_packet_size} byte packet "
+                    f"(packet descriptor + opcode + {cmd_args_size} bytes of arguments), "
+                    f"which exceeds FW_COM_BUFFER_MAX_SIZE ({state.com_buffer_max_size})",
+                    dir.source_node,
+                )
 
         return ir

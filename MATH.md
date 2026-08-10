@@ -169,10 +169,23 @@ These operators require numeric operands and produce a result in the chosen inte
 Both operands are promoted to `F64`, and the result is always an `F64`. This means you must explicitly cast the result to store it in an integer type.
 
 #### Floor division semantics
-With integer operands, `//` performs truncating division using the signed or unsigned divide directive. If either operand is a float, the compiler divides in `F64`, converts the quotient to a signed 64-bit integer (which truncates toward zero), and converts back to `F64`, so floating-point floor division also truncates toward zero.
+`//` floors its quotient toward negative infinity, for both integer and float operands.
+
+With integer operands it uses the signed or unsigned divide directive. Unsigned operands are non-negative, so the truncated quotient is already the floored one. Signed division truncates toward zero, which differs from flooring exactly when the operands have opposite signs and the division is inexact; there the quotient is one greater than the floor, and is decremented.
+
+With float operands the quotient is computed in `F64` and then floored:
+* An infinite or NaN quotient is unchanged.
+* A zero quotient is unchanged; the sign of zero is preserved, so a quotient of `-0.0` floors to `-0.0`.
+* Otherwise the result is the largest integral `F64` value not greater than the quotient: a quotient of `0.5` floors to `0.0`, and a quotient of `-0.5` floors to `-1.0`.
+
+An integer zero divisor raises a runtime error (`DOMAIN_ERROR`). A float zero divisor does not: float division is IEEE, so the quotient is an infinity or a NaN and the floor passes it through. `(-2**63) // -1` raises `ARITHMETIC_OVERFLOW`: the mathematical quotient `2**63` is not representable in `I64`.
 
 ### Modulus semantics
-Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo. For signed integers the remainder has the same sign as the dividend.
+Modulus works for numeric operands. Signed operands use the signed modulo directive, unsigned operands use the unsigned directive, and floats use floating-point modulo.
+
+Signed integer and float modulus are *floored*, like `//` and like Python: a nonzero remainder has the same sign as the divisor. The directives compute a *truncated* remainder (the sign of the dividend), so the divisor is added back exactly once when the remainder is nonzero and its sign differs from the divisor's. For floats, an exact-multiple result is a zero carrying the divisor's sign. Unsigned operands are non-negative, so floored and truncated already agree.
+
+An integer zero divisor raises a runtime error (`DOMAIN_ERROR`). A float zero divisor does not: `x % 0.0` is NaN, as are `inf % y` and any modulus with a NaN operand. Float modulus never raises. `(-2**63) % -1` raises `ARITHMETIC_OVERFLOW`, halting on exactly the same operands as `(-2**63) // -1`, even though the mathematical remainder `0` is representable.
 
 #### Exponentiation semantics
 Both operands are coerced to `F64`, the exponentiation happens in floating point, and the result type is `F64`.

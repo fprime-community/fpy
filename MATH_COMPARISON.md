@@ -72,6 +72,7 @@ Notes:
 | `0.0 / 0.0` | NaN | NaN | NaN |
 | float `%` style | floored, sign of divisor (`-7.5 % 2.0 == 0.5`, Python) | truncated fmod, sign of dividend (`-7.5 % 2.0 == -1.5`, C) | truncated fmod, sign of dividend (`-1.5`, C) |
 | float `% 0.0` | NaN (never halts) | NaN, no panic | NaN, no throw |
+| sign of an exact-multiple `%` zero | divisor's (`2.0 % -1.0 == -0.0`, Python) | dividend's (`2.0 % -1.0 == 0.0`, C fmod) | dividend's (`0.0`, C fmod) |
 | overflow to +-inf, subnormals | IEEE-754 | IEEE-754 | IEEE-754 |
 
 Note on `% 0.0` (OQ-5, resolved 2026-07-06): Rust and C# both give NaN --
@@ -80,6 +81,15 @@ the LLVM backend (frem), and the VM model all produce NaN. CPython raises
 `ZeroDivisionError` instead; this is a deliberate divergence from Python.
 The C++ `op_fmod` still returns DOMAIN_ERROR and needs the upstream fix
 below.
+
+Note on the sign of a zero remainder (issue #129, settled 2026-08-06 when
+`devel` merged in): fmod/frem give an exact-multiple remainder the *dividend's*
+sign, but floored modulo takes it from the divisor, as CPython's `float_rem`
+does with `copysign(0.0, divisor)`. fpy follows CPython here, so both the VM
+model and the LLVM backend apply that `copysign` after the floor correction --
+a NaN remainder is excluded from it by testing `rem == 0` rather than the
+correction's own `rem != 0`. This is the one place fpy's float `%` diverges
+from plain C fmod beyond the floor correction itself.
 
 ## Numeric casts
 

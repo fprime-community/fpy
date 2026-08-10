@@ -1,6 +1,7 @@
 from fpy.types import FpyValue, U32
 
 from fpy.model import DirectiveErrorCode
+from fpy.error import WarningType
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
@@ -270,7 +271,9 @@ for i in 0 .. 7:
 for i in 7..0:
     exit(1)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.EMPTY_RANGE}
+        )
 
 
 class TestLoopVariableScoping:
@@ -294,13 +297,16 @@ for i in 0 .. 7:
         assert_compile_failure(fprime_test_api, seq)
 
     def test_loop_var_redeclare_right_type(self, fprime_test_api):
+        # The loop var `i` shadows the outer `i` (warns).
         seq = """
 i: I64 = 123
 for i in 0 .. 7:
     assert i >= 0 and i < 7
 assert i == 123
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_loop_var_redeclare_right_type_after(self, fprime_test_api):
         seq = """
@@ -313,6 +319,7 @@ assert i == 123
         assert_run_success(fprime_test_api, seq)
 
     def test_loop_var_redeclare_in_inner_scope_func(self, fprime_test_api):
+        # The loop var `i` inside the function shadows the global `i` (warns).
         seq = """
 def test():
     for i in 0 .. 7:
@@ -324,7 +331,9 @@ assert i == 123
 
 test()
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_loop_var_redeclare_in_inner_scope_after(self, fprime_test_api):
         seq = """
@@ -339,7 +348,7 @@ def test():
         assert_run_success(fprime_test_api, seq)
 
     def test_loop_var_redeclare_wrong_type(self, fprime_test_api):
-        # With block scoping, the for loop var shadows the outer i. No conflict.
+        # With block scoping, the for loop var shadows the outer i (warns). No conflict.
         seq = """
 i: U16 = 123
 for i in 0 .. 7:
@@ -347,7 +356,9 @@ for i in 0 .. 7:
 assert i == 123
 """
 
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+        )
 
     def test_for_loop_declare_var_bad(self, fprime_test_api):
         seq = """

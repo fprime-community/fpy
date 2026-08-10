@@ -1,5 +1,6 @@
 pyproject.toml
 setup.py
+^uv\.lock$
 ignore$
 /html/
 (?:^|/)(?i)COPYRIGHT

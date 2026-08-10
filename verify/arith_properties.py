@@ -40,9 +40,10 @@ The rules encoded (MATH.md, "Arithmetic on I64, U64" / "Arithmetic on F64"):
     of the divisor.
   * `//` on floats is round-toward-negative of the IEEE quotient. `%` on
     floats is C fmod (the exact truncated remainder) followed by one RNE
-    addition of the divisor when the sign must flip -- exactly what the
-    LLVM backend emits (frem + fadd) and what CPython computes. x % 0.0 is
-    NaN, not a halt (CPython raises here; fpy float ops never halt).
+    addition of the divisor when the sign must flip, and copysign(0.0,
+    divisor) when the result is exactly zero -- what the LLVM backend emits
+    (frem + fadd + copysign) and what CPython computes. x % 0.0 is NaN, not
+    a halt (CPython raises here; fpy float ops never halt).
   * `/` and `**` always compute in F64. `**` is the platform's libm pow,
     modeled as an uninterpreted function: deterministic and type-correct,
     value otherwise unspecified.
@@ -396,9 +397,10 @@ def float_mod(a, b):
     This is definitionally what the LLVM backend emits (frem + fadd) and
     what CPython computes; unlike the fmod correction, this addition CAN
     round (e.g. -1e-300 % 1e300: the exact answer 1e300 - 1e-300 is not
-    representable), so the rounding is part of the spec. Two deliberate
-    divergences from CPython: x % 0.0 is NaN, not an error, and an exactly
-    zero result keeps fmod's zero sign rather than copysign(0, b).
+    representable), so the rounding is part of the spec. An exactly zero
+    result takes the divisor's sign, as CPython's float_rem does with
+    copysign(0.0, b) (issue #129); fmod would give it the dividend's.
+    The one deliberate divergence from CPython: x % 0.0 is NaN, not an error.
     """
     m = float_fmod_trunc(a, b)
     flip = And(
@@ -406,7 +408,12 @@ def float_mod(a, b):
         Not(fpIsZero(m)),
         Xor(fpIsNegative(m), fpIsNegative(b)),
     )
-    return If(flip, fpAdd(RNE(), m, b), m)
+    corrected = If(flip, fpAdd(RNE(), m, b), m)
+    # copysign(0.0, b), spelled without naming m's sort: fpAbs of a zero is
+    # +0.0, and negating that gives -0.0. b is nonzero here -- a zero divisor
+    # makes fmod NaN, and fpIsZero(NaN) is false -- so its sign bit is real.
+    signed_zero = If(fpIsNegative(b), fpNeg(fpAbs(m)), fpAbs(m))
+    return If(fpIsZero(m), signed_zero, corrected)
 
 
 # --- value level: the operators ---------------------------------------------------
@@ -950,13 +957,14 @@ def check_float_ops_match_python():
 
     def py_mod(x, y):
         # CPython float_rem: fmod, then add the divisor back on sign
-        # mismatch (we keep fmod's zero sign where CPython copysigns it to
-        # y, but fpEQ treats +-0 as equal so the comparison still holds)
+        # mismatch, and copysign an exactly zero result to y.
         if y == 0.0 or math.isnan(x) or math.isnan(y) or math.isinf(x):
             return float("nan")
         m = math.fmod(x, y)  # fmod(finite, +-inf) == x, matching the spec
         if m != 0.0 and (m < 0.0) != (y < 0.0):
             m = m + y
+        elif m == 0.0:
+            m = math.copysign(0.0, y)
         return m
 
     checks = [

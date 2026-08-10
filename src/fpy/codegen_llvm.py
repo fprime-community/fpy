@@ -6,14 +6,31 @@ import sys
 import tempfile
 from pathlib import Path
 
-from llvmlite import ir
-import llvmlite.binding as llvm
-
 from fpy.error import BackendError
+
+try:
+    from llvmlite import ir
+    import llvmlite.binding as llvm
+except ImportError as exc:
+    raise BackendError(
+        "the 'llvmlite' package is required by the LLVM backend; install it "
+        "with 'pip install fprime-fpy[wasm]'"
+    ) from exc
+
 from fpy.model import DirectiveErrorCode
 from fpy.state import CompileState
-from fpy.symbols import BuiltinFuncSymbol, CastSymbol, VariableSymbol
+from fpy.symbols import (
+    BuiltinFuncSymbol,
+    CastSymbol,
+    CommandSymbol,
+    FieldAccess,
+    FunctionSymbol,
+    TypeCtorSymbol,
+    VariableSymbol,
+)
 from fpy.syntax import (
+    AstAnonArray,
+    AstAnonStruct,
     AstAssert,
     AstAssign,
     AstBinaryOp,
@@ -21,17 +38,36 @@ from fpy.syntax import (
     AstDef,
     AstExpr,
     AstFuncCall,
+    AstGetAttr,
     AstIdent,
     AstIf,
+    AstIndexExpr,
     AstNodeWithSideEffects,
     AstUnaryOp,
     BinaryStackOp,
     COMPARISON_OPS,
     UnaryStackOp,
 )
-from fpy.bytecode.directives import ErrorCodeType
-from fpy.types import FpyValue, is_instance_compat
+from fpy.bytecode.directives import FwOpcodeType
+from fpy.semantics import is_cmd_and_response_unhandled
+import fpy.types
+from fpy.types import (
+    CMD_RESPONSE,
+    ChDef,
+    FpyType,
+    FpyValue,
+    PrmDef,
+    TypeKind,
+    is_instance_compat,
+)
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
+from fpy.wasm_host import (
+    ERROR_CODE_TYPE,
+    HOST_CMD_FUNC_NAME,
+    HOST_EXIT_FUNC_NAME,
+    HOST_PANIC_FUNC_NAME,
+    declare_host_imports,
+)
 
 LLVM_TRIPLE = "wasm32-unknown-unknown"
 
@@ -40,57 +76,8 @@ LLVM_CPU = "mvp"
 WASM_VERSION = "1.0 (MVP)"
 
 # TODO enable custom page sizes
-
-# TODO strip custom sections from WASM--wasm opt crate, optimize for size?
-
-# TODO with wasm mvp llvm will provide pow/fmod??
-
+# TODO strip custom sections from the wasm / optimize for size (wasm-opt)?
 # TODO could just start with a .a and a header??
-
-# TODO need to disable WASI so we aren't generating these env :: pow
-
-ERROR_CODE_TYPE = ErrorCodeType.llvm_type
-
-# Host imports that end the whole sequence. They are two deliberately
-# separate channels (mirroring the C++ sequencer's SequenceExitedWithError
-# event vs DirectiveError): fpy_exit carries a *user-chosen* code (exit(),
-# assert), fpy_fault carries a DirectiveErrorCode raised by a runtime check
-# (division by zero, arithmetic overflow). Keeping them apart means a
-# sequence calling exit(10) can never impersonate a DOMAIN_ERROR fault.
-HOST_EXIT_FUNC_NAME = "fpy_exit"
-HOST_FAULT_FUNC_NAME = "fpy_fault"
-
-
-# TODO this adhoc emit and declare stuff is not super nice. should probably
-# clean it up, have a list of the expected host module signature funcs, declare them
-# all at the start.
-def _declare_host_noreturn(module: ir.Module, name: str) -> ir.Function:
-    """Get-or-declare a void(i32) noreturn host import on *module*."""
-    existing = module.globals.get(name)
-    if existing is not None:
-        return existing
-    fn = ir.Function(
-        module,
-        ir.FunctionType(ir.VoidType(), [ERROR_CODE_TYPE]),
-        name=name,
-    )
-    # It never returns to wasm: the host unwinds the interpreter.
-    fn.attributes.add("noreturn")
-    return fn
-
-
-def emit_host_exit(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to fpy_exit(code) -- the user-exit channel -- and
-    terminate the current block."""
-    builder.call(_declare_host_noreturn(builder.module, HOST_EXIT_FUNC_NAME), [code])
-    builder.unreachable()
-
-
-def emit_host_fault(builder: ir.IRBuilder, code: ir.Value) -> None:
-    """Emit a call to fpy_fault(code) -- the runtime-fault channel -- and
-    terminate the current block."""
-    builder.call(_declare_host_noreturn(builder.module, HOST_FAULT_FUNC_NAME), [code])
-    builder.unreachable()
 
 
 class EmitLlvmExpr(Emitter):
@@ -109,9 +96,22 @@ class EmitLlvmExpr(Emitter):
     def emit(self, node, state: CompileState) -> ir.Value:
         value = state.const_expr_values.get(node)
         if value is not None:
+            if not value.type.is_concrete:
+                # Only a bare expression statement leaves a constant at an
+                # abstract type (Integer/Float/InternalString/anon literal):
+                # every other position coerces its expression to a concrete
+                # contextual type. An abstract value has no machine
+                # representation, and a constant is pure (const folding only
+                # folds pure expressions), so there is nothing to emit.
+                return None
             # Const values are stored at the node's contextual type already.
             return value.llvm_value
-        result = super().emit(node, state)
+        emitter = self.emitters.get(type(node))
+        if emitter is None:
+            raise BackendError(
+                f"LLVM backend can't lower expression {type(node).__name__} yet"
+            )
+        result = emitter(node, state)
         if result is None:
             # NOTHING-typed expr, nothing to convert.
             return None
@@ -164,10 +164,12 @@ class EmitLlvmExpr(Emitter):
 
         assert op in COMPARISON_OPS, op
         if is_float:
+            # IEEE 754 defines != as the negation of ==, so it is true when
+            # either operand is NaN (une, wasm's f64.ne, Python's !=): that's
+            # fcmp une (unordered); fcmp_ordered would emit `one`, which is
+            # false on NaN. Every other comparison is ordered: false on NaN,
+            # like Python's.
             if op == BinaryStackOp.NOT_EQUAL:
-                # IEEE 754 defines != as the negation of ==, so it is true
-                # when either operand is NaN: that's fcmp une (unordered);
-                # fcmp_ordered would emit `one`, which is false on NaN.
                 return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
         # Enums and bools lower to integers too, so any integer-typed value
@@ -186,19 +188,25 @@ class EmitLlvmExpr(Emitter):
     def _emit_halt_if(self, cond: ir.Value, code: DirectiveErrorCode) -> None:
         """Guard an operation: end the whole sequence with the runtime fault
         *code* when cond holds, otherwise fall through and continue lowering.
-        Faults go through fpy_fault, not fpy_exit: they are not user exits."""
+        Faults go through the host's panic, not exit: they are runtime errors
+        raised by a check, not user exits."""
         b = self.builder
         fail_block = b.append_basic_block("arith_fail")
         ok_block = b.append_basic_block("arith_ok")
         b.cbranch(cond, fail_block, ok_block)
         b.position_at_end(fail_block)
-        emit_host_fault(b, ir.Constant(ERROR_CODE_TYPE, code.value))
+        b.call(
+            b.module.globals[HOST_PANIC_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, code.value)],
+        )
+        b.unreachable()
         b.position_at_end(ok_block)
 
     def _emit_floor_divide(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
     ) -> ir.Value:
-        """Emit `lhs // rhs`, flooring toward -inf (Python `//`, matching the VM).
+        """Emit `lhs // rhs`, flooring toward -inf (Python `//`; spec "Floor
+        division semantics").
 
         Floats floor the quotient directly via llvm.floor (a native f64.floor on
         wasm). Integer sdiv/udiv truncate toward zero, which differs from floor
@@ -209,18 +217,18 @@ class EmitLlvmExpr(Emitter):
         if is_float:
             # Floats have a real floor: divide, then floor the quotient. The
             # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
-            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0.
+            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0. A zero
+            # divisor needs no guard: float division is IEEE (inf/nan), and
+            # floor passes that through ("an infinite or NaN quotient is
+            # unchanged" per the spec).
             quotient = b.fdiv(lhs, rhs)
             floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
-
-        zero = ir.Constant(lhs.type, 0)
-        # udiv/sdiv are immediate UB on a zero divisor in LLVM; the sequence
-        # must instead end with the same error the VM's handle_udiv/handle_sdiv
-        # return.
-        self._emit_halt_if(
-            b.icmp_unsigned("==", rhs, zero), DirectiveErrorCode.DOMAIN_ERROR
-        )
+        # udiv/sdiv are immediate UB on a zero divisor in LLVM, and wasm's
+        # integer div instructions would trap uncatchably; the sequence must
+        # instead end with the same DOMAIN_ERROR the VM's handle_udiv /
+        # handle_sdiv return.
+        self._emit_zero_divisor_check(rhs)
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
             # there's nothing below zero to floor toward, so udiv (which
@@ -260,8 +268,8 @@ class EmitLlvmExpr(Emitter):
     def _emit_modulo(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
     ) -> ir.Value:
-        """Emit `lhs % rhs` with the VM's *floored* semantics (Python `%`): the
-        result takes the sign of the divisor.
+        """Emit `lhs % rhs` with *floored* semantics (Python `%`; spec "Modulus
+        semantics"): the result takes the sign of the divisor.
 
         The IR remainder ops (srem/frem) are *truncated* -- the result takes the
         sign of the dividend -- so we correct it by adding the divisor back when
@@ -271,12 +279,13 @@ class EmitLlvmExpr(Emitter):
         b = self.builder
         zero = ir.Constant(lhs.type, 0)
         if not is_float:
-            # urem/srem are immediate UB on a zero divisor in LLVM; the
-            # sequence must instead end with the same error the VM's
-            # handle_umod/handle_smod return.
-            self._emit_halt_if(
-                b.icmp_unsigned("==", rhs, zero), DirectiveErrorCode.DOMAIN_ERROR
-            )
+            # urem/srem are immediate UB on a zero divisor in LLVM, and wasm's
+            # integer rem instructions would trap uncatchably; the sequence
+            # must instead end with the same DOMAIN_ERROR the VM's
+            # handle_umod/handle_smod return. A *float* zero divisor is not
+            # guarded: `x % 0.0` is NaN and never halts (IEEE, Rust and C#;
+            # see MATH_COMPARISON.md), which is what frem/fmod already give.
+            self._emit_zero_divisor_check(rhs)
         if not is_float and not is_signed:
             # Unsigned operands are non-negative, so floored == truncated.
             return b.urem(lhs, rhs)
@@ -304,7 +313,46 @@ class EmitLlvmExpr(Emitter):
             # rem and rhs have differing signs iff their xor is negative.
             signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
             corrected = b.add(rem, rhs)
-        return b.select(b.and_(nonzero, signs_differ), corrected, rem)
+        result = b.select(b.and_(nonzero, signs_differ), corrected, rem)
+        if is_float:
+            # An exact division leaves a zero whose sign frem takes from the
+            # *dividend*; floored modulo takes it from the divisor, as CPython's
+            # float_rem does with copysign(0.0, divisor) (issue #129). The test
+            # is `rem == 0` rather than `not nonzero` so a NaN remainder -- for
+            # which every ordered compare is false -- passes through untouched.
+            is_zero = b.fcmp_ordered("==", rem, zero)
+            # copysign is binary, so its signature has to be given explicitly:
+            # llvmlite only infers a unary one from the mangling type list.
+            copysign_fn = b.module.declare_intrinsic(
+                "llvm.copysign",
+                [rem.type],
+                ir.FunctionType(rem.type, [rem.type, rem.type]),
+            )
+            signed_zero = b.call(copysign_fn, [zero, rhs])
+            result = b.select(is_zero, signed_zero, result)
+        return result
+
+    def _emit_zero_divisor_check(self, rhs: ir.Value) -> None:
+        """Fault with DOMAIN_ERROR when the integer divisor *rhs* is zero, per
+        the spec's modulus and floor-division semantics. Floats never reach
+        here: they have no zero-divisor error at all."""
+        b = self.builder
+        zero = ir.Constant(rhs.type, 0)
+        # Signedness doesn't exist for equality: LLVM has a single `icmp eq`
+        # (signed/unsigned variants exist only for order predicates like
+        # slt/ult), so icmp_signed("==") and icmp_unsigned("==") emit the same
+        # instruction and unsigned operands are fine here.
+        is_zero = b.icmp_signed("==", rhs, zero)
+        fail_block = b.function.append_basic_block("div_zero")
+        ok_block = b.function.append_basic_block("div_ok")
+        b.cbranch(is_zero, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        b.call(
+            b.module.globals[HOST_PANIC_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)],
+        )
+        b.unreachable()
+        b.position_at_end(ok_block)
 
     def _emit_short_circuit(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
         """Lower ``and``/``or`` with short-circuit evaluation."""
@@ -349,8 +397,7 @@ class EmitLlvmExpr(Emitter):
             return b.not_(val)
 
         # The only remaining unary op is `-x`: float negation, or 0 - x for
-        # integers (matching the VM, which multiplies by -1; sub is the simpler
-        # equivalent here).
+        # integers.
         assert node.op == UnaryStackOp.NEGATE, node.op
         if intermediate_type.is_float:
             return b.fneg(val)
@@ -363,28 +410,369 @@ class EmitLlvmExpr(Emitter):
         # synthesized type; emit() handles any widening to the contextual type.
         return self.builder.load(sym.llvm_ptr, name=str(node.name))
 
+    def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState) -> ir.Value:
+        sym = state.resolved_symbols[node]
+        if is_instance_compat(sym, (ChDef, PrmDef)):
+            raise BackendError(
+                "LLVM backend can't read telemetry channels or parameters yet"
+            )
+        # A qualified name can't denote a variable (an imported sequence may
+        # not declare a top-level variable), so what remains is member access.
+        assert is_instance_compat(sym, FieldAccess), sym
+        if self._has_storage(node, state):
+            return self.builder.load(self._emit_ptr(node, state), name=node.attr)
+        # Member access on an anonymous struct literal: the struct is never
+        # built; emit just the accessed member's expression.
+        assert is_instance_compat(sym.parent_expr, AstAnonStruct), sym.parent_expr
+        for name, value_expr in sym.parent_expr.members:
+            if name == node.attr:
+                return self.emit(value_expr, state)
+        assert False, f"member {node.attr} not found in anon struct"
+
+    def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState) -> ir.Value:
+        sym = state.resolved_symbols[node]
+        assert is_instance_compat(sym, FieldAccess), sym
+        if self._has_storage(node, state):
+            return self.builder.load(self._emit_ptr(node, state))
+        # Element access on an anonymous array literal: the array is never
+        # built; the index must be a compile-time constant, so emit just that
+        # element's expression.
+        assert is_instance_compat(sym.parent_expr, AstAnonArray), sym.parent_expr
+        idx_value = state.const_expr_values.get(node.item)
+        assert (
+            idx_value is not None
+        ), "Dynamic indexing on anonymous array literals is not supported"
+        idx = idx_value.val
+        assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
+        return self.emit(sym.parent_expr.elements[idx], state)
+
+    def _has_storage(self, expr: AstExpr, state: CompileState) -> bool:
+        """True when a pointer to *expr*'s value can address it in place:
+        *expr* is a variable (which has its own slot), or a member/element
+        access (which addresses part of its parent's storage). An access into
+        an anonymous literal is the exception: the literal is never built, so
+        the access reduces to the accessed member's own expression instead
+        (see emit_AstGetAttr/emit_AstIndexExpr)."""
+        sym = state.resolved_symbols.get(expr)
+        if is_instance_compat(sym, VariableSymbol):
+            return True
+        return is_instance_compat(sym, FieldAccess) and not is_instance_compat(
+            sym.parent_expr, (AstAnonStruct, AstAnonArray)
+        )
+
+    def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
+        """Emit a pointer to *expr*'s value, without loading it."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        if not self._has_storage(expr, state):
+            return self._emit_to_temp_slot(expr, state)
+        sym = state.resolved_symbols[expr]
+        if is_instance_compat(sym, VariableSymbol):
+            return sym.llvm_ptr
+        assert is_instance_compat(sym, FieldAccess), sym
+        parent_ptr = self._emit_ptr(sym.parent_expr, state)
+        parent_type = state.contextual_types[sym.parent_expr]
+        if sym.is_struct_member:
+            # gep(p, [0, i]) points at member i of the struct behind p: the
+            # leading 0 stays on the struct p itself points at (a GEP's first
+            # index strides in whole pointee units), and i then selects the
+            # member. A struct's member index must be a constant, since each
+            # member has its own type and the result type must be known
+            # statically. `inbounds` promises the address stays inside the
+            # parent object, which a valid member index always does.
+            member_idx = next(
+                i for i, m in enumerate(parent_type.members) if m.name == sym.name
+            )
+            return b.gep(
+                parent_ptr,
+                [ir.Constant(i32, 0), ir.Constant(i32, member_idx)],
+                inbounds=True,
+                name=sym.name,
+            )
+        assert sym.is_array_element, sym
+        idx = self.emit(sym.idx_expr, state)
+        self._emit_array_bounds_check(idx, parent_type.length)
+        return b.gep(parent_ptr, [ir.Constant(i32, 0), idx], inbounds=True)
+
+    def _emit_to_temp_slot(self, expr: AstExpr, state: CompileState) -> ir.Value:
+        """Emit *expr* as a value and store it in a fresh stack slot (an
+        entry-block alloca), giving a value with no storage of its own an
+        address -- e.g. a folded constructor call's constant aggregate, or an
+        anonymous literal's member, so that a runtime index can GEP into it."""
+        b = self.builder
+        value = self.emit(expr, state)
+        with b.goto_entry_block():
+            slot = b.alloca(value.type)
+        b.store(value, slot)
+        return slot
+
+    def _emit_array_bounds_check(self, idx: ir.Value, length: int) -> None:
+        """Fault with ARRAY_OUT_OF_BOUNDS unless 0 <= idx < length, the
+        runtime bounds check the spec gives element accesses. ArrayIndexType
+        is signed, so a negative index must be caught explicitly."""
+        b = self.builder
+        too_low = b.icmp_signed("<", idx, ir.Constant(idx.type, 0))
+        too_high = b.icmp_signed(">=", idx, ir.Constant(idx.type, length))
+        oob = b.or_(too_low, too_high)
+        fail_block = b.function.append_basic_block("idx_oob")
+        ok_block = b.function.append_basic_block("idx_ok")
+        b.cbranch(oob, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        b.call(
+            b.module.globals[HOST_PANIC_FUNC_NAME],
+            [
+                ir.Constant(
+                    ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
+                )
+            ],
+        )
+        b.unreachable()
+        b.position_at_end(ok_block)
+
     def emit_AstFuncCall(
         self, node: AstFuncCall, state: CompileState
     ) -> ir.Value | None:
+        node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
-        if isinstance(func, CastSymbol):
-            # the actual conversion happens already as part of the
-            # synthesized -> contextual conversion
-            return self.emit(node.args[0], state)
-        if not isinstance(func, BuiltinFuncSymbol):
+        if is_instance_compat(func, CommandSymbol):
+            if func.is_seq_run_with_args:
+                raise BackendError(
+                    "LLVM backend can't lower sequence-run commands with "
+                    "arguments yet"
+                )
+            return self._emit_command_call(node_args, func, state)
+        elif is_instance_compat(func, BuiltinFuncSymbol):
+            return self._emit_builtin_call(node_args, func, state)
+        elif is_instance_compat(func, TypeCtorSymbol):
+            # A ctor call with all-constant args folds before reaching here.
             raise BackendError(
-                f"LLVM backend can't lower a call to {type(func).__name__} yet"
+                "LLVM backend can't lower runtime type-constructor calls yet"
             )
+        elif is_instance_compat(func, CastSymbol):
+            # the actual conversion happens already as part of the
+            # synthesized -> contextual conversion in emit()
+            return self.emit(node_args[0], state)
+        elif is_instance_compat(func, FunctionSymbol):
+            # script-defined function
+            raise BackendError(
+                "LLVM backend can't lower script-defined function calls yet"
+            )
+        else:
+            assert False, func
+
+    def _emit_builtin_call(
+        self, node_args: list, func: BuiltinFuncSymbol, state: CompileState
+    ) -> ir.Value | None:
         # Pass each argument as (emitted ir.Value, its constant FpyValue or None
         # if it isn't a compile-time constant). The builtin's generate_llvm picks
-        # whichever it needs.
-        args: list[tuple[ir.Value, FpyValue | None]] = []
-        for arg in node.args or []:
-            if isinstance(arg, FpyValue):  # a filled-in default argument
-                args.append((arg.llvm_value, arg))
+        # whichever it needs. Args the builtin requires to be compile-time
+        # constants are not emitted at all -- they may have no machine
+        # representation (e.g. log's InternalString message) -- so they arrive
+        # as (None, value).
+        args: list[tuple[ir.Value | None, FpyValue | None]] = []
+        for i, arg in enumerate(node_args):
+            const_val = (
+                arg
+                if is_instance_compat(arg, FpyValue)
+                else state.const_expr_values.get(arg)
+            )
+            if i in func.const_arg_indices:
+                assert (
+                    const_val is not None
+                ), f"const arg {i} of {func.name} should have been validated by semantics"
+                args.append((None, const_val))
+            elif is_instance_compat(arg, FpyValue):  # a filled-in default argument
+                args.append((arg.llvm_value, const_val))
             else:
-                args.append((self.emit(arg, state), state.const_expr_values.get(arg)))
+                args.append((self.emit(arg, state), const_val))
         return func.generate_llvm(self.builder, args)
+
+    def _emit_command_call(
+        self, node_args: list, func: CommandSymbol, state: CompileState
+    ) -> ir.Value:
+        """Lower a command call: build the command's buffer -- the big-endian
+        serialized FwOpcodeType followed by the fprime-serialized arguments --
+        in linear memory, dispatch it through the host cmd import, and return
+        the host's Fw.CmdResponse.
+        """
+        b = self.builder
+        module = b.module
+
+        # Lay out the buffer as a global: the opcode, then each argument in
+        # order. A constant arg is serialized directly into the initializer
+        # (at its actual size: a string packs to its real length, not its
+        # declared capacity). A runtime arg gets a zeroed max_size slot,
+        # filled in just before the dispatch.
+        initializer = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
+        runtime_args = []  # (byte offset of the arg's slot, arg expr, arg type)
+        for arg in node_args:
+            const_val = (
+                arg
+                if is_instance_compat(arg, FpyValue)
+                else state.const_expr_values.get(arg)
+            )
+            if const_val is not None:
+                initializer += const_val.serialize()
+            else:
+                arg_type = state.contextual_types[arg]
+                runtime_args.append((len(initializer), arg, arg_type))
+                initializer += bytes(arg_type.max_size)
+
+        buf_type = ir.ArrayType(ir.IntType(8), len(initializer))
+        buf = ir.GlobalVariable(
+            module, buf_type, name=module.get_unique_name("cmd_buf")
+        )
+        buf.linkage = "private"
+        buf.global_constant = not runtime_args
+        buf.initializer = ir.Constant(buf_type, initializer)
+
+        # Store each runtime arg's value into its slot.
+        for offset, arg, arg_type in runtime_args:
+            value = self.emit(arg, state)
+            written = self._emit_store_big_endian(value, arg_type, buf, offset)
+            assert written == arg_type.max_size, (arg_type, written)
+
+        # The host returns the response widened to i32; narrow it back to
+        # Fw.CmdResponse's type.
+        response = b.call(
+            module.globals[HOST_CMD_FUNC_NAME],
+            [
+                b.bitcast(buf, ir.IntType(8).as_pointer()),
+                ir.Constant(ir.IntType(32), len(initializer)),
+            ],
+        )
+        # assumption: the response is a valid cmd response code
+        return b.trunc(response, CMD_RESPONSE.llvm_type)
+
+    def _emit_store_big_endian(
+        self, value: ir.Value, fpy_type: FpyType, base_ptr: ir.Value, offset: int
+    ) -> int:
+        """Store *value* at byte *offset* inside the [N x i8] buffer at
+        *base_ptr* in fprime wire format: big-endian, tightly packed, bools as
+        the FW_SERIALIZE truth bytes, aggregates member by member. Returns the
+        number of bytes written (fpy_type's serialized size)."""
+        b = self.builder
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        if fpy_type.kind == TypeKind.STRUCT:
+            start = offset
+            for i, member in enumerate(fpy_type.members):
+                offset += self._emit_store_big_endian(
+                    b.extract_value(value, i), member.type, base_ptr, offset
+                )
+            assert offset - start == fpy_type.max_size, fpy_type
+            return fpy_type.max_size
+        if fpy_type.kind == TypeKind.ARRAY:
+            start = offset
+            for i in range(fpy_type.length):
+                offset += self._emit_store_big_endian(
+                    b.extract_value(value, i), fpy_type.elem_type, base_ptr, offset
+                )
+            assert offset - start == fpy_type.max_size, fpy_type
+            return fpy_type.max_size
+        if fpy_type.kind == TypeKind.BOOL:
+            # The truth bytes are dictionary-configurable module globals, so
+            # read them through the module, never a from-import.
+            value = b.select(
+                value,
+                ir.Constant(i8, fpy.types.FW_SERIALIZE_TRUE_VALUE),
+                ir.Constant(i8, fpy.types.FW_SERIALIZE_FALSE_VALUE),
+            )
+            width = 1
+        else:
+            # A runtime string can't exist (semantics rejects it), so what's
+            # left is an integer, an enum at its rep type, or a float.
+            assert not fpy_type.is_string, fpy_type
+            width = fpy_type.max_size
+            if fpy_type.is_float:
+                value = b.bitcast(value, ir.IntType(width * 8))
+            if width > 1:
+                # wasm memory is little-endian; the wire format is big-endian.
+                swap = b.module.declare_intrinsic("llvm.bswap", [value.type])
+                value = b.call(swap, [value])
+        ptr = b.gep(
+            base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, offset)], inbounds=True
+        )
+        if width > 1:
+            ptr = b.bitcast(ptr, value.type.as_pointer())
+        # The buffer is packed, so wider slots aren't naturally aligned.
+        b.store(value, ptr, align=1)
+        return width
+
+    def _emit_load_big_endian(
+        self, fpy_type: FpyType, base_ptr: ir.Value, offset: int
+    ) -> ir.Value:
+        """Load a value of *fpy_type* from byte *offset* inside the [N x i8]
+        buffer at *base_ptr*, the inverse of _emit_store_big_endian: the bytes
+        are fprime wire format (big-endian, tightly packed, aggregates member
+        by member). If the bytes cannot be deserialized to the fpy_type,
+        raise an error. Returns the value at fpy_type's LLVM type."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        if fpy_type.kind == TypeKind.STRUCT:
+            value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
+            start = offset
+            for i, member in enumerate(fpy_type.members):
+                value = b.insert_value(
+                    value, self._emit_load_big_endian(member.type, base_ptr, offset), i
+                )
+                offset += member.type.max_size
+            assert offset - start == fpy_type.max_size, fpy_type
+            return value
+        if fpy_type.kind == TypeKind.ARRAY:
+            value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
+            start = offset
+            for i in range(fpy_type.length):
+                value = b.insert_value(
+                    value,
+                    self._emit_load_big_endian(fpy_type.elem_type, base_ptr, offset),
+                    i,
+                )
+                offset += fpy_type.elem_type.max_size
+            assert offset - start == fpy_type.max_size, fpy_type
+            return value
+        assert not fpy_type.is_string, fpy_type
+        width = fpy_type.max_size
+        ptr = b.gep(
+            base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, offset)], inbounds=True
+        )
+        if fpy_type.kind == TypeKind.BOOL:
+            # The truth bytes are dictionary-configurable module globals, so
+            # read them through the module, never a from-import.
+            byte = b.load(ptr, align=1)
+            is_true = b.icmp_unsigned(
+                "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_TRUE_VALUE)
+            )
+            is_false = b.icmp_unsigned(
+                "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_FALSE_VALUE)
+            )
+            fail_block = b.function.append_basic_block("bool_bad")
+            ok_block = b.function.append_basic_block("bool_ok")
+            b.cbranch(b.or_(is_true, is_false), ok_block, fail_block)
+            b.position_at_end(fail_block)
+            b.call(
+                b.module.globals[HOST_PANIC_FUNC_NAME],
+                [
+                    ir.Constant(
+                        ERROR_CODE_TYPE,
+                        DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value,
+                    )
+                ],
+            )
+            b.unreachable()
+            b.position_at_end(ok_block)
+            return is_true
+        if width > 1:
+            ptr = b.bitcast(ptr, ir.IntType(width * 8).as_pointer())
+        # The buffer is packed, so wider slots aren't naturally aligned.
+        value = b.load(ptr, align=1)
+        if width > 1:
+            # wasm memory is little-endian; the wire format is big-endian.
+            swap = b.module.declare_intrinsic("llvm.bswap", [value.type])
+            value = b.call(swap, [value])
+        if fpy_type.is_float:
+            value = b.bitcast(value, fpy_type.llvm_type)
+        return value
 
     def convert_numeric_type(self, value: ir.Value, from_type, to_type) -> ir.Value:
         """Convert a scalar numeric value between two concrete numeric types."""
@@ -426,7 +814,16 @@ class EmitLlvmExpr(Emitter):
         return self.builder.call(fn, [value])
 
 
-FPY_ENTRY_POINT = "fpy_main"
+# The symbol and wasm export name of the user entrypoint: `void main()`, no
+# arguments and no return value. Every failure (and explicit exit) reports
+# its code through the exit/fault host imports and never comes back, so
+# returning at all means success and there is no status to return. This
+# deliberately diverges from the Basic C ABI's `int main` user-entrypoint
+# shape -- and the void return is also what keeps LLVM's wasm backend
+# (WebAssemblyFixFunctionBitcasts) from touching the function: that pass only
+# rewrites a zero-arg `main` that returns i32, renaming it `__original_main`
+# and synthesizing a canonical main(argc, argv) wrapper around it.
+FPY_ENTRY_POINT = "main"
 
 
 class CollectFrameVariables(TopDownVisitor):
@@ -467,32 +864,77 @@ class EmitLlvmStmt(Emitter):
         """Lower the statements of *block* into the current basic block(s)."""
         for stmt in node.stmts:
             if is_instance_compat(stmt, AstExpr):
-                # Constants are skipped, and this is required, not just an
-                # optimization: a bare statement gives its expression no type
-                # context, so a literal keeps its *abstract* type
-                # (Integer/Float/InternalString), which has no machine
-                # representation -- emitting `10.0 ** 1000` or `"test"` would
-                # assert in FpyValue.llvm_value. They're also pure (const folding
-                # only folds pure expressions), so dropping them changes nothing.
-                if state.const_expr_values.get(stmt) is None:
-                    self.expr.emit(stmt, state)
+                # A constant statement emits no code: emit() maps it to a bare
+                # ir.Constant no instruction uses (or to None when it has an
+                # abstract type, which only a bare statement can leave it at).
+                result = self.expr.emit(stmt, state)
+                if is_cmd_and_response_unhandled(stmt, state):
+                    self._emit_assert_cmd_response_ok(result, state)
             elif is_instance_compat(stmt, AstNodeWithSideEffects):
                 # A non-expression statement (assign, if, assert, def, ...).
                 self.emit(stmt, state)
             # else: a non-expression statement that can't affect the program on
             # its own (e.g. `pass`, sequence metadata) -- nothing to lower.
 
+    def _emit_assert_cmd_response_ok(
+        self, response: ir.Value, state: CompileState
+    ) -> None:
+        """For a bare command call, exit with CMD_FAIL if the response is not
+        OK and flags.assert_cmd_success is set."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        ok = b.icmp_unsigned(
+            "==", response, ir.Constant(response.type, CMD_RESPONSE.enum_dict["OK"])
+        )
+        not_ok_block = b.function.append_basic_block("cmd_not_ok")
+        fail_block = b.function.append_basic_block("cmd_fail")
+        end_block = b.function.append_basic_block("cmd_ok")
+        b.cbranch(ok, end_block, not_ok_block)
+
+        b.position_at_end(not_ok_block)
+        flags_type = state.flags_var.type
+        member_idx = next(
+            i
+            for i, m in enumerate(flags_type.members)
+            if m.name == "assert_cmd_success"
+        )
+        flag_ptr = b.gep(
+            state.flags_var.llvm_ptr,
+            [ir.Constant(i32, 0), ir.Constant(i32, member_idx)],
+            inbounds=True,
+        )
+        b.cbranch(b.load(flag_ptr), fail_block, end_block)
+
+        b.position_at_end(fail_block)
+        b.call(
+            b.module.globals[HOST_EXIT_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.CMD_FAIL.value)],
+        )
+        b.unreachable()
+        b.position_at_end(end_block)
+
     def emit_AstDef(self, node: AstDef, state: CompileState) -> None:
-        # Function definitions (incl. the prepended builtin library) aren't
-        # lowered inline; a call to one is handled at its call site.
+        # A function definition emits nothing itself; calls to it are lowered
+        # at their call sites.
         return
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
         sym = state.resolved_symbols[node.lhs]
-        # The rhs is coerced to the variable's type, so its emitted value
-        # already matches the slot's element type.
+        # The rhs is coerced to the target's type, so its emitted value
+        # already matches the slot's element type. Emit it before the lhs
+        # pointer so a failing bounds check in the lhs still evaluates the
+        # rhs first
         value = self.expr.emit(node.rhs, state)
-        self.builder.store(value, sym.llvm_ptr)
+        if is_instance_compat(sym, VariableSymbol):
+            self.builder.store(value, sym.llvm_ptr)
+            return
+        # A field/element target (x.f = ..., a[i] = ...): store through a
+        # pointer into the base variable's storage, in place. Semantics only
+        # lets through targets rooted at a variable, so _emit_ptr cannot
+        # spill the target to a temp slot (which would lose the store).
+        assert is_instance_compat(sym, FieldAccess), sym
+        assert is_instance_compat(sym.base_sym, VariableSymbol), sym
+        self.builder.store(value, self.expr._emit_ptr(node.lhs, state))
 
     def emit_AstIf(self, node: AstIf, state: CompileState) -> None:
         builder = self.builder
@@ -540,7 +982,8 @@ class EmitLlvmStmt(Emitter):
             )
         else:
             code = self.expr.emit(node.exit_code, state)
-        emit_host_exit(builder, code)
+        builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
+        builder.unreachable()
 
         # Success path: continue lowering subsequent statements here.
         builder.position_at_end(ok_block)
@@ -551,12 +994,22 @@ class GenerateLlvmModule:
     its storage, then lowers the root block's statements with EmitLlvmStmt.
     """
 
-    def emit(self, body: AstBlock, state: CompileState) -> ir.Module:
-        assert body is state.root, "module generator must be run on the root block"
+    def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
+        assert (
+            root_block is state.root_block
+        ), "module generator must be run on the root block"
+        # The entry function is the main sequence -- the main block -- not the
+        # library root (which also holds the builtin library and the imported
+        # sequences, all definition-only). Functions are lowered on demand at
+        # their call sites, so they need no separate walk here.
+        program = state.main_block
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
+        declare_host_imports(module)
 
-        func_type = ir.FunctionType(ERROR_CODE_TYPE, [])
+        # The user entrypoint (see FPY_ENTRY_POINT): void main(), where
+        # returning at all means success.
+        func_type = ir.FunctionType(ir.VoidType(), [])
         func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
 
@@ -564,15 +1017,15 @@ class GenerateLlvmModule:
         self._declare_flags(module, state)
         # Declare storage for every variable in this frame up front.
         collector = CollectFrameVariables()
-        collector.run(body, state)
+        collector.run(program, state)
         for sym in collector.symbols:
             self._declare_variable(module, builder, sym)
 
-        EmitLlvmStmt(builder).emit(body, state)
+        EmitLlvmStmt(builder).emit(program, state)
 
         # Fell off the end of the sequence without failing: success.
         if not builder.block.is_terminated:
-            builder.ret(ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.NO_ERROR.value))
+            builder.ret_void()
         return module
 
     def _declare_flags(self, module: ir.Module, state: CompileState) -> None:
@@ -656,7 +1109,19 @@ def _wasm_ld_command() -> list[str]:
             "the 'ziglang' package is required to link wasm output (it provides "
             "wasm-ld); install it with 'pip install ziglang'"
         )
-    return [sys.executable, "-m", "ziglang", "wasm-ld"]
+    return [
+        sys.executable,
+        "-m",
+        "ziglang",
+        "wasm-ld",
+        "--page-size=1",
+        # Reserve a real shadow stack for allocas, placed at the very start of
+        # linear memory so an overflow traps (the stack pointer wraps below 0
+        # and the store lands out of bounds) instead of silently corrupting
+        # the globals laid out after it.
+        "-zstack-size=4096",
+        "--stack-first",
+    ]
 
 
 def _llvm_version_str() -> str:
@@ -696,7 +1161,8 @@ def backend_version_str() -> str:
 def _link_wasm_object(obj: bytes) -> bytes:
     """Link a relocatable wasm object into a runnable module with wasm-ld."""
     flags = [
-        # No C-style _start entry point; we call fpy_main directly.
+        # No C-style _start crt wrapper; the host invokes the exported
+        # entrypoint directly.
         "--no-entry",
         # Undefined symbols become host imports (for future host calls like
         # commands/telemetry); harmless while there are none.

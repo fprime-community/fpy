@@ -30,8 +30,6 @@ In a syntactic rule:
 * A star suffix `*` means zero or more instances of its preceding rule
 * A question mark suffix `?` means zero or one instances of its preceding rule
 
-A line of the specification may be followed by an italicized _Tests:_ line. Each bracketed number links to a test that verifies the behavior; hover over a number to see the test's full `file::class::name`. These links are checked and kept up to date by `verify/spec_links.py`.
-
 
 
 include::spec/01-names-and-scopes.adoc[]

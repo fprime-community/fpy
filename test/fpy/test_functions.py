@@ -1,6 +1,7 @@
 from fpy.types import U32
 
 from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.error import WarningType
 
 
 class TestDefinition:
@@ -188,7 +189,9 @@ def test():
     return Fw
 """
 
-        assert_compile_failure(fprime_test_api, seq)
+        # `Fw` is a dictionary namespace (a module), not a value; using it bare
+        # is rejected before any void-return check.
+        assert_compile_failure(fprime_test_api, seq, match="Expected a value")
 
     def test_void_function_without_explicit_return(self, fprime_test_api):
         seq = """
@@ -917,3 +920,27 @@ exit(exit_code=0)
 """
 
         assert_run_success(fprime_test_api, seq)
+
+
+class TestShadowWarnings:
+    """Defining a function whose name already resolves in an ENCLOSING scope
+    (typically a builtin command, cast, type constructor, or library function)
+    is allowed but emits the `shadow-callable` warning (never `shadow-value`),
+    and still compiles and runs. Redefining a name already in the SAME scope
+    stays a hard error (see test_redeclare_func)."""
+
+    def test_function_shadows_builtin_warns(self, fprime_test_api):
+        # `time_add` is a builtin library function; redefining it here shadows
+        # the base callable rather than colliding with a same-scope definition.
+        # expected_warnings both requires shadow-callable and (by promoting
+        # anything else) asserts it is not miscategorized as shadow-value.
+        seq = """
+def time_add() -> U32:
+    return U32(0)
+
+x: U32 = time_add()
+assert x == 0
+"""
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )

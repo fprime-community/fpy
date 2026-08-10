@@ -7,6 +7,7 @@ from fpy.test_helpers import (
     assert_run_failure,
 )
 from fpy.model import DirectiveErrorCode
+from fpy.error import WarningType
 from fpy.types import U8, U32, F64, BOOL, FpyValue
 
 
@@ -284,7 +285,9 @@ sequence(i: U32)
 for i in 0..10:
     pass
 """
-    assert_compile_success(fprime_test_api, seq)
+    assert_compile_success(
+        fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+    )
 
 
 def test_sequence_param_shadowed_by_func_param(fprime_test_api):
@@ -295,7 +298,9 @@ def foo(x: I32):
     pass
 foo(5)
 """
-    assert_compile_success(fprime_test_api, seq)
+    assert_compile_success(
+        fprime_test_api, seq, expected_warnings={WarningType.SHADOW_VALUE}
+    )
 
 
 def test_defining_sequence_in_function(fprime_test_api):

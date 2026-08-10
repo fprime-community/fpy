@@ -3,6 +3,7 @@ from functools import lru_cache
 from typing import Union
 from dataclasses import dataclass, field
 
+import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
 from fpy.ir import Ir, IrLabel
@@ -11,8 +12,9 @@ from fpy.symbols import (
     CallableSymbol,
     CastSymbol,
     CommandSymbol,
+    NameGroup,
+    Scope,
     Symbol,
-    SymbolTable,
     TypeCtorSymbol,
     VariableSymbol,
     create_symbol_table,
@@ -38,8 +40,12 @@ from fpy.types import (
     BOOL,
     CHECK_STATE,
     CMD_RESPONSE,
+    DEFAULT_FW_SERIALIZE_FALSE_VALUE,
+    DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
+    DEFAULT_MAX_SEQ_ARG_COUNT,
+    DEFAULT_MAX_STACK_SIZE,
     FLAGS_TYPE,
     I64,
     LOG_SEVERITY,
@@ -66,13 +72,9 @@ class ForLoopAnalysis:
 class CompileState:
     """a collection of input, internal and output state variables and maps"""
 
-    global_type_scope: SymbolTable
-    """The global type scope: a symbol table whose leaf nodes are FpyType instances."""
-    global_callable_scope: SymbolTable
-    """The global callable scope: a symbol table whose leaf nodes are CallableSymbol instances."""
-    global_value_scope: SymbolTable
-    """The global value scope: a symbol table whose leaf nodes are runtime values
-    (telemetry channels, parameters, enum constants, variables)."""
+    main_scope: Scope = None
+    """The main sequence's scope: a child of `base_scope` holding the main
+    sequence's own top-level definitions. None until CreateScopes runs"""
 
     type_defs: dict = field(default_factory=dict)
     """Flat map of fully-qualified type name to FpyType, for resolving types at compile time."""
@@ -81,15 +83,34 @@ class CompileState:
     # Sequence limits loaded from dictionary (or defaults if not specified)
     max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT
     max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
+    max_seq_arg_count: int = DEFAULT_MAX_SEQ_ARG_COUNT
+    max_stack_size: int = DEFAULT_MAX_STACK_SIZE
+    # Command transport limits loaded from dictionary. None means the constant
+    # is not in the dictionary, in which case the corresponding check is skipped.
+    com_buffer_max_size: int | None = None
+    cmd_arg_buffer_max_size: int | None = None
+    cmd_names_by_opcode: dict[int, str] = field(default_factory=dict)
+    """Map of command opcode to fully-qualified command name, for error messages."""
 
     next_node_id: int = 0
-    root: AstBlock = None
+    root_block: AstBlock = None
+    """the outermost block: the library root, which owns the base scope and holds
+    the builtin library functions, the main block, and every imported sequence
+    block as its children. Built by _build_root_block."""
+    main_block: AstBlock = None
+    """the main sequence's block (the executable body), a child of `root`. The
+    frame layout and directive stream are generated from this block, not `root`
+    (which also contains the builtin library and the imported sequences)."""
+    imported_blocks: list = field(default_factory=list, repr=False)
+    """every imported sequence file's block B, collected by ConstructAst.
+    _build_root_block installs them as children of the library `root`
+    (siblings of `main_block`), making each "a sibling of the main sequence's
+    block": an isolated scope block that does not execute inline."""
     parent_map: dict[Ast, Ast] = field(default_factory=dict, repr=False)
     """map of each node to its parent node in the AST"""
-    enclosing_value_scope: dict[Ast, SymbolTable] = field(
-        default_factory=dict, repr=False
-    )
-    """map of node to its enclosing value scope (block scope, function scope, or global_value_scope)"""
+    enclosing_scope: dict[Ast, Scope] = field(default_factory=dict, repr=False)
+    """map of node to its enclosing Scope (block scope, function scope, a
+    sequence's root scope, or the base scope)."""
     for_loops: dict[AstFor, ForLoopAnalysis] = field(default_factory=dict)
     """map of for loops to a ForLoopAnalysis struct, which contains additional info about the loops"""
     enclosing_loops: dict[Union[AstBreak, AstContinue], Union[AstFor, AstWhile]] = (
@@ -100,6 +121,13 @@ class CompileState:
     """mapping of while loops which are desugared for loops, to the original node from which they came"""
 
     enclosing_funcs: dict[AstReturn, AstDef] = field(default_factory=dict)
+
+    contextual_name_group: dict[AstExpr, NameGroup] = field(
+        default_factory=dict, repr=False
+    )
+    """The name group an expression is used in, determined purely from where it
+    appears (a func's callee is CALLABLE, a type annotation is TYPE, an
+    operand/argument/rhs is VALUE)."""
 
     resolved_symbols: dict[AstReference, Symbol] = field(
         default_factory=dict, repr=False
@@ -182,10 +210,44 @@ class CompileState:
     error_warnings: set[WarningType] = field(default_factory=set)
     """warning types to promote to hard compile errors (`--error`)"""
 
-    import_search_dirs: list[str] = field(default_factory=list)
-    """ordered list of directories searched to resolve `import` statements to
-    source files (first match wins). Populated from `-i/--include` in the CLI (in addition to the
-    importing file's own directory)."""
+    import_directories: list[str] = field(default_factory=list)
+    """"The import directories are an ordered list of absolute paths of
+    directories provided by the environment in which the compiler is
+    invoked." (SPEC.md Imports) An absolute import statement's first identifier is
+    resolved in each of them in order until it succeeds. Populated from
+    `-i/--imports` in the CLI."""
+
+    main_file_dir: str | None = None
+    """directory containing the main sequence's file, from which a relative
+    import statement's anchor directory is counted. None when compiling from
+    a stream (a relative import in the main sequence is then an error)."""
+
+    main_file_path: str | None = None
+    """the absolute path of the main sequence's file, so that an import path
+    resolving to it is recognized as the main sequence and skipped rather
+    than included again. None when compiling from a stream."""
+
+    base_scope: Scope = None
+    """the dictionary/builtin scope: dictionary types, commands/casts/type
+    constructors/macros (callable group), and dictionary channels, params, enum
+    constants, constants and `flags` (value group), plus the builtin library
+    functions (builtin/time.fpy) that DefineFunctions registers via the library
+    root block."""
+
+    main_sequence: object = None
+    """the SequenceContext for the main (top-level) sequence being compiled."""
+    resolved_imports: list = field(default_factory=list, repr=False)
+    """each import statement whose import path has resolved to a sequence
+    definition (a ResolvedImport), in inner-first order. BindImports
+    associates their names once every sequence's definitions have been
+    registered (by DefineFunctions / DefineVariables)."""
+    loaded_sequences: dict = field(default_factory=dict, repr=False)
+    """maps a sequence file (absolute path) -> its SequenceContext: every
+    imported sequence file included in the program's AST, plus the main
+    sequence when its file is known. An import path resolving to a file in
+    this map is skipped rather than included again, so a file is lexed,
+    parsed and included once, however many import statements name it, and
+    its definitions are shared, never duplicated."""
 
     next_anon_var_id: int = 0
 
@@ -583,7 +645,9 @@ def get_base_compile_state(
     ground_binary_dir: str | None = None,
     ignored_warnings: set[WarningType] | None = None,
     error_warnings: set[WarningType] | None = None,
-    import_search_dirs: list[str] | None = None,
+    import_directories: list[str] | None = None,
+    main_file_dir: str | None = None,
+    main_file_path: str | None = None,
 ) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
     type_scope, callable_scope, values_scope, type_defs = _build_global_scopes(
@@ -591,7 +655,7 @@ def get_base_compile_state(
     )
     constants = load_dictionary(dictionary)["constants"]
 
-    def _const_int(key: str, default: int) -> int:
+    def _const_int(key: str, default: int | None) -> int | None:
         """Extract an integer constant value, falling back to *default*."""
         val = constants.get(key)
         if val is None:
@@ -601,14 +665,31 @@ def get_base_compile_state(
         ), f"Expected int for constant {key}, got {type(val.val)}"
         return val.val
 
-    # Make copies of the scopes since we'll mutate them during compilation
-    # (e.g., adding user-defined functions to callable_scope, variables to values_scope)
-    # if we don't make copies, then the lru cache will return the modified versions, causing
-    # two runs of the compiler to conflict
+    # Override the live boolean wire-format constants (read directly by the stateless FpyValue.serialize()) from the dictionary.
+    fpy.types.FW_SERIALIZE_TRUE_VALUE = _const_int(
+        "FW_SERIALIZE_TRUE_VALUE", DEFAULT_FW_SERIALIZE_TRUE_VALUE
+    )
+    fpy.types.FW_SERIALIZE_FALSE_VALUE = _const_int(
+        "FW_SERIALIZE_FALSE_VALUE", DEFAULT_FW_SERIALIZE_FALSE_VALUE
+    )
+
+    # The base scope holds the dictionary/builtin names, split by name group:
+    # types in the type group; commands, casts, type constructors and macros in
+    # the callable group (plus the builtin library functions once compiled); and
+    # dictionary channels, params, enum constants, constants and `flags` in the
+    # value group. It is the parent of every sequence's scope -- the main
+    # sequence's main_scope and every imported sequence's -- so those names
+    # resolve up the parent chain for all of them, while each sequence's own
+    # definitions live in its own child scope, isolated from the rest.
+    #
+    # The group dicts are copied out of the (lru-cached) module tables so that
+    # mutating the base scope during a compile does not corrupt the cache.
+    base_scope = Scope()
+    base_scope.group(NameGroup.TYPE).update(type_scope)
+    base_scope.group(NameGroup.CALLABLE).update(callable_scope)
+    base_scope.group(NameGroup.VALUE).update(values_scope)
+
     state = CompileState(
-        global_type_scope=type_scope,  # types are not mutated
-        global_callable_scope=callable_scope.copy(),
-        global_value_scope=values_scope.copy(),
         type_defs=type_defs,
         ground_binary_dir=ground_binary_dir,
         max_directives_count=_const_int(
@@ -617,15 +698,29 @@ def get_base_compile_state(
         max_directive_size=_const_int(
             "Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE
         ),
+        max_seq_arg_count=_const_int(
+            "Svc.Fpy.MAX_SEQUENCE_ARG_COUNT", DEFAULT_MAX_SEQ_ARG_COUNT
+        ),
+        max_stack_size=_const_int("Svc.Fpy.MAX_STACK_SIZE", DEFAULT_MAX_STACK_SIZE),
+        com_buffer_max_size=_const_int("FW_COM_BUFFER_MAX_SIZE", None),
+        cmd_arg_buffer_max_size=_const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        cmd_names_by_opcode={
+            opcode: cmd.name
+            for opcode, cmd in load_dictionary(dictionary)["cmd_id_dict"].items()
+        },
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
-        import_search_dirs=list(import_search_dirs) if import_search_dirs else [],
+        import_directories=list(import_directories) if import_directories else [],
+        main_file_dir=main_file_dir,
+        main_file_path=main_file_path,
     )
+    state.base_scope = base_scope
 
-    # Create the built-in 'flags' variable ($Flags struct).
-    # declaration=None marks it as a built-in that is always defined.
+    # Create the built-in 'flags' variable ($Flags struct). declaration=None
+    # marks it as a built-in that is always defined. It lives in the base scope's
+    # value group, so it is shared across all sequences.
     flags_var = VariableSymbol("flags", None, None, FLAGS_TYPE, is_global=True)
-    state.global_value_scope["flags"] = flags_var
+    base_scope.define(NameGroup.VALUE, "flags", flags_var)
     state.flags_var = flags_var
 
     return state

@@ -121,8 +121,6 @@ TODO names are semantic, ident is syntactic
 TODO you can't actually tell at syntax level what is a fqn
 If a fully-qualified name resolves to a namespace, an error is raised.
 
-_Tests:_ link:test/fpy/test_imports.py#L343[1,title="test/fpy/test_imports.py::TestImportNamespaceIsolation::test_module_name_not_usable_as_value"]
-
 TODO you can think of the dict as "importing definitions"
 
 

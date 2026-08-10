@@ -6,6 +6,7 @@ from fpy.syntax import (
     Ast,
     AstAssert,
     AstAssign,
+    AstAugAssign,
     AstBinaryOp,
     AstBreak,
     AstCheck,
@@ -34,8 +35,10 @@ from fpy.state import (
     CompileState,
     ForLoopAnalysis,
 )
+from fpy.error import WarningType
 from fpy.symbols import (
     FieldAccess,
+    NameGroup,
     Symbol,
 )
 from fpy.visitors import Transformer
@@ -338,6 +341,29 @@ class DesugarDefaultArgs(Transformer):
         return node
 
 
+class DesugarAugmentedAssignments(Transformer):
+    """
+    Desugars augmented assignments (+=, -=, *=, /=, %=, **=, //=) into plain
+    assignments BEFORE semantic analysis:
+
+        <lhs> <op>= <rhs>   becomes   <lhs> = <lhs> <op> <rhs>
+
+    This runs before AssignIds, so we don't need to worry about node IDs.
+    The generated AST nodes go through normal semantic analysis, which also
+    validates that <lhs> is a valid assignment target.
+    """
+
+    def visit_AstAugAssign(self, node: AstAugAssign, state: CompileState):
+        # stripping the trailing "=" from the token yields the binary operator
+        op = BinaryStackOp(node.op[:-1])
+        # the lhs appears both as the assignment target and as the left
+        # operand; they must be distinct node objects so each gets its own
+        # id and semantic info
+        lhs_operand = copy.deepcopy(node.lhs)
+        binop = AstBinaryOp(node.meta, lhs_operand, op, node.rhs)
+        return AstAssign(node.meta, node.lhs, None, binop)
+
+
 class DesugarCheckStatements(Transformer):
     """
     Desugars check statements into while loops BEFORE semantic analysis.
@@ -465,8 +491,17 @@ class DesugarCheckStatements(Transformer):
         timed_out_name = self.new_var_name()
         succeeded_name = self.new_var_name()
 
-        # Check if timeout is specified (None means no timeout)
+        # Check if timeout is specified. `never` and an absent clause both leave
+        # node.timeout as None, so the per-iteration timeout check is skipped.
         has_timeout = node.timeout is not None
+
+        # `timeout never` can never time out, so a timeout body is dead code.
+        if node.timeout_never and node.timeout_body is not None:
+            state.warn(
+                WarningType.UNREACHABLE_TIMEOUT_BODY,
+                "This check has 'timeout never', so its timeout body can never run",
+                node.timeout_body,
+            )
 
         # Helper to reference check_state members
         def cs(attr: str):
@@ -740,7 +775,15 @@ class DesugarTimeOperators(Transformer):
         state: CompileState,
     ) -> AstFuncCall:
         """Create a function call AST node with proper state."""
-        func_symbol = state.global_callable_scope.get(func_name)
+        # These operators desugar to compiler-chosen library builtins
+        # (time_add, time_sub, time_cmp, ...), which live in the base scope: the
+        # shared library scope that is the parent of every sequence's scope.
+        # Resolve there directly rather than from any one sequence's scope -- the
+        # target is the same builtin no matter which sequence the operator
+        # appears in, and a sequence-local function that happens to share the
+        # name must not hijack the desugaring (see
+        # test_sequence_function_does_not_hijack_time_desugaring).
+        func_symbol = state.base_scope.lookup(NameGroup.CALLABLE, func_name)
         assert (
             func_symbol is not None
         ), f"Function {func_name} not found in callable scope"
