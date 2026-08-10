@@ -101,6 +101,7 @@ postlex
 postlexer
 prm
 PRNG
+ptrs
 px
 py
 pytestmark

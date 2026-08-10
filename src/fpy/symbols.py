@@ -1,14 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Union
+from typing import Callable, Union
 import typing
 
 from fpy.bytecode.directives import Directive
 from fpy.syntax import Ast, AstDef, AstExpr, AstFuncCall
 from fpy.types import ChDef, CmdDef, FpyType, FpyValue, PrmDef, is_instance_compat
-
-if TYPE_CHECKING:
-    from llvmlite import ir
 
 
 @dataclass
@@ -93,9 +90,11 @@ class FieldAccess:
 
 
 # named variables can be tlm chans, prms, callables, or directly referenced consts (usually enums)
-@dataclass
+@dataclass(eq=False)
 class VariableSymbol:
-    """a mutable, typed value stored on the stack referenced by an unqualified name"""
+    """a mutable, typed value stored on the stack referenced by an unqualified
+    name. One declaration is one variable, so variables compare and hash by
+    identity."""
 
     name: str
     type_ref: AstExpr | None
@@ -104,13 +103,8 @@ class VariableSymbol:
     """the node where this var is declared"""
     type: FpyType | None = None
     """the resolved type of the variable. None if type unsure at the moment"""
-    frame_offset: int | None = None
-    """the offset in the lvar array where this var is stored (fpybc backend)"""
     is_global: bool = False
     """whether this variable is a top-level (global) variable"""
-    llvm_ptr: "ir.Value | None" = field(default=None, compare=False, repr=False)
-    """llvm/wasm backend: the pointer to this variable's storage (an alloca for
-    locals, a GlobalVariable for globals). Set during codegen."""
 
 
 next_symbol_table_id = 0

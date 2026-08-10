@@ -1,7 +1,8 @@
 from __future__ import annotations
+from dataclasses import dataclass, field
 from typing import Union
 
-from fpy.state import CompileState
+from fpy.state import BackendState, CompileState
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
 # We need to handle this for forward compatibility, but it won't exist in 3.9.
@@ -142,6 +143,38 @@ from fpy.syntax import (
 )
 
 
+@dataclass
+class FpybcBackendState(BackendState):
+    """The fpybc backend's view of a program: how its variables are laid out,
+    and what it has emitted so far."""
+
+    frame_offsets: dict[VariableSymbol, int] = field(default_factory=dict)
+    """variable to the offset of its storage within its frame"""
+
+    frame_sizes: dict[Ast, int] = field(default_factory=dict)
+    """the block that owns a frame, to the total size in bytes of that frame's
+    locals"""
+
+    used_funcs: set[AstDef] = field(default_factory=set)
+    """the function definitions that are called, and so need code generated"""
+
+    func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
+    """function definition to the label at its entry point"""
+
+    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
+    """function definition to the code generated for its body"""
+
+    while_loop_start_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """while loop to the label just before its conditional"""
+
+    while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """while loop to the label at the end of the loop"""
+
+    # keyed by while, because for loops are desugared to while loops
+    for_loop_inc_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
+    """desugared for loop to the label at its increment stmt"""
+
+
 class CollectUsedFunctions(Visitor):
     """Collects the set of functions that are called anywhere in the code.
 
@@ -153,7 +186,7 @@ class CollectUsedFunctions(Visitor):
         func = state.resolved_symbols.get(node.func)
         if not is_instance_compat(func, FunctionSymbol):
             return
-        state.used_funcs.add(func.definition)
+        state.backend.used_funcs.add(func.definition)
 
 
 class _LayOutFrameLocals(TopDownVisitor):
@@ -161,36 +194,38 @@ class _LayOutFrameLocals(TopDownVisitor):
     next offset. Does not descend into nested function bodies -- each of those
     owns its own frame.
 
-    `offset` starts past the frame's prologue (the sequence args and flags slot
-    # FIXME what do you mean by "nothing" here
-    for the main frame; nothing for a function frame, whose parameters sit at
-    negative offsets) and ends past the last local, i.e. at the frame size."""
+    `offset` starts where the frame's first local goes: past the main frame's
+    reserved slots (the sequence args, then the flags struct), or at 0 for a
+    function frame, which reserves none. It ends past the last local, i.e. at
+    the frame size."""
 
     def __init__(self, offset: int):
         super().__init__()
         self.offset = offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        frame_offsets = state.backend.frame_offsets
         for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
-            if is_instance_compat(sym, VariableSymbol) and sym.frame_offset is None:
-                sym.frame_offset = self.offset
+            if is_instance_compat(sym, VariableSymbol) and sym not in frame_offsets:
+                frame_offsets[sym] = self.offset
                 self.offset += sym.type.max_size
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
         return STOP_DESCENT
 
 
-class CalculateFrameSizes(Visitor):
+class AssignFrameOffsets(Visitor):
     """Assign every local variable its offset within its stack frame, and record
-    each frame's total size in state.frame_sizes.
+    each frame's total size.
 
     A frame is owned by a block: the main block (the global frame) or a
     function body. Its locals are the variables declared in that block and its
     nested blocks, except nested function bodies, which own their own frames.
-    Ahead of the locals sits the frame's prologue:
-      * the main frame: the sequence arguments, then the flags slot
-      * a function frame: the formal parameters, at negative offsets (before the
-        frame start)
+
+    The main frame reserves slots below its locals for the sequence arguments,
+    then the flags struct. A function frame reserves none -- its locals start at
+    offset 0, and its formal parameters sit below the frame start at negative
+    offsets, past the header CALL leaves there.
 
     We walk the whole tree only to find the frame owners: run() lays out the
     main frame, then visit_AstDef lays out each function's frame.
@@ -210,29 +245,31 @@ class CalculateFrameSizes(Visitor):
     def _layout_main_frame(self, state: CompileState):
         # Sequence args arrive on the stack first, then the flags slot -- which
         # lives in the base scope but occupies a slot in the main frame here.
+        frame_offsets = state.backend.frame_offsets
         offset = 0
         for name, arg_type in state.this_seq_arg_specs:
             arg_var = state.main_scope.group(NameGroup.VALUE)[name]
-            arg_var.frame_offset = offset
+            frame_offsets[arg_var] = offset
             offset += arg_type.max_size
-        state.flags_var.frame_offset = offset
+        frame_offsets[state.flags_var] = offset
         offset += state.flags_var.type.max_size
 
-        state.frame_sizes[state.main_block] = self._layout_locals(
+        state.backend.frame_sizes[state.main_block] = self._layout_locals(
             state.main_block, offset, state
         )
 
     def _layout_function_frame(self, node: AstDef, state: CompileState):
         # FIXME you can inline this func
         # Formal parameters sit before the frame start, at negative offsets.
+        frame_offsets = state.backend.frame_offsets
         func = state.resolved_symbols[node.name]
         body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
         arg_offset = -STACK_FRAME_HEADER_SIZE
         for arg_name, arg_type, _default in reversed(func.args):
             arg_offset -= arg_type.max_size
-            body_values[arg_name].frame_offset = arg_offset
+            frame_offsets[body_values[arg_name]] = arg_offset
 
-        state.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
+        state.backend.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
 
     def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
         """Lay out every local in *frame_block*'s frame, starting at *offset*,
@@ -244,25 +281,25 @@ class CalculateFrameSizes(Visitor):
 
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if node not in state.used_funcs:
+        if node not in state.backend.used_funcs:
             # Function is never called, skip it
             return
         entry_label = IrLabel(node, "entry")
-        state.func_entry_labels[node] = entry_label
+        state.backend.func_entry_labels[node] = entry_label
 
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if node not in state.used_funcs:
+        if node not in state.backend.used_funcs:
             # Function is never called, skip generating code for it
             return
-        entry_label = state.func_entry_labels[node]
+        entry_label = state.backend.func_entry_labels[node]
         code = [entry_label]
 
         # Allocate space for local variables
-        lvar_array_size_bytes = state.frame_sizes[node.body]
-        if lvar_array_size_bytes > 0:
-            code.append(AllocateDirective(lvar_array_size_bytes))
+        frame_size_bytes = state.backend.frame_sizes[node.body]
+        if frame_size_bytes > 0:
+            code.append(AllocateDirective(frame_size_bytes))
 
         code.extend(GenerateFunctionBody().emit(node.body, state))
         func = state.resolved_symbols[node.name]
@@ -270,7 +307,7 @@ class GenerateFunctions(Visitor):
             # implicit empty return
             arg_bytes = sum(arg[1].max_size for arg in (func.args or []))
             code.append(ReturnDirective(0, arg_bytes))
-        state.generated_funcs[node] = code
+        state.backend.generated_funcs[node] = code
 
 
 class EmitterWithNodeInfo(Emitter):
@@ -289,8 +326,10 @@ class EmitterWithNodeInfo(Emitter):
 
 
 class GenerateFunctionBody(EmitterWithNodeInfo):
-    # Flag indicating we're generating code inside a function body
-    # This affects how we access global variables (need GLOBAL directives)
+    # Flag indicating we're generating code inside a function body.
+    # This affects how we access global variables: their frame offsets are
+    # relative to the main frame, so from inside a function they can only be
+    # reached by absolute offset (LOAD_ABS/STORE_ABS).
     in_function = True
 
     def _emit_func_arg(self, arg, state: CompileState) -> list[Directive | Ir]:
@@ -446,7 +485,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         # push it to the stack
         return [PushValDirective(serialized_expr_value)]
 
-    def discard_expr_result(self, node: Ast, state: CompileState) -> list[Directive]:
+    def _emit_discard_expr_result(
+        self, node: Ast, state: CompileState
+    ) -> list[Directive]:
         """if the node is an expr, generate code to discard its stack value"""
         if not is_instance_compat(node, AstExpr):
             # nothing to discard
@@ -459,7 +500,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             return [DiscardDirective(result_type.max_size)]
         return []
 
-    def assert_cmd_response_ok(
+    def _emit_assert_cmd_response_ok(
         self, node: AstFuncCall, state: CompileState
     ) -> list[Directive | Ir]:
         """For a bare command call, emit code to check the response and exit if
@@ -482,7 +523,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dirs.append(not_ok_label)
         # response was not OK — read flags.assert_cmd_success from the stack
         # assert_cmd_success is at offset 0 within the flags struct
-        flag_offset = state.flags_var.frame_offset
+        flag_offset = state.backend.frame_offsets[state.flags_var]
         dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
         # if flag is false, skip to end (don't exit)
         dirs.append(IrIf(end_label))
@@ -608,16 +649,14 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             else:
                 return [IntegerZeroExtend32To64Directive()]
 
-    def calc_lvar_offset_of_array_element(
+    def _emit_array_element_offset(
         self, node: Ast, idx_expr: AstExpr, array_type: FpyType, state: CompileState
     ) -> list[Directive | Ir]:
-        """generates code to push to stack the U64 byte offset in the array for an array access, while performing an array oob
-        check. idx_expr is the expression to calculate the index, and dest is the FieldSymbol containing info about the
-        dest array"""
+        """generates code to bounds check the index *idx_expr* into an array of
+        *array_type* and push its element's U64 byte offset within that array.
+        The offset is relative to the array's own start, so a caller that wants
+        a frame offset must add the array's."""
         dirs = []
-        # let's push the offset of base lvar first, then
-        # calculate the offset in base type, then add
-
         # push the index to the stack, do a bounds check,
         dirs.extend(self.emit(idx_expr, state))
         # okay now let's do an array oob check
@@ -703,10 +742,10 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 continue
             dirs.extend(self.emit(stmt, state))
             if is_cmd_and_response_unhandled(stmt, state):
-                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+                dirs.extend(self._emit_assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
-                dirs.extend(self.discard_expr_result(stmt, state))
+                dirs.extend(self._emit_discard_expr_result(stmt, state))
         return dirs
 
     def emit_AstIf(self, node: AstIf, state: CompileState):
@@ -752,13 +791,13 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         while_start_label = IrLabel(node, "start")
         while_end_label = IrLabel(node, "end")
         for_loop_increment_label = None
-        state.while_loop_start_labels[node] = while_start_label
-        state.while_loop_end_labels[node] = while_end_label
+        state.backend.while_loop_start_labels[node] = while_start_label
+        state.backend.while_loop_end_labels[node] = while_end_label
         # if this used to be a for loop:
         if node in state.desugared_for_loops:
             # there should be at least one stmt in a for loop's body (the inc stmt)
             for_loop_increment_label = IrLabel(node, "increment")
-            state.for_loop_inc_labels[node] = for_loop_increment_label
+            state.backend.for_loop_inc_labels[node] = for_loop_increment_label
 
         dirs = [while_start_label]
         # push the condition to the stack
@@ -784,10 +823,10 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 dirs.append(for_loop_increment_label)
             dirs.extend(self.emit(stmt, state))
             if is_cmd_and_response_unhandled(stmt, state):
-                dirs.extend(self.assert_cmd_response_ok(stmt, state))
+                dirs.extend(self._emit_assert_cmd_response_ok(stmt, state))
             else:
                 # discard stack value if it was an expr
-                dirs.extend(self.discard_expr_result(stmt, state))
+                dirs.extend(self._emit_discard_expr_result(stmt, state))
         # go back to condition check
         dirs.append(IrGoto(while_start_label))
         dirs.append(while_end_label)
@@ -796,15 +835,15 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
     def emit_AstBreak(self, node: AstBreak, state: CompileState):
         enclosing_loop = state.enclosing_loops[node]
-        loop_end = state.while_loop_end_labels[enclosing_loop]
+        loop_end = state.backend.while_loop_end_labels[enclosing_loop]
         return [IrGoto(loop_end)]
 
     def emit_AstContinue(self, node: AstContinue, state: CompileState):
         enclosing_loop = state.enclosing_loops[node]
         if enclosing_loop in state.desugared_for_loops:
-            loop_start = state.for_loop_inc_labels[enclosing_loop]
+            loop_start = state.backend.for_loop_inc_labels[enclosing_loop]
         else:
-            loop_start = state.while_loop_start_labels[enclosing_loop]
+            loop_start = state.backend.while_loop_start_labels[enclosing_loop]
         return [IrGoto(loop_start)]
 
     def emit_AstDef(self, node: AstDef, state: CompileState):
@@ -867,13 +906,14 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
         # okay, we want to get an element from an array on the stack
 
-        # TODO optimization: leave it in the lvar array instead of pushing the whole thing to stack
+        # TODO optimization: read the element in place at its frame offset
+        # instead of copying the whole array to the top of the stack
         # for now we push the whole thing
         dirs = self.emit(node.parent, state)
 
         # calculate the offset in the parent array
         dirs.extend(
-            self.calc_lvar_offset_of_array_element(node, node.item, parent_type, state)
+            self._emit_array_element_offset(node, node.item, parent_type, state)
         )
         # truncate back to StackSizeType which is what get field uses
         dirs.extend(self.convert_numeric_type(U64, StackSizeType))
@@ -900,13 +940,15 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
         assert is_instance_compat(sym, VariableSymbol), sym
 
-        # Use global directives only when inside a function AND accessing a global variable
-        # At top level, stack_frame_start = 0, so local and global offsets are the same
-        use_global = self.in_function and sym.is_global
-        if use_global:
-            dirs = [LoadAbsDirective(sym.frame_offset, sym.type.max_size)]
+        # Use the absolute directives only when inside a function AND accessing
+        # a global variable. At top level, stack_frame_start = 0, so a
+        # frame-relative offset is already the absolute one.
+        use_abs = self.in_function and sym.is_global
+        offset = state.backend.frame_offsets[sym]
+        if use_abs:
+            dirs = [LoadAbsDirective(offset, sym.type.max_size)]
         else:
-            dirs = [LoadRelDirective(sym.frame_offset, sym.type.max_size)]
+            dirs = [LoadRelDirective(offset, sym.type.max_size)]
 
         unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
@@ -1155,7 +1197,10 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 ), f"const arg {i} of {func.name} should have been validated by semantics"
                 const_arg_values[i] = const_val
 
-            # Residual hook: only the size/port directive params need emitting; validation is handled by the SIZED/SerialPortIndex signature.
+            # write_to_port's generate_fpybc is empty; the directive is built
+            # here instead, because only this backend knows the port index and
+            # the value's serialized size. Its argument types (SerialPortIndex
+            # and SIZED) already did the validating.
             if func.name == "write_to_port":
                 value_arg = node_args[1]
                 # Push the value for the directive to pop and send.
@@ -1188,7 +1233,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             for arg_node in node_args:
                 dirs.extend(self._emit_func_arg(arg_node, state))
             # okay, args are on the stack. now we're going to generate CALL
-            func_entry_label = state.func_entry_labels[func.definition]
+            func_entry_label = state.backend.func_entry_labels[func.definition]
             # push the offset of the func
             dirs.append(IrPushLabelOffset(func_entry_label))
             # pop it off the stack and perform func call
@@ -1252,13 +1297,12 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dynamic_components = []
 
         if is_instance_compat(lhs, VariableSymbol):
-            base_frame_offset = lhs.frame_offset
+            base_frame_offset = state.backend.frame_offsets[lhs]
             is_global_var = lhs.is_global
-            assert base_frame_offset is not None, lhs
         else:
             assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
-            base_frame_offset = lhs.base_sym.frame_offset
+            base_frame_offset = state.backend.frame_offsets[lhs.base_sym]
             is_global_var = lhs.base_sym.is_global
 
             # Walk the field access chain to compute the total offset.
@@ -1266,16 +1310,17 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 lhs, state
             )
 
-        # Use global directives only when inside a function AND accessing a global variable
-        use_global = self.in_function and is_global_var
+        # Use the absolute directives only when inside a function AND accessing
+        # a global variable
+        use_abs = self.in_function and is_global_var
 
         # start with rhs on stack
         dirs = self.emit(node.rhs, state)
 
         if not dynamic_components:
-            # The full lvar array offset is known at compile time.
+            # The full frame offset is known at compile time.
             frame_offset = base_frame_offset + field_const_offset
-            if use_global:
+            if use_abs:
                 dirs.append(
                     StoreAbsConstOffsetDirective(frame_offset, lhs.type.max_size)
                 )
@@ -1293,9 +1338,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             # (idx * elem_size) and sum them together on the stack.
             for i, (idx_expr, parent_type) in enumerate(dynamic_components):
                 dirs.extend(
-                    self.calc_lvar_offset_of_array_element(
-                        node, idx_expr, parent_type, state
-                    )
+                    self._emit_array_element_offset(node, idx_expr, parent_type, state)
                 )
                 if i > 0:
                     dirs.append(IntAddDirective())
@@ -1309,8 +1352,8 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             # and now convert the u64 back into the SignedStackSizeType that store expects
             dirs.extend(self.convert_numeric_type(U64, SignedStackSizeType))
 
-            # now that lvar array offset is pushed, use it to store in lvar array
-            if use_global:
+            # now that the frame offset is pushed, use it to store into the frame
+            if use_abs:
                 dirs.append(StoreAbsDirective(lhs.type.max_size))
             else:
                 dirs.append(StoreRelDirective(lhs.type.max_size))
@@ -1370,7 +1413,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         return dirs
 
 
-class GenerateModule(EmitterWithNodeInfo):
+class GenerateSequence(EmitterWithNodeInfo):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
         if node is not state.main_block:
@@ -1387,29 +1430,29 @@ class GenerateModule(EmitterWithNodeInfo):
 
         flags_type = state.flags_var.type
         args_size = sum(t.max_size for _, t in state.this_seq_arg_specs)
-        assert state.flags_var.frame_offset == args_size
+        assert state.backend.frame_offsets[state.flags_var] == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))
 
         # we can calc how much space the user-defined lvars take by subtracting
         # the sequence args size, and the flags size, from the frame size
 
-        remaining = state.frame_sizes[node] - flags_type.max_size - args_size
+        remaining = state.backend.frame_sizes[node] - flags_type.max_size - args_size
         assert remaining >= 0, remaining
 
         # allocate space for local variables
         if remaining > 0:
             main_body.append(AllocateDirective(remaining))
 
-        # generate the main function using GenerateTopLevel (not in a function context)
+        # generate the main body using GenerateTopLevel (not in a function context)
         main_body.extend(GenerateTopLevel().emit(node, state))
 
         # if there are functions, emit them at the top with a goto to skip past them
-        if state.generated_funcs:
+        if state.backend.generated_funcs:
             funcs_code = []
             func_code_end_label = IrLabel(node, "main")
             funcs_code.append(IrGoto(func_code_end_label))
-            for func, code in state.generated_funcs.items():
+            for func, code in state.backend.generated_funcs.items():
                 funcs_code.extend(code)
             funcs_code.append(func_code_end_label)
             return funcs_code + main_body
@@ -1419,8 +1462,8 @@ class GenerateModule(EmitterWithNodeInfo):
 
 class GenerateTopLevel(GenerateFunctionBody):
     """Generates top-level (main) code, not inside any function.
-    At top level, stack_frame_start = 0, so local and global offsets are equivalent.
-    All variables use LOCAL directives."""
+    At top level, stack_frame_start = 0, so frame-relative and absolute offsets
+    are equivalent. All variables use the relative directives."""
 
     in_function = False
 
