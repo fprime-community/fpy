@@ -1,4 +1,4 @@
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.types import FpyValue, U32
 from fpy.error import WarningType
 

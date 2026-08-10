@@ -7,7 +7,7 @@ import fpy.error
 from fpy.bytecode.directives import Directive, PopSerializableDirective
 from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
 from fpy.state import _build_global_scopes, get_base_compile_state
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_success,
@@ -243,19 +243,6 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v)
         assert isinstance(deserialized, PopSerializableDirective)
         assert deserialized.portIndex == 2
         assert deserialized.size == 8
-
-    def test_model_stack_underflow(self, fprime_test_api):
-        # Popping more bytes than are on the stack is an underflow.  Tested at
-        # the directive level because the builtin always pushes the value
-        # before popping, so it can't underflow through normal usage.
-        from fpy.model import FpySequencerModel
-
-        model = FpySequencerModel()
-        model.stack.extend([0x01, 0x02])  # only 2 bytes available
-
-        directive = PopSerializableDirective(portIndex=0, size=4)  # ask for 4
-        error_code = model.handle_pop_serializable(directive)
-        assert error_code == DirectiveErrorCode.STACK_UNDERFLOW
 
     def test_expression_value(self, fprime_test_api):
         # a cast expression is a valid, sized value

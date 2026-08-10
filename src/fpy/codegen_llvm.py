@@ -18,7 +18,7 @@ except ImportError as exc:
         "with 'pip install fprime-fpy[wasm]'"
     ) from exc
 
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import BackendState, CompileState
 from fpy.symbols import (
     BuiltinFuncSymbol,

@@ -12,6 +12,10 @@ __pycache__/
 # C extensions
 *.so
 
+# F Prime build caches and artifacts (test harness)
+build-fprime-automatic-*/
+build-artifacts/
+
 # Distribution / packaging
 .Python
 build/

@@ -34,7 +34,7 @@ from fpy.wasm_host import (
 from fpy.compiler import analyze_ast, text_to_ast
 from fpy.dictionary import load_dictionary
 from fpy.error import BackendError
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
     compile_seq_wasm,

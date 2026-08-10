@@ -11,7 +11,7 @@ Tests for:
 import pytest
 
 from fpy.error import WarningType
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
@@ -908,25 +908,29 @@ sleep()
 """
         assert_run_success(fprime_test_api, seq)
 
+    # The sequencer refuses to compare times with different bases, so the
+    # clock must start in the same base the sequence sleeps until
+    # (TB_WORKSTATION_TIME is 2).
+
     def test_wait_abs(self, fprime_test_api):
         seq = """
 sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_wait_abs_var_arg(self, fprime_test_api):
         seq = """
 x: U32 = 123
 sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_wait_abs_var_arg_2(self, fprime_test_api):
         seq = """
 x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
 sleep_until(x)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_wait_abs_bad_arg(self, fprime_test_api):
         seq = """
@@ -1160,7 +1164,7 @@ assert t.useconds == 123456
         seq = """
 sleep_until(time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME))
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, time_base=2)
 
     def test_time_function_invalid_format(self, fprime_test_api):
         """Invalid time string format should fail at compile time."""
