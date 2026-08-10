@@ -292,7 +292,9 @@ void WasmSequencerTester::handleLog(FwEventIdType id, Fw::LogBuffer& args) {
         if (copy.deserialize(code) == Fw::FW_SERIALIZE_OK) {
             this->m_result->hasExitCode = true;
             this->m_result->exitCode = code;
-            this->m_result->errorCode = static_cast<U8>(code == 0 ? 0 : 1);
+            // A panic is a failure whatever code it carries; only an exit can
+            // report success.
+            this->m_result->errorCode = static_cast<U8>(isPanic || code != 0 ? 1 : 0);
         }
         return;
     }
@@ -307,6 +309,14 @@ void WasmSequencerTester::handleLog(FwEventIdType id, Fw::LogBuffer& args) {
     } else if (relativeId == WasmSequencerComponentBase::EVENTID_MODULEINVOKEFAILED) {
         this->m_result->error = "module_invoke_failed";
     }
+}
+
+void WasmSequencerTester::handleRunResponse(const Fw::CmdResponse& response) {
+    FW_ASSERT(this->m_result != nullptr);
+    // The only ground command this harness sends is RUN, so whatever arrives
+    // here is its final response: the outcome a deployment would see.
+    this->m_result->hasRunResponse = true;
+    this->m_result->runResponse = static_cast<U32>(response.e);
 }
 
 void WasmSequencerTester::handleSerialOut(FwIndexType portNum, Fw::LinearBufferBase& buffer) {
@@ -385,7 +395,9 @@ void WasmSequencerTester::cmdResponseThunk(Fw::PassiveComponentBase* comp,
                                            FwIndexType portNum,
                                            FwOpcodeType opCode,
                                            U32 cmdSeq,
-                                           const Fw::CmdResponse& response) {}
+                                           const Fw::CmdResponse& response) {
+    static_cast<WasmSequencerTester*>(comp)->handleRunResponse(response);
+}
 
 void WasmSequencerTester::serialOutThunk(Fw::PassiveComponentBase* comp,
                                          FwIndexType portNum,

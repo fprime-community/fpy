@@ -448,6 +448,14 @@ void FpySequencerTester::handleLog(FwEventIdType id,
     this->m_result->exitCode = code;
 }
 
+void FpySequencerTester::handleRunResponse(const Fw::CmdResponse& response) {
+    FW_ASSERT(this->m_result != nullptr);
+    // The only ground command this harness sends is RUN/RUN_ARGS, so whatever
+    // arrives here is its final response: the outcome a deployment would see.
+    this->m_result->hasRunResponse = true;
+    this->m_result->runResponse = static_cast<U32>(response.e);
+}
+
 void FpySequencerTester::handleSerialOut(FwIndexType portNum, Fw::LinearBufferBase& buffer) {
     FW_ASSERT(this->m_result != nullptr);
     this->m_result->serialWrites.emplace_back(
@@ -522,7 +530,9 @@ void FpySequencerTester::cmdResponseThunk(Fw::PassiveComponentBase* comp,
                                           FwIndexType portNum,
                                           FwOpcodeType opCode,
                                           U32 cmdSeq,
-                                          const Fw::CmdResponse& response) {}
+                                          const Fw::CmdResponse& response) {
+    static_cast<FpySequencerTester*>(comp)->handleRunResponse(response);
+}
 
 void FpySequencerTester::pingThunk(Fw::PassiveComponentBase* comp, FwIndexType portNum, U32 key) {}
 

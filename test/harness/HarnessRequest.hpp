@@ -56,6 +56,11 @@ struct HarnessRequest {
 //! What a sequence run produced.
 struct HarnessResult {
     bool ok = false;
+    //! The component's response to the RUN command that started the sequence --
+    //! the outcome a real deployment would see. A run that never responded has
+    //! no outcome at all.
+    bool hasRunResponse = false;
+    U32 runResponse = 0;
     //! The component's last directive error.
     U8 errorCode = 0;
     //! The code an exit() reported, read off SequenceExitedWithError.

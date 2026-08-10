@@ -60,6 +60,7 @@ class WasmSequencerTester final : public Fw::PassiveComponentBase {
     Fw::ParamValid handleGetParam(FwPrmIdType id, Fw::ParamBuffer& val);
     void handleLogText(const Fw::LogSeverity& severity, Fw::TextLogString& text);
     void handleLog(FwEventIdType id, Fw::LogBuffer& args);
+    void handleRunResponse(const Fw::CmdResponse& response);
     void handleSerialOut(FwIndexType portNum, Fw::LinearBufferBase& buffer);
 
     static void cmdOutThunk(Fw::PassiveComponentBase* comp,

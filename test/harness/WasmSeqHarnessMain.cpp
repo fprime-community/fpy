@@ -90,6 +90,12 @@ std::string writeResult(int64_t id, const Svc::HarnessResult& result) {
     JsonWriter out;
     out.key("id").value(id);
     out.key("ok").value(result.ok);
+    out.key("run_response");
+    if (result.hasRunResponse) {
+        out.value(static_cast<int64_t>(result.runResponse));
+    } else {
+        out.nullValue();
+    }
     out.key("error_code").value(static_cast<int64_t>(result.errorCode));
     out.key("exit_code");
     if (result.hasExitCode) {

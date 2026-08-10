@@ -80,6 +80,7 @@ class FpySequencerTester final : public Fw::PassiveComponentBase {
                    Fw::Time& timeTag,
                    const Fw::LogSeverity& severity,
                    Fw::LogBuffer& args);
+    void handleRunResponse(const Fw::CmdResponse& response);
     void handleSerialOut(FwIndexType portNum, Fw::LinearBufferBase& buffer);
 
     static void cmdOutThunk(Fw::PassiveComponentBase* comp,

@@ -905,24 +905,26 @@ sleep()
         assert_run_success(seq)
 
     def test_wait_abs(self):
+        # The clock must run in the base the sequence sleeps against; the
+        # sequencer fails a cross-base time comparison.
         seq = """
 sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 123, 123))
 """
-        assert_run_success(seq)
+        assert_run_success(seq, time_base=2)
 
     def test_wait_abs_var_arg(self):
         seq = """
 x: U32 = 123
 sleep_until(Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, x, 123))
 """
-        assert_run_success(seq)
+        assert_run_success(seq, time_base=2)
 
     def test_wait_abs_var_arg_2(self):
         seq = """
 x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
 sleep_until(x)
 """
-        assert_run_success(seq)
+        assert_run_success(seq, time_base=2, time_context=1)
 
     def test_wait_abs_bad_arg(self):
         seq = """
@@ -1149,7 +1151,7 @@ assert t.useconds == 123456
         seq = """
 sleep_until(time("2000-01-01T00:00:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME))
 """
-        assert_run_success(seq)
+        assert_run_success(seq, time_base=2)
 
     def test_time_function_invalid_format(self):
         """Invalid time string format should fail at compile time."""

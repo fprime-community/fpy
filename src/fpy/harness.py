@@ -10,6 +10,7 @@ round trip rather than a process spawn.
 from __future__ import annotations
 
 import json
+import select
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,9 @@ class HarnessCrashed(HarnessError):
 class RunResult:
     """What running one sequence produced."""
 
+    #: The component's response to the RUN command that started the sequence
+    #: (an Fw.CmdResponse value), or None if it never responded.
+    run_response: int | None = None
     error_code: int = 0
     exit_code: int | None = None
     validation_failed: bool = False
@@ -74,6 +78,15 @@ class Harness:
         try:
             self._process.stdin.write(json.dumps(payload) + "\n")
             self._process.stdin.flush()
+            ready, _, _ = select.select(
+                [self._process.stdout], [], [], self.read_timeout_s
+            )
+            if not ready:
+                detail = self._reap()
+                raise HarnessCrashed(
+                    f"harness hung for {self.read_timeout_s}s running "
+                    f"{payload.get('op')}: {detail}"
+                )
             line = self._process.stdout.readline()
         except (BrokenPipeError, ValueError) as e:
             self._reap()
@@ -82,7 +95,14 @@ class Harness:
         if not line:
             detail = self._reap()
             raise HarnessCrashed(f"harness died running {payload.get('op')}: {detail}")
-        return json.loads(line)
+        response = json.loads(line)
+        if response.get("id") != payload["id"]:
+            detail = self._reap()
+            raise HarnessCrashed(
+                f"harness answered request {response.get('id')} instead of "
+                f"{payload['id']}: {detail}"
+            )
+        return response
 
     def _reap(self) -> str:
         """Collect the dead process's stderr and forget it."""
@@ -156,6 +176,7 @@ class Harness:
             raise HarnessError(f"{kind}: {detail}")
 
         return RunResult(
+            run_response=response["run_response"],
             error_code=response["error_code"],
             exit_code=response["exit_code"],
             validation_failed=response["validation_failed"],
