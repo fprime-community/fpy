@@ -68,6 +68,25 @@ fprime-fpy-cmd = "fpy.main:cmd_main"
 fprime-fpy-depend = "fpy.main:depend_main"
 
 ####
+# The test suite lives in test/fpy. The fprime submodules and the harness
+# build trees carry their own (huge) test collections, so keep pytest from
+# ever recursing into them.
+####
+[tool.pytest.ini_options]
+testpaths = ["test/fpy"]
+norecursedirs = [
+    "fprime",
+    "fprime-wasm",
+    "harness",
+    "build-*",
+    ".*",
+    "*.egg",
+    "build",
+    "dist",
+    "venv",
+]
+
+####
 # setuptools_scm dynamically generates version number from git, as well as automatically
 # include all data files tracked by git (e.g. flash/static/** files).
 # See https://setuptools.pypa.io/en/latest/userguide/datafiles.html

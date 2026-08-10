@@ -731,7 +731,7 @@ Prints the sequence dependencies (referenced `.bin` files) of an `.fpy` source f
 
 Use `pytest` to run the test suite:
 ```sh
-pytest test/
+pytest
 ```
 
 Tests compile sequences and run them on the real flight `Svc::FpySequencer`, through a small C++ harness program (`test/harness`) built from the `test/fprime` submodule. Requirements:
@@ -746,7 +746,7 @@ The harness is built automatically at the start of the test session; the first r
 By default, tests compile sequences to fpy bytecode and run them on the real `Svc::FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and run on the real `Svc::WasmSequencer` (which embeds the spacewasm interpreter), through a second harness built from the `test/fprime-wasm` submodule.
 
 ```sh
-pytest test/ --wasm
+pytest --wasm
 ```
 
 Requirements for the wasm backend:
