@@ -739,7 +739,7 @@ Tests compile sequences and run them on the real flight `Svc::FpySequencer`, thr
 * The fprime submodule must be checked out: `git submodule update --init test/fprime`
 * The harness build tools (cmake, ninja, fprime-util, fpp). `uv sync` installs them as part of the dev environment.
 
-The harness is built automatically at the start of the test session; the first run is slower because it builds the fprime framework.
+The harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the build); the first run is slower because it builds the fprime framework.
 
 ### `--wasm`
 

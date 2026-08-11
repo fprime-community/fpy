@@ -49,13 +49,10 @@ def pytest_configure(config):
     if test_helpers.USE_WASM and not config.getoption("--use-gds"):
         _build_wasm_harness_once()
 
-    # Build the harness that runs sequences on the real Svc::FpySequencer.
-    # Incremental, so a no-change build is quick.
-    if not config.getoption("--use-gds"):
-        try:
-            fpy.harness.build_harness()
-        except fpy.harness.HarnessError as e:
-            pytest.exit(str(e), returncode=1)
+    # The FpySequencer harness builds itself lazily, on the first test that
+    # runs a sequence through it (fpy.harness.fpy_harness), so runs that
+    # never touch it -- compiler unit tests, --collect-only -- skip the
+    # build entirely.
 
 
 def pytest_unconfigure(config):

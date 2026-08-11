@@ -83,12 +83,18 @@ def _fprime_util_build(deployment: Path, build_args: list[str] = None) -> None:
 
 
 def _run_fprime_util(deployment: Path, args: list[str]) -> None:
-    result = subprocess.run(
-        ["fprime-util"] + args,
-        cwd=deployment,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["fprime-util"] + args,
+            cwd=deployment,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        raise HarnessError(
+            "fprime-util was not found. Are the harness build tools "
+            "installed (uv sync installs them)?"
+        )
     if result.returncode != 0:
         raise HarnessError(
             f"'fprime-util {' '.join(args)}' in {deployment} failed. Are the "
@@ -141,8 +147,7 @@ class SequencerHarness:
         )
 
     def _read_stderr(self) -> str:
-        if self._stderr_file is None:
-            return ""
+        assert self._stderr_file is not None
         self._stderr_file.seek(0)
         return self._stderr_file.read()
 
@@ -158,13 +163,24 @@ class SequencerHarness:
 
 _fpy_harness: SequencerHarness | None = None
 _wasm_harness: SequencerHarness | None = None
+# The first failed build, re-raised on later calls: retrying the build once
+# it has failed only repeats the same slow failure.
+_fpy_build_error: HarnessError | None = None
 
 
 # FIXME: should be fpybc
 def fpy_harness() -> SequencerHarness:
-    """The shared harness for the fpy bytecode backend."""
-    global _fpy_harness
+    """The shared harness for the fpy bytecode backend, building its binary
+    on first use."""
+    global _fpy_harness, _fpy_build_error
+    if _fpy_build_error is not None:
+        raise _fpy_build_error
     if _fpy_harness is None:
+        try:
+            build_harness()
+        except HarnessError as e:
+            _fpy_build_error = e
+            raise
         _fpy_harness = SequencerHarness(FPY_HARNESS_BINARY)
     return _fpy_harness
 
