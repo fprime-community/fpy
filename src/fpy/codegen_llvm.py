@@ -532,7 +532,11 @@ class EmitLlvmExpr(Emitter):
                     "LLVM backend can't lower sequence-run commands with "
                     "arguments yet"
                 )
-            return self._emit_command_call(node, state)
+            command = state.backend.cmd_buffers[node]
+            values = [
+                self.emit(arg, state) for _offset, arg, _type in command.runtime_args
+            ]
+            return self._emit_command_dispatch(command, values)
         elif is_instance_compat(func, BuiltinFuncSymbol):
             return self._emit_builtin_call(node_args, func, state)
         elif is_instance_compat(func, TypeCtorSymbol):
@@ -583,26 +587,15 @@ class EmitLlvmExpr(Emitter):
                 args.append((self.emit(arg, state), const_val))
         return func.generate_llvm(self.builder, args)
 
-    def _emit_command_call(self, node: AstFuncCall, state: CompileState) -> ir.Value:
-        """Lower a command call: write the arguments only known at runtime into
-        the call's buffer, dispatch it through the host cmd import, and return
-        the host's Fw.CmdResponse."""
+    def _emit_command_dispatch(
+        self, command: CommandBuffer, values: list[ir.Value]
+    ) -> ir.Value:
+        """Write *values* -- *command*'s runtime arguments, already evaluated,
+        in runtime_args order -- into its buffer and dispatch it through the
+        host cmd import, returning the host's Fw.CmdResponse."""
         b = self.builder
-        command = state.backend.cmd_buffers[node]
-
-        # Evaluate every argument to an SSA value before storing any into the
-        # buffer. The buffer is one module global shared by every activation
-        # of this call site, so if a later argument's expression calls a
-        # function that recursively reaches this same statement, the inner
-        # activation would overwrite the slots the outer one had already
-        # filled. SSA values are per-activation, so deferring the stores
-        # keeps the outer arguments intact, and the stores plus the dispatch
-        # then run with no user code in between.
-        values = [
-            (offset, self.emit(arg, state), arg_type)
-            for offset, arg, arg_type in command.runtime_args
-        ]
-        for offset, value, arg_type in values:
+        assert len(values) == len(command.runtime_args), (values, command)
+        for (offset, _arg, arg_type), value in zip(command.runtime_args, values):
             written = self._emit_store_big_endian(value, arg_type, command.buf, offset)
             assert written == arg_type.max_size, (arg_type, written)
 
