@@ -149,6 +149,7 @@ umod
 uncatchably
 unconfigure
 une
+uniqued
 unistd
 urem
 usec
@@ -162,6 +163,7 @@ WASMSEQUENCERCONFIG
 WASMSEQUENCERTESTER
 wikipedia
 workaround
+worklist
 wrt
 wx
 xl
