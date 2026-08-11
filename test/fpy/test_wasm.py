@@ -34,7 +34,7 @@ from fpy.wasm_host import (
 from fpy.compiler import analyze_ast, text_to_ast
 from fpy.dictionary import load_dictionary
 from fpy.error import BackendError
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
     compile_seq_wasm,
@@ -1104,7 +1104,7 @@ class TestWasmBigEndianSerialization:
 
     @pytest.mark.parametrize("value", _big_endian_cases())
     def test_round_trip_matches_serialize(self, value):
-        _, code, _, _ = run_wasm(llvm_module_to_wasm(self._build_module(value)))
+        code, _, _ = run_wasm(llvm_module_to_wasm(self._build_module(value)))
         assert code != 1, f"stored bytes diverged from serialize() for {value}"
         assert code != 2, f"load->store did not round-trip for {value}"
         assert code == NO_ERROR
@@ -1131,5 +1131,5 @@ class TestWasmBigEndianSerialization:
         emitter._emit_load_big_endian(BOOL, buf, 0)
         builder.ret_void()
 
-        _, code, _, _ = run_wasm(llvm_module_to_wasm(module))
+        code, _, _ = run_wasm(llvm_module_to_wasm(module))
         assert code == DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value

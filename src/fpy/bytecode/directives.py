@@ -55,6 +55,38 @@ LoopVarType = I64  # same as ArrayIndexType
 # the LLVM/wasm module's exit/fault host imports take.
 ErrorCodeType = I32
 
+# A function's stack frame starts with the return address and the previous
+# frame offset, each a StackSizeType.
+STACK_FRAME_HEADER_SIZE = StackSizeType.max_size * 2
+
+
+class DirectiveErrorCode(Enum):
+    """The error a directive can halt the sequencer with. Mirrors
+    Svc.Fpy.DirectiveErrorCode in the flight software, plus the codes the
+    LLVM/wasm backend extends it with (DESERIALIZE_ERROR_INVALID_BOOL)."""
+
+    NO_ERROR = 0
+    STMT_OUT_OF_BOUNDS = 1
+    TLM_GET_NOT_CONNECTED = 2
+    TLM_CHAN_NOT_FOUND = 3
+    PRM_GET_NOT_CONNECTED = 4
+    PRM_NOT_FOUND = 5
+    CMD_SERIALIZE_FAILURE = 6
+    EXIT_WITH_ERROR = 7
+    STACK_ACCESS_OUT_OF_BOUNDS = 8
+    STACK_OVERFLOW = 9
+    DOMAIN_ERROR = 10
+    ARRAY_OUT_OF_BOUNDS = 11
+    ARITHMETIC_OVERFLOW = 12
+    ARITHMETIC_UNDERFLOW = 13
+    FRAME_START_OUT_OF_BOUNDS = 14
+    STACK_UNDERFLOW = 15
+    INVALID_ARG = 16
+    CMD_FAIL = 17
+    SERIAL_PORT_NOT_CONNECTED = 18
+    SERIAL_PORT_INVALID_INDEX = 19
+    DESERIALIZE_ERROR_INVALID_BOOL = 20
+
 
 def _update_configurable_type(
     target: FpyType, type_defs: dict[str, FpyType], name: str

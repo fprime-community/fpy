@@ -23,7 +23,7 @@ Fpy has a few principles:
 
 ## Overview
 
-This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy bytecode can be run on the `FpySequencer` virtual machine, or with the `fprime-fpy-model` CLI. If you're interested in contributing, see the [Developer's Guide](#developers-guide).
+This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy bytecode runs on the `FpySequencer` virtual machine. If you're interested in contributing, see the [Developer's Guide](#developers-guide).
 
 # User's Guide
 
@@ -711,14 +711,6 @@ The compiler. Flags worth knowing:
 * `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
 * `--debug`: print a stack trace of where each compile error is generated.
 
-### `fprime-fpy-model`
-
-`fprime-fpy-model` is a Python model of the `FpySequencer` runtime.
-* Given a sequence binary file, it deserializes and runs the sequence as if it were running on a real `FpySequencer`.
-* Commands always return successfully, without blocking.
-* Telemetry and parameter access always raise `(PR|TL)M_CHAN_NOT_FOUND`.
-* Pass `--debug` to print each directive and the stack as it executes. Sequences that take arguments need `--args HEX` and `--dictionary`.
-
 ### `fprime-fpy-cmd`
 
 Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead.
@@ -739,35 +731,38 @@ Prints the sequence dependencies (referenced `.bin` files) of an `.fpy` source f
 
 Use `pytest` to run the test suite:
 ```sh
-pytest test/
+pytest
 ```
 
-By default, debug output from the sequencer model is disabled for performance. To enable verbose debug output (prints each directive and stack state), use the `--fpy-debug` flag:
-```sh
-pytest test/ --fpy-debug
-```
+Tests compile sequences and run them on the real flight `Svc::FpySequencer`, through a small C++ harness program (`test/harness`) built from the `test/fprime` submodule. Requirements:
+
+* The fprime submodule must be checked out: `git submodule update --init test/fprime`
+* The harness build tools (cmake, ninja, fprime-util, fpp). `uv sync` installs them as part of the dev environment.
+
+The harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the build); the first run is slower because it builds the fprime framework.
 
 ### `--wasm`
 
-By default, tests compile sequences to fpy bytecode and run them on the Python model of the `FpySequencer` VM. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and executed through the NASA spacewasm runtime.
+By default, tests compile sequences to fpy bytecode and run them on the real `Svc::FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and run on the real `Svc::WasmSequencer` (which embeds the spacewasm interpreter), through a second harness built from the `test/fprime-wasm` submodule.
 
 ```sh
-pytest test/ --wasm
+pytest --wasm
 ```
 
 Requirements for the wasm backend:
 
 * The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
-* The spacewasm submodule must be checked out: `git submodule update --init test/spacewasm`
-* A Rust toolchain, version 1.85 or newer (spacewasm is edition 2024). Install via [rustup](https://rustup.rs) and update with `rustup update`.
+* The fprime-wasm submodule must be checked out: `git submodule update --init test/fprime-wasm`
+* A Rust toolchain (the sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-The spacewasm runner harness (`test/spacewasm_runner`) is built automatically with `cargo build --release` at the start of the test session; the first run is slower because of this build.
+The wasm harness is built automatically at the start of the test session, with a small local patch applied to the submodule first (see `test/harness/patches/README.md`).
 
 Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
 
+# FIXME I'd like to remove the use-gds feature
 ### `--use-gds`
 
-By default, tests run against the Python model of the sequencer. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
+By default, tests run against a local `Svc::FpySequencer` through the harness. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
 
 ### Running on a test F Prime deployment
 

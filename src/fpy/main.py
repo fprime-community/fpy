@@ -17,13 +17,10 @@ from fpy.bytecode.assembler import (
     deserialize_directives,
     fpybc_directives_to_fpyasm,
     parse as fpybc_parse,
-    resolve_arg_specs,
     serialize_directives,
 )
 from fpy.bytecode.directives import ConstCmdDirective, StackCmdDirective
 import fpy.error
-import fpy.model
-from fpy.model import DirectiveErrorCode, FpySequencerModel
 from fpy.compiler import (
     analysis_to_llvm_module,
     analysis_to_wasm,
@@ -278,75 +275,6 @@ def compile_main(args: list[str] = None):
         )
     else:
         assert False, parsed_args.emit
-
-
-def model_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(
-        description=f"FpySequencer model for testing {get_version_str()}"
-    )
-    arg_parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {get_version_str()}"
-    )
-    arg_parser.add_argument("input", type=Path, help="The input .bin file")
-    arg_parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Whether or not to print debug info during sequence execution",
-    )
-    arg_parser.add_argument(
-        "--args",
-        type=str,
-        default=None,
-        help="Hex-encoded sequence arguments (e.g. '0000002a' for U32 value 42)",
-    )
-    arg_parser.add_argument(
-        "--dictionary",
-        type=Path,
-        default=None,
-        help="Path to JSON dictionary (required when sequence has arguments)",
-    )
-
-    if args is not None:
-        args = arg_parser.parse_args(args)
-    else:
-        args = arg_parser.parse_args()
-
-    if not args.input.exists():
-        print(f"Input file {args.input} does not exist")
-        sys.exit(1)
-
-    if args.debug:
-        fpy.model.debug = True
-
-    directives, arg_specs = deserialize_directives(args.input.read_bytes())
-
-    # Reconstruct FpyType list from deserialized (name, size) specs
-    arg_types = []
-    if len(arg_specs) > 0:
-        if args.dictionary is None:
-            print(
-                f"Must pass --dictionary when sequence has arguments", file=sys.stderr
-            )
-            sys.exit(1)
-        type_defs = load_dictionary(str(args.dictionary))["type_defs"]
-        try:
-            arg_types = [t for _, t in resolve_arg_specs(arg_specs, type_defs)]
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
-            sys.exit(1)
-
-    seq_args = None
-    if args.args is not None:
-        seq_args = bytes.fromhex(args.args)
-
-    model = FpySequencerModel()
-    error_code, trap = model.run(directives, arg_types=arg_types, args=seq_args)
-    if trap != DirectiveErrorCode.NO_ERROR:
-        print("Sequence trapped with " + str(trap))
-        exit(1)
-    if error_code != 0:
-        print("Sequence exited with error code " + str(error_code))
-        exit(error_code)
 
 
 def assemble_main(args: list[str] = None):

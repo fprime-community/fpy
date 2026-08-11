@@ -1,7 +1,7 @@
 import pytest
 
 import fpy.test_helpers as test_helpers
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,

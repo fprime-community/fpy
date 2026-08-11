@@ -1,6 +1,6 @@
 from fpy.types import U32
 
-from fpy.model import DirectiveErrorCode
+from fpy.bytecode.directives import DirectiveErrorCode
 import fpy.test_helpers as test_helpers
 from fpy.test_helpers import (
     assert_compile_failure,

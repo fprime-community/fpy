@@ -62,11 +62,29 @@ Repository = "https://github.com/fprime-community/fpy"
 ####
 [project.scripts]
 fprime-fpyc = "fpy.main:compile_main"
-fprime-fpy-model = "fpy.main:model_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
 fprime-fpy-cmd = "fpy.main:cmd_main"
 fprime-fpy-depend = "fpy.main:depend_main"
+
+####
+# The test suite lives in test/fpy. The fprime submodules and the harness
+# build trees carry their own (huge) test collections, so keep pytest from
+# ever recursing into them.
+####
+[tool.pytest.ini_options]
+testpaths = ["test/fpy"]
+norecursedirs = [
+    "fprime",
+    "fprime-wasm",
+    "harness",
+    "build-*",
+    ".*",
+    "*.egg",
+    "build",
+    "dist",
+    "venv",
+]
 
 ####
 # setuptools_scm dynamically generates version number from git, as well as automatically
@@ -77,13 +95,22 @@ fprime-fpy-depend = "fpy.main:depend_main"
 
 ####
 # The test suite covers both backends, so a development environment picks up
-# the wasm extra without having to ask for it.
+# the wasm extra without having to ask for it. The harness group holds the
+# tools that build the C++ test harness from the fprime submodules; the pins
+# match test/fprime/requirements.txt.
 ####
 [dependency-groups]
 dev = [
     "fprime-fpy[wasm]",
     "black>=26.5.1",
     "pre-commit>=4.6.0",
+    {include-group = "harness"},
+]
+harness = [
+    "cmake==3.26.0",
+    "fprime-fpp==3.3.0a15",
+    "fprime-tools==4.3.0a5",
+    "ninja==1.11.1.4",
 ]
 
 
