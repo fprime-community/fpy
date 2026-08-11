@@ -27,6 +27,7 @@ from fpy.types import (
     INTERNAL_STRING,
     RANGE,
     NOTHING,
+    SIZED,
     BOOL,
     TIME,
     TIME_BASE,
@@ -670,13 +671,27 @@ class CheckAllUnqualifiedIdentifiersResolved(Visitor):
             state.err("Unknown name", node)
 
 
+def is_cmd_and_response_unhandled(stmt: Ast, state: CompileState) -> bool:
+    """True when *stmt* is a command call whose response is not captured."""
+    return is_instance_compat(stmt, AstFuncCall) and is_instance_compat(
+        state.resolved_symbols.get(stmt.func), CommandSymbol
+    )
+
+
 def is_type_constant_size(type: FpyType) -> bool:
     """Return true if the type has a statically known size.
 
-    Types with strings (directly or nested) don't have constant size because
-    strings can vary in length.
+    Internal Strings have constant sizes, but runtime strings don't -> They
+    can vary in length.
+    Also allow concrete constant-size types.
     """
-    if type.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+    if type.kind == TypeKind.INTERNAL_STRING:
+        return True
+
+    if not type.is_concrete:
+        return False
+
+    if type.kind == TypeKind.STRING:
         return False
 
     if type.kind == TypeKind.ARRAY:
@@ -1151,6 +1166,9 @@ class PickTypesAndResolveFields(Visitor):
         Coercion is allowed when the common type of source and target IS target,
         meaning target can already represent everything source can.
         """
+        # The SIZED sentinel accepts any serializable, statically-sized argument.
+        if target.kind == TypeKind.SIZED:
+            return is_type_constant_size(source)
         return self.find_common_type(source, target) == target
 
     def coerce_expr_type(
@@ -1172,6 +1190,16 @@ class PickTypesAndResolveFields(Visitor):
                 node,
             )
             return False
+
+        # SIZED is a sentinel; resolve it to the argument's own concrete sized type.
+        if type.kind == TypeKind.SIZED:
+            if unconverted_type.kind == TypeKind.INTERNAL_STRING:
+                # A string literal gets a concrete String[N] sized to the literal.
+                assert is_instance_compat(node, AstString), node
+                str_len = len(node.value.encode("utf-8"))
+                type = FpyType(TypeKind.STRING, f"String_{str_len}", max_length=str_len)
+            else:
+                type = unconverted_type
 
         # For anon structs/arrays, recursively coerce children and build resolved_args
         if unconverted_type.kind == TypeKind.ANON_STRUCT:
@@ -1534,15 +1562,15 @@ class PickTypesAndResolveFields(Visitor):
             state.contextual_types[node] = parent_type.elem_type
             return
 
+        if parent_type.kind != TypeKind.ARRAY:
+            state.err(f"{parent_type.display_name} is not an array", node)
+            return
+
         if not is_type_constant_size(parent_type):
             state.err(
                 f"{parent_type.display_name} is not constant-sized (contains strings), cannot access items",
                 node,
             )
-            return
-
-        if parent_type.kind != TypeKind.ARRAY:
-            state.err(f"{parent_type.display_name} is not an array", node)
             return
 
         # coerce the index expression to array index type
@@ -2720,7 +2748,11 @@ class CalculateConstExprValues(Visitor):
         folded_value = None
 
         if node.op == UnaryStackOp.NEGATE:
-            folded_value = -value
+            # Decimal.__neg__ follows the decimal spec and returns +0 for any
+            # zero, which would fold the literal -0.0 to +0.0. copy_negate
+            # flips the sign unconditionally, matching runtime negation
+            # (llvm fneg / the VM's multiply by -1.0).
+            folded_value = value.copy_negate() if type(value) == Decimal else -value
         elif node.op == UnaryStackOp.IDENTITY:
             folded_value = value
         elif node.op == UnaryStackOp.NOT:
@@ -2945,6 +2977,16 @@ class CheckSequenceArgs(Visitor):
             )
             return
 
+        # mirrors the sequencer's load-time check against
+        # Svc.Fpy.MAX_SEQUENCE_ARG_COUNT (TooManySequenceArgs)
+        if len(node.parameters) > state.max_seq_arg_count:
+            state.err(
+                f"Too many sequence arguments ({len(node.parameters)}); max is "
+                f"{state.max_seq_arg_count} (Svc.Fpy.MAX_SEQUENCE_ARG_COUNT)",
+                node,
+            )
+            return
+
         for arg_name_var, arg_type_name in node.parameters:
             arg_var = state.resolved_symbols[arg_name_var]
             arg_type = state.resolved_symbols[arg_type_name]
@@ -2966,6 +3008,33 @@ class CheckSequenceArgs(Visitor):
                     arg_type_name,
                 )
                 return
+
+        total_arg_size = sum(
+            state.resolved_symbols[arg_type_name].max_size
+            for _, arg_type_name in node.parameters
+        )
+
+        # sequence arguments only ever arrive through a Svc.SeqArgs buffer
+        # (RUN_ARGS/VALIDATE_ARGS from the ground, or a seq-run command from
+        # another sequence), so they must fit in its buffer
+        seq_args_capacity = SEQ_ARGS.members[1].type.length
+        if total_arg_size > seq_args_capacity:
+            state.err(
+                f"Total size of sequence arguments ({total_arg_size} bytes) "
+                f"exceeds Svc.SeqArgs buffer capacity ({seq_args_capacity} bytes)",
+                node,
+            )
+            return
+
+        # mirrors the sequencer's load-time check against
+        # Svc.Fpy.MAX_STACK_SIZE (ArgTotalSizeExceedsStackLimit)
+        if total_arg_size > state.max_stack_size:
+            state.err(
+                f"Total size of sequence arguments ({total_arg_size} bytes) "
+                f"exceeds Svc.Fpy.MAX_STACK_SIZE ({state.max_stack_size} bytes)",
+                node,
+            )
+            return
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)

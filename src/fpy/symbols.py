@@ -1,14 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Union
+from typing import Callable, Union
 import typing
 
 from fpy.bytecode.directives import Directive
 from fpy.syntax import Ast, AstDef, AstExpr, AstFuncCall
 from fpy.types import ChDef, CmdDef, FpyType, FpyValue, PrmDef, is_instance_compat
-
-if TYPE_CHECKING:
-    from llvmlite import ir
 
 
 @dataclass
@@ -41,10 +38,12 @@ class BuiltinFuncSymbol(CallableSymbol):
     are already pushed on the stack by the caller."""
     generate_llvm: Callable = _generate_llvm_unsupported
     """llvm/wasm backend: builds the call's LLVM IR. Called as
-    generate_llvm(builder, args), where args is a list of (ir.Value, FpyValue or
-    None) pairs -- each argument's emitted value alongside its compile-time
-    constant value (or None if it isn't constant). Returns the result ir.Value
-    (or None for a NOTHING-typed builtin). Defaults to raising 'not lowered yet'."""
+    generate_llvm(builder, args), where args is a list of (ir.Value or None,
+    FpyValue or None) pairs -- each argument's emitted value alongside its
+    compile-time constant value (or None if it isn't constant). Args in
+    const_arg_indices are never emitted and arrive as (None, value). Returns the
+    result ir.Value (or None for a NOTHING-typed builtin). Defaults to raising
+    'not lowered yet'."""
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
     """indices of args that must be compile-time constants and are NOT pushed
     to the stack; instead their values are passed to generate_fpybc()"""
@@ -91,9 +90,11 @@ class FieldAccess:
 
 
 # named variables can be tlm chans, prms, callables, or directly referenced consts (usually enums)
-@dataclass
+@dataclass(eq=False)
 class VariableSymbol:
-    """a mutable, typed value stored on the stack referenced by an unqualified name"""
+    """a mutable, typed value stored on the stack referenced by an unqualified
+    name. One declaration is one variable, so variables compare and hash by
+    identity."""
 
     name: str
     type_ref: AstExpr | None
@@ -102,13 +103,8 @@ class VariableSymbol:
     """the node where this var is declared"""
     type: FpyType | None = None
     """the resolved type of the variable. None if type unsure at the moment"""
-    frame_offset: int | None = None
-    """the offset in the lvar array where this var is stored (fpybc backend)"""
     is_global: bool = False
     """whether this variable is a top-level (global) variable"""
-    llvm_ptr: "ir.Value | None" = field(default=None, compare=False, repr=False)
-    """llvm/wasm backend: the pointer to this variable's storage (an alloca for
-    locals, a GlobalVariable for globals). Set during codegen."""
 
 
 next_symbol_table_id = 0

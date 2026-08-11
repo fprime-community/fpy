@@ -1,9 +1,15 @@
+from types import SimpleNamespace
+
 import pytest
 
 from fpy import main as fpy_main
 from fpy.bytecode.directives import ConstCmdDirective
 import fpy.error as fpy_error
-import fpy.model as fpy_model
+
+
+def fake_compile_state(**kwargs):
+    """A stand-in CompileState with the attributes compile_main touches."""
+    return SimpleNamespace(max_directive_size=2048)
 
 
 @pytest.mark.parametrize(
@@ -35,7 +41,7 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
 
     def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        return "STATE"
+        return fake_compile_state()
 
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
@@ -45,7 +51,9 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
         lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
-        fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
+        fpy_main,
+        "serialize_directives",
+        lambda directives, arg_specs, **kwargs: (b"\x01", 0x1),
     )
 
     fpy_main.compile_main(
@@ -76,7 +84,7 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(
 
     def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        return "STATE"
+        return fake_compile_state()
 
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
@@ -86,7 +94,9 @@ def test_compile_main_ground_binary_dir_defaults_to_input_parent(
         lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
-        fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
+        fpy_main,
+        "serialize_directives",
+        lambda directives, arg_specs, **kwargs: (b"\x01", 0x1),
     )
 
     fpy_main.compile_main(
@@ -109,7 +119,7 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
 
     def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
         captured_kwargs.update(kwargs)
-        return "STATE"
+        return fake_compile_state()
 
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
@@ -119,7 +129,9 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
         lambda state: (["directive"], []),
     )
     monkeypatch.setattr(
-        fpy_main, "serialize_directives", lambda directives, arg_specs: (b"\x01", 0x1)
+        fpy_main,
+        "serialize_directives",
+        lambda directives, arg_specs, **kwargs: (b"\x01", 0x1),
     )
 
     fpy_main.compile_main(argv)
@@ -316,7 +328,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, ground_binary_dir=None, **kwargs: fake_compile_state(),
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -327,7 +339,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "serialize_directives",
-        lambda directives, arg_specs: (b"\x01\x02", 0xABCD),
+        lambda directives, arg_specs, **kwargs: (b"\x01\x02", 0xABCD),
     )
 
     fpy_main.compile_main(
@@ -343,52 +355,6 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert "CRC 0xabcd" in captured.out
     assert "2 B" in captured.out
-
-
-def test_model_main_success(monkeypatch, tmp_path):
-    binary = tmp_path / "seq.bin"
-    binary.write_bytes(b"data")
-
-    monkeypatch.setattr(fpy_model, "debug", False, raising=False)
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
-
-    instances = []
-
-    class DummyModel:
-        def __init__(self):
-            instances.append(self)
-            self.ran_with = None
-
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
-            self.ran_with = directives
-            return 0, fpy_main.DirectiveErrorCode.NO_ERROR
-
-    monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
-
-    fpy_main.model_main([str(binary), "--debug"])
-
-    assert fpy_model.debug is True
-    assert instances[0].ran_with == ["dir"]
-
-
-def test_model_main_failure(monkeypatch, tmp_path, capsys):
-    binary = tmp_path / "seq.bin"
-    binary.write_bytes(b"data")
-
-    monkeypatch.setattr(fpy_main, "deserialize_directives", lambda data: (["dir"], []))
-
-    class DummyModel:
-        def run(self, directives, tlm_db=None, args=None, arg_types=None):
-            return 0, fpy_main.DirectiveErrorCode.STACK_OVERFLOW
-
-    monkeypatch.setattr(fpy_main, "FpySequencerModel", DummyModel)
-
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.model_main([str(binary)])
-
-    assert exc.value.code == 1
-    captured = capsys.readouterr()
-    assert "Sequence trapped" in captured.out
 
 
 def test_assemble_main_missing_input(tmp_path, capsys):

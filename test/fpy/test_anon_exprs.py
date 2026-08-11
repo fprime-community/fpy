@@ -180,6 +180,14 @@ val: U32 = [1, 2, 3]
 """
         assert_compile_failure(fprime_test_api, seq, match="common type")
 
+    def test_index_non_array_reports_not_an_array(self, fprime_test_api):
+        """Indexing a non-array must report 'not an array', not 'contains strings'."""
+        seq = """
+val: U32 = 5
+x: U32 = val[0]
+"""
+        assert_compile_failure(fprime_test_api, seq, match="not an array")
+
 
 class TestAnonArrayAdvanced:
     def test_anon_array_as_func_arg(self, fprime_test_api):

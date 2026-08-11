@@ -1,0 +1,199 @@
+diff --git a/Svc/WasmSequencer/WasmSequencer.cpp b/Svc/WasmSequencer/WasmSequencer.cpp
+index 9cc2338..3752c83 100644
+--- a/Svc/WasmSequencer/WasmSequencer.cpp
++++ b/Svc/WasmSequencer/WasmSequencer.cpp
+@@ -41,6 +41,10 @@ WasmSequencer ::WasmSequencer(const char* const compName)
+       m_pendingTimer(),
+       m_hasPendingTimer(false),
+       m_breakBeforeNextLine(false),
++      m_invokeStatus(SPACEWASM_OK),
++      m_loadStatus(SPACEWASM_OK),
++      m_pendingRun(false),
++      m_pendingPause(false),
+       m_loadFile(nullptr),
+       m_tlmSequencesSucceeded(0),
+       m_tlmSequencesFailed(0),
+@@ -481,7 +485,22 @@ void WasmSequencer ::Svc_WasmSequencer_SequencerStateMachine_action_spin(
+             this->sequencer_sendSignal_interpreterFinished();
+             break;
+         case SPACEWASM_RUN_TRAP:
+-            this->sequencer_sendSignal_interpreterTrap(WasmSequencer::mapTrapReason(trap));
++            if (this->m_guestExited) {
++                // The guest left through the exit or panic host function; the
++                // recorded code, not the trap, carries the result. A code of 0
++                // is a normal exit; a nonzero code fails the sequence and is
++                // reported by event, the only path it can travel out on.
++                const I32 exitCode = this->m_guestExitCode;
++                this->m_guestExited = false;
++                if (exitCode == 0) {
++                    this->sequencer_sendSignal_interpreterFinished();
++                } else {
++                    this->log_WARNING_HI_SequenceExitedWithError(exitCode);
++                    this->sequencer_sendSignal_interpreterTrap(WasmSequencer::mapTrapReason(trap));
++                }
++            } else {
++                this->sequencer_sendSignal_interpreterTrap(WasmSequencer::mapTrapReason(trap));
++            }
+             break;
+         case SPACEWASM_RUN_PAUSE:
+             this->sequencer_sendSignal_interpreterPause();
+diff --git a/Svc/WasmSequencer/WasmSequencer.hpp b/Svc/WasmSequencer/WasmSequencer.hpp
+index 21e7f2e..862df32 100644
+--- a/Svc/WasmSequencer/WasmSequencer.hpp
++++ b/Svc/WasmSequencer/WasmSequencer.hpp
+@@ -587,7 +587,15 @@ class WasmSequencer final : public WasmSequencerComponentBase {
+ 
+     PendingHostFunction m_pendingHostFunction;
+ 
++    // Set when the guest calls the exit or panic host function. A host call
++    // can only end the interpreter with a trap, so the code is recorded here
++    // and the spin action turns a code of 0 back into a clean finish and
++    // reports a nonzero code through the SequenceExitedWithError event.
++    bool m_guestExited = false;
++    I32 m_guestExitCode = 0;
++
+     void hostFprimeV1(spacewasm_host_t*);
++    void hostEnv(spacewasm_host_t*);
+ 
+     /// FPrime Wasm Interface Host Functions
+     spacewasm_hostcall_result_t wasmExit(struct spacewasm_caller_t* caller,
+diff --git a/Svc/WasmSequencer/WasmSequencerEvents.fppi b/Svc/WasmSequencer/WasmSequencerEvents.fppi
+index 8c648bf..6ebf5c1 100644
+--- a/Svc/WasmSequencer/WasmSequencerEvents.fppi
++++ b/Svc/WasmSequencer/WasmSequencerEvents.fppi
+@@ -58,6 +58,12 @@ event SequenceCancelled() severity activity high format "Wasm program cancelled"
+ @ The sequence failed to execute successfully
+ event SequenceFailed() severity warning high format "Wasm program failed"
+ 
++@ The sequence exited with a nonzero error code (through the exit or panic
++@ host function)
++event SequenceExitedWithError(errorCode: I32) \
++    severity warning high \
++    format "Wasm program exited with error code {}"
++
+ @ The interpreter trapped
+ event SequenceTrap(reason: TrapReason) \
+     severity warning high \
+diff --git a/Svc/WasmSequencer/WasmSequencerHelpers.cpp b/Svc/WasmSequencer/WasmSequencerHelpers.cpp
+index e77e900..e532759 100644
+--- a/Svc/WasmSequencer/WasmSequencerHelpers.cpp
++++ b/Svc/WasmSequencer/WasmSequencerHelpers.cpp
+@@ -101,10 +101,11 @@ Fw::Success WasmSequencer ::createStore() {
+     this->takeAllocatorLock();
+ 
+     spacewasm_host_t host;
+-    spacewasm_status_t status = spacewasm_host_new(1, &host);
++    spacewasm_status_t status = spacewasm_host_new(2, &host);
+     FW_ASSERT(status == SPACEWASM_OK, status);
+ 
+     this->hostFprimeV1(&host);
++    this->hostEnv(&host);
+ 
+     spacewasm_compiler_options_t options;
+     options.allow_memory_grow = false;
+diff --git a/Svc/WasmSequencer/WasmSequencerHost.cpp b/Svc/WasmSequencer/WasmSequencerHost.cpp
+index aff3f72..7a2230d 100644
+--- a/Svc/WasmSequencer/WasmSequencerHost.cpp
++++ b/Svc/WasmSequencer/WasmSequencerHost.cpp
+@@ -4,6 +4,8 @@
+ // \brief  cpp file for WasmSequencer Wasm Host functions
+ // ======================================================================
+ 
++#include <cmath>
++
+ #include "Fw/Log/LogSeverityEnumAc.hpp"
+ #include "Fw/Types/Assert.hpp"
+ #include "Svc/WasmSequencer/WasmSequencer.hpp"
+@@ -14,6 +16,52 @@
+ 
+ namespace Svc {
+ 
++void WasmSequencer ::hostEnv(spacewasm_host_t* host) {
++    // The float library calls LLVM materializes for guest float arithmetic
++    // (llvm.pow, frem, llvm.log). wasm-ld leaves them under wasm's default
++    // import module "env". They are pure math, so they answer synchronously.
++    spacewasm_status_t status;
++    U32 module_idx;
++    status = spacewasm_add_host_module(host, "env", 3, 0, &module_idx);
++    FW_ASSERT(status == SPACEWASM_OK, status);
++
++    status = spacewasm_add_host_function(
++        host, module_idx, "pow", "dd", "d",
++        [](spacewasm_caller_t*, void*, const spacewasm_value_t* params, size_t n_params, spacewasm_value_t* out) {
++            FW_ASSERT(params != nullptr);
++            FW_ASSERT(n_params == 2, static_cast<FwAssertArgType>(n_params));
++            out->tag = SPACEWASM_F64;
++            out->u.f64_ = std::pow(params[0].u.f64_, params[1].u.f64_);
++            return SPACEWASM_CONTINUE_SOME;
++        },
++        nullptr);
++    FW_ASSERT(status == SPACEWASM_OK, status);
++
++    status = spacewasm_add_host_function(
++        host, module_idx, "fmod", "dd", "d",
++        [](spacewasm_caller_t*, void*, const spacewasm_value_t* params, size_t n_params, spacewasm_value_t* out) {
++            FW_ASSERT(params != nullptr);
++            FW_ASSERT(n_params == 2, static_cast<FwAssertArgType>(n_params));
++            out->tag = SPACEWASM_F64;
++            out->u.f64_ = std::fmod(params[0].u.f64_, params[1].u.f64_);
++            return SPACEWASM_CONTINUE_SOME;
++        },
++        nullptr);
++    FW_ASSERT(status == SPACEWASM_OK, status);
++
++    status = spacewasm_add_host_function(
++        host, module_idx, "log", "d", "d",
++        [](spacewasm_caller_t*, void*, const spacewasm_value_t* params, size_t n_params, spacewasm_value_t* out) {
++            FW_ASSERT(params != nullptr);
++            FW_ASSERT(n_params == 1, static_cast<FwAssertArgType>(n_params));
++            out->tag = SPACEWASM_F64;
++            out->u.f64_ = std::log(params[0].u.f64_);
++            return SPACEWASM_CONTINUE_SOME;
++        },
++        nullptr);
++    FW_ASSERT(status == SPACEWASM_OK, status);
++}
++
+ void WasmSequencer ::hostFprimeV1(spacewasm_host_t* host) {
+ #define HOST_FN(member_fn)                                                                                         \
+     [](struct spacewasm_caller_t* caller, void* userdata, const struct spacewasm_value_t* params, size_t n_params, \
+@@ -58,20 +106,31 @@ void WasmSequencer ::hostFprimeV1(spacewasm_host_t* host) {
+ }
+ 
+ spacewasm_hostcall_result_t WasmSequencer::wasmExit(spacewasm_caller_t*,
+-                                                    const spacewasm_value_t*,
+-                                                    size_t,
++                                                    const spacewasm_value_t* params,
++                                                    size_t n_params,
+                                                     spacewasm_value_t*) {
+-    // TODO(tumbar) Add "exit" return code to SpaceWasm host functions
+-    //              This is basically the same as trap but not 'error-ey'
+-    // Exit the interpreter
++    FW_ASSERT(params != nullptr);
++    FW_ASSERT(n_params == 1, static_cast<FwAssertArgType>(n_params));
++    FW_ASSERT(params[0].tag == spacewasm_valtype_t::SPACEWASM_I32, params[0].tag);
++
++    // Record the guest's code; a host call can only end the interpreter with
++    // a trap, so the spin action reads it back out (see m_guestExited).
++    this->m_guestExited = true;
++    this->m_guestExitCode = static_cast<I32>(params[0].u.i32_);
+     return SPACEWASM_TRAP;
+ }
+ 
+ spacewasm_hostcall_result_t WasmSequencer::wasmPanic(spacewasm_caller_t*,
+-                                                     const spacewasm_value_t*,
+-                                                     size_t,
++                                                     const spacewasm_value_t* params,
++                                                     size_t n_params,
+                                                      spacewasm_value_t*) {
+-    // TODO(tumbar) Extract status code
++    FW_ASSERT(params != nullptr);
++    FW_ASSERT(n_params == 1, static_cast<FwAssertArgType>(n_params));
++    FW_ASSERT(params[0].tag == spacewasm_valtype_t::SPACEWASM_I32, params[0].tag);
++
++    // Same as exit: the recorded code, not the trap, carries the result.
++    this->m_guestExited = true;
++    this->m_guestExitCode = static_cast<I32>(params[0].u.i32_);
+     return SPACEWASM_TRAP;
+ }
+ 

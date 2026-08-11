@@ -27,6 +27,8 @@ except ImportError:
 # Default values for sequence limits - may be overridden by dictionary constants
 DEFAULT_MAX_DIRECTIVES_COUNT = 1024
 DEFAULT_MAX_DIRECTIVE_SIZE = 2048
+DEFAULT_MAX_SEQ_ARG_COUNT = 16
+DEFAULT_MAX_STACK_SIZE = 65535
 
 # Keep old names as aliases for backward compatibility
 MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT
@@ -43,6 +45,11 @@ DEFAULT_FW_SERIALIZE_FALSE_VALUE = 0x00
 
 FW_SERIALIZE_TRUE_VALUE = DEFAULT_FW_SERIALIZE_TRUE_VALUE
 FW_SERIALIZE_FALSE_VALUE = DEFAULT_FW_SERIALIZE_FALSE_VALUE
+
+
+class DeserializeError(ValueError):
+    """Bytes that cannot be deserialized as a value of the requested type
+    (fprime's FW_DESERIALIZE_* error statuses)."""
 
 
 class TypeKind(str, Enum):
@@ -71,6 +78,7 @@ class TypeKind(str, Enum):
     NOTHING = "Nothing"  # void / no-value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
+    SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
 
 
 # struct format for each primitive kind
@@ -151,6 +159,7 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.NOTHING,
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
+        TypeKind.SIZED,
     }
 )
 
@@ -305,6 +314,8 @@ class FpyType:
             return "anonymous struct"
         if self.kind == TypeKind.ANON_ARRAY:
             return "anonymous array"
+        if self.kind == TypeKind.SIZED:
+            return "a serializable, statically-sized value"
         return self.name
 
     # -- size / range properties -------------------------------------------
@@ -431,6 +442,9 @@ FLOAT = FpyType(TypeKind.FLOAT, "Float")
 INTERNAL_STRING = FpyType(TypeKind.INTERNAL_STRING, "InternalString")
 RANGE = FpyType(TypeKind.RANGE, "Range")
 NOTHING = FpyType(TypeKind.NOTHING, "Nothing")
+
+# Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_type_constant_size).
+SIZED = FpyType(TypeKind.SIZED, "Sized")
 
 # Tuples of concrete types for iteration / membership tests
 SPECIFIC_NUMERIC_TYPES = (U32, U16, U64, U8, I16, I32, I64, I8, F32, F64)
@@ -570,20 +584,41 @@ class FpyValue:
     @staticmethod
     def deserialize(typ: FpyType, data: bytes, offset: int = 0) -> tuple[FpyValue, int]:
         """Deserialize a value of *typ* from *data* at *offset*.
-        Returns ``(value, new_offset)``."""
+        Returns ``(value, new_offset)``. Raises DeserializeError on bytes the
+        fprime C++ deserializer would reject"""
         kind = typ.kind
 
         if kind in _PRIMITIVE_FORMATS:
             fmt = _PRIMITIVE_FORMATS[kind]
             size = _PRIMITIVE_SIZES[kind]
+            if offset + size > len(data):
+                raise DeserializeError(
+                    f"Buffer too short for {typ.display_name}: need {size} bytes "
+                    f"at offset {offset}, have {len(data) - offset}"
+                )
             raw = struct.unpack_from(fmt, data, offset)[0]
             if kind == TypeKind.BOOL:
-                raw = bool(raw)
+                if raw == FW_SERIALIZE_TRUE_VALUE:
+                    raw = True
+                elif raw == FW_SERIALIZE_FALSE_VALUE:
+                    raw = False
+                else:
+                    raise DeserializeError(f"Invalid bool byte 0x{raw:02x}")
             return FpyValue(typ, raw), offset + size
 
         if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
             size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
+            if typ.max_length is not None and str_len > typ.max_length:
+                raise DeserializeError(
+                    f"String length {str_len} exceeds max length "
+                    f"{typ.max_length} of {typ.display_name}"
+                )
+            if offset + str_len > len(data):
+                raise DeserializeError(
+                    f"Buffer too short for {typ.display_name}: need {str_len} "
+                    f"bytes at offset {offset}, have {len(data) - offset}"
+                )
             s = data[offset : offset + str_len].decode("utf-8")
             offset += str_len
             return FpyValue(typ, s), offset

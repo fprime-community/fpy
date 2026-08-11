@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
-from fpy.ir import Ir, IrLabel
 from fpy.macros import MACROS
 from fpy.symbols import (
     CallableSymbol,
@@ -44,6 +43,8 @@ from fpy.types import (
     DEFAULT_FW_SERIALIZE_TRUE_VALUE,
     DEFAULT_MAX_DIRECTIVES_COUNT,
     DEFAULT_MAX_DIRECTIVE_SIZE,
+    DEFAULT_MAX_SEQ_ARG_COUNT,
+    DEFAULT_MAX_STACK_SIZE,
     FLAGS_TYPE,
     I64,
     LOG_SEVERITY,
@@ -57,7 +58,13 @@ from fpy.types import (
     FpyValue,
     TypeKind,
 )
-from fpy.bytecode.directives import Directive, update_configurable_types_from_dict
+from fpy.bytecode.directives import update_configurable_types_from_dict
+
+
+class BackendState:
+    """Base for what a backend works out about a program while lowering it.
+    Each backend defines its own subclass and installs it on
+    CompileState.backend."""
 
 
 @dataclass
@@ -81,6 +88,14 @@ class CompileState:
     # Sequence limits loaded from dictionary (or defaults if not specified)
     max_directives_count: int = DEFAULT_MAX_DIRECTIVES_COUNT
     max_directive_size: int = DEFAULT_MAX_DIRECTIVE_SIZE
+    max_seq_arg_count: int = DEFAULT_MAX_SEQ_ARG_COUNT
+    max_stack_size: int = DEFAULT_MAX_STACK_SIZE
+    # Command transport limits loaded from dictionary. None means the constant
+    # is not in the dictionary, in which case the corresponding check is skipped.
+    com_buffer_max_size: int | None = None
+    cmd_arg_buffer_max_size: int | None = None
+    cmd_names_by_opcode: dict[int, str] = field(default_factory=dict)
+    """Map of command opcode to fully-qualified command name, for error messages."""
 
     next_node_id: int = 0
     root_block: AstBlock = None
@@ -154,26 +169,11 @@ class CompileState:
     function_callees: dict[AstDef, list[AstDef]] = field(default_factory=dict)
     """function definition -> the user function definitions it directly calls"""
 
-    while_loop_end_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """while loop node mapped to the label pointing to the end of the loop"""
-    while_loop_start_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """while loop node mapped to the label pointing to the start of the loop, just before the conditional"""
-    # store keys as while because for loops are desugared to while
-    for_loop_inc_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
-    """for loop node (desugared into a while) mapped to a label pointing to its increment stmt"""
-
     does_return: dict[Ast, bool] = field(default_factory=dict)
 
-    used_funcs: set[AstDef] = field(default_factory=set)
-    """set of function definitions that are actually called and need code generated"""
-
-    func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
-    """function to entry point label"""
-
-    generated_funcs: dict[AstDef, list[Directive | Ir]] = field(default_factory=dict)
-
-    frame_sizes: dict[Ast, int] = field(default_factory=dict)
-    """map of frame root node to the total size in bytes of all local variables in that frame"""
+    backend: BackendState | None = None
+    """the state of the backend lowering this program, or None if none is.
+    Written and read only by that backend."""
 
     flags_var: VariableSymbol = None
     """The built-in 'flags' variable ($Flags struct) that controls sequencer behavior."""
@@ -645,7 +645,7 @@ def get_base_compile_state(
     )
     constants = load_dictionary(dictionary)["constants"]
 
-    def _const_int(key: str, default: int) -> int:
+    def _const_int(key: str, default: int | None) -> int | None:
         """Extract an integer constant value, falling back to *default*."""
         val = constants.get(key)
         if val is None:
@@ -688,6 +688,16 @@ def get_base_compile_state(
         max_directive_size=_const_int(
             "Svc.Fpy.MAX_DIRECTIVE_SIZE", DEFAULT_MAX_DIRECTIVE_SIZE
         ),
+        max_seq_arg_count=_const_int(
+            "Svc.Fpy.MAX_SEQUENCE_ARG_COUNT", DEFAULT_MAX_SEQ_ARG_COUNT
+        ),
+        max_stack_size=_const_int("Svc.Fpy.MAX_STACK_SIZE", DEFAULT_MAX_STACK_SIZE),
+        com_buffer_max_size=_const_int("FW_COM_BUFFER_MAX_SIZE", None),
+        cmd_arg_buffer_max_size=_const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        cmd_names_by_opcode={
+            opcode: cmd.name
+            for opcode, cmd in load_dictionary(dictionary)["cmd_id_dict"].items()
+        },
         ignored_warnings=set(ignored_warnings) if ignored_warnings else set(),
         error_warnings=set(error_warnings) if error_warnings else set(),
         import_directories=list(import_directories) if import_directories else [],

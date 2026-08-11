@@ -159,8 +159,11 @@ class CompileError(Exception):
 @dataclass
 class BackendError(Exception):
     msg: str
+    node: Any = None
 
     def __repr__(self):
+        if self.node is not None:
+            return format_diagnostic(self.msg, self.node, color=Colors.red)
         file_name_str = file_name if file_name is not None else "<unknown file>"
         return f"{Colors.cyan(file_name_str)}: {Colors.bold(Colors.red(self.msg))}"
 
