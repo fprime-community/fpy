@@ -981,6 +981,22 @@ class CollectFunctionGlobalUses(TopDownVisitor):
                     scanner.run(default, state)
 
 
+# FIXME I want to make this slightly better, i want to eliminate functions which just call each other but aren't called
+# in the main source
+class CollectUsedFunctions(Visitor):
+    """Collects the set of functions that are called anywhere in the code.
+
+    Any function that is called (even from within other functions) will be
+    marked as used and have code generated for it.
+    """
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, FunctionSymbol):
+            return
+        state.used_funcs.add(func.definition)
+
+
 class ResolveTransitiveGlobalUses:
     """Grows function_global_uses from direct uses to transitive uses too.
 

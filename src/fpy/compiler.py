@@ -6,7 +6,6 @@ from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen_fpybc import (
     AssignFrameOffsets,
-    CollectUsedFunctions,
     FinalChecks,
     FpybcBackendState,
     GenerateFunctionEntryPoints,
@@ -38,6 +37,7 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDefine,
     CollectFunctionGlobalUses,
+    CollectUsedFunctions,
     ResolveTransitiveGlobalUses,
     CheckGlobalsInitializedBeforeCall,
     CheckSequenceArgs,
@@ -293,6 +293,9 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         DesugarTimeOperators(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
+        # Collect which functions are called anywhere in the code. Runs after
+        # desugaring because desugared time operators call script functions.
+        CollectUsedFunctions(),
     ]
 
     for compile_pass in pre_semantic_desugaring_passes:
@@ -324,8 +327,6 @@ def analysis_to_fpybc_directives(
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
         AssignFrameOffsets(),
-        # Collect which functions are called anywhere in the code
-        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),

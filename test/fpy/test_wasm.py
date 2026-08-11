@@ -596,13 +596,11 @@ class TestWasmBareExpressionStatements:
     def test_embedded_call_is_lowered_not_dropped(self):
         # `f() == 0` is an AstBinaryOp -- not a side-effecting node type -- but
         # it embeds a call that is. Lowering it must reach the call rather than
-        # silently dropping the statement. The wasm backend can't lower
-        # script-function calls yet, so reaching the call surfaces as a
-        # BackendError; before the fix the statement was dropped and the module
-        # compiled to a (wrong) no-op with no error at all.
-        seq = "def f() -> U32:\n    return 0\nf() == 0\n"
-        with pytest.raises(BackendError, match="script-defined function"):
-            _seq_to_llvm_module(seq)
+        # silently dropping the statement; before the fix the statement was
+        # dropped and the module compiled to a (wrong) no-op. The exit inside
+        # f only reports its code if the call actually runs.
+        seq = "def f() -> U32:\n    exit(7)\n    return 0\nf() == 0\n"
+        assert run_seq_wasm(seq) == 7
 
 
 class TestWasmSequenceParameters:
@@ -662,6 +660,218 @@ class TestWasmIf:
         seq = (
             "if True:\n    a: U32 = 1\n    assert a == 1\n"
             "if True:\n    a: U32 = 2\n    assert a == 2\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+
+class TestWasmFunctions:
+    """Script-defined functions: each used def lowers to an LLVM function of
+    its own, called like any other."""
+
+    def test_void_function_call(self):
+        seq = "def f():\n    exit(7)\nf()\n"
+        assert run_seq_wasm(seq) == 7
+
+    def test_return_value(self):
+        seq = "def three() -> U32:\n    return 3\nx: U32 = three()\nassert x == 3\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_multiple_args(self):
+        seq = (
+            "def weighted(a: U32, b: U32, w: U32) -> U64:\n"
+            "    return a * w + b\n"
+            "assert weighted(3, 4, 10) == 34\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_params_are_by_value(self):
+        # Mutating a parameter must not touch the caller's variable.
+        seq = (
+            "def clobber(x: U32):\n"
+            "    x = 99\n"
+            "y: U32 = 5\n"
+            "clobber(y)\n"
+            "assert y == 5\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_recursion(self):
+        seq = (
+            "def fib(a: U64) -> U64:\n"
+            "    if a < 2:\n"
+            "        return 1\n"
+            "    return fib(a - 1) + fib(a - 2)\n"
+            "assert fib(10) == 89\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_mutual_recursion(self):
+        seq = (
+            "def is_even(n: U64) -> bool:\n"
+            "    if n == 0:\n"
+            "        return True\n"
+            "    return is_odd(n - 1)\n"
+            "def is_odd(n: U64) -> bool:\n"
+            "    if n == 0:\n"
+            "        return False\n"
+            "    return is_even(n - 1)\n"
+            "assert is_even(10)\n"
+            "assert is_odd(7)\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_global_read_and_written_from_function(self):
+        # Globals are module globals, so a function reaches the same slot the
+        # entry function does.
+        seq = (
+            "counter: U64 = 0\n"
+            "def bump():\n"
+            "    counter += 1\n"
+            "def read() -> U64:\n"
+            "    return counter\n"
+            "bump()\n"
+            "bump()\n"
+            "assert counter == 2\n"
+            "assert read() == 2\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_command_inside_function(self):
+        seq = "def ping():\n" "    CdhCore.cmdDisp.CMD_NO_OP()\n" "ping()\n" "ping()\n"
+        code, cmds = run_seq_wasm_with_cmds(seq)
+        assert code == NO_ERROR
+        d = load_dictionary(default_dictionary)
+        opcode = struct.pack(
+            ">I", d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode
+        )
+        assert cmds == [opcode, opcode]
+
+    def test_function_named_like_host_import_or_entry(self):
+        # "exit", "cmd" and "main" are taken in the LLVM module by the host
+        # imports and the entrypoint; script functions with those names must be
+        # uniqued away from them, and a call must reach the script function.
+        seq = (
+            "def main() -> U32:\n"
+            "    return 1\n"
+            "def cmd() -> U32:\n"
+            "    return 2\n"
+            "assert main() + cmd() == 3\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_struct_param_and_return(self):
+        # Aggregates pass and return by value: the callee mutates its copy and
+        # returns it, and the caller's variable is unaffected.
+        seq = (
+            "def with_value(p: Ref.SignalPair, v: F32) -> Ref.SignalPair:\n"
+            "    p.value = v\n"
+            "    return p\n"
+            "orig: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
+            "q: Ref.SignalPair = with_value(orig, 9.5)\n"
+            "assert q.time == 3.0\n"
+            "assert q.value == 9.5\n"
+            "assert orig.value == 4.0\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_time_comparison_runs_at_runtime(self):
+        # Time comparisons desugar to calls into the builtin script-function
+        # library (time_cmp_assert_comparable), and a script-function call is
+        # never folded -- so this exercises the library at runtime.
+        seq = (
+            "t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)\n"
+            "t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 200, 0)\n"
+            "assert t1 < t2\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_unused_function_with_unlowerable_body_is_skipped(self):
+        # Only used functions are lowered: an uncalled def whose body the
+        # backend can't lower (a telemetry read) must not break the sequence.
+        seq = (
+            "def unused() -> U64:\n"
+            "    return CdhCore.cmdDisp.CommandsDispatched\n"
+            "assert 1 == 1\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_return_ends_execution_mid_function(self):
+        # Statements after a taken return must not run.
+        seq = (
+            "def f() -> U32:\n"
+            "    if True:\n"
+            "        return 1\n"
+            "    exit(9)\n"
+            "    return 0\n"
+            "assert f() == 1\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+
+class TestWasmWhile:
+    """while loops, break/continue, and their interaction with functions.
+    for loops desugar to while loops before codegen, so they land here too."""
+
+    def test_while_countdown(self):
+        seq = "n: U64 = 5\nwhile n > 0:\n    n -= 1\nassert n == 0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_while_condition_false_skips_body(self):
+        seq = "n: U64 = 0\nwhile n > 0:\n    exit(9)\nassert n == 0\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_break(self):
+        seq = (
+            "n: U64 = 0\n"
+            "while True:\n"
+            "    n += 1\n"
+            "    if n == 7:\n"
+            "        break\n"
+            "assert n == 7\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_continue(self):
+        # Count only even i: continue skips the increment of `evens`.
+        seq = (
+            "i: U64 = 0\n"
+            "evens: U64 = 0\n"
+            "while i < 10:\n"
+            "    i += 1\n"
+            "    if i % 2 == 1:\n"
+            "        continue\n"
+            "    evens += 1\n"
+            "assert evens == 5\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_for_loop(self):
+        seq = "total: I64 = 0\nfor i in 1..4:\n    total += i\nassert total == 6\n"
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_continue_in_for_still_increments(self):
+        # continue in a desugared for loop must jump to the increment, not the
+        # condition, or the loop would never advance.
+        seq = (
+            "total: I64 = 0\n"
+            "for i in 0..10:\n"
+            "    if i % 2 == 1:\n"
+            "        continue\n"
+            "    total += 1\n"
+            "assert total == 5\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_return_from_loop_inside_function(self):
+        seq = (
+            "def first_ge(threshold: U64) -> U64:\n"
+            "    i: U64 = 0\n"
+            "    while True:\n"
+            "        if i >= threshold:\n"
+            "            return i\n"
+            "        i += 1\n"
+            "    return 0\n"
+            "assert first_ge(42) == 42\n"
         )
         assert run_seq_wasm(seq) == NO_ERROR
 

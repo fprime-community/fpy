@@ -169,6 +169,11 @@ class CompileState:
     function_callees: dict[AstDef, list[AstDef]] = field(default_factory=dict)
     """function definition -> the user function definitions it directly calls"""
 
+    used_funcs: set[AstDef] = field(default_factory=set)
+    """the function definitions with a call site anywhere in the program, i.e.
+    the ones a backend must generate code for (over-approximate: includes
+    functions called only from unused functions)"""
+
     does_return: dict[Ast, bool] = field(default_factory=dict)
 
     backend: BackendState | None = None

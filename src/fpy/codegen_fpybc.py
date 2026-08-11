@@ -155,9 +155,6 @@ class FpybcBackendState(BackendState):
     """the block that owns a frame, to the total size in bytes of that frame's
     locals"""
 
-    used_funcs: set[AstDef] = field(default_factory=set)
-    """the function definitions that are called, and so need code generated"""
-
     func_entry_labels: dict[AstDef, IrLabel] = field(default_factory=dict)
     """function definition to the label at its entry point"""
 
@@ -173,20 +170,6 @@ class FpybcBackendState(BackendState):
     # keyed by while, because for loops are desugared to while loops
     for_loop_inc_labels: dict[AstWhile, IrLabel] = field(default_factory=dict)
     """desugared for loop to the label at its increment stmt"""
-
-
-class CollectUsedFunctions(Visitor):
-    """Collects the set of functions that are called anywhere in the code.
-
-    Any function that is called (even from within other functions) will be
-    marked as used and have code generated for it.
-    """
-
-    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, FunctionSymbol):
-            return
-        state.backend.used_funcs.add(func.definition)
 
 
 class _LayOutFrameLocals(TopDownVisitor):
@@ -281,7 +264,7 @@ class AssignFrameOffsets(Visitor):
 
 class GenerateFunctionEntryPoints(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if node not in state.backend.used_funcs:
+        if node not in state.used_funcs:
             # Function is never called, skip it
             return
         entry_label = IrLabel(node, "entry")
@@ -290,7 +273,7 @@ class GenerateFunctionEntryPoints(Visitor):
 
 class GenerateFunctions(Visitor):
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        if node not in state.backend.used_funcs:
+        if node not in state.used_funcs:
             # Function is never called, skip generating code for it
             return
         entry_label = state.backend.func_entry_labels[node]

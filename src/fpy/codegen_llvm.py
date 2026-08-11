@@ -31,12 +31,15 @@ from fpy.symbols import (
     VariableSymbol,
 )
 from fpy.syntax import (
+    Ast,
     AstAnonArray,
     AstAnonStruct,
     AstAssert,
     AstAssign,
     AstBinaryOp,
     AstBlock,
+    AstBreak,
+    AstContinue,
     AstDef,
     AstExpr,
     AstFuncCall,
@@ -45,7 +48,9 @@ from fpy.syntax import (
     AstIf,
     AstIndexExpr,
     AstNodeWithSideEffects,
+    AstReturn,
     AstUnaryOp,
+    AstWhile,
     BinaryStackOp,
     COMPARISON_OPS,
     UnaryStackOp,
@@ -58,11 +63,12 @@ from fpy.types import (
     ChDef,
     FpyType,
     FpyValue,
+    NOTHING,
     PrmDef,
     TypeKind,
     is_instance_compat,
 )
-from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor
+from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor, Visitor
 from fpy.wasm_host import (
     ERROR_CODE_TYPE,
     HOST_CMD_FUNC_NAME,
@@ -111,6 +117,9 @@ class LlvmBackendState(BackendState):
 
     cmd_buffers: dict[AstFuncCall, CommandBuffer] = field(default_factory=dict)
     """command call to the buffer it dispatches"""
+
+    funcs: dict[AstDef, "ir.Function"] = field(default_factory=dict)
+    """used function definition to the LLVM function it lowers to"""
 
 
 def is_addressable(expr: AstExpr, state: CompileState) -> bool:
@@ -537,10 +546,17 @@ class EmitLlvmExpr(Emitter):
             # synthesized -> contextual conversion in emit()
             return self.emit(node_args[0], state)
         elif is_instance_compat(func, FunctionSymbol):
-            # script-defined function
-            raise BackendError(
-                "LLVM backend can't lower script-defined function calls yet"
-            )
+            fn = state.backend.funcs[func.definition]
+            # The args are already positional with defaults filled in
+            # (DesugarDefaultArgs) and coerced to the parameter types, so each
+            # emits at its parameter's LLVM type. A script function's default
+            # is always an AstExpr, never a bare FpyValue.
+            assert all(is_instance_compat(arg, Ast) for arg in node_args), node_args
+            args = [self.emit(arg, state) for arg in node_args]
+            result = self.builder.call(fn, args)
+            # A NOTHING-typed expression emits as None.
+            # FIXME should we just be returning the void value?
+            return None if func.return_type is NOTHING else result
         else:
             assert False, func
 
@@ -578,8 +594,16 @@ class EmitLlvmExpr(Emitter):
         b = self.builder
         command = state.backend.cmd_buffers[node]
 
-        for offset, arg, arg_type in command.runtime_args:
-            value = self.emit(arg, state)
+        # Evaluate every argument before storing any: an argument expression
+        # can call a function that recursively reaches this same call site,
+        # and the buffer is shared between activations while SSA values are
+        # not.
+        # FIXME please explain this, was there a test that caught this? if not we should have one
+        values = [
+            (offset, self.emit(arg, state), arg_type)
+            for offset, arg, arg_type in command.runtime_args
+        ]
+        for offset, value, arg_type in values:
             written = self._emit_store_big_endian(value, arg_type, command.buf, offset)
             assert written == arg_type.max_size, (arg_type, written)
 
@@ -787,11 +811,6 @@ class AssignAddresses(TopDownVisitor):
         super().__init__()
         self.builder: ir.IRBuilder = builder
 
-    def run(self, start: AstBlock, state: CompileState):
-        # `flags` is in no block's scope, so the walk never reaches it.
-        self._create_flags_slot(state)
-        super().run(start, state)
-
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
         # A block's scope holds every variable declared in it, including the
         # ones no assignment declares (a loop's variable and its bound).
@@ -814,18 +833,6 @@ class AssignAddresses(TopDownVisitor):
         # lowering the call is what reports that.
         if is_instance_compat(func, CommandSymbol) and not func.is_seq_run_with_args:
             self._create_command_buffer(node, func, state)
-
-    def _create_flags_slot(self, state: CompileState) -> None:
-        """Create the built-in `flags` struct, initialized to its defaults."""
-        flags = state.flags_var
-        g = ir.GlobalVariable(
-            state.backend.module, flags.type.llvm_type, name=flags.name
-        )
-        g.linkage = "internal"
-        g.initializer = FpyValue(
-            flags.type, dict(flags.type.member_defaults)
-        ).llvm_value
-        state.backend.variable_ptrs[flags] = g
 
     def _create_variable_slot(self, sym: VariableSymbol, state: CompileState) -> None:
         """Create *sym*'s slot: a module-level global when it is a global
@@ -917,6 +924,8 @@ class EmitLlvmStmt(Emitter):
         super().__init__()
         self.builder: ir.IRBuilder = builder
         self.expr: EmitLlvmExpr = EmitLlvmExpr(builder)
+        self.loop_blocks: dict[AstWhile, tuple[ir.Block, ir.Block]] = {}
+        """loop to its (continue target, break target) blocks"""
 
     def emit(self, node, state: CompileState) -> None:
         emitter = self.emitters.get(type(node))
@@ -928,7 +937,14 @@ class EmitLlvmStmt(Emitter):
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState) -> None:
         """Lower the statements of *block* into the current basic block(s)."""
-        for stmt in node.stmts:
+        self._emit_stmts(node.stmts, state)
+
+    def _emit_stmts(self, stmts: list[Ast], state: CompileState) -> None:
+        for stmt in stmts:
+            if self.builder.block.is_terminated:
+                # A return/break/continue ended this block; the remaining
+                # statements are unreachable.
+                break
             if is_instance_compat(stmt, AstExpr):
                 # A constant statement emits no code: emit() maps it to a bare
                 # ir.Constant no instruction uses (or to None when it has an
@@ -980,9 +996,62 @@ class EmitLlvmStmt(Emitter):
         b.position_at_end(end_block)
 
     def emit_AstDef(self, node: AstDef, state: CompileState) -> None:
-        # A function definition emits nothing itself; calls to it are lowered
-        # at their call sites.
+        # A function definition emits nothing where it is written; the used
+        # definitions each become an LLVM function of their own.
         return
+
+    def emit_AstReturn(self, node: AstReturn, state: CompileState) -> None:
+        if node.value is None:
+            self.builder.ret_void()
+            return
+        # The value is coerced to the function's return type by semantics.
+        self.builder.ret(self.expr.emit(node.value, state))
+
+    def emit_AstWhile(self, node: AstWhile, state: CompileState) -> None:
+        b = self.builder
+        func = b.function
+        cond_block = func.append_basic_block("while_cond")
+        body_block = func.append_basic_block("while_body")
+        end_block = func.append_basic_block("while_end")
+        # A desugared for loop's body ends with its increment statement;
+        # `continue` must run the increment before re-testing the condition.
+        is_for = node in state.desugared_for_loops
+        inc_block = func.append_basic_block("for_inc") if is_for else None
+        self.loop_blocks[node] = (inc_block if is_for else cond_block, end_block)
+
+        # FIXME i wish we had a way to show more clearly in the code everywhere that we
+        # have a terminating statement that we know for sure the block isn't already terminated
+        # here i think we can prove this because of the dead code elimination, but i wish we
+        # could make it super clear. a comment could work too, but ideally we could build a system
+        # to enforce this, but wiht very minimal code changes? like obviously llvm will check,
+        # but i want a way to force us not to make mistakes in the backend.
+
+        b.branch(cond_block)
+        b.position_at_end(cond_block)
+        b.cbranch(self.expr.emit(node.condition, state), body_block, end_block)
+
+        b.position_at_end(body_block)
+        if is_for:
+            assert node.body.stmts and is_instance_compat(
+                node.body.stmts[-1], AstAssign
+            ), node.body.stmts
+            self._emit_stmts(node.body.stmts[:-1], state)
+            if not b.block.is_terminated:
+                b.branch(inc_block)
+            b.position_at_end(inc_block)
+            self._emit_stmts(node.body.stmts[-1:], state)
+        else:
+            self.emit(node.body, state)
+        if not b.block.is_terminated:
+            b.branch(cond_block)
+        b.position_at_end(end_block)
+
+    def emit_AstBreak(self, node: AstBreak, state: CompileState) -> None:
+        # FIXME don't use tuple indexing for this, no reason. just make a break target and continue target map i think, or used a namedtuple
+        self.builder.branch(self.loop_blocks[state.enclosing_loops[node]][1])
+
+    def emit_AstContinue(self, node: AstContinue, state: CompileState) -> None:
+        self.builder.branch(self.loop_blocks[state.enclosing_loops[node]][0])
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
         sym = state.resolved_symbols[node.lhs]
@@ -1055,9 +1124,29 @@ class EmitLlvmStmt(Emitter):
         builder.position_at_end(ok_block)
 
 
+class DeclareFunctions(Visitor):
+    """Declares an ir.Function for every used script function before any body
+    is lowered, so every call site -- including recursive, mutually recursive,
+    and forward calls -- resolves to a declared function."""
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            return
+        func = state.resolved_symbols[node.name]
+        fn_type = ir.FunctionType(
+            func.return_type.llvm_type,
+            [arg_type.llvm_type for _name, arg_type, _default in func.args],
+        )
+        module = state.backend.module
+        fn = ir.Function(module, fn_type, name=module.get_unique_name(func.name))
+        fn.linkage = "internal"
+        state.backend.funcs[node] = fn
+
+
 class GenerateLlvmModule:
-    """Builds the LLVM module for a sequence: defines the entry function,
-    assigns its storage, then lowers the main block's statements."""
+    """Builds the LLVM module for a sequence: declares an LLVM function for
+    the entry point and for every used script function, then defines each one
+    by assigning its storage and lowering its body."""
 
     def emit(self, root_block: AstBlock, state: CompileState) -> ir.Module:
         assert (
@@ -1067,29 +1156,77 @@ class GenerateLlvmModule:
             # A parameter's value comes from whoever runs the sequence, and the
             # host interface has no way to deliver one.
             raise BackendError("LLVM backend can't lower sequences with parameters yet")
-        # The entry function is the main sequence -- the main block -- not the
-        # library root (which also holds the builtin library and the imported
-        # sequences, all definition-only). Functions are lowered on demand at
-        # their call sites, so they need no separate walk here.
-        program = state.main_block
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
         declare_host_imports(module)
         state.backend = LlvmBackendState(module)
+        self._create_flags_slot(state)
 
         # The user entrypoint (see FPY_ENTRY_POINT): void main(), where
-        # returning at all means success.
-        func_type = ir.FunctionType(ir.VoidType(), [])
-        func = ir.Function(module, func_type, name=FPY_ENTRY_POINT)
-        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
+        # returning at all means success. Created before the script functions
+        # so it owns the exported name; a script function named "main" is
+        # uniqued away from it.
+        main = ir.Function(
+            module, ir.FunctionType(ir.VoidType(), []), name=FPY_ENTRY_POINT
+        )
+        DeclareFunctions().run(root_block, state)
 
-        AssignAddresses(builder).run(program, state)
-        EmitLlvmStmt(builder).emit(program, state)
-
-        # Fell off the end of the sequence without failing: success.
-        if not builder.block.is_terminated:
-            builder.ret_void()
+        # Main first: its storage walk creates the module-global slots (the
+        # top-level variables) that the function bodies load and store.
+        self._define_function(main, state.main_block, [], state)
+        for def_node, fn in state.backend.funcs.items():
+            self._define_function(
+                fn, def_node.body, self._param_vars(def_node, state), state
+            )
         return module
+
+    def _define_function(
+        self,
+        fn: ir.Function,
+        body: AstBlock,
+        params: list[VariableSymbol],
+        state: CompileState,
+    ) -> None:
+        """Emit *fn*'s definition: storage for everything *body* addresses,
+        the incoming arguments stored into their parameter slots, then the
+        lowered body, closed off with the function's terminator."""
+        builder = ir.IRBuilder(fn.append_basic_block(name="entry"))
+        # FIXME are all uses of addresses in user defined functions tested?
+        AssignAddresses(builder).run(body, state)
+        assert len(params) == len(fn.args), (params, fn.args)
+        for var, arg in zip(params, fn.args):
+            arg.name = var.name
+            builder.store(arg, state.backend.variable_ptrs[var])
+        EmitLlvmStmt(builder).emit(body, state)
+        if not builder.block.is_terminated:
+            if isinstance(fn.function_type.return_type, ir.VoidType):
+                # Fell off the end without failing: an implicit empty return
+                # (and, for main, sequence success).
+                builder.ret_void()
+            else:
+                # CheckFunctionReturns proved every path returns, so this
+                # point is unreachable -- but the block needs a terminator.
+                builder.unreachable()
+
+    def _param_vars(self, node: AstDef, state: CompileState) -> list[VariableSymbol]:
+        """The parameter variables of *node*'s body scope, in signature order."""
+        func = state.resolved_symbols[node.name]
+        values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        return [values[name] for name, _type, _default in func.args]
+
+    def _create_flags_slot(self, state: CompileState) -> None:
+        """Create the built-in `flags` struct, initialized to its defaults.
+        It lives in the base scope, outside every block, so no storage walk
+        reaches it."""
+        flags = state.flags_var
+        g = ir.GlobalVariable(
+            state.backend.module, flags.type.llvm_type, name=flags.name
+        )
+        g.linkage = "internal"
+        g.initializer = FpyValue(
+            flags.type, dict(flags.type.member_defaults)
+        ).llvm_value
+        state.backend.variable_ptrs[flags] = g
 
 
 _llvm_targets_initialized = False
