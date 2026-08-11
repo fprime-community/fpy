@@ -785,15 +785,30 @@ class TestWasmFunctions:
         )
         assert run_seq_wasm(seq) == NO_ERROR
 
-    def test_unused_function_with_unlowerable_body_is_skipped(self):
-        # Only used functions are lowered: an uncalled def whose body the
-        # backend can't lower (a telemetry read) must not break the sequence.
+    def test_unused_function_is_not_lowered(self):
+        # Only used functions are lowered: an uncalled def contributes no LLVM
+        # function to the module, so the only defined function is the entry
+        # point (the rest are host-import declarations).
+        module = _seq_to_llvm_module(
+            "def unused() -> U32:\n    return 1\nassert 1 == 1\n"
+        )
+        defined = [f.name for f in module.functions if not f.is_declaration]
+        assert defined == [FPY_ENTRY_POINT]
+
+    def test_unused_mutually_recursive_functions_are_not_lowered(self):
+        # Two functions that only call each other, with nothing reachable from
+        # the main sequence calling either, are not used -- even though call
+        # sites for both exist (inside each other's bodies).
         seq = (
-            "def unused() -> U64:\n"
-            "    return CdhCore.cmdDisp.CommandsDispatched\n"
+            "def a() -> U64:\n"
+            "    return b()\n"
+            "def b() -> U64:\n"
+            "    return a()\n"
             "assert 1 == 1\n"
         )
-        assert run_seq_wasm(seq) == NO_ERROR
+        module = _seq_to_llvm_module(seq)
+        defined = [f.name for f in module.functions if not f.is_declaration]
+        assert defined == [FPY_ENTRY_POINT]
 
     def test_return_ends_execution_mid_function(self):
         # Statements after a taken return must not run.
@@ -806,6 +821,67 @@ class TestWasmFunctions:
             "assert f() == 1\n"
         )
         assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_array_element_runtime_index_in_function(self):
+        # A local array indexed by a parameter: element read and in-place
+        # write through a runtime GEP, all on the function's own storage.
+        seq = (
+            "def second(i: I8) -> U32:\n"
+            "    a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+            "    a[i] = U32(a[i] + 1)\n"
+            "    return a[i]\n"
+            "assert second(1) == 124\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_out_of_bounds_in_function_faults_sequence(self):
+        # The bounds check inside a function faults the whole sequence.
+        seq = (
+            "def get(i: I8) -> U32:\n"
+            "    a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
+            "    return a[i]\n"
+            "get(2)\n"
+        )
+        assert run_seq_wasm(seq) == ARRAY_OOB
+
+    def test_temp_slot_in_function(self):
+        # Indexing a constant aggregate inside a function: the parent has no
+        # storage of its own, so it is copied to a temporary stack slot in the
+        # function's frame to be indexed.
+        seq = (
+            "def pick(i: I8) -> U32:\n"
+            "    return Svc.ComQueueDepth(10, 20)[i]\n"
+            "assert pick(0) == 10\n"
+            "assert pick(1) == 20\n"
+        )
+        assert run_seq_wasm(seq) == NO_ERROR
+
+    def test_recursive_call_in_command_arg_does_not_clobber_buffer(self):
+        # A command's buffer is one module global per call site. The third
+        # argument's expression recursively dispatches this same call site, so
+        # the arguments must all be evaluated before any is stored into the
+        # buffer -- or the inner activation would overwrite the slots the
+        # outer one had already filled.
+        seq = (
+            "def f(depth: U64) -> U64:\n"
+            "    if depth == 0:\n"
+            "        return 0\n"
+            "    Ref.sendBuffComp.SB_GEN_FATAL(U32(depth), U32(depth), U32(f(depth - 1)))\n"
+            "    return depth\n"
+            "f(2)\n"
+        )
+        code, cmds = run_seq_wasm_with_cmds(seq)
+        assert code == NO_ERROR
+        d = load_dictionary(default_dictionary)
+        opcode = struct.pack(
+            ">I", d["cmd_name_dict"]["Ref.sendBuffComp.SB_GEN_FATAL"].opcode
+        )
+        # The inner activation dispatches first, then the outer one -- with
+        # its own arguments, not the inner one's.
+        assert cmds == [
+            opcode + struct.pack(">III", 1, 1, 0),
+            opcode + struct.pack(">III", 2, 2, 1),
+        ]
 
 
 class TestWasmWhile:

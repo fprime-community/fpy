@@ -981,20 +981,55 @@ class CollectFunctionGlobalUses(TopDownVisitor):
                     scanner.run(default, state)
 
 
-# FIXME I want to make this slightly better, i want to eliminate functions which just call each other but aren't called
-# in the main source
-class CollectUsedFunctions(Visitor):
-    """Collects the set of functions that are called anywhere in the code.
+class _FindScriptCalls(TopDownVisitor):
+    """Collects the definition of every script function called in a subtree,
+    without descending into nested function definitions."""
 
-    Any function that is called (even from within other functions) will be
-    marked as used and have code generated for it.
-    """
+    def __init__(self):
+        super().__init__()
+        self.called: list[AstDef] = []
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        return STOP_DESCENT
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, FunctionSymbol):
-            return
-        state.used_funcs.add(func.definition)
+        if is_instance_compat(func, FunctionSymbol):
+            self.called.append(func.definition)
+
+
+class CollectUsedFunctions(TopDownVisitor):
+    """Collects the set of functions the program can actually call: the ones
+    the main sequence's top-level code calls, plus, transitively, the ones
+    called from the bodies of used functions. A function whose only callers
+    are themselves unused -- including a group of unused functions calling
+    each other -- is not used, and no backend generates code for it.
+    """
+
+    def run(self, start: Ast, state: CompileState):
+        assert start is state.root_block, "must run on the root block"
+        self.callees: dict[AstDef, list[AstDef]] = {}
+        # The walk fills self.callees with every function's direct callees.
+        super().run(start, state)
+
+        # Only the main block's top-level code runs; everything else in the
+        # root block (the builtin library, imported sequences) contributes
+        # definitions but no executed statements.
+        roots = _FindScriptCalls()
+        roots.run(state.main_block, state)
+        worklist = roots.called
+        while worklist:
+            func_def = worklist.pop()
+            if func_def in state.used_funcs:
+                continue
+            state.used_funcs.add(func_def)
+            worklist.extend(self.callees[func_def])
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        scanner = _FindScriptCalls()
+        scanner.run(node.body, state)
+        self.callees[node] = scanner.called
+        return STOP_DESCENT
 
 
 class ResolveTransitiveGlobalUses:

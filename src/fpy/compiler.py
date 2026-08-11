@@ -293,8 +293,9 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         DesugarTimeOperators(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
-        # Collect which functions are called anywhere in the code. Runs after
-        # desugaring because desugared time operators call script functions.
+        # Collect which functions are reachable through calls from the main
+        # sequence. Runs after desugaring because desugared time operators
+        # call script functions.
         CollectUsedFunctions(),
     ]
 

@@ -63,7 +63,6 @@ from fpy.types import (
     ChDef,
     FpyType,
     FpyValue,
-    NOTHING,
     PrmDef,
     TypeKind,
     is_instance_compat,
@@ -553,10 +552,7 @@ class EmitLlvmExpr(Emitter):
             # is always an AstExpr, never a bare FpyValue.
             assert all(is_instance_compat(arg, Ast) for arg in node_args), node_args
             args = [self.emit(arg, state) for arg in node_args]
-            result = self.builder.call(fn, args)
-            # A NOTHING-typed expression emits as None.
-            # FIXME should we just be returning the void value?
-            return None if func.return_type is NOTHING else result
+            return self.builder.call(fn, args)
         else:
             assert False, func
 
@@ -594,11 +590,14 @@ class EmitLlvmExpr(Emitter):
         b = self.builder
         command = state.backend.cmd_buffers[node]
 
-        # Evaluate every argument before storing any: an argument expression
-        # can call a function that recursively reaches this same call site,
-        # and the buffer is shared between activations while SSA values are
-        # not.
-        # FIXME please explain this, was there a test that caught this? if not we should have one
+        # Evaluate every argument to an SSA value before storing any into the
+        # buffer. The buffer is one module global shared by every activation
+        # of this call site, so if a later argument's expression calls a
+        # function that recursively reaches this same statement, the inner
+        # activation would overwrite the slots the outer one had already
+        # filled. SSA values are per-activation, so deferring the stores
+        # keeps the outer arguments intact, and the stores plus the dispatch
+        # then run with no user code in between.
         values = [
             (offset, self.emit(arg, state), arg_type)
             for offset, arg, arg_type in command.runtime_args
@@ -924,8 +923,10 @@ class EmitLlvmStmt(Emitter):
         super().__init__()
         self.builder: ir.IRBuilder = builder
         self.expr: EmitLlvmExpr = EmitLlvmExpr(builder)
-        self.loop_blocks: dict[AstWhile, tuple[ir.Block, ir.Block]] = {}
-        """loop to its (continue target, break target) blocks"""
+        self.loop_continue_blocks: dict[AstWhile, ir.Block] = {}
+        """loop to the block its `continue` statements jump to"""
+        self.loop_break_blocks: dict[AstWhile, ir.Block] = {}
+        """loop to the block its `break` statements jump to"""
 
     def emit(self, node, state: CompileState) -> None:
         emitter = self.emitters.get(type(node))
@@ -1017,14 +1018,8 @@ class EmitLlvmStmt(Emitter):
         # `continue` must run the increment before re-testing the condition.
         is_for = node in state.desugared_for_loops
         inc_block = func.append_basic_block("for_inc") if is_for else None
-        self.loop_blocks[node] = (inc_block if is_for else cond_block, end_block)
-
-        # FIXME i wish we had a way to show more clearly in the code everywhere that we
-        # have a terminating statement that we know for sure the block isn't already terminated
-        # here i think we can prove this because of the dead code elimination, but i wish we
-        # could make it super clear. a comment could work too, but ideally we could build a system
-        # to enforce this, but wiht very minimal code changes? like obviously llvm will check,
-        # but i want a way to force us not to make mistakes in the backend.
+        self.loop_continue_blocks[node] = inc_block if is_for else cond_block
+        self.loop_break_blocks[node] = end_block
 
         b.branch(cond_block)
         b.position_at_end(cond_block)
@@ -1047,11 +1042,12 @@ class EmitLlvmStmt(Emitter):
         b.position_at_end(end_block)
 
     def emit_AstBreak(self, node: AstBreak, state: CompileState) -> None:
-        # FIXME don't use tuple indexing for this, no reason. just make a break target and continue target map i think, or used a namedtuple
-        self.builder.branch(self.loop_blocks[state.enclosing_loops[node]][1])
+        target = self.loop_break_blocks[state.enclosing_loops[node]]
+        self.builder.branch(target)
 
     def emit_AstContinue(self, node: AstContinue, state: CompileState) -> None:
-        self.builder.branch(self.loop_blocks[state.enclosing_loops[node]][0])
+        target = self.loop_continue_blocks[state.enclosing_loops[node]]
+        self.builder.branch(target)
 
     def emit_AstAssign(self, node: AstAssign, state: CompileState) -> None:
         sym = state.resolved_symbols[node.lhs]
@@ -1191,7 +1187,6 @@ class GenerateLlvmModule:
         the incoming arguments stored into their parameter slots, then the
         lowered body, closed off with the function's terminator."""
         builder = ir.IRBuilder(fn.append_basic_block(name="entry"))
-        # FIXME are all uses of addresses in user defined functions tested?
         AssignAddresses(builder).run(body, state)
         assert len(params) == len(fn.args), (params, fn.args)
         for var, arg in zip(params, fn.args):
