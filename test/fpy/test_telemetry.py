@@ -37,7 +37,7 @@ exit(1)
             seq,
             {
                 "Ref.typeDemo.ChoicePairCh": FpyValue(
-                    lookup_type(fprime_test_api, "Ref.ChoicePair"),
+                    lookup_type("Ref.ChoicePair"),
                     {"firstChoice": "ONE", "secondChoice": "ONE"},
                 ).serialize()
             },
