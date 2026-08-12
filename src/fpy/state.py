@@ -507,6 +507,19 @@ def _populate_type_defaults(typ: FpyType) -> None:
         typ.elem_defaults = tuple(array_defaults)
 
 
+def is_seq_run_cmd(cmd) -> bool:
+    """Whether a command is a sequence-run command, detected by its signature:
+    (fileName: string, block: Svc.BlockState, args: Svc.SeqArgs). The user
+    provides the target sequence's arguments in place of the SeqArgs param."""
+    args = cmd.arguments
+    return (
+        len(args) == 3
+        and args[0][2].is_string
+        and args[1][2].name == "Svc.BlockState"
+        and args[2][2].name == "Svc.SeqArgs"
+    )
+
+
 def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
     """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor."""
     if typ.kind == TypeKind.STRUCT:
@@ -548,6 +561,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
     _validate_and_replace_type(
         dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON
     )
+    _validate_and_replace_type(dict_type_name_dict, "Fw.LogSeverity", LOG_SEVERITY)
     _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
     _update_seq_args_from_dict(dict_type_name_dict)
 
@@ -563,7 +577,6 @@ def _build_global_scopes(dictionary: str) -> tuple:
         BOOL.name: BOOL,
         CHECK_STATE.name: CHECK_STATE,
         FLAGS_TYPE.name: FLAGS_TYPE,
-        LOG_SEVERITY.name: LOG_SEVERITY,
     }
 
     # Collect enum constants from the final type dict (after builtins and
@@ -585,14 +598,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     for name, cmd in cmd_name_dict.items():
         args = [(arg_name, arg_type, None) for arg_name, _, arg_type in cmd.arguments]
-        # Detect sequence-run commands by matching the 3-arg signature:
-        # (fileName: string, block: Svc.BlockState, args: Svc.SeqArgs)
-        if (
-            len(args) == 3
-            and args[0][1].is_string
-            and args[1][1].name == "Svc.BlockState"
-            and args[2][1].name == "Svc.SeqArgs"
-        ):
+        if is_seq_run_cmd(cmd):
             # Strip the SeqArgs param; user provides varargs instead
             fixed_args = args[:2]
             callable_name_dict[name] = CommandSymbol(
