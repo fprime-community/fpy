@@ -1,0 +1,24 @@
+{
+  "fpybc": {
+    "cmdResponse": 0,
+    "cmds": [],
+    "events": [
+      {
+        "id": 15,
+        "severity": 5,
+        "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
+      }
+    ],
+    "frameStart": 0,
+    "lastDirectiveError": 0,
+    "reachedRunning": true,
+    "sequencesSucceeded": 1,
+    "serial": [],
+    "stack": "ff0000000000000000000000000000010000000000000000000186a0ffff000000000000000000000000000000000000000000000000000000000000000000ffffffff00000000",
+    "state": 2,
+    "statementsDispatched": 263
+  },
+  "wasm": {
+    "compileError": "BackendError: <golden-test>: LLVM backend can't lower runtime type-constructor calls yet"
+  }
+}

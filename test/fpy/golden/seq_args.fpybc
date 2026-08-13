@@ -1,0 +1,9 @@
+push_val 255
+load_rel 0 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 7
+ieq
+not
+if 9
+push_val 0 0 0 7
+exit

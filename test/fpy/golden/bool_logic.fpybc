@@ -1,0 +1,34 @@
+push_val 255
+allocate 9
+push_val 0 0 0 0 0 0 0 5
+store_rel_const_offset 1 8
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 5
+ieq
+if 12
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 10
+ugt
+goto 13
+push_val 0
+store_rel_const_offset 9 1
+load_rel 9 1
+push_val 0
+memcmp 1
+not
+if 21
+push_val 0 0 0 7
+exit
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 1
+ieq
+if 27
+push_val 255
+goto 30
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 5
+ieq
+not
+if 34
+push_val 0 0 0 7
+exit

@@ -1,0 +1,30 @@
+push_val 255
+allocate 9
+push_val 255 255 255 254
+store_rel_const_offset 1 4
+push_val 63 192 0 0
+store_rel_const_offset 5 4
+push_val 8
+store_rel_const_offset 9 1
+load_rel 1 4
+load_rel 5 4
+load_rel 9 1
+push_val 1 0 0 2
+stack_cmd 9
+push_val 0
+memcmp 1
+if 17
+goto 21
+load_abs 0 1
+if 21
+push_val 0 0 0 17
+exit
+const_cmd 16777217 0 5 104 101 108 108 111
+push_val 0
+memcmp 1
+if 26
+goto 30
+load_abs 0 1
+if 30
+push_val 0 0 0 17
+exit

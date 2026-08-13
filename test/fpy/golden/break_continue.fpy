@@ -1,0 +1,11 @@
+# break and continue inside a while loop
+n: U64 = 0
+evens: U64 = 0
+while True:
+    n += 1
+    if n >= 10:
+        break
+    if n % 2 == 1:
+        continue
+    evens += 1
+assert evens == 4

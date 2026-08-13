@@ -1,0 +1,3 @@
+# Sequence arguments (the harness passes the values in RUN_INPUTS)
+sequence(x: U32)
+assert x == 7

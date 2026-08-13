@@ -1,0 +1,4 @@
+# Enum variables and comparisons
+c: Ref.Choice = Ref.Choice.RED
+assert c == Ref.Choice.RED
+assert c != Ref.Choice.ONE

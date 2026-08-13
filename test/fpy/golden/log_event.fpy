@@ -1,0 +1,3 @@
+# log() with the default and an explicit severity
+log("hello")
+log("bad", Fw.LogSeverity.WARNING_HI)

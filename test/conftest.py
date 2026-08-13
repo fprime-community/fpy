@@ -17,6 +17,13 @@ def pytest_addoption(parser):
         help="Compile and run sequences through the LLVM/wasm backend "
         "(NASA spacewasm) instead of the fpy bytecode VM",
     )
+    parser.addoption(
+        "--update-goldens",
+        action="store_true",
+        default=False,
+        help="Rewrite the golden files under test/fpy/golden with the "
+        "current outputs instead of comparing against them",
+    )
 
 
 _wasm_harness_built = False
@@ -57,6 +64,11 @@ def pytest_configure(config):
 
 def pytest_unconfigure(config):
     fpy.harness.close_all()
+
+
+@pytest.fixture
+def update_goldens(request):
+    return request.config.getoption("--update-goldens")
 
 
 @pytest.fixture(autouse=True)

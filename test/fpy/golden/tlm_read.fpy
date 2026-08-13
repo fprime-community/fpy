@@ -1,0 +1,4 @@
+# Telemetry read (the harness answers with the value in RUN_INPUTS)
+if CdhCore.cmdDisp.CommandsDispatched >= 5:
+    exit(0)
+exit(1)

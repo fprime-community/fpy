@@ -1,0 +1,91 @@
+push_val 255
+allocate 32
+push_val 0 0 0 0 0 0 0 17
+store_rel_const_offset 1 8
+push_val 0 0 0 0 0 0 0 5
+store_rel_const_offset 9 8
+load_rel 1 8
+load_rel 9 8
+add
+push_val 0 0 0 0 0 0 0 22
+ieq
+not
+if 15
+push_val 0 0 0 7
+exit
+load_rel 1 8
+load_rel 9 8
+sub
+push_val 0 0 0 0 0 0 0 12
+ieq
+not
+if 24
+push_val 0 0 0 7
+exit
+load_rel 1 8
+load_rel 9 8
+mul
+push_val 0 0 0 0 0 0 0 85
+ieq
+not
+if 33
+push_val 0 0 0 7
+exit
+load_rel 1 8
+load_rel 9 8
+sdiv
+push_val 0 0 0 0 0 0 0 3
+ieq
+not
+if 42
+push_val 0 0 0 7
+exit
+load_rel 1 8
+load_rel 9 8
+smod
+push_val 0 0 0 0 0 0 0 2
+ieq
+not
+if 51
+push_val 0 0 0 7
+exit
+push_val 255 255 255 255 255 255 255 239
+store_rel_const_offset 17 8
+load_rel 17 8
+load_rel 9 8
+sdiv
+push_val 255 255 255 255 255 255 255 252
+ieq
+not
+if 62
+push_val 0 0 0 7
+exit
+load_rel 17 8
+load_rel 9 8
+smod
+push_val 0 0 0 0 0 0 0 3
+ieq
+not
+if 71
+push_val 0 0 0 7
+exit
+push_val 64 28 0 0 0 0 0 0
+store_rel_const_offset 25 8
+load_rel 25 8
+push_val 64 0 0 0 0 0 0 0
+fdiv
+push_val 64 12 0 0 0 0 0 0
+feq
+not
+if 82
+push_val 0 0 0 7
+exit
+load_rel 25 8
+push_val 64 0 0 0 0 0 0 0
+fpow
+push_val 64 72 128 0 0 0 0 0
+feq
+not
+if 91
+push_val 0 0 0 7
+exit

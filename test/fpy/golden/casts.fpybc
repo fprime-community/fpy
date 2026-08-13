@@ -1,0 +1,35 @@
+push_val 255
+allocate 12
+push_val 64 23 153 153 153 153 153 154
+store_rel_const_offset 1 8
+load_rel 1 8
+fptosi
+itrunc_64_32
+siext_32_64
+push_val 0 0 0 0 0 0 0 5
+ieq
+not
+if 14
+push_val 0 0 0 7
+exit
+push_val 0 0 1 44
+store_rel_const_offset 9 4
+load_rel 9 4
+siext_32_64
+itrunc_64_8
+ziext_8_64
+push_val 0 0 0 0 0 0 0 44
+ieq
+not
+if 26
+push_val 0 0 0 7
+exit
+load_rel 9 4
+siext_32_64
+sitofp
+push_val 64 114 192 0 0 0 0 0
+feq
+not
+if 35
+push_val 0 0 0 7
+exit

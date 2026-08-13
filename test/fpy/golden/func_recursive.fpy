@@ -1,0 +1,7 @@
+# A recursive function call
+def fib(a: U64) -> U64:
+    if a < 2:
+        return 1
+    return fib(a - 1) + fib(a - 2)
+
+assert fib(10) == 89

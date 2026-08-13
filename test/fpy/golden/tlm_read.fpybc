@@ -1,0 +1,11 @@
+push_val 255
+push_tlm_val 16777216
+ziext_32_64
+push_val 0 0 0 0 0 0 0 5
+uge
+if 9
+push_val 0 0 0 0
+exit
+goto 9
+push_val 0 0 0 1
+exit
