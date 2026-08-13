@@ -12,11 +12,21 @@ artifacts alongside it:
   replies agree on are stored once under "common"; each backend's key
   holds only the fields where it diverges from the other
 
+A sequence declares the inputs its harness runs need in "# harness:"
+comments, one directive per line:
+    # harness: tlm <channel> <hex>          answer to a telemetry read
+    # harness: prm <parameter> <hex>        answer to a parameter read
+    # harness: arg <hex>                    appended to the sequence arguments
+    # harness: time <base> <context> <us>   the sequencer's start time
+    # harness: fail <command>               completes with EXECUTION_ERROR
+    # harness: cmd_response <int>           every command's Fw.CmdResponse
+
 Regenerate the artifacts with:
     uv run pytest test/fpy/test_golden.py --update-goldens
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -30,10 +40,10 @@ from fpy.compiler import (
     analyze_ast,
     text_to_ast,
 )
+from fpy.dictionary import load_dictionary
 from fpy.error import BackendError
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import run_seq_raw, run_wasm_raw
-from fpy.types import FpyValue, U32
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -43,15 +53,43 @@ BACKENDS = ("fpybc", "wasm")
 # Path to the test dictionary
 DEFAULT_DICTIONARY = str(Path(__file__).parent / "RefTopologyDictionary.json")
 
-# Harness inputs for cases whose sequences read values from the outside:
-# telemetry answers and sequence arguments, keyed by case name. These apply
-# to the fpybc harness run; the wasm backend rejects such sequences.
-RUN_INPUTS = {
-    "tlm_read": {
-        "tlm": {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 5).serialize()}
-    },
-    "seq_args": {"args": [FpyValue(U32, 7)]},
-}
+_HARNESS_INPUT = re.compile(r"^#\s*harness:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def parse_harness_inputs(source: str) -> dict:
+    """The harness run inputs declared in the sequence's "# harness:"
+    comments (see the module docstring for the directives), as keyword
+    arguments for run_seq_raw / run_wasm_raw."""
+    d = load_dictionary(DEFAULT_DICTIONARY)
+    inputs = {"tlm": {}, "prms": {}, "failing_opcodes": set()}
+    args = b""
+    for match in _HARNESS_INPUT.finditer(source):
+        directive, *operands = match.group(1).split()
+        if directive == "tlm":
+            name, value = operands
+            inputs["tlm"][name] = bytes.fromhex(value)
+        elif directive == "prm":
+            name, value = operands
+            inputs["prms"][name] = bytes.fromhex(value)
+        elif directive == "arg":
+            (value,) = operands
+            args += bytes.fromhex(value)
+        elif directive == "time":
+            base, context, microseconds = operands
+            inputs["time_base"] = int(base)
+            inputs["time_context"] = int(context)
+            inputs["initial_time_us"] = int(microseconds)
+        elif directive == "fail":
+            (name,) = operands
+            inputs["failing_opcodes"].add(d["cmd_name_dict"][name].opcode)
+        elif directive == "cmd_response":
+            (value,) = operands
+            inputs["cmd_response"] = int(value)
+        else:
+            raise ValueError(f"unknown harness input directive: {match.group(1)!r}")
+    if args:
+        inputs["args"] = args
+    return inputs
 
 
 def _analyze(source: str):
@@ -90,9 +128,7 @@ def run_on_fpybc_harness(name: str, source: str) -> dict:
     """Compile fpy source to bytecode and run it on the FpySequencer harness,
     returning the raw JSON reply."""
     directives, arg_types = analysis_to_fpybc_directives(_analyze(source))
-    inputs = dict(RUN_INPUTS.get(name, {}))
-    if "args" in inputs:
-        inputs["args"] = b"".join(v.serialize() for v in inputs["args"])
+    inputs = parse_harness_inputs(source)
     reply = run_seq_raw(directives, arg_types=arg_types, **inputs)
     assert "error" not in reply, f"harness failed to run {name}: {reply}"
     return reply
@@ -107,7 +143,7 @@ def run_on_wasm_harness(name: str, source: str) -> dict:
         wasm, _ = analysis_to_wasm(state)
     except (BackendError, NotImplementedError) as e:
         return {"compileError": f"{type(e).__name__}: {e}"}
-    reply = run_wasm_raw(wasm)
+    reply = run_wasm_raw(wasm, **parse_harness_inputs(source))
     assert "error" not in reply, f"harness failed to run {name}: {reply}"
     return reply
 

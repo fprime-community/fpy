@@ -205,6 +205,49 @@ def _always_failing_opcodes(failing_opcodes) -> set[int]:
     return {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode} | set(failing_opcodes or ())
 
 
+def _run_request(
+    seq_file: str,
+    seq_dir: str,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
+    failing_opcodes: set[int] = None,
+    args: bytes = None,
+    cmd_response: int = None,
+) -> dict:
+    """The run request fields common to both sequencer harnesses. *tlm* and
+    *prms* map channel/parameter names to the serialized values the harness
+    answers reads with; every command completes with *cmd_response* (default
+    OK) unless its opcode is in *failing_opcodes*."""
+    d = load_dictionary(default_dictionary)
+    request = {
+        "seqFile": seq_file,
+        "cwd": seq_dir,
+        "time": {
+            "base": time_base,
+            "context": time_context,
+            "seconds": initial_time_us // 1_000_000,
+            "useconds": initial_time_us % 1_000_000,
+        },
+        "tlm": {
+            str(d["ch_name_dict"][chan_name].ch_id): bytes(val).hex()
+            for chan_name, val in (tlm or {}).items()
+        },
+        "prms": {
+            str(d["prm_name_dict"][prm_name].prm_id): bytes(val).hex()
+            for prm_name, val in (prms or {}).items()
+        },
+        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
+    }
+    if args is not None:
+        request["args"] = args.hex()
+    if cmd_response is not None:
+        request["cmdResponse"] = cmd_response
+    return request
+
+
 def _seq_args_buffer_len(d: dict) -> int:
     """The dictionary's Svc.SeqArgs buffer length. The harness needs it to
     parse seq-run commands, and it can differ from the flight build's own
@@ -254,6 +297,7 @@ def run_seq_raw(
     seq_run_opcodes: set[int] = None,
     ground_binary_dir: str = None,
     prms: dict[str, bytes] = None,
+    cmd_response: int = None,
 ) -> dict:
     """Run a list of directives on a real Svc::FpySequencer through the test
     harness (test/harness) and return the harness's raw JSON reply. *tlm* and
@@ -270,27 +314,18 @@ def run_seq_raw(
     if seq_run_opcodes is None and ground_binary_dir is not None:
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
 
-    request = {
-        "seqFile": seq_file,
-        "cwd": seq_dir,
-        "time": {
-            "base": time_base,
-            "context": time_context,
-            "seconds": initial_time_us // 1_000_000,
-            "useconds": initial_time_us % 1_000_000,
-        },
-        "tlm": {
-            str(d["ch_name_dict"][chan_name].ch_id): bytes(val).hex()
-            for chan_name, val in (tlm or {}).items()
-        },
-        "prms": {
-            str(d["prm_name_dict"][prm_name].prm_id): bytes(val).hex()
-            for prm_name, val in (prms or {}).items()
-        },
-        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
-    }
-    if args is not None:
-        request["args"] = args.hex()
+    request = _run_request(
+        seq_file,
+        seq_dir,
+        tlm=tlm,
+        prms=prms,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
+        failing_opcodes=failing_opcodes,
+        args=args,
+        cmd_response=cmd_response,
+    )
     if seq_run_opcodes:
         request["seqRunOpcodes"] = sorted(seq_run_opcodes)
         request["seqArgsBufferSize"] = _seq_args_buffer_len(d)
@@ -383,21 +418,31 @@ def run_seq(
 
 def run_wasm_raw(
     wasm: bytes,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
+    args: bytes = None,
     cmd_response: int = None,
 ) -> dict:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
-    the wasm harness and return the harness's raw JSON reply."""
+    the wasm harness and return the harness's raw JSON reply. See _run_request
+    for the inputs."""
     seq_dir, seq_file = _write_for_harness(wasm, "m0.wasm")
-    request = {
-        "seqFile": seq_file,
-        "cwd": seq_dir,
-        "time": {"base": 0, "context": 0, "seconds": 0, "useconds": 0},
-        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
-    }
-    if cmd_response is not None:
-        request["cmdResponse"] = cmd_response
-
+    request = _run_request(
+        seq_file,
+        seq_dir,
+        tlm=tlm,
+        prms=prms,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
+        failing_opcodes=failing_opcodes,
+        args=args,
+        cmd_response=cmd_response,
+    )
     return wasm_harness().run(request)
 
 

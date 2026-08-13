@@ -1,0 +1,3 @@
+# A bare command that completes with EXECUTION_ERROR ends the sequence
+# harness: fail CdhCore.cmdDisp.CMD_NO_OP
+CdhCore.cmdDisp.CMD_NO_OP()

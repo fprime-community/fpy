@@ -1,0 +1,76 @@
+goto 61
+allocate 16
+load_rel -30 11
+push_val 0 0 0 0
+get_field 11 2
+load_rel -19 11
+push_val 0 0 0 0
+get_field 11 2
+memcmp 2
+not
+if 21
+push_val 2
+push_val 116 105 109 101 95 99 109 112 95 97 115 115 101 114 116 95 99 111 109 112 97 114 97 98 108 101 58 32 111 112 101 114 97 110 100 115 32 104 97 118 101 32 100 105 102 102 101 114 101 110 116 32 116 105 109 101 32 98 97 115 101 115
+push_val 0 0 0 62
+pop_event
+push_val 0
+not
+if 20
+push_val 0 0 0 1
+exit
+goto 21
+load_rel -30 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -30 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 0 8
+load_rel -19 11
+push_val 0 0 0 3
+get_field 11 4
+ziext_32_64
+push_val 0 0 0 0 0 15 66 64
+mul
+load_rel -19 11
+push_val 0 0 0 7
+get_field 11 4
+ziext_32_64
+add
+store_rel_const_offset 8 8
+load_rel 0 8
+load_rel 8 8
+ult
+if 52
+push_val 255 255 255 255
+return 4 22
+goto 59
+load_rel 0 8
+load_rel 8 8
+ieq
+if 59
+push_val 0 0 0 0
+return 4 22
+goto 59
+push_val 0 0 0 1
+return 4 22
+push_val 255
+allocate 11
+push_time
+store_rel_const_offset 1 11
+load_rel 1 11
+push_val 0 2 0 0 0 0 5 0 3 208 144
+push_val 0 0 0 1
+call
+siext_32_64
+push_val 0 0 0 0 0 0 0 0
+ieq
+not
+if 76
+push_val 0 0 0 7
+exit

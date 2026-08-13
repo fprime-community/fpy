@@ -1,0 +1,11 @@
+push_val 255
+allocate 1
+const_cmd 16777216
+store_rel_const_offset 1 1
+load_rel 1 1
+push_val 5
+memcmp 1
+not
+if 11
+push_val 0 0 0 7
+exit

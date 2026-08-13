@@ -1,0 +1,4 @@
+# The sequencer starts at the declared simulated time
+# harness: time 2 0 5250000
+t: Fw.Time = now()
+assert t == Fw.Time(TimeBase.TB_WORKSTATION_TIME, 0, 5, 250000)

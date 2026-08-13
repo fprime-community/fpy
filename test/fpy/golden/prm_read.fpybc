@@ -1,0 +1,11 @@
+push_val 255
+push_prm 268460032
+fpext
+push_val 64 20 0 0 0 0 0 0
+feq
+if 9
+push_val 0 0 0 0
+exit
+goto 9
+push_val 0 0 0 1
+exit
