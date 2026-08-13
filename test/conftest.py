@@ -29,6 +29,7 @@ def pytest_addoption(parser):
 _wasm_harness_built = False
 
 
+# FIXME why is this only here for the wasm harness? shouldn't we do this for the fpybc harness too?
 def _build_wasm_harness_once():
     """Build the wasm harness once per session, exiting with an actionable
     message on setup gaps (submodule missing, tools missing)."""
@@ -60,6 +61,9 @@ def pytest_configure(config):
     # runs a sequence through it (fpy.harness.fpybc_harness), so runs that
     # never touch it -- compiler unit tests, --collect-only -- skip the
     # build entirely.
+    # FIXME I think we should do the same thing for both harnesses probably.
+    # just build them lazily. why wouldn't that work for the test_wasm files?
+    # i think for the test_wasm tests you should just pass a backend="wasm" kw to the assert_xyz funcs, then you could remove the marker system
 
 
 def pytest_unconfigure(config):

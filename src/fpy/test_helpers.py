@@ -28,20 +28,20 @@ from fpy.dictionary import load_dictionary
 from fpy.error import WarningType
 from fpy.harness import HarnessError, fpybc_harness, wasm_harness
 from fpy.state import CompileState, get_base_compile_state
-from fpy.types import CmdDef, FpyType, FpyValue, TypeKind
+from fpy.types import CMD_RESPONSE, CmdDef, FpyType, FpyValue, TypeKind
 
 default_dictionary = str(
     Path(__file__).parent.parent.parent / "test" / "fpy" / "RefTopologyDictionary.json"
 )
 
-# Flipped to True by conftest's pytest_configure when --wasm is passed, routing
-# the assert_* helpers through the LLVM/wasm backend (run on the real
-# Svc::WasmSequencer through the wasm harness) instead of the bytecode VM.
-USE_WASM = False
+# The backend the assert_* helpers compile and run on: "fpybc" (the bytecode
+# VM on the real Svc::FpySequencer) or "wasm" (the LLVM backend on the real
+# Svc::WasmSequencer). conftest sets it to "wasm" when --wasm is passed.
+BACKEND = "fpybc"
 
 # Fw.CmdResponse enum values.
-CMD_RESPONSE_OK = 0
-CMD_RESPONSE_EXECUTION_ERROR = 4
+CMD_RESPONSE_OK = CMD_RESPONSE.enum_dict["OK"]
+CMD_RESPONSE_EXECUTION_ERROR = CMD_RESPONSE.enum_dict["EXECUTION_ERROR"]
 
 
 class CompilationFailed(Exception):
@@ -57,14 +57,11 @@ class ValidationError(Exception):
 # Compiling
 # ---------------------------------------------------------------------------
 
-# Every known warning type. Tests fail on ANY warning by default: the compile
-# helpers promote every warning to a hard error unless the caller declares it in
-# `expected_warnings` (kept as a collected warning) or `ignored_warnings`
-# (dropped). This surfaces stray warnings -- e.g. an accidental shadow -- that a
-# test did not mean to trigger.
+# Every known warning type. Tests fail on ANY warning by default
 ALL_WARNINGS = frozenset(WarningType)
 
 
+# FIXME inline this func
 def _default_error_warnings(error_warnings, ignored_warnings, expected_warnings):
     """The set of warnings to promote to errors. An explicit *error_warnings*
     wins; otherwise it is every warning except those expected or ignored."""
@@ -73,6 +70,7 @@ def _default_error_warnings(error_warnings, ignored_warnings, expected_warnings)
     return ALL_WARNINGS - set(expected_warnings or ()) - set(ignored_warnings or ())
 
 
+# FIXME inline this func
 def _assert_expected_emitted(state, expected_warnings):
     """A warning in *expected_warnings* must actually be emitted, not merely
     allowed -- so declaring it both permits it and asserts it. (Unexpected
@@ -86,6 +84,7 @@ def _assert_expected_emitted(state, expected_warnings):
 
 def _compile(
     seq: str,
+    # FIXME this should be a "backend" str, either wasm or fpybc.
     to_wasm: bool,
     ground_binary_dir: str = None,
     ignored_warnings=None,
@@ -128,6 +127,7 @@ def _compile(
     return state, output
 
 
+# FIXME inline this func
 def compile_seq(
     seq: str, **kwargs
 ) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
@@ -137,6 +137,7 @@ def compile_seq(
     return state, directives, arg_types
 
 
+# FIXME inline this func
 def compile_seq_wasm(seq: str, **kwargs) -> bytes:
     """Compile a sequence string to a runnable wasm binary (the LLVM backend).
     See _compile for the keyword args."""
@@ -197,6 +198,7 @@ def _serialize_args(args: list[FpyValue] | None) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 
+# FIXME rename to make run request
 def _run_request(
     seq_file: str,
     seq_dir: str,
@@ -208,6 +210,7 @@ def _run_request(
     args: bytes = None,
     cmd_responses: dict[int, int] = None,
 ) -> dict:
+    # FIXME explain that this builds a run request
     """The run request fields common to both sequencer harnesses. *tlm* and
     *prms* map channel/parameter names to the serialized values the harness
     answers reads with; every command completes OK unless *cmd_responses*
@@ -241,9 +244,7 @@ def _run_request(
 
 
 def _seq_args_buffer_len(d: dict) -> int:
-    """The dictionary's Svc.SeqArgs buffer length. The harness needs it to
-    parse seq-run commands, and it can differ from the flight build's own
-    Svc::SeqArgs size."""
+    """The dictionary's Svc.SeqArgs buffer length."""
     (buffer_member,) = [
         m for m in d["type_defs"]["Svc.SeqArgs"].members if m.name == "buffer"
     ]
@@ -253,7 +254,10 @@ def _seq_args_buffer_len(d: dict) -> int:
 def _expected_stack_bytes(directives: list[Directive], args: bytes | None) -> int:
     """The exact stack size a successful run must end with: the sequence
     arguments plus the frame setup (PushVal for the flags default, then
-    optionally Allocate for the remaining locals). If functions are present
+    optionally Allocate for the remaining locals).
+
+    # FIXME instead of having this in docstring, it should be a comment:
+     If functions are present
     the first directive is a Goto that jumps past them; the setup starts at
     its target."""
     setup_start = 0
@@ -277,6 +281,7 @@ def _as_int(v) -> int:
     return v.value if isinstance(v, DirectiveErrorCode) else v
 
 
+# FIXME can't we fold this into run_seq?
 def run_seq_raw(
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
