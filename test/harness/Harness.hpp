@@ -38,8 +38,8 @@ struct HarnessRequest {
     U8 timeContext = 0;
     U32 seconds = 0;
     U32 useconds = 0;
-    // Commands that complete with EXECUTION_ERROR.
-    std::set<U32> failOpcodes;
+    // Per-command response overrides (opcode -> Fw.CmdResponse value).
+    std::map<U32, U8> cmdResponses;
     // Commands that mean "run another sequence". Their arguments are parsed
     // as (fileName, blockState, seqArgs) and the child sequence is run for
     // real on a nested tester; its outcome becomes the command response.
@@ -48,8 +48,6 @@ struct HarnessRequest {
     // of a seq-run command. (The dictionary's buffer length can differ from
     // the flight build's Svc::SeqArgs, so the flight type cannot be used.)
     U32 seqArgsBufferSize = 0;
-    // Response for all other commands (an Fw.CmdResponse value, default OK).
-    U8 cmdResponse = 0;
 };
 
 struct HarnessEvent {

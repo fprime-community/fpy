@@ -14,12 +14,11 @@ artifacts alongside it:
 
 A sequence declares the inputs its harness runs need in "# harness:"
 comments, one directive per line:
-    # harness: tlm <channel> <hex>          answer to a telemetry read
-    # harness: prm <parameter> <hex>        answer to a parameter read
-    # harness: arg <hex>                    appended to the sequence arguments
-    # harness: time <base> <context> <us>   the sequencer's start time
-    # harness: fail <command>               completes with EXECUTION_ERROR
-    # harness: cmd_response <int>           every command's Fw.CmdResponse
+    # harness: tlm <channel> <hex>            answer to a telemetry read
+    # harness: prm <parameter> <hex>          answer to a parameter read
+    # harness: arg <hex>                      appended to the sequence arguments
+    # harness: time <base> <context> <us>     the sequencer's start time
+    # harness: cmd_response <command> <int>   that command's Fw.CmdResponse
 
 Regenerate the artifacts with:
     uv run pytest test/fpy/test_golden.py --update-goldens
@@ -61,7 +60,7 @@ def parse_harness_inputs(source: str) -> dict:
     comments (see the module docstring for the directives), as keyword
     arguments for run_seq_raw / run_wasm_raw."""
     d = load_dictionary(DEFAULT_DICTIONARY)
-    inputs = {"tlm": {}, "prms": {}, "failing_opcodes": set()}
+    inputs = {"tlm": {}, "prms": {}, "cmd_responses": {}}
     args = b""
     for match in _HARNESS_INPUT.finditer(source):
         directive, *operands = match.group(1).split()
@@ -79,12 +78,10 @@ def parse_harness_inputs(source: str) -> dict:
             inputs["time_base"] = int(base)
             inputs["time_context"] = int(context)
             inputs["initial_time_us"] = int(microseconds)
-        elif directive == "fail":
-            (name,) = operands
-            inputs["failing_opcodes"].add(d["cmd_name_dict"][name].opcode)
         elif directive == "cmd_response":
-            (value,) = operands
-            inputs["cmd_response"] = int(value)
+            name, value = operands
+            opcode = d["cmd_name_dict"][name].opcode
+            inputs["cmd_responses"][opcode] = int(value)
         else:
             raise ValueError(f"unknown harness input directive: {match.group(1)!r}")
     if args:

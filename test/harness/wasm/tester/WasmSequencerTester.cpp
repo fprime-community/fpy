@@ -155,9 +155,9 @@ void WasmSequencerTester::comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& d
     FwSizeType cmdSize = packetSize - sizeof(FwPacketDescriptorType);
     this->m_result.cmds.emplace_back(cmd, cmd + cmdSize);
 
-    Fw::CmdResponse response(static_cast<Fw::CmdResponse::T>(request.cmdResponse));
-    if (request.failOpcodes.count(opcode) > 0) {
-        response = Fw::CmdResponse::EXECUTION_ERROR;
+    Fw::CmdResponse response(Fw::CmdResponse::OK);
+    if (request.cmdResponses.count(opcode) > 0) {
+        response = Fw::CmdResponse(static_cast<Fw::CmdResponse::T>(request.cmdResponses.at(opcode)));
     }
 
     // Answer right away, echoing the context back as the command sequence

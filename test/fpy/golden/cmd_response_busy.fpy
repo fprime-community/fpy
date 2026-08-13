@@ -1,5 +1,5 @@
-# Every command completes BUSY; capturing the response takes responsibility
+# The command completes BUSY; capturing the response takes responsibility
 # for it, so the sequence keeps running
-# harness: cmd_response 5
+# harness: cmd_response CdhCore.cmdDisp.CMD_NO_OP 5
 ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()
 assert ret == Fw.CmdResponse.BUSY

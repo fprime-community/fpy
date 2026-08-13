@@ -60,9 +60,10 @@ HarnessRequest parseRequest(const JsonValue& json) {
         request.seconds = static_cast<U32>(require(*time, "seconds").intValue);
         request.useconds = static_cast<U32>(require(*time, "useconds").intValue);
     }
-    if (const JsonValue* opcodes = json.get("failOpcodes")) {
-        for (const JsonValue& opcode : opcodes->items) {
-            request.failOpcodes.insert(static_cast<U32>(opcode.intValue));
+    if (const JsonValue* responses = json.get("cmdResponses")) {
+        for (const auto& member : responses->members) {
+            request.cmdResponses[static_cast<U32>(std::stoull(member.first))] =
+                static_cast<U8>(member.second.intValue);
         }
     }
     if (const JsonValue* opcodes = json.get("seqRunOpcodes")) {
@@ -72,9 +73,6 @@ HarnessRequest parseRequest(const JsonValue& json) {
     }
     if (const JsonValue* size = json.get("seqArgsBufferSize")) {
         request.seqArgsBufferSize = static_cast<U32>(size->intValue);
-    }
-    if (const JsonValue* response = json.get("cmdResponse")) {
-        request.cmdResponse = static_cast<U8>(response->intValue);
     }
     return request;
 }

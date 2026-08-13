@@ -197,12 +197,16 @@ def _serialize_args(args: list[FpyValue] | None) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 
-def _always_failing_opcodes(failing_opcodes) -> set[int]:
-    """The opcodes the harness completes with EXECUTION_ERROR: the RUN
-    commands that always fail when called from within a running sequence on
-    the same sequencer instance, plus the caller's *failing_opcodes*."""
+def _base_cmd_responses(cmd_responses) -> dict[int, int]:
+    """The per-opcode command responses: the RUN command always completes
+    with EXECUTION_ERROR (it cannot run nested on the same sequencer
+    instance), plus the caller's *cmd_responses*."""
     d = load_dictionary(default_dictionary)
-    return {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode} | set(failing_opcodes or ())
+    responses = {
+        d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode: CMD_RESPONSE_EXECUTION_ERROR
+    }
+    responses.update(cmd_responses or {})
+    return responses
 
 
 def _run_request(
@@ -213,15 +217,15 @@ def _run_request(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
     args: bytes = None,
-    cmd_response: int = None,
+    cmd_responses: dict[int, int] = None,
 ) -> dict:
     """The run request fields common to both sequencer harnesses. *tlm* and
     *prms* map channel/parameter names to the serialized values the harness
-    answers reads with; every command completes with *cmd_response* (default
-    OK) unless its opcode is in *failing_opcodes*."""
+    answers reads with; every command completes OK unless *cmd_responses*
+    maps its opcode to another Fw.CmdResponse value."""
     d = load_dictionary(default_dictionary)
+    responses = _base_cmd_responses(cmd_responses)
     request = {
         "seqFile": seq_file,
         "cwd": seq_dir,
@@ -239,12 +243,12 @@ def _run_request(
             str(d["prm_name_dict"][prm_name].prm_id): bytes(val).hex()
             for prm_name, val in (prms or {}).items()
         },
-        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
+        "cmdResponses": {
+            str(opcode): response for opcode, response in sorted(responses.items())
+        },
     }
     if args is not None:
         request["args"] = args.hex()
-    if cmd_response is not None:
-        request["cmdResponse"] = cmd_response
     return request
 
 
@@ -291,18 +295,16 @@ def run_seq_raw(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
     args: bytes = None,
     arg_types: list[tuple[str, FpyType]] = None,
     seq_run_opcodes: set[int] = None,
     ground_binary_dir: str = None,
     prms: dict[str, bytes] = None,
-    cmd_response: int = None,
+    cmd_responses: dict[int, int] = None,
 ) -> dict:
     """Run a list of directives on a real Svc::FpySequencer through the test
-    harness (test/harness) and return the harness's raw JSON reply. *tlm* and
-    *prms* map channel/parameter names to the serialized values the harness
-    answers reads with."""
+    harness (test/harness) and return the harness's raw JSON reply. See
+    _run_request for the inputs."""
     d = load_dictionary(default_dictionary)
 
     # When the test provides a ground_binary_dir, that directory doubles as
@@ -322,9 +324,8 @@ def run_seq_raw(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
-        failing_opcodes=failing_opcodes,
         args=args,
-        cmd_response=cmd_response,
+        cmd_responses=cmd_responses,
     )
     if seq_run_opcodes:
         request["seqRunOpcodes"] = sorted(seq_run_opcodes)
@@ -339,7 +340,7 @@ def run_seq(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
+    cmd_responses: dict[int, int] = None,
     args: bytes = None,
     arg_types: list[tuple[str, FpyType]] = None,
     seq_run_opcodes: set[int] = None,
@@ -363,7 +364,7 @@ def run_seq(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
-        failing_opcodes=failing_opcodes,
+        cmd_responses=cmd_responses,
         args=args,
         arg_types=arg_types,
         seq_run_opcodes=seq_run_opcodes,
@@ -423,9 +424,8 @@ def run_wasm_raw(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
     args: bytes = None,
-    cmd_response: int = None,
+    cmd_responses: dict[int, int] = None,
 ) -> dict:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return the harness's raw JSON reply. See _run_request
@@ -439,28 +439,23 @@ def run_wasm_raw(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
-        failing_opcodes=failing_opcodes,
         args=args,
-        cmd_response=cmd_response,
+        cmd_responses=cmd_responses,
     )
     return wasm_harness().run(request)
 
 
 def run_wasm(
     wasm: bytes,
-    failing_opcodes: set[int] = None,
-    cmd_response: int = None,
+    cmd_responses: dict[int, int] = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return (error code, reported events, dispatched
     command buffers).
 
-    Every command completes with *cmd_response* (an Fw.CmdResponse value,
-    default OK) unless its opcode is in *failing_opcodes*, which makes it
-    complete with EXECUTION_ERROR."""
-    result = run_wasm_raw(
-        wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response
-    )
+    Every command completes OK unless *cmd_responses* maps its opcode to
+    another Fw.CmdResponse value."""
+    result = run_wasm_raw(wasm, cmd_responses=cmd_responses)
 
     if "error" in result:
         raise HarnessError(result["error"])
@@ -485,13 +480,15 @@ def run_wasm(
 
 
 def _run_seq_wasm(
-    seq: str, failing_opcodes: set[int] = None, cmd_response: int = None, **kwargs
+    seq: str,
+    cmd_responses: dict[int, int] = None,
+    **kwargs,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Compile *seq* to wasm and run it through the wasm harness. Returns
     (error code, reported events, dispatched command buffers). See _compile
     for the remaining keyword args."""
     wasm = compile_seq_wasm(seq, **kwargs)
-    return run_wasm(wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response)
+    return run_wasm(wasm, cmd_responses=cmd_responses)
 
 
 def run_seq_wasm(seq: str, **kwargs) -> int:
@@ -589,7 +586,7 @@ def assert_run_success(
     time_context: int = 0,
     initial_time_us: int = 0,
     timeout_s: int = 4,
-    failing_opcodes: set[int] = None,
+    cmd_responses: dict[int, int] = None,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
@@ -622,7 +619,7 @@ def assert_run_success(
                 timeout_s=timeout_s,
             )
             return
-        code, _, cmds = run_wasm(wasm, failing_opcodes=failing_opcodes)
+        code, _, cmds = run_wasm(wasm, cmd_responses=cmd_responses)
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return cmds
@@ -645,7 +642,7 @@ def assert_run_success(
         time_base,
         time_context,
         initial_time_us,
-        failing_opcodes,
+        cmd_responses,
         args=args_bytes,
         arg_types=arg_types,
         seq_run_opcodes=seq_run_opcodes,
@@ -660,7 +657,7 @@ def assert_run_failure(
     error_code: DirectiveErrorCode | int = None,
     validation_error: bool = False,
     initial_time_us: int = 0,
-    failing_opcodes: set[int] = None,
+    cmd_responses: dict[int, int] = None,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     seq_run_opcodes: set[int] = None,
@@ -694,7 +691,7 @@ def assert_run_failure(
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one that reports a nonzero code
         # through the exit/fault host imports.
-        code, _, _ = run_wasm(wasm, failing_opcodes=failing_opcodes)
+        code, _, _ = run_wasm(wasm, cmd_responses=cmd_responses)
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
         if error_code is not None and code != _as_int(error_code):
@@ -717,7 +714,7 @@ def assert_run_failure(
         run_seq(
             directives,
             initial_time_us=initial_time_us,
-            failing_opcodes=failing_opcodes,
+            cmd_responses=cmd_responses,
             args=args_bytes,
             arg_types=arg_types,
             seq_run_opcodes=seq_run_opcodes,

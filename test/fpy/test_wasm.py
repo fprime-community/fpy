@@ -1046,9 +1046,12 @@ class TestWasmCommands:
     compile time; runtime arguments are byte-swapped and stored into their
     packed offsets before each dispatch."""
 
+    def _opcode_int(self, name: str) -> int:
+        return load_dictionary(default_dictionary)["cmd_name_dict"][name].opcode
+
+    # FIXME rename to opcode bytes
     def _opcode(self, name: str) -> bytes:
-        d = load_dictionary(default_dictionary)
-        return struct.pack(">I", d["cmd_name_dict"][name].opcode)
+        return struct.pack(">I", self._opcode_int(name))
 
     def test_cmd_emits_fprime_cmd_import(self):
         # Document the host-call contract: the linked module imports
@@ -1179,7 +1182,7 @@ class TestWasmCommands:
         code, _ = run_seq_wasm_with_cmds(
             "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert ret == Fw.CmdResponse.BUSY\n",
-            cmd_response=5,  # BUSY
+            cmd_responses={self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 5},  # BUSY
         )
         assert code == NO_ERROR
 
@@ -1189,26 +1192,22 @@ class TestWasmCommands:
         code, _ = run_seq_wasm_with_cmds(
             "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert ret == Fw.CmdResponse.EXECUTION_ERROR\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == NO_ERROR
 
     def test_bare_failing_command_exits_cmd_fail(self):
         code, cmds = run_seq_wasm_with_cmds(
             "CdhCore.cmdDisp.CMD_NO_OP()\nassert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == DirectiveErrorCode.CMD_FAIL.value
         # The command was dispatched; the sequence ended on its response.
         assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
-
-    def test_bare_failing_command_via_fail_opcodes(self):
-        d = load_dictionary(default_dictionary)
-        code, _ = run_seq_wasm_with_cmds(
-            "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            failing_opcodes={d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode},
-        )
-        assert code == DirectiveErrorCode.CMD_FAIL.value
 
     def test_assert_cmd_success_flag_disables_check(self):
         # With the flag cleared, failing bare commands don't end the sequence;
@@ -1217,7 +1216,9 @@ class TestWasmCommands:
             "flags.assert_cmd_success = False\n"
             "CdhCore.cmdDisp.CMD_NO_OP()\n"
             "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == NO_ERROR
         assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")] * 2
@@ -1229,7 +1230,9 @@ class TestWasmCommands:
             "if x == 1:\n"
             "    CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == DirectiveErrorCode.CMD_FAIL.value
 

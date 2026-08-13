@@ -171,13 +171,13 @@ void FpySequencerTester::comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& da
     FwSizeType cmdSize = packetSize - sizeof(FwPacketDescriptorType);
     this->m_result.cmds.emplace_back(cmd, cmd + cmdSize);
 
-    Fw::CmdResponse response(static_cast<Fw::CmdResponse::T>(request.cmdResponse));
+    Fw::CmdResponse response(Fw::CmdResponse::OK);
     if (request.seqRunOpcodes.count(opcode) > 0) {
         const U8* args = cmd + sizeof(FwOpcodeType);
         FwSizeType argsSize = cmdSize - sizeof(FwOpcodeType);
         response = this->runChildSequence(args, argsSize);
-    } else if (request.failOpcodes.count(opcode) > 0) {
-        response = Fw::CmdResponse::EXECUTION_ERROR;
+    } else if (request.cmdResponses.count(opcode) > 0) {
+        response = Fw::CmdResponse(static_cast<Fw::CmdResponse::T>(request.cmdResponses.at(opcode)));
     }
 
     // Answer right away, echoing the context back as the command sequence
