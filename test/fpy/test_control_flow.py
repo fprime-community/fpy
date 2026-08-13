@@ -58,7 +58,7 @@ else:
         assert_run_success(
             fprime_test_api,
             seq,
-            {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 4).serialize()},
+            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 4).serialize()},
         )
 
     def test_if_true(self, fprime_test_api):

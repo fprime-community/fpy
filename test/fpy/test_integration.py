@@ -1,8 +1,14 @@
 from fpy.bytecode.directives import DirectiveErrorCode
+from fpy.dictionary import load_dictionary
 from fpy.types import FpyValue, U32
 from fpy.error import WarningType
 
-from fpy.test_helpers import assert_run_success, assert_run_failure
+from fpy.test_helpers import (
+    CMD_RESPONSE_EXECUTION_ERROR,
+    assert_run_success,
+    assert_run_failure,
+    default_dictionary,
+)
 
 
 class TestReadmeExamples:
@@ -210,12 +216,18 @@ log("uh oh", Fw.LogSeverity.WARNING_HI)
 assert 1 > 0
 exit(0)
 """
+        # The example uses Ref.cmdSeq0.RUN as its failing command (it cannot
+        # run nested on the same sequencer), so the harness is told to fail it.
+        run_opcode = load_dictionary(default_dictionary)["cmd_name_dict"][
+            "Ref.cmdSeq0.RUN"
+        ].opcode
         # The example intentionally re-declares `i` as a loop variable over an
         # existing global `i`, which shadows it (shadow-value).
         assert_run_success(
             fprime_test_api,
             seq,
-            {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
+            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 45).serialize()},
+            cmd_responses={run_opcode: CMD_RESPONSE_EXECUTION_ERROR},
             timeout_s=20,
             expected_warnings={WarningType.SHADOW_VALUE},
         )
@@ -226,8 +238,12 @@ exit(0)
 Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 # sequence exits with an error
 """
+        run_opcode = load_dictionary(default_dictionary)["cmd_name_dict"][
+            "Ref.cmdSeq0.RUN"
+        ].opcode
         assert_run_failure(
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses={run_opcode: CMD_RESPONSE_EXECUTION_ERROR},
         )

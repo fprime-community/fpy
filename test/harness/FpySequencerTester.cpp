@@ -68,6 +68,7 @@ harness::HarnessResult FpySequencerTester::run(const harness::HarnessRequest& re
     // response, so the Python side can cross-check the two.
     FpySequencer& seq = this->m_sequencer;
     this->m_result.state = static_cast<I32>(seq.sequencer_getState());
+    this->m_result.hasVmState = true;
     this->m_result.statementsDispatched = seq.m_statementsDispatched;
     this->m_result.lastDirectiveError = static_cast<I32>(seq.m_tlm.lastDirectiveError);
     this->m_result.sequencesSucceeded = seq.m_tlm.sequencesSucceeded;

@@ -21,7 +21,7 @@ exit(1)
         assert_run_success(
             fprime_test_api,
             seq,
-            {"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 1).serialize()},
+            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 1).serialize()},
         )
 
     def test_get_struct_member_of_tlm(self, fprime_test_api):
@@ -35,7 +35,7 @@ exit(1)
         assert_run_success(
             fprime_test_api,
             seq,
-            {
+            tlm={
                 "Ref.typeDemo.ChoicePairCh": FpyValue(
                     lookup_type("Ref.ChoicePair"),
                     {"firstChoice": "ONE", "secondChoice": "ONE"},

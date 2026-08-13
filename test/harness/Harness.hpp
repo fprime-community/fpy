@@ -77,7 +77,13 @@ struct HarnessResult {
     // (false means the sequence failed validation or loading).
     I32 state = 0;
     bool reachedRunning = false;
+    // The FpySequencer's VM state, absent for the wasm harness: statements
+    // dispatched, the bytes left on the stack after the run, and the frame
+    // start.
+    bool hasVmState = false;
     U64 statementsDispatched = 0;
+    std::vector<U8> stack;
+    U32 frameStart = 0;
     // The last directive error the sequencer recorded (its telemetry).
     I32 lastDirectiveError = 0;
     // Exit code, present only when the sequence exited with a nonzero code.
@@ -89,9 +95,6 @@ struct HarnessResult {
     // Each command the sequence dispatched: serialized opcode + arguments.
     std::vector<std::vector<U8>> cmds;
     std::vector<HarnessSerialWrite> serial;
-    // The bytes left on the sequencer's stack after the run.
-    std::vector<U8> stack;
-    U32 frameStart = 0;
     U64 sequencesSucceeded = 0;
 };
 

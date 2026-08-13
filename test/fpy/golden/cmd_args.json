@@ -5,7 +5,6 @@
       "01000002fffffffe3fc0000008",
       "01000001000568656c6c6f"
     ],
-    "frameStart": 0,
     "lastDirectiveError": 0,
     "reachedRunning": true,
     "sequencesSucceeded": 1,
@@ -19,6 +18,7 @@
         "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
       }
     ],
+    "frameStart": 0,
     "stack": "fffffffffe3fc0000008",
     "state": 2,
     "statementsDispatched": 22
@@ -31,8 +31,6 @@
         "text": "(WasmSequencer) SequenceSucceeded : Wasm program completed successfully"
       }
     ],
-    "stack": "",
-    "state": 3,
-    "statementsDispatched": 2
+    "state": 3
   }
 }

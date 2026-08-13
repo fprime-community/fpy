@@ -87,7 +87,9 @@ JsonValue resultToJson(const HarnessResult& result) {
     }
     json.set("state", JsonValue::makeInt(result.state));
     json.set("reachedRunning", JsonValue::makeBool(result.reachedRunning));
-    json.set("statementsDispatched", JsonValue::makeInt(static_cast<I64>(result.statementsDispatched)));
+    if (result.hasVmState) {
+        json.set("statementsDispatched", JsonValue::makeInt(static_cast<I64>(result.statementsDispatched)));
+    }
     json.set("lastDirectiveError", JsonValue::makeInt(result.lastDirectiveError));
     if (result.exited) {
         json.set("exitCode", JsonValue::makeInt(result.exitCode));
@@ -121,8 +123,10 @@ JsonValue resultToJson(const HarnessResult& result) {
     }
     json.set("serial", serial);
 
-    json.set("stack", JsonValue::makeString(hexEncode(result.stack)));
-    json.set("frameStart", JsonValue::makeInt(result.frameStart));
+    if (result.hasVmState) {
+        json.set("stack", JsonValue::makeString(hexEncode(result.stack)));
+        json.set("frameStart", JsonValue::makeInt(result.frameStart));
+    }
     json.set("sequencesSucceeded", JsonValue::makeInt(static_cast<I64>(result.sequencesSucceeded)));
     return json;
 }

@@ -2,7 +2,6 @@
   "common": {
     "cmdResponse": 0,
     "cmds": [],
-    "frameStart": 0,
     "lastDirectiveError": 0,
     "reachedRunning": true,
     "sequencesSucceeded": 1,
@@ -16,6 +15,7 @@
         "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
       }
     ],
+    "frameStart": 0,
     "stack": "ff00000000000000110000000000000005ffffffffffffffef401c000000000000",
     "state": 2,
     "statementsDispatched": 73
@@ -28,8 +28,6 @@
         "text": "(WasmSequencer) SequenceSucceeded : Wasm program completed successfully"
       }
     ],
-    "stack": "",
-    "state": 3,
-    "statementsDispatched": 0
+    "state": 3
   }
 }

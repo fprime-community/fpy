@@ -1050,6 +1050,8 @@ class TestWasmCommands:
         return load_dictionary(default_dictionary)["cmd_name_dict"][name].opcode
 
     # FIXME rename to opcode bytes
+    # FIXME please also add a pre commit check that searches for # FIXME or #FIXME in src or test (exclude in submodules, allow easy exclusions for later) and fails commit if there are any
+    # FIXME actually just searchfor teh FIXME string so it works in all langs
     def _opcode(self, name: str) -> bytes:
         return struct.pack(">I", self._opcode_int(name))
 

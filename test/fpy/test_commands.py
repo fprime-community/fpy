@@ -2,11 +2,22 @@ import pytest
 
 import fpy.test_helpers as test_helpers
 from fpy.bytecode.directives import DirectiveErrorCode
+from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
+    CMD_RESPONSE_EXECUTION_ERROR,
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
+    default_dictionary,
 )
+
+# The failing command these tests dispatch: the harness is told to complete
+# Ref.cmdSeq0.RUN with EXECUTION_ERROR.
+RUN_FAILS = {
+    load_dictionary(default_dictionary)["cmd_name_dict"][
+        "Ref.cmdSeq0.RUN"
+    ].opcode: CMD_RESPONSE_EXECUTION_ERROR
+}
 
 
 class TestCommandCalls:
@@ -271,6 +282,7 @@ Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses=RUN_FAILS,
         )
 
     def test_unhandled_fail_flag_false_continues(self, fprime_test_api):
@@ -279,7 +291,7 @@ Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 flags.assert_cmd_success = False
 Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, cmd_responses=RUN_FAILS)
 
     # -- Handled (captured) command + failing --
 
@@ -290,7 +302,7 @@ flags.assert_cmd_success = True
 resp: Fw.CmdResponse = Ref.cmdSeq0.RUN("test", Svc.BlockState.BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, cmd_responses=RUN_FAILS)
 
     def test_handled_fail_flag_false_continues(self, fprime_test_api):
         """Captured failing command with flag=False should not halt."""
@@ -299,7 +311,7 @@ flags.assert_cmd_success = False
 resp: Fw.CmdResponse = Ref.cmdSeq0.RUN("test", Svc.BlockState.BLOCK)
 assert resp == Fw.CmdResponse.EXECUTION_ERROR
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, cmd_responses=RUN_FAILS)
 
     # -- Successful commands (should always pass regardless of flag/handling) --
 
@@ -328,7 +340,7 @@ flags.assert_cmd_success = True
 flags.assert_cmd_success = False
 Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, cmd_responses=RUN_FAILS)
 
     # -- Bare commands in nested scopes (flag=True) --
 
@@ -343,6 +355,7 @@ if True:
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses=RUN_FAILS,
         )
 
     def test_bare_cmd_in_while_block(self, fprime_test_api):
@@ -358,6 +371,7 @@ while x:
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses=RUN_FAILS,
         )
 
     def test_bare_cmd_in_function(self, fprime_test_api):
@@ -372,6 +386,7 @@ do_cmd()
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses=RUN_FAILS,
         )
 
     def test_bare_cmd_in_function_no_fail(self, fprime_test_api):
@@ -382,7 +397,7 @@ def do_cmd():
     Ref.cmdSeq0.RUN("", Svc.BlockState.BLOCK)
 do_cmd()
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_run_success(fprime_test_api, seq, cmd_responses=RUN_FAILS)
 
     def test_bare_cmd_in_for_loop(self, fprime_test_api):
         """Auto-assert fires for bare commands inside for loops."""
@@ -395,4 +410,5 @@ for i in 0 .. 1:
             fprime_test_api,
             seq,
             DirectiveErrorCode.CMD_FAIL,
+            cmd_responses=RUN_FAILS,
         )

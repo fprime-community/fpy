@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-FPY_HARNESS_BINARY = (
+FPYBC_HARNESS_BINARY = (
     REPO_ROOT / "build-artifacts" / "Linux" / "FpyHarness" / "bin" / "FpyHarness"
 )
 _WASM_HARNESS_ROOT = REPO_ROOT / "test" / "harness" / "wasm"
@@ -31,8 +31,7 @@ class HarnessError(Exception):
     a malformed reply, or crashed. Distinct from a sequence failing."""
 
 
-# FIXME this should be called build fpybc harness
-def build_harness() -> None:
+def build_fpybc_harness() -> None:
     """Builds the FpySequencer harness executable from the fprime submodule.
     The build is incremental, so this is cheap when nothing changed."""
     if not (REPO_ROOT / "test" / "fprime" / "CMakeLists.txt").exists():
@@ -135,7 +134,7 @@ class SequencerHarness:
     def _start(self) -> None:
         if not self._binary.exists():
             raise HarnessError(
-                f"harness binary {self._binary} does not exist; build it with build_harness()"
+                f"harness binary {self._binary} does not exist; build it first"
             )
         self._stderr_file = tempfile.TemporaryFile(mode="w+")
         self._process = subprocess.Popen(
@@ -161,28 +160,27 @@ class SequencerHarness:
         self._stderr_file = None
 
 
-_fpy_harness: SequencerHarness | None = None
+_fpybc_harness: SequencerHarness | None = None
 _wasm_harness: SequencerHarness | None = None
 # The first failed build, re-raised on later calls: retrying the build once
 # it has failed only repeats the same slow failure.
-_fpy_build_error: HarnessError | None = None
+_fpybc_build_error: HarnessError | None = None
 
 
-# FIXME: should be fpybc
-def fpy_harness() -> SequencerHarness:
+def fpybc_harness() -> SequencerHarness:
     """The shared harness for the fpy bytecode backend, building its binary
     on first use."""
-    global _fpy_harness, _fpy_build_error
-    if _fpy_build_error is not None:
-        raise _fpy_build_error
-    if _fpy_harness is None:
+    global _fpybc_harness, _fpybc_build_error
+    if _fpybc_build_error is not None:
+        raise _fpybc_build_error
+    if _fpybc_harness is None:
         try:
-            build_harness()
+            build_fpybc_harness()
         except HarnessError as e:
-            _fpy_build_error = e
+            _fpybc_build_error = e
             raise
-        _fpy_harness = SequencerHarness(FPY_HARNESS_BINARY)
-    return _fpy_harness
+        _fpybc_harness = SequencerHarness(FPYBC_HARNESS_BINARY)
+    return _fpybc_harness
 
 
 def wasm_harness() -> SequencerHarness:
@@ -195,10 +193,10 @@ def wasm_harness() -> SequencerHarness:
 
 def close_all() -> None:
     """Stops any running harness processes (end of the test session)."""
-    global _fpy_harness, _wasm_harness
-    if _fpy_harness is not None:
-        _fpy_harness.close()
-        _fpy_harness = None
+    global _fpybc_harness, _wasm_harness
+    if _fpybc_harness is not None:
+        _fpybc_harness.close()
+        _fpybc_harness = None
     if _wasm_harness is not None:
         _wasm_harness.close()
         _wasm_harness = None

@@ -58,7 +58,6 @@ harness::HarnessResult WasmSequencerTester::run(const harness::HarnessRequest& r
     WasmSequencer& seq = this->m_sequencer;
     this->m_result.state = static_cast<I32>(seq.sequencer_getState());
     this->m_result.sequencesSucceeded = seq.m_tlmSequencesSucceeded;
-    this->m_result.statementsDispatched = seq.m_tlmCommandsDispatched;
 
     this->m_request = nullptr;
     return this->m_result;

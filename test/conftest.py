@@ -57,7 +57,7 @@ def pytest_configure(config):
         _build_wasm_harness_once()
 
     # The FpySequencer harness builds itself lazily, on the first test that
-    # runs a sequence through it (fpy.harness.fpy_harness), so runs that
+    # runs a sequence through it (fpy.harness.fpybc_harness), so runs that
     # never touch it -- compiler unit tests, --collect-only -- skip the
     # build entirely.
 

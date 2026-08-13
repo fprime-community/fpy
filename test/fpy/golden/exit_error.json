@@ -3,7 +3,6 @@
     "cmdResponse": 4,
     "cmds": [],
     "exitCode": 3,
-    "frameStart": 0,
     "reachedRunning": true,
     "sequencesSucceeded": 0,
     "serial": []
@@ -16,6 +15,7 @@
         "text": "(FpySequencer) SequenceExitedWithError : Sequence s0.bin exited with error code 3"
       }
     ],
+    "frameStart": 0,
     "lastDirectiveError": 7,
     "stack": "ff",
     "state": 2,
@@ -40,8 +40,6 @@
       }
     ],
     "lastDirectiveError": 0,
-    "stack": "",
-    "state": 1,
-    "statementsDispatched": 0
+    "state": 1
   }
 }
