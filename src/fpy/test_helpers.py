@@ -242,7 +242,7 @@ def _as_int(v) -> int:
     return v.value if isinstance(v, DirectiveErrorCode) else v
 
 
-def run_seq(
+def run_seq_raw(
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
     time_base: int = 0,
@@ -254,18 +254,11 @@ def run_seq(
     seq_run_opcodes: set[int] = None,
     ground_binary_dir: str = None,
     prms: dict[str, bytes] = None,
-) -> list[bytes]:
+) -> dict:
     """Run a list of directives on a real Svc::FpySequencer through the test
-    harness (test/harness). *tlm* and *prms* map channel/parameter names to
-    the serialized values the harness answers reads with. Returns the command
-    buffers the sequence dispatched (the big-endian serialized FwOpcodeType +
-    arguments), in call order.
-
-    Raises ValidationError when the sequencer rejects the sequence before
-    running it, and RuntimeError when the sequence fails: with the
-    DirectiveErrorCode for a trap, or the raw error code int for a nonzero
-    exit.
-    """
+    harness (test/harness) and return the harness's raw JSON reply. *tlm* and
+    *prms* map channel/parameter names to the serialized values the harness
+    answers reads with."""
     d = load_dictionary(default_dictionary)
 
     # When the test provides a ground_binary_dir, that directory doubles as
@@ -302,7 +295,46 @@ def run_seq(
         request["seqRunOpcodes"] = sorted(seq_run_opcodes)
         request["seqArgsBufferSize"] = _seq_args_buffer_len(d)
 
-    result = fpy_harness().run(request)
+    return fpy_harness().run(request)
+
+
+def run_seq(
+    directives: list[Directive],
+    tlm: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
+    failing_opcodes: set[int] = None,
+    args: bytes = None,
+    arg_types: list[tuple[str, FpyType]] = None,
+    seq_run_opcodes: set[int] = None,
+    ground_binary_dir: str = None,
+    prms: dict[str, bytes] = None,
+) -> list[bytes]:
+    """Run a list of directives on a real Svc::FpySequencer through the test
+    harness (test/harness). *tlm* and *prms* map channel/parameter names to
+    the serialized values the harness answers reads with. Returns the command
+    buffers the sequence dispatched (the big-endian serialized FwOpcodeType +
+    arguments), in call order.
+
+    Raises ValidationError when the sequencer rejects the sequence before
+    running it, and RuntimeError when the sequence fails: with the
+    DirectiveErrorCode for a trap, or the raw error code int for a nonzero
+    exit.
+    """
+    result = run_seq_raw(
+        directives,
+        tlm=tlm,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
+        failing_opcodes=failing_opcodes,
+        args=args,
+        arg_types=arg_types,
+        seq_run_opcodes=seq_run_opcodes,
+        ground_binary_dir=ground_binary_dir,
+        prms=prms,
+    )
 
     if "error" in result:
         raise HarnessError(result["error"])
@@ -349,6 +381,26 @@ def run_seq(
     raise RuntimeError(DirectiveErrorCode(result["lastDirectiveError"]))
 
 
+def run_wasm_raw(
+    wasm: bytes,
+    failing_opcodes: set[int] = None,
+    cmd_response: int = None,
+) -> dict:
+    """Run an already-linked wasm module on a real Svc::WasmSequencer through
+    the wasm harness and return the harness's raw JSON reply."""
+    seq_dir, seq_file = _write_for_harness(wasm, "m0.wasm")
+    request = {
+        "seqFile": seq_file,
+        "cwd": seq_dir,
+        "time": {"base": 0, "context": 0, "seconds": 0, "useconds": 0},
+        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
+    }
+    if cmd_response is not None:
+        request["cmdResponse"] = cmd_response
+
+    return wasm_harness().run(request)
+
+
 def run_wasm(
     wasm: bytes,
     failing_opcodes: set[int] = None,
@@ -361,17 +413,9 @@ def run_wasm(
     Every command completes with *cmd_response* (an Fw.CmdResponse value,
     default OK) unless its opcode is in *failing_opcodes*, which makes it
     complete with EXECUTION_ERROR."""
-    seq_dir, seq_file = _write_for_harness(wasm, "m0.wasm")
-    request = {
-        "seqFile": seq_file,
-        "cwd": seq_dir,
-        "time": {"base": 0, "context": 0, "seconds": 0, "useconds": 0},
-        "failOpcodes": sorted(_always_failing_opcodes(failing_opcodes)),
-    }
-    if cmd_response is not None:
-        request["cmdResponse"] = cmd_response
-
-    result = wasm_harness().run(request)
+    result = run_wasm_raw(
+        wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response
+    )
 
     if "error" in result:
         raise HarnessError(result["error"])
