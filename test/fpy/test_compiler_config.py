@@ -745,3 +745,71 @@ def test_cmd_size_checks_skipped_without_dictionary_constants():
     finally:
         Path(dict_path).unlink()
         _clear_caches()
+
+
+# ============================================================================
+# Validity enum validation (Fw.TlmValid / Fw.ParamValid)
+# ============================================================================
+
+
+def _create_test_dict_with_modified_type(qualified_name: str, mutate) -> str:
+    """Create a test dictionary with one type definition passed through
+    *mutate* (a function of the JSON type def), or removed when *mutate* is
+    None."""
+    with open(DEFAULT_DICTIONARY, "r") as f:
+        base_dict = json.load(f)
+
+    defs = base_dict["typeDefinitions"]
+    if mutate is None:
+        base_dict["typeDefinitions"] = [
+            t for t in defs if t.get("qualifiedName") != qualified_name
+        ]
+    else:
+        for type_def in defs:
+            if type_def.get("qualifiedName") == qualified_name:
+                mutate(type_def)
+                break
+
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(base_dict, temp_file)
+    temp_file.close()
+    return temp_file.name
+
+
+def test_param_valid_mismatch_raises_error():
+    """A dictionary whose Fw.ParamValid disagrees with the canonical enum is
+    rejected: the compiled code bakes the canonical VALID value into every
+    parameter read's validity check."""
+    _clear_caches()
+
+    def swap_valid(type_def):
+        for const in type_def["enumeratedConstants"]:
+            if const["name"] == "VALID":
+                const["value"] = 9
+
+    dict_path = _create_test_dict_with_modified_type("Fw.ParamValid", swap_valid)
+
+    try:
+        import pytest
+        from fpy.error import DictionaryError
+
+        with pytest.raises(DictionaryError, match="Fw.ParamValid"):
+            get_base_compile_state(dict_path, {})
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_param_valid_absent_is_tolerated():
+    """The validity enums are port argument types most dictionaries never
+    define; their absence leaves the canonical definitions standing."""
+    _clear_caches()
+
+    dict_path = _create_test_dict_with_modified_type("Fw.ParamValid", None)
+
+    try:
+        state = get_base_compile_state(dict_path, {})
+        assert state is not None
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()

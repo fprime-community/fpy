@@ -56,14 +56,17 @@ from fpy.syntax import (
     UnaryStackOp,
 )
 from fpy.bytecode.directives import FwOpcodeType
-from fpy.semantics import is_cmd_and_response_unhandled
+from fpy.semantics import is_cmd_and_response_unhandled, is_type_constant_size
 import fpy.types
 from fpy.types import (
     CMD_RESPONSE,
     ChDef,
     FpyType,
     FpyValue,
+    PARAM_VALID,
     PrmDef,
+    TIME,
+    TLM_VALID,
     TypeKind,
     is_instance_compat,
 )
@@ -73,6 +76,8 @@ from fpy.wasm_host import (
     HOST_CMD_FUNC_NAME,
     HOST_EXIT_FUNC_NAME,
     HOST_PANIC_FUNC_NAME,
+    HOST_PRM_FUNC_NAME,
+    HOST_TLM_FUNC_NAME,
     declare_host_imports,
 )
 
@@ -117,8 +122,29 @@ class LlvmBackendState(BackendState):
     cmd_buffers: dict[AstFuncCall, CommandBuffer] = field(default_factory=dict)
     """command call to the buffer it dispatches"""
 
+    read_buffers: dict[AstExpr, "ir.GlobalVariable"] = field(default_factory=dict)
+    """telemetry-channel or parameter read to the buffer the host serializes
+    the value into"""
+
+    tlm_time_buffer: "ir.GlobalVariable | None" = None
+    """the buffer every telemetry read hands the host for the value's
+    Fw.Time, which the language has no way to observe yet"""
+
     funcs: dict[AstDef, "ir.Function"] = field(default_factory=dict)
     """used function definition to the LLVM function it lowers to"""
+
+
+def create_byte_buffer(
+    module: "ir.Module", name: str, contents: bytearray
+) -> "ir.GlobalVariable":
+    """Create a module-level [N x i8] buffer in linear memory, initialized to
+    *contents* and named uniquely after *name*, for exchanging serialized
+    values with the host."""
+    buf_type = ir.ArrayType(ir.IntType(8), len(contents))
+    buf = ir.GlobalVariable(module, buf_type, name=module.get_unique_name(name))
+    buf.linkage = "private"
+    buf.initializer = ir.Constant(buf_type, contents)
+    return buf
 
 
 def is_addressable(expr: AstExpr, state: CompileState) -> bool:
@@ -354,13 +380,22 @@ class EmitLlvmExpr(Emitter):
             if is_float
             else b.icmp_signed("==", rhs, zero)
         )
-        fail_block = b.function.append_basic_block("div_zero")
-        ok_block = b.function.append_basic_block("div_ok")
-        b.cbranch(is_zero, fail_block, ok_block)
+        self._emit_fault_when(is_zero, DirectiveErrorCode.DOMAIN_ERROR, "div")
+
+    def _emit_fault_when(
+        self, bad: ir.Value, code: DirectiveErrorCode, name: str
+    ) -> None:
+        """Fault with *code* through the host panic import when the i1 *bad*
+        holds, and otherwise continue emission in a fresh basic block (named
+        after *name*)."""
+        b = self.builder
+        fail_block = b.function.append_basic_block(name + "_bad")
+        ok_block = b.function.append_basic_block(name + "_ok")
+        b.cbranch(bad, fail_block, ok_block)
         b.position_at_end(fail_block)
         b.call(
             b.module.globals[HOST_PANIC_FUNC_NAME],
-            [ir.Constant(ERROR_CODE_TYPE, DirectiveErrorCode.DOMAIN_ERROR.value)],
+            [ir.Constant(ERROR_CODE_TYPE, code.value)],
         )
         b.unreachable()
         b.position_at_end(ok_block)
@@ -424,9 +459,7 @@ class EmitLlvmExpr(Emitter):
     def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
         if is_instance_compat(sym, (ChDef, PrmDef)):
-            raise BackendError(
-                "LLVM backend can't read telemetry channels or parameters yet"
-            )
+            return self._emit_host_read(node, sym, state)
         # A qualified name can't denote a variable (an imported sequence may
         # not declare a top-level variable), so what remains is member access.
         assert is_instance_compat(sym, FieldAccess), sym
@@ -456,6 +489,54 @@ class EmitLlvmExpr(Emitter):
         idx = idx_value.val
         assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
         return self.emit(sym.parent_expr.elements[idx], state)
+
+    # FIXME rename to mention tlm/prm
+    def _emit_host_read(
+        self, node: AstExpr, sym: ChDef | PrmDef, state: CompileState
+    ) -> ir.Value:
+        """Read a telemetry channel's or parameter's current value through
+        the tlm/prm host import: the host serializes the value into the
+        node's read buffer, faulting with TLM_CHAN_NOT_FOUND/PRM_NOT_FOUND
+        unless the host reports it VALID -- the bytecode directives' failure
+        semantics. Returns the value deserialized at the node's synthesized
+        type (the channel's or parameter's own type)."""
+        b = self.builder
+        i32 = ir.IntType(32)
+        i8_ptr = ir.IntType(8).as_pointer()
+        value_type = state.synthesized_types[node]
+        buf = state.backend.read_buffers[node]
+        if is_instance_compat(sym, ChDef):
+            time_buf = state.backend.tlm_time_buffer
+            valid = b.call(
+                b.module.globals[HOST_TLM_FUNC_NAME],
+                [
+                    ir.Constant(ir.IntType(64), sym.ch_id),
+                    b.bitcast(time_buf, i8_ptr),
+                    ir.Constant(i32, TIME.max_size),
+                    b.bitcast(buf, i8_ptr),
+                    # FIXME cut down on potential for error here. pass the buf, and then pass the bufs size instead of referencing the value_type. look for other places with this issue
+                    ir.Constant(i32, value_type.max_size),
+                ],
+            )
+            ok_value = TLM_VALID.enum_dict["VALID"]
+            code = DirectiveErrorCode.TLM_CHAN_NOT_FOUND
+            name = "tlm"
+        else:
+            valid = b.call(
+                b.module.globals[HOST_PRM_FUNC_NAME],
+                [
+                    ir.Constant(ir.IntType(64), sym.prm_id),
+                    b.bitcast(buf, i8_ptr),
+                    ir.Constant(i32, value_type.max_size),
+                ],
+            )
+            ok_value = PARAM_VALID.enum_dict["VALID"]
+            code = DirectiveErrorCode.PRM_NOT_FOUND
+            name = "prm"
+        self._emit_fault_when(
+            b.icmp_unsigned("!=", valid, ir.Constant(i32, ok_value)), code, name
+        )
+        return self._emit_load_big_endian(value_type, buf, 0)
 
     def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
         """Emit a pointer to *expr*'s value, without loading it."""
@@ -506,20 +587,7 @@ class EmitLlvmExpr(Emitter):
         too_low = b.icmp_signed("<", idx, ir.Constant(idx.type, 0))
         too_high = b.icmp_signed(">=", idx, ir.Constant(idx.type, length))
         oob = b.or_(too_low, too_high)
-        fail_block = b.function.append_basic_block("idx_oob")
-        ok_block = b.function.append_basic_block("idx_ok")
-        b.cbranch(oob, fail_block, ok_block)
-        b.position_at_end(fail_block)
-        b.call(
-            b.module.globals[HOST_PANIC_FUNC_NAME],
-            [
-                ir.Constant(
-                    ERROR_CODE_TYPE, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
-                )
-            ],
-        )
-        b.unreachable()
-        b.position_at_end(ok_block)
+        self._emit_fault_when(oob, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS, "idx")
 
     def emit_AstFuncCall(
         self, node: AstFuncCall, state: CompileState
@@ -713,21 +781,11 @@ class EmitLlvmExpr(Emitter):
             is_false = b.icmp_unsigned(
                 "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_FALSE_VALUE)
             )
-            fail_block = b.function.append_basic_block("bool_bad")
-            ok_block = b.function.append_basic_block("bool_ok")
-            b.cbranch(b.or_(is_true, is_false), ok_block, fail_block)
-            b.position_at_end(fail_block)
-            b.call(
-                b.module.globals[HOST_PANIC_FUNC_NAME],
-                [
-                    ir.Constant(
-                        ERROR_CODE_TYPE,
-                        DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value,
-                    )
-                ],
+            self._emit_fault_when(
+                b.not_(b.or_(is_true, is_false)),
+                DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL,
+                "bool",
             )
-            b.unreachable()
-            b.position_at_end(ok_block)
             return is_true
         if width > 1:
             ptr = b.bitcast(ptr, ir.IntType(width * 8).as_pointer())
@@ -815,6 +873,7 @@ class AssignAddresses(TopDownVisitor):
 
     def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
         self._create_temp_slot(node, state)
+        self._create_read_buffer(node, state)
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
         self._create_temp_slot(node, state)
@@ -856,6 +915,8 @@ class AssignAddresses(TopDownVisitor):
         # _emit_ptr is what takes the parent's address, and it is only ever
         # reached for an access that survives folding and is addressable -- the
         # same two tests the emitter makes before it calls _emit_ptr.
+        # FIXME let's put this logic outside of this function. if you call create temp slot, it should create a temp slot
+        # if the logic is duplicated, then that seems like we need another function
         if state.const_expr_values.get(access) is not None:
             return  # folded to a constant, so no address is taken
         if not is_addressable(access, state):
@@ -872,6 +933,39 @@ class AssignAddresses(TopDownVisitor):
             # argument), so a parent may be reached more than once.
             slots[parent] = self.builder.alloca(
                 state.contextual_types[parent].llvm_type, name="temp"
+            )
+
+    # FIXME if this is just for tlm/prms then call it as such
+    def _create_read_buffer(self, node: AstExpr, state: CompileState) -> None:
+        """Give a telemetry-channel or parameter read the zeroed buffer the
+        host serializes the value into, sized at the value type's max_size --
+        and, for the first telemetry read, the one shared Fw.Time buffer
+        every telemetry read hands the host."""
+        sym = state.resolved_symbols.get(node)
+        if not is_instance_compat(sym, (ChDef, PrmDef)):
+            # FIXME why is this case here?
+            return
+        backend = state.backend
+        if node in backend.read_buffers:
+            # The AST can share one expression between two places.
+            # FIXME true but can you prove it can happen with tlm/prms? if not it should error
+            return
+        value_type = state.synthesized_types[node]
+        # Semantics rejects reads of non-constant-size (string-containing)
+        # types, so the value always has a static serialized layout.
+        assert is_type_constant_size(value_type), value_type
+        name = "tlm_buf" if is_instance_compat(sym, ChDef) else "prm_buf"
+        backend.read_buffers[node] = create_byte_buffer(
+            backend.module, name, bytearray(value_type.max_size)
+        )
+        # FIXME do we need all these different buffers? or could we just use one buf for all these
+        # kinds of reads with a single max size? what properties do we need to be sure about to
+        # allow this?
+        # i think we just need to be sure that if we write to the buffer, we read it out into a
+        # typed value without the possibility of anything else getting in between
+        if is_instance_compat(sym, ChDef) and backend.tlm_time_buffer is None:
+            backend.tlm_time_buffer = create_byte_buffer(
+                backend.module, "tlm_time", bytearray(TIME.max_size)
             )
 
     def _create_command_buffer(
@@ -896,14 +990,8 @@ class AssignAddresses(TopDownVisitor):
                 runtime_args.append((len(contents), arg, arg_type))
                 contents += bytes(arg_type.max_size)
 
-        module = state.backend.module
-        buf_type = ir.ArrayType(ir.IntType(8), len(contents))
-        buf = ir.GlobalVariable(
-            module, buf_type, name=module.get_unique_name("cmd_buf")
-        )
-        buf.linkage = "private"
+        buf = create_byte_buffer(state.backend.module, "cmd_buf", contents)
         buf.global_constant = not runtime_args
-        buf.initializer = ir.Constant(buf_type, contents)
         state.backend.cmd_buffers[node] = CommandBuffer(
             buf, len(contents), runtime_args
         )

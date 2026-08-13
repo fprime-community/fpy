@@ -17,6 +17,8 @@ HOST_EXIT_FUNC_NAME = "exit"
 HOST_PANIC_FUNC_NAME = "panic"
 HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
+HOST_TLM_FUNC_NAME = "tlm"
+HOST_PRM_FUNC_NAME = "prm"
 
 
 def __getattr__(name: str):
@@ -87,4 +89,40 @@ def declare_host_imports(module: ir.Module) -> None:
         module,
         HOST_CMD_FUNC_NAME,
         ir.FunctionType(ir.IntType(32), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
+
+    # tlm(chan_id, time_ptr, time_len, value_ptr, value_len) reads the latest
+    # value of a telemetry channel: the host writes the serialized Fw.Time
+    # into the time buffer (whose length must be exactly the serialized time
+    # size) and the fprime-serialized value into the value buffer, returning
+    # the read's Fw.TlmValid (the canonical TLM_VALID enum in fpy.types)
+    # widened to i32. The channel id travels as i64 whatever width
+    # FwChanIdType has.
+    _declare_host_func(
+        module,
+        HOST_TLM_FUNC_NAME,
+        ir.FunctionType(
+            ir.IntType(32),
+            [
+                ir.IntType(64),
+                ir.IntType(8).as_pointer(),
+                ir.IntType(32),
+                ir.IntType(8).as_pointer(),
+                ir.IntType(32),
+            ],
+        ),
+    )
+
+    # prm(prm_id, buf_ptr, buf_len) reads a parameter: the host writes the
+    # fprime-serialized value into the buffer, returning the read's
+    # Fw.ParamValid (the canonical PARAM_VALID enum in fpy.types) widened to
+    # i32. The buffer contents are meaningful only for a VALID read. The
+    # parameter id travels as i64 whatever width FwPrmIdType has.
+    _declare_host_func(
+        module,
+        HOST_PRM_FUNC_NAME,
+        ir.FunctionType(
+            ir.IntType(32),
+            [ir.IntType(64), ir.IntType(8).as_pointer(), ir.IntType(32)],
+        ),
     )

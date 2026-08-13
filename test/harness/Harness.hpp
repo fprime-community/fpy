@@ -83,8 +83,9 @@ struct HarnessResult {
     // The last directive error the sequencer recorded (its telemetry).
     I32 lastDirectiveError = 0;
     // Exit code, present only when the sequence exited with a nonzero code.
-    // Reported through the SequenceExitedWithError event: the sequencer has
-    // no other path for it.
+    // Reported through an event (the sequencer has no other path for it):
+    // SequenceExitedWithError on the FpySequencer, ProgramExited or
+    // PanicOccurred on the WasmSequencer.
     bool exited = false;
     I32 exitCode = 0;
     std::vector<HarnessEvent> events;

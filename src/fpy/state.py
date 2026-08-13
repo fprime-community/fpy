@@ -49,11 +49,13 @@ from fpy.types import (
     I64,
     LOG_SEVERITY,
     SEQ_ARGS,
+    PARAM_VALID,
     SPECIFIC_NUMERIC_TYPES,
     TIME,
     TIME_BASE,
     TIME_COMPARISON,
     TIME_INTERVAL,
+    TLM_VALID,
     FpyType,
     FpyValue,
     TypeKind,
@@ -269,13 +271,18 @@ def _validate_and_replace_type(
     type_dict: dict[str, FpyType],
     name: str,
     canonical: FpyType,
+    required: bool = True,
 ) -> None:
-    """Validate that a required type exists in the dictionary and matches the
-    canonical definition, then replace it with the canonical version.
+    """Validate that a type in the dictionary matches the canonical
+    definition, then replace it with the canonical version.
 
-    Raises DictionaryError (with a user-facing explanation) if the dictionary is
-    missing the type or defines it incompatibly with the canonical version."""
+    Raises DictionaryError (with a user-facing explanation) if the dictionary
+    defines the type incompatibly with the canonical version, or omits it
+    while *required*. A non-required type absent from the dictionary is left
+    absent (the canonical definition stands unchecked)."""
     if name not in type_dict:
+        if not required:
+            return
         raise DictionaryError(name, "The dictionary does not define this type at all.")
     dict_type = type_dict[name]
     if dict_type.kind != canonical.kind:
@@ -545,6 +552,17 @@ def _build_global_scopes(dictionary: str) -> tuple:
         dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL
     )
     _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
+    # The validity enums back the wasm backend's tlm/prm host reads. Most
+    # dictionaries never mention them (they are port argument types, not
+    # command or channel types), so they are optional -- but when a
+    # dictionary does define them, its values must match the canonical ones
+    # the compiled code bakes in.
+    _validate_and_replace_type(
+        dict_type_name_dict, "Fw.TlmValid", TLM_VALID, required=False
+    )
+    _validate_and_replace_type(
+        dict_type_name_dict, "Fw.ParamValid", PARAM_VALID, required=False
+    )
     _validate_and_replace_type(
         dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON
     )

@@ -34,8 +34,10 @@ void WasmSequencerTester::connectPorts() {
     seq.set_prmGet_OutputPort(0, this->get_prmGetIn_InputPort(1));
     seq.set_prmSet_OutputPort(0, this->get_prmSetIn_InputPort(0));
     seq.set_timeCaller_OutputPort(0, this->get_timeGetIn_InputPort(0));
+    // serialReply stays unconnected: the sequencer requires that for ports
+    // the guest writes synchronously, the only way the compiler writes them.
     for (FwIndexType i = 0; i < Fpy::SerialPortIndex::MAX_SERIAL_PORTS; i++) {
-        seq.set_serialSyncOut_OutputPort(i, this->get_serialIn_InputPort(i));
+        seq.set_serialOut_OutputPort(i, this->get_serialIn_InputPort(i));
     }
 
     // Tester outputs, into the sequencer.
@@ -197,7 +199,9 @@ void WasmSequencerTester::logIn_handler(FwIndexType portNum,
                                         Fw::Time& timeTag,
                                         const Fw::LogSeverity& severity,
                                         Fw::LogBuffer& args) {
-    if (id == WasmSequencer::EVENTID_SEQUENCEEXITEDWITHERROR) {
+    if (id == WasmSequencer::EVENTID_PROGRAMEXITED || id == WasmSequencer::EVENTID_PANICOCCURRED) {
+        // The code the guest passed to the exit or panic host function. Only
+        // a nonzero code raises these events (exit(0) finishes cleanly).
         args.resetDeser();
         I32 exitCode = 0;
         if (args.deserializeTo(exitCode) == Fw::SerializeStatus::FW_SERIALIZE_OK) {

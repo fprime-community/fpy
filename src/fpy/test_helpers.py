@@ -156,13 +156,17 @@ def run_seq_wasm(
     expected_warnings=None,
     main_file_dir: str | None = None,
     failing_opcodes: set[int] = None,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
 ) -> int:
     """Compile *seq* to wasm and run it, returning the sequence's error code
     (reported via the exit/panic host imports; 0 when the void entrypoint
     falls off its end without failing).
 
     Runs the compiled module on a real Svc::WasmSequencer through the wasm
-    harness built by conftest."""
+    harness built by conftest. *tlm* and *prms* are the telemetry values and
+    parameters the simulated spacecraft has, keyed by qualified name, as
+    serialized bytes."""
     code, _, _ = _run_seq_wasm(
         seq,
         ground_binary_dir,
@@ -170,6 +174,8 @@ def run_seq_wasm(
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
         failing_opcodes=failing_opcodes,
+        tlm=tlm,
+        prms=prms,
     )
     return code
 
@@ -202,6 +208,8 @@ def run_seq_wasm_with_cmds(
     main_file_dir: str | None = None,
     failing_opcodes: set[int] = None,
     cmd_response: int = None,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
 ) -> tuple[int, list[bytes]]:
     """Like run_seq_wasm, but also returns the command buffers the sequence
     dispatched through the cmd host import (the big-endian serialized
@@ -216,6 +224,8 @@ def run_seq_wasm_with_cmds(
         main_file_dir=main_file_dir,
         failing_opcodes=failing_opcodes,
         cmd_response=cmd_response,
+        tlm=tlm,
+        prms=prms,
     )
     return code, cmds
 
@@ -228,6 +238,8 @@ def _run_seq_wasm(
     main_file_dir: str | None = None,
     failing_opcodes: set[int] = None,
     cmd_response: int = None,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Compile *seq* to wasm, run it through the spacewasm runner harness, and
     return (error code, reported events, dispatched command buffers).
@@ -242,13 +254,21 @@ def _run_seq_wasm(
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
-    return run_wasm(wasm, failing_opcodes=failing_opcodes, cmd_response=cmd_response)
+    return run_wasm(
+        wasm,
+        failing_opcodes=failing_opcodes,
+        cmd_response=cmd_response,
+        tlm=tlm,
+        prms=prms,
+    )
 
 
 def run_wasm(
     wasm: bytes,
     failing_opcodes: set[int] = None,
     cmd_response: int = None,
+    tlm: dict[str, bytes] = None,
+    prms: dict[str, bytes] = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return (error code, reported events, dispatched
@@ -256,7 +276,9 @@ def run_wasm(
 
     The commands that fail are *failing_opcodes* plus the RUN commands that
     always fail when called from within a running sequence on the same
-    sequencer instance."""
+    sequencer instance. *tlm* and *prms* are the telemetry values and
+    parameters the simulated spacecraft has, keyed by qualified name, as
+    serialized bytes."""
     from fpy.harness import wasm_harness
 
     d = load_dictionary(default_dictionary)
@@ -267,6 +289,14 @@ def run_wasm(
         "seqFile": seq_file,
         "cwd": seq_dir,
         "time": {"base": 0, "context": 0, "seconds": 0, "useconds": 0},
+        "tlm": {
+            str(d["ch_name_dict"][chan_name].ch_id): bytes(val).hex()
+            for chan_name, val in (tlm or {}).items()
+        },
+        "prms": {
+            str(d["prm_name_dict"][prm_name].prm_id): bytes(val).hex()
+            for prm_name, val in (prms or {}).items()
+        },
         "failOpcodes": sorted(always_failing | set(failing_opcodes or ())),
     }
     if cmd_response is not None:
@@ -418,6 +448,7 @@ def run_seq(
     seq_run_opcodes: set[int] = None,
     arg_name_types: list[tuple[str, FpyType]] = None,
     ground_binary_dir: str = None,
+    prms: dict[str, bytes] = None,
 ):
     """Run a list of directives.
 
@@ -481,6 +512,10 @@ def run_seq(
         "tlm": {
             str(ch_name_dict[chan_name].ch_id): bytes(val).hex()
             for chan_name, val in tlm.items()
+        },
+        "prms": {
+            str(d["prm_name_dict"][prm_name].prm_id): bytes(val).hex()
+            for prm_name, val in (prms or {}).items()
         },
         "failOpcodes": sorted(always_failing),
     }
@@ -572,6 +607,7 @@ def assert_run_success(
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
+    prms: dict[str, bytes] = None,
 ):
     if USE_WASM:
         if fprime_test_api is not None:
@@ -594,6 +630,8 @@ def assert_run_success(
             expected_warnings=expected_warnings,
             main_file_dir=main_file_dir,
             failing_opcodes=failing_opcodes,
+            tlm=tlm,
+            prms=prms,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
@@ -624,6 +662,7 @@ def assert_run_success(
         arg_name_types=arg_name_types,
         seq_run_opcodes=seq_run_opcodes,
         ground_binary_dir=ground_binary_dir,
+        prms=prms,
     )
 
 

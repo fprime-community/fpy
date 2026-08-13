@@ -741,6 +741,25 @@ class CheckResolvedSymbolKinds(Visitor):
 
 class CheckForConstantSizeTypes(Visitor):
 
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        # A telemetry-channel or parameter read produces a runtime value of
+        # the channel's/parameter's type, so like any other runtime value it
+        # must be constant-sized: a string's serialized size varies, so no
+        # backend can lay out or compare the value.
+        sym = state.resolved_symbols.get(node)
+        if is_instance_compat(sym, ChDef):
+            value_type, what = sym.ch_type, "telemetry channel"
+        elif is_instance_compat(sym, PrmDef):
+            value_type, what = sym.prm_type, "parameter"
+        else:
+            return
+        if not is_type_constant_size(value_type):
+            state.err(
+                f"Type {value_type.display_name} is not constant-sized "
+                f"(contains strings), cannot read {what} '{sym.name}'",
+                node,
+            )
+
     def visit_AstDef(self, node: AstDef, state: CompileState):
         # Check return type
         if node.return_type is not None:

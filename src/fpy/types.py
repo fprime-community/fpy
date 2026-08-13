@@ -718,6 +718,32 @@ CMD_RESPONSE = FpyType(
     rep_type=U8,
 )
 
+# The canonical Fw.TlmValid enum type: the validity a telemetry-channel read
+# reports.
+TLM_VALID = FpyType(
+    TypeKind.ENUM,
+    "Fw.TlmValid",
+    enum_dict={
+        "VALID": 0,
+        "INVALID": 1,
+    },
+    rep_type=U8,
+)
+
+# The canonical Fw.ParamValid enum type: the validity a parameter read
+# reports.
+PARAM_VALID = FpyType(
+    TypeKind.ENUM,
+    "Fw.ParamValid",
+    enum_dict={
+        "UNINIT": 0,
+        "VALID": 1,
+        "INVALID": 2,
+        "DEFAULT": 3,
+    },
+    rep_type=U8,
+)
+
 # The canonical Fw.TimeComparison enum type
 TIME_COMPARISON = FpyType(
     TypeKind.ENUM,

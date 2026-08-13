@@ -1305,6 +1305,128 @@ def _big_endian_cases():
     ]
 
 
+class TestWasmTelemetryAndParameters:
+    """Telemetry-channel and parameter reads lower to the host
+    `tlm(chan id, time ptr, time len, value ptr, value len)` and
+    `prm(prm id, buf ptr, buf len)` calls: the host serializes the value into
+    the read's buffer in linear memory, the sequence checks the returned
+    validity (faulting with TLM_CHAN_NOT_FOUND / PRM_NOT_FOUND like the
+    bytecode directives), and deserializes the value from the buffer."""
+
+    def test_tlm_emits_fprime_tlm_import(self):
+        # Document the host-call contract: the linked module imports
+        # fprime_v1.tlm. An import-section entry encodes as
+        # <len>module <len>name <kind>, so this byte run is exactly that entry.
+        wasm = compile_seq_wasm("x: U32 = CdhCore.cmdDisp.CommandsDispatched\n")
+        assert b"\x09fprime_v1\x03tlm\x00" in wasm
+
+    def test_prm_emits_fprime_prm_import(self):
+        wasm = compile_seq_wasm("c: Ref.Choice = Ref.typeDemo.CHOICE_PRM\n")
+        assert b"\x09fprime_v1\x03prm\x00" in wasm
+
+    def test_tlm_u32_read(self):
+        code = run_seq_wasm(
+            "assert CdhCore.cmdDisp.CommandsDispatched == 7\n",
+            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 7).serialize()},
+        )
+        assert code == NO_ERROR
+
+    def test_tlm_f32_read(self):
+        # A float channel pins the byte-swap-then-bitcast load path.
+        code = run_seq_wasm(
+            "assert Ref.typeDemo.Float1Ch == 1.5\n",
+            tlm={"Ref.typeDemo.Float1Ch": FpyValue(F32, 1.5).serialize()},
+        )
+        assert code == NO_ERROR
+
+    def test_tlm_bool_read(self):
+        code = run_seq_wasm(
+            "assert Ref.cmdSeq0.BreakpointInUse\n",
+            tlm={"Ref.cmdSeq0.BreakpointInUse": FpyValue(BOOL, True).serialize()},
+        )
+        assert code == NO_ERROR
+
+    def test_tlm_invalid_bool_byte_faults(self):
+        # The spacecraft hands back a bool serialized as neither truth byte;
+        # deserializing it must fault rather than invent a value.
+        code = run_seq_wasm(
+            "assert Ref.cmdSeq0.BreakpointInUse\n",
+            tlm={"Ref.cmdSeq0.BreakpointInUse": b"\x42"},
+        )
+        assert code == DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value
+
+    def test_tlm_struct_member_read(self):
+        d = load_dictionary(default_dictionary)
+        pair = FpyValue(
+            d["type_defs"]["Ref.ChoicePair"],
+            {"firstChoice": "BLUE", "secondChoice": "RED"},
+        )
+        code = run_seq_wasm(
+            "assert Ref.typeDemo.ChoicePairCh.secondChoice == Ref.Choice.RED\n",
+            tlm={"Ref.typeDemo.ChoicePairCh": pair.serialize()},
+        )
+        assert code == NO_ERROR
+
+    def test_tlm_read_twice_sees_each_value(self):
+        # Each mention of a channel is its own host read; both reads see the
+        # (same) injected value.
+        code = run_seq_wasm(
+            "x: U32 = CdhCore.cmdDisp.CommandsDispatched\n"
+            "y: U32 = CdhCore.cmdDisp.CommandsDispatched\n"
+            "assert x == y\n",
+            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 3).serialize()},
+        )
+        assert code == NO_ERROR
+
+    def test_tlm_as_command_argument(self):
+        # A telemetry read feeding a command argument: the value read from
+        # the tlm buffer must land re-serialized in the command buffer.
+        code, cmds = run_seq_wasm_with_cmds(
+            "var1: I32 = -2\n"
+            "CdhCore.cmdDisp.CMD_TEST_CMD_1(var1, Ref.typeDemo.Float1Ch, 8)\n",
+            tlm={"Ref.typeDemo.Float1Ch": FpyValue(F32, 1.5).serialize()},
+        )
+        assert code == NO_ERROR
+        d = load_dictionary(default_dictionary)
+        expected = struct.pack(
+            ">I", d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_TEST_CMD_1"].opcode
+        )
+        expected += struct.pack(">ifB", -2, 1.5, 8)
+        assert cmds == [expected]
+
+    def test_tlm_chan_not_found_faults(self):
+        code = run_seq_wasm("x: U32 = CdhCore.cmdDisp.CommandsDispatched\n")
+        assert code == DirectiveErrorCode.TLM_CHAN_NOT_FOUND.value
+
+    def test_prm_enum_read(self):
+        d = load_dictionary(default_dictionary)
+        code = run_seq_wasm(
+            "assert Ref.typeDemo.CHOICE_PRM == Ref.Choice.TWO\n",
+            prms={
+                "Ref.typeDemo.CHOICE_PRM": FpyValue(
+                    d["type_defs"]["Ref.Choice"], "TWO"
+                ).serialize()
+            },
+        )
+        assert code == NO_ERROR
+
+    def test_prm_array_element_read(self):
+        d = load_dictionary(default_dictionary)
+        code = run_seq_wasm(
+            "assert Ref.typeDemo.CHOICES_PRM[1] == Ref.Choice.BLUE\n",
+            prms={
+                "Ref.typeDemo.CHOICES_PRM": FpyValue(
+                    d["type_defs"]["Ref.ManyChoices"], ["ONE", "BLUE"]
+                ).serialize()
+            },
+        )
+        assert code == NO_ERROR
+
+    def test_prm_not_found_faults(self):
+        code = run_seq_wasm("c: Ref.Choice = Ref.typeDemo.CHOICE_PRM\n")
+        assert code == DirectiveErrorCode.PRM_NOT_FOUND.value
+
+
 class TestWasmBigEndianSerialization:
     """_emit_store_big_endian / _emit_load_big_endian translate between LLVM
     values and the fprime wire format in linear memory. FpyValue.serialize()
