@@ -4,7 +4,7 @@ import itertools
 import typing
 from typing import Callable, Iterable, get_args, get_origin
 
-from dataclasses import fields
+from dataclasses import fields as _dataclass_fields
 
 from fpy.syntax import Ast
 from fpy.state import CompileState
@@ -15,6 +15,17 @@ from fpy.ir import Ir
 
 # Cache for visitor method mappings, keyed by visitor class
 _visitor_cache: dict[type, dict[type, str]] = {}
+
+_fields_cache: dict[type, tuple] = {}
+
+
+def fields(node):
+    """dataclasses.fields(), memoized per node type."""
+    node_type = type(node)
+    cached = _fields_cache.get(node_type)
+    if cached is None:
+        cached = _fields_cache[node_type] = _dataclass_fields(node)
+    return cached
 
 
 class _StopDescent:
