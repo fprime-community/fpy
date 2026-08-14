@@ -1,0 +1,111 @@
+MATH_TODO: formal spec for numeric cast semantics
+==================================================
+
+Goal
+----
+Write a consistent, machine-checked spec for casting between numeric types
+(U8-U64, I8-I64, F32, F64). "No undefined behavior" == the cast semantics is a
+total, deterministic function: for every (source type S, target type T, value
+v : S) the spec assigns exactly one result. Spec is written from scratch and is
+normative; the current compiler, SPEC.md, MATH.md, and backends are NOT
+authoritative and will be brought into line afterward.
+
+Chosen semantics (decided)
+--------------------------
+Adopt the industry-consensus saturating conversion semantics. This is
+simultaneously: WASM trunc_sat / promote / demote / convert, LLVM
+llvm.fptosi.sat / fptoui.sat + fpext/fptrunc/sitofp/uitofp, Rust `as`, and
+Java. LLVM and WASM do not meaningfully diverge on conversions once the
+saturating variants are chosen; the only ecosystem split is trap-on-overflow
+(WASM default trunc) vs saturate (everything else). We saturate, consistent
+with the principle that casts never end the program. Never adopt LLVM's
+default fptosi/fptoui -- out-of-range is poison, i.e. exactly the UB we are
+eliminating.
+
+Per conversion class:
+* int -> int: wrap (reduce mod 2^n, reinterpret as two's complement if T
+  signed). Total, no edge cases.
+* int -> float: IEEE round-to-nearest-even, as a SINGLE direct rounding to
+  the target float type (int -> F32 does not go via F64; avoids double
+  rounding for |v| > 2^53 landing on F32 ties). Total.
+* float -> float: widen is exact; narrow is IEEE RNE, overflow -> +/-inf
+  (NOT max-finite; resolves the open "?" in MATH.md draft). Total.
+* float -> int: truncate toward zero, then clamp to [T::MIN, T::MAX].
+  NaN -> 0. -0.0 -> 0. +/-inf clamp to max/min. Total, never traps.
+
+NaN policy: ignore signaling NaNs (like WASM). Stronger than WASM for
+determinism: any operation producing NaN produces THE canonical quiet NaN
+(sign 0, quiet bit set, payload 0). This matters because fpy struct equality
+compares serialized bytes, so NaN payloads are observable through == on
+structs even though float == is numeric. NaN inputs may be any NaN.
+
+Decided: int -> F32 is a direct single rounding
+-----------------------------------------------
+Spec = direct single RNE to F32 (what sitofp/convert do; standard). NOT the
+composition int -> F64 -> F32: two roundings can double-round differently for
+|v| > 2^53 when the F64 result lands exactly on an F32 tie. LLVM/WASM backends
+already do direct conversion; the VM needs SITOFP/UITOFP variants targeting
+F32 (+2 opcodes, see below). The Z3 harness should still encode both functions
+and confirm they differ (produces the tie counterexample) as a sanity check.
+
+Current state (why change is needed)
+------------------------------------
+* FpySequencer VM (../fprime-fpy-testbed/fprime/Svc/FpySequencer/
+  FpySequencerDirectives.cpp, floatToWrappedIntBits): float->int truncates
+  then wraps mod 2^64, but returns DOMAIN_ERROR (sequence death) for NaN,
+  +/-inf, or magnitude >= 2^64. Matches no ecosystem semantics (I64(1e20)
+  wraps to garbage, I64(1e300) kills the sequence). Replace.
+* Backends diverge today on float -> narrow int: LLVM saturates at target
+  width (fptosi.sat.i8: I8(300.0) == 127); bytecode saturates/wraps at 64-bit
+  then wrap-truncates (I8(300.0) == 44). Spec (saturate at target width)
+  ratifies the LLVM behavior; bytecode path must change.
+
+Bytecode (VM) changes
+---------------------
+* Replace FPTOSI/FPTOUI with FTOI_SAT_{8,16,32,64}_{S,U} (8 opcodes, net +6):
+  pop F64, trunc toward zero, clamp to target range, NaN -> 0, push
+  sign/zero-extended to 64 bits. ~6 lines of C++ each; the mod-2^64 wrapping
+  logic goes away. DOMAIN_ERROR disappears from casts entirely.
+* Add SITOFP_32/UITOFP_32 (or equivalent) for direct int -> F32 (+2 opcodes),
+  per the direct-rounding decision above. Result pushed as F32 extended to the
+  64-bit stack slot via FPEXT semantics is NOT acceptable if it re-rounds;
+  push the F32 bit pattern / value such that the F32 result is exact. (An
+  fpext of the already-rounded F32 back to F64 is exact, so extending the
+  *result* to keep the 64-bit stack model is fine -- the rounding to F32 must
+  simply happen first.)
+* Keep unchanged: FPEXT, FPTRUNC, SITOFP, UITOFP, SIEXT_*, ZIEXT_*, ITRUNC_*
+  (ITRUNC still correct for wrapping int->int casts).
+* Rejected alternative: zero VM changes by emitting inline compare-and-clamp
+  before ITRUNC -- bloats every narrow cast site in uplinked sequences;
+  dedicated opcodes are easier to audit.
+* LLVM backend: already correct (sat intrinsics). WASM backend: use
+  iN.trunc_sat_f64_s/u. Both get the spec essentially for free.
+
+Spec-writing plan
+-----------------
+1. Rewrite the Casts section of MATH.md denotationally, WASM-spec style:
+   define value sets (integers as subsets of Z; floats as finite IEEE values
+   plus +/-inf and canonical NaN), then two primitives round_T (RNE into a
+   float type) and clamp_T / wrap_T (into an int type), then each cast as a
+   total function composed from them. Crib definitional style from the WASM
+   Core spec numerics section (it is mechanized in Isabelle/Coq and already
+   written as total functions).
+2. Mechanize in Z3 (Python bindings; native bitvector + IEEE-754 FloatingPoint
+   theories; everything finite so decidable/push-button). Encode each cast as
+   an ite-tree over total SMT ops -- total and deterministic by construction.
+   GOTCHA: SMT-LIB's fp.to_sbv/fp.to_ubv are themselves underspecified for
+   NaN/out-of-range; define our own total wrappers, use built-ins only on
+   their defined domain.
+3. Check theorems for all (S, T) pairs:
+   - range soundness: result in [T::MIN, T::MAX] (the clamp actually clamps)
+   - identity: cast T -> T == id
+   - value preservation: if v exactly representable in T, cast preserves the
+     denoted real number (catches truncate-vs-round bugs)
+   - monotonicity of float->int and int->float on non-NaN inputs
+   - widening round-trips: I32 -> F64 -> I32 == id (holds); the checker
+     SHOULD produce a counterexample for I64 -> F64 -> I64 (that's it working)
+4. Belt and suspenders: exhaustive enumeration for 8/16-bit types and
+   F32 -> * (2^32 inputs) against a reference implementation, in pytest.
+5. Later / out of scope for now: per-backend "implements spec" checking
+   (translation validation); fixing the VM in fprime-fpy-testbed; arithmetic,
+   builtins (ln, iabs, fabs), overflow-traps-on-arithmetic rationale.

@@ -418,12 +418,16 @@ class TestWasmArithmetic:
         assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 // z\n") == DOMAIN_ERROR
 
     def test_modulus_by_zero_faults(self):
-        # Like division -- and unlike float `/` -- a zero divisor in `%` is
-        # DOMAIN_ERROR even for floats (the VM checks it; libm fmod would
-        # quietly return NaN).
+        # Like division, an integer zero divisor in `%` is DOMAIN_ERROR.
         assert run_seq_wasm("z: U64 = 0\nx: U64 = 17 % z\n") == DOMAIN_ERROR
         assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 % z\n") == DOMAIN_ERROR
-        assert run_seq_wasm("z: F64 = 0.0\nx: F64 = 5.5 % z\n") == DOMAIN_ERROR
+
+    def test_float_modulus_by_zero_is_nan(self):
+        # A *float* zero divisor is not a fault: `x % 0.0` is NaN and never
+        # halts (IEEE, Rust and C#; see MATH_COMPARISON.md), which is what
+        # frem/fmod already give. NaN is observable as `c != c`.
+        seq = "z: F64 = 0.0\nc: F64 = 5.5 % z\nassert c != c\n"
+        assert run_seq_wasm(seq) == NO_ERROR
 
     def test_float_divide_by_zero_is_ieee(self):
         # Float `/` (and thus float `//`) by zero is IEEE inf, not a fault,

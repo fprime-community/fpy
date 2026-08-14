@@ -219,10 +219,12 @@ class EmitLlvmExpr(Emitter):
 
         assert op in COMPARISON_OPS, op
         if is_float:
-            # IEEE `!=` is the negation of `==` and is therefore true when
-            # either operand is NaN (une, wasm's f64.ne, Python's !=). Every
-            # other comparison is ordered: false on NaN, like Python's.
-            if op == "!=":
+            # IEEE 754 defines != as the negation of ==, so it is true when
+            # either operand is NaN (une, wasm's f64.ne, Python's !=): that's
+            # fcmp une (unordered); fcmp_ordered would emit `one`, which is
+            # false on NaN. Every other comparison is ordered: false on NaN,
+            # like Python's.
+            if op == BinaryStackOp.NOT_EQUAL:
                 return b.fcmp_unordered(op, lhs, rhs)
             return b.fcmp_ordered(op, lhs, rhs)
         # Enums and bools lower to integers too, so any integer-typed value
@@ -237,6 +239,23 @@ class EmitLlvmExpr(Emitter):
             f"LLVM backend can't compare values of type "
             f"'{intermediate_type.display_name}' yet"
         )
+
+    def _emit_halt_if(self, cond: ir.Value, code: DirectiveErrorCode) -> None:
+        """Guard an operation: end the whole sequence with the runtime fault
+        *code* when cond holds, otherwise fall through and continue lowering.
+        Faults go through the host's panic, not exit: they are runtime errors
+        raised by a check, not user exits."""
+        b = self.builder
+        fail_block = b.append_basic_block("arith_fail")
+        ok_block = b.append_basic_block("arith_ok")
+        b.cbranch(cond, fail_block, ok_block)
+        b.position_at_end(fail_block)
+        b.call(
+            b.module.globals[HOST_PANIC_FUNC_NAME],
+            [ir.Constant(ERROR_CODE_TYPE, code.value)],
+        )
+        b.unreachable()
+        b.position_at_end(ok_block)
 
     def _emit_floor_divide(
         self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
@@ -260,15 +279,25 @@ class EmitLlvmExpr(Emitter):
             quotient = b.fdiv(lhs, rhs)
             floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
             return b.call(floor_fn, [quotient])
-        # The spec makes an integer zero divisor a DOMAIN_ERROR fault; wasm's
-        # integer div instructions would instead trap uncatchably, so guard
-        # first.
-        self._emit_zero_divisor_check(rhs, is_float=False)
+        # udiv/sdiv are immediate UB on a zero divisor in LLVM, and wasm's
+        # integer div instructions would trap uncatchably; the sequence must
+        # instead end with the same DOMAIN_ERROR the VM's handle_udiv /
+        # handle_sdiv return.
+        self._emit_zero_divisor_check(rhs)
         if not is_signed:
             # Unsigned operands are non-negative, so the exact quotient is too;
             # there's nothing below zero to floor toward, so udiv (which
             # truncates) already gives the floored result.
             return b.udiv(lhs, rhs)
+
+        # sdiv MIN,-1 is UB as well: the mathematical quotient 2^(n-1) is not
+        # representable, so the sequence ends with an overflow error.
+        int_min = ir.Constant(lhs.type, -(1 << (lhs.type.width - 1)))
+        minus_one = ir.Constant(lhs.type, -1)
+        overflow = b.and_(
+            b.icmp_signed("==", lhs, int_min), b.icmp_signed("==", rhs, minus_one)
+        )
+        self._emit_halt_if(overflow, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
         # Signed integers have no floor instruction: sdiv truncates toward zero.
         # Truncation and floor agree except when the exact quotient is negative
@@ -303,16 +332,19 @@ class EmitLlvmExpr(Emitter):
         lowers to an fmod libcall on wasm, hence the imported env.fmod.)
         """
         b = self.builder
-        # The spec makes a zero divisor a DOMAIN_ERROR fault for *every*
-        # modulo, including floats (unlike float division, which is IEEE):
-        # wasm's integer rem instructions would trap uncatchably, and the
-        # host fmod would return NaN, so guard first.
-        self._emit_zero_divisor_check(rhs, is_float)
+        zero = ir.Constant(lhs.type, 0)
+        if not is_float:
+            # urem/srem are immediate UB on a zero divisor in LLVM, and wasm's
+            # integer rem instructions would trap uncatchably; the sequence
+            # must instead end with the same DOMAIN_ERROR the VM's
+            # handle_umod/handle_smod return. A *float* zero divisor is not
+            # guarded: `x % 0.0` is NaN and never halts (IEEE, Rust and C#;
+            # see MATH_COMPARISON.md), which is what frem/fmod already give.
+            self._emit_zero_divisor_check(rhs)
         if not is_float and not is_signed:
             # Unsigned operands are non-negative, so floored == truncated.
             return b.urem(lhs, rhs)
 
-        zero = ir.Constant(lhs.type, 0)
         if is_float:
             rem = b.frem(lhs, rhs)
             nonzero = b.fcmp_ordered("!=", rem, zero)
@@ -321,39 +353,51 @@ class EmitLlvmExpr(Emitter):
             )
             corrected = b.fadd(rem, rhs)
         else:
+            # srem MIN,-1 is UB (and errors in the VM and in Rust) even
+            # though the remainder itself would be 0: it halts exactly like
+            # MIN // -1 does.
+            int_min = ir.Constant(lhs.type, -(1 << (lhs.type.width - 1)))
+            minus_one = ir.Constant(lhs.type, -1)
+            overflow = b.and_(
+                b.icmp_signed("==", lhs, int_min),
+                b.icmp_signed("==", rhs, minus_one),
+            )
+            self._emit_halt_if(overflow, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
             rem = b.srem(lhs, rhs)
             nonzero = b.icmp_signed("!=", rem, zero)
             # rem and rhs have differing signs iff their xor is negative.
             signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
             corrected = b.add(rem, rhs)
-        return b.select(b.and_(nonzero, signs_differ), corrected, rem)
+        result = b.select(b.and_(nonzero, signs_differ), corrected, rem)
+        if is_float:
+            # An exact division leaves a zero whose sign frem takes from the
+            # *dividend*; floored modulo takes it from the divisor, as CPython's
+            # float_rem does with copysign(0.0, divisor) (issue #129). The test
+            # is `rem == 0` rather than `not nonzero` so a NaN remainder -- for
+            # which every ordered compare is false -- passes through untouched.
+            is_zero = b.fcmp_ordered("==", rem, zero)
+            # copysign is binary, so its signature has to be given explicitly:
+            # llvmlite only infers a unary one from the mangling type list.
+            copysign_fn = b.module.declare_intrinsic(
+                "llvm.copysign",
+                [rem.type],
+                ir.FunctionType(rem.type, [rem.type, rem.type]),
+            )
+            signed_zero = b.call(copysign_fn, [zero, rhs])
+            result = b.select(is_zero, signed_zero, result)
+        return result
 
-    def _emit_zero_divisor_check(self, rhs: ir.Value, is_float: bool) -> None:
-        """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, per the
-        spec's modulus and floor-division semantics. (fcmp `==` treats -0.0
-        as zero, so a -0.0 divisor faults too.)"""
+    def _emit_zero_divisor_check(self, rhs: ir.Value) -> None:
+        """Fault with DOMAIN_ERROR when the integer divisor *rhs* is zero, per
+        the spec's modulus and floor-division semantics. Floats never reach
+        here: they have no zero-divisor error at all."""
         b = self.builder
         zero = ir.Constant(rhs.type, 0)
-        # A hardware float compare of a NaN operand against anything has no
-        # meaningful true/false answer, so every fcmp predicate must pick one
-        # up front, and that's the whole ordered/unordered split: *ordered*
-        # predicates answer false when an operand is NaN, *unordered* ones
-        # answer true. Concretely, with rhs = NaN:
-        #   fcmp_ordered("==", NaN, 0.0)   -> false  (what we want: no fault)
-        #   fcmp_unordered("==", NaN, 0.0) -> true   (would fault on NaN!)
-        # A NaN divisor must not fault here: the spec faults only a *zero*
-        # divisor and defines `lhs % nan` as nan -- which is exactly what
-        # frem/fmod return.
-        # On the int side, signedness doesn't exist for equality: LLVM has a
-        # single `icmp eq` (signed/unsigned variants exist only for order
-        # predicates like slt/ult), so icmp_signed("==") and
-        # icmp_unsigned("==") emit the same instruction and unsigned operands
-        # are fine here.
-        is_zero = (
-            b.fcmp_ordered("==", rhs, zero)
-            if is_float
-            else b.icmp_signed("==", rhs, zero)
-        )
+        # Signedness doesn't exist for equality: LLVM has a single `icmp eq`
+        # (signed/unsigned variants exist only for order predicates like
+        # slt/ult), so icmp_signed("==") and icmp_unsigned("==") emit the same
+        # instruction and unsigned operands are fine here.
+        is_zero = b.icmp_signed("==", rhs, zero)
         fail_block = b.function.append_basic_block("div_zero")
         ok_block = b.function.append_basic_block("div_ok")
         b.cbranch(is_zero, fail_block, ok_block)

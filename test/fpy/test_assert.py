@@ -43,3 +43,19 @@ assert True, True
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_exit_code_does_not_impersonate_fault(self, fprime_test_api):
+        """User exits and runtime faults are separate channels: exit(10)
+        matches the raw code 10, but must NOT satisfy an expected
+        DOMAIN_ERROR fault even though DOMAIN_ERROR's value is also 10."""
+        if fprime_test_api is not None:
+            return  # GDS mode reports failures via events, not channels
+        assert_run_failure(fprime_test_api, "exit(10)", 10)
+        try:
+            assert_run_failure(
+                fprime_test_api, "exit(10)", DirectiveErrorCode.DOMAIN_ERROR
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("exit(10) was accepted as a DOMAIN_ERROR fault")

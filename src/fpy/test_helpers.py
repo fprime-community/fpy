@@ -229,8 +229,8 @@ def _run_seq_wasm(
     failing_opcodes: set[int] = None,
     cmd_response: int = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
-    """Compile *seq* to wasm, run it through the spacewasm runner harness, and
-    return (error code, reported events, dispatched command buffers).
+    """Compile *seq* to wasm, run it through the wasm harness, and return
+    (error code, reported events, dispatched command buffers).
 
     The commands that fail are *failing_opcodes* plus the RUN commands that
     always fail when called from within a running sequence on the same
@@ -689,6 +689,26 @@ def assert_run_failure(
         error_code is not None or validation_error
     ), "Must specify either error_code or validation_error"
 
+    # The expected failure's channel: a DirectiveErrorCode other than
+    # EXIT_WITH_ERROR is a runtime panic (a compiler-emitted guard);
+    # EXIT_WITH_ERROR (a bare assert) and raw ints (exit(n)) come through the
+    # exit channel. The channels must not cross-match: exit(10) does not
+    # satisfy an expected DOMAIN_ERROR even though DOMAIN_ERROR's value is 10.
+    expect_panic = (
+        isinstance(error_code, DirectiveErrorCode)
+        and error_code != DirectiveErrorCode.EXIT_WITH_ERROR
+    )
+    # ...except that the bytecode ISA has no panic-raising directive, so the
+    # compiler lowers ITS OWN runtime checks (array bounds, assert_cmd_success)
+    # to `PushVal(code); Exit` -- on the VM these semantically-panic codes ride
+    # the exit channel by construction. The wasm backend does the same for
+    # CMD_FAIL. TODO(upstream): give the FpySequencer ISA a panic directive so
+    # these stop being spoofable via exit().
+    COMPILED_IN_CHECK_CODES = {
+        DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS,
+        DirectiveErrorCode.CMD_FAIL,
+    }
+
     if USE_WASM:
         if fprime_test_api is not None:
             # GDS mode: send the wasm module and assert that it fails via
@@ -708,7 +728,9 @@ def assert_run_failure(
             return
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one that reports a nonzero code
-        # through the exit/fault host imports.
+        # through the exit/panic host imports. The sequencer conflates the
+        # two imports into one exit code, so unlike the bytecode path below
+        # this can only compare codes, not channels.
         code = run_seq_wasm(
             seq,
             ground_binary_dir=ground_binary_dir,
@@ -776,16 +798,28 @@ def assert_run_failure(
         if validation_error:
             raise RuntimeError("Expected ValidationError, got", type(e).__name__, e)
 
-        # The failure surfaces as either a DirectiveErrorCode trap or a raw exit
-        # code int; the expected value may likewise be either. Compare by integer
-        # value so e.g. an exit code of 7 matches DirectiveErrorCode.EXIT_WITH_ERROR.
-        def _as_int(v):
-            return v.value if isinstance(v, DirectiveErrorCode) else v
-
-        if len(e.args) == 1 and _as_int(e.args[0]) != _as_int(error_code):
-            raise RuntimeError(
-                "run_seq failed with error", e.args[0], "expected", error_code
-            )
+        # The failure's channel is encoded in the arg type: a runtime panic
+        # surfaces as a DirectiveErrorCode trap, a user exit as a raw int.
+        # The channels must not cross-match (see expect_panic above), except
+        # for the compiled-in checks that the bytecode ISA forces through the
+        # exit channel.
+        if len(e.args) == 1:
+            got = e.args[0]
+            if expect_panic:
+                ok = isinstance(got, DirectiveErrorCode) and got == error_code
+                if error_code in COMPILED_IN_CHECK_CODES:
+                    ok = ok or got == error_code.value
+            else:
+                want = (
+                    error_code.value
+                    if isinstance(error_code, DirectiveErrorCode)
+                    else error_code
+                )
+                ok = not isinstance(got, DirectiveErrorCode) and got == want
+            if not ok:
+                raise RuntimeError(
+                    "run_seq failed with error", got, "expected", error_code
+                )
         print(e)
         return
 
