@@ -99,7 +99,6 @@ class CommandBuffer:
     memory."""
 
     buf: "ir.GlobalVariable"
-    size: int
     runtime_args: list[tuple[int, AstExpr, FpyType]]
     """the arguments not known at compile time, as (byte offset of the zeroed
     slot the buffer leaves for it, argument expression, argument type)"""
@@ -122,9 +121,11 @@ class LlvmBackendState(BackendState):
     cmd_buffers: dict[AstFuncCall, CommandBuffer] = field(default_factory=dict)
     """command call to the buffer it dispatches"""
 
-    read_buffers: dict[AstExpr, "ir.GlobalVariable"] = field(default_factory=dict)
-    """telemetry-channel or parameter read to the buffer the host serializes
-    the value into"""
+    tlm_prm_buffer: "ir.GlobalVariable | None" = None
+    """the buffer every telemetry-channel and parameter read shares, sized to
+    the largest value any read receives: a read deserializes the buffer into
+    a typed value immediately after the host call fills it, with no other
+    host exchange in between, so no two reads ever need it at once"""
 
     tlm_time_buffer: "ir.GlobalVariable | None" = None
     """the buffer every telemetry read hands the host for the value's
@@ -145,6 +146,12 @@ def create_byte_buffer(
     buf.linkage = "private"
     buf.initializer = ir.Constant(buf_type, contents)
     return buf
+
+
+def byte_buffer_size(buf: "ir.GlobalVariable") -> int:
+    """The length of a create_byte_buffer global's [N x i8] array, so a size
+    handed to the host always comes from the buffer itself."""
+    return buf.type.pointee.count
 
 
 def is_addressable(expr: AstExpr, state: CompileState) -> bool:
@@ -459,7 +466,7 @@ class EmitLlvmExpr(Emitter):
     def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
         if is_instance_compat(sym, (ChDef, PrmDef)):
-            return self._emit_host_read(node, sym, state)
+            return self._emit_tlm_prm_read(node, sym, state)
         # A qualified name can't denote a variable (an imported sequence may
         # not declare a top-level variable), so what remains is member access.
         assert is_instance_compat(sym, FieldAccess), sym
@@ -490,32 +497,36 @@ class EmitLlvmExpr(Emitter):
         assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
         return self.emit(sym.parent_expr.elements[idx], state)
 
-    # FIXME rename to mention tlm/prm
-    def _emit_host_read(
+    def _emit_tlm_prm_read(
         self, node: AstExpr, sym: ChDef | PrmDef, state: CompileState
     ) -> ir.Value:
         """Read a telemetry channel's or parameter's current value through
         the tlm/prm host import: the host serializes the value into the
-        node's read buffer, faulting with TLM_CHAN_NOT_FOUND/PRM_NOT_FOUND
+        shared read buffer, faulting with TLM_CHAN_NOT_FOUND/PRM_NOT_FOUND
         unless the host reports it VALID -- the bytecode directives' failure
         semantics. Returns the value deserialized at the node's synthesized
         type (the channel's or parameter's own type)."""
         b = self.builder
         i32 = ir.IntType(32)
         i8_ptr = ir.IntType(8).as_pointer()
-        value_type = state.synthesized_types[node]
-        buf = state.backend.read_buffers[node]
+        # CreateTlmPrmBuffers sized the buffer over every read in the module,
+        # so this read's value fits.
+        buf = state.backend.tlm_prm_buffer
+        assert buf is not None, "CreateTlmPrmBuffers did not see this read"
+        buf_args = [
+            b.bitcast(buf, i8_ptr),
+            ir.Constant(i32, byte_buffer_size(buf)),
+        ]
         if is_instance_compat(sym, ChDef):
             time_buf = state.backend.tlm_time_buffer
+            assert time_buf is not None, "CreateTlmPrmBuffers did not see this read"
             valid = b.call(
                 b.module.globals[HOST_TLM_FUNC_NAME],
                 [
                     ir.Constant(ir.IntType(64), sym.ch_id),
                     b.bitcast(time_buf, i8_ptr),
-                    ir.Constant(i32, TIME.max_size),
-                    b.bitcast(buf, i8_ptr),
-                    # FIXME cut down on potential for error here. pass the buf, and then pass the bufs size instead of referencing the value_type. look for other places with this issue
-                    ir.Constant(i32, value_type.max_size),
+                    ir.Constant(i32, byte_buffer_size(time_buf)),
+                    *buf_args,
                 ],
             )
             ok_value = TLM_VALID.enum_dict["VALID"]
@@ -524,11 +535,7 @@ class EmitLlvmExpr(Emitter):
         else:
             valid = b.call(
                 b.module.globals[HOST_PRM_FUNC_NAME],
-                [
-                    ir.Constant(ir.IntType(64), sym.prm_id),
-                    b.bitcast(buf, i8_ptr),
-                    ir.Constant(i32, value_type.max_size),
-                ],
+                [ir.Constant(ir.IntType(64), sym.prm_id), *buf_args],
             )
             ok_value = PARAM_VALID.enum_dict["VALID"]
             code = DirectiveErrorCode.PRM_NOT_FOUND
@@ -536,7 +543,7 @@ class EmitLlvmExpr(Emitter):
         self._emit_fault_when(
             b.icmp_unsigned("!=", valid, ir.Constant(i32, ok_value)), code, name
         )
-        return self._emit_load_big_endian(value_type, buf, 0)
+        return self._emit_load_big_endian(state.synthesized_types[node], buf, 0)
 
     def _emit_ptr(self, expr: AstExpr, state: CompileState) -> ir.Value:
         """Emit a pointer to *expr*'s value, without loading it."""
@@ -673,7 +680,7 @@ class EmitLlvmExpr(Emitter):
             b.module.globals[HOST_CMD_FUNC_NAME],
             [
                 b.bitcast(command.buf, ir.IntType(8).as_pointer()),
-                ir.Constant(ir.IntType(32), command.size),
+                ir.Constant(ir.IntType(32), byte_buffer_size(command.buf)),
             ],
         )
         # assumption: the response is a valid cmd response code
@@ -872,11 +879,14 @@ class AssignAddresses(TopDownVisitor):
         return STOP_DESCENT  # a def is a function of its own, with its own storage
 
     def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        self._create_temp_slot(node, state)
-        self._create_read_buffer(node, state)
+        parent = self._temp_slot_parent(node, state)
+        if parent is not None:
+            self._create_temp_slot(parent, state)
 
     def visit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        self._create_temp_slot(node, state)
+        parent = self._temp_slot_parent(node, state)
+        if parent is not None:
+            self._create_temp_slot(parent, state)
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
@@ -902,11 +912,12 @@ class AssignAddresses(TopDownVisitor):
         else:
             ptrs[sym] = self.builder.alloca(sym.type.llvm_type, name=sym.name)
 
-    def _create_temp_slot(self, access: AstExpr, state: CompileState) -> None:
-        """Give the expression the member/element access *access* addresses
-        into -- its parent -- a slot to be copied into, when the parent does not
-        already denote a location. A folded constructor call's constant
-        aggregate is the case that arises: a runtime index has to GEP into it.
+    def _temp_slot_parent(self, access: AstExpr, state: CompileState) -> AstExpr | None:
+        """The parent expression the member/element access *access* addresses
+        into, when that parent needs a temp slot: it does not denote a
+        location of its own (a folded constructor call's constant aggregate
+        is the case that arises: a runtime index has to GEP into it) and has
+        no slot yet. None when no slot is needed.
 
         Only the parent one level up is considered, because every link of a
         chain like ``Ctor(...)[i].m`` is itself an access this pass visits, so
@@ -915,58 +926,29 @@ class AssignAddresses(TopDownVisitor):
         # _emit_ptr is what takes the parent's address, and it is only ever
         # reached for an access that survives folding and is addressable -- the
         # same two tests the emitter makes before it calls _emit_ptr.
-        # FIXME let's put this logic outside of this function. if you call create temp slot, it should create a temp slot
-        # if the logic is duplicated, then that seems like we need another function
         if state.const_expr_values.get(access) is not None:
-            return  # folded to a constant, so no address is taken
+            return None  # folded to a constant, so no address is taken
         if not is_addressable(access, state):
-            return  # a qualified name, or a never-built anonymous literal
+            return None  # a qualified name, or a never-built anonymous literal
 
         # _emit_ptr copies its argument to a slot on exactly this condition.
         parent = state.resolved_symbols[access].parent_expr
         if is_addressable(parent, state):
-            return
-
-        slots = state.backend.temp_slots
-        if parent not in slots:
+            return None
+        if parent in state.backend.temp_slots:
             # The AST can share one expression between two places (a default
             # argument), so a parent may be reached more than once.
-            slots[parent] = self.builder.alloca(
-                state.contextual_types[parent].llvm_type, name="temp"
-            )
+            return None
+        return parent
 
-    # FIXME if this is just for tlm/prms then call it as such
-    def _create_read_buffer(self, node: AstExpr, state: CompileState) -> None:
-        """Give a telemetry-channel or parameter read the zeroed buffer the
-        host serializes the value into, sized at the value type's max_size --
-        and, for the first telemetry read, the one shared Fw.Time buffer
-        every telemetry read hands the host."""
-        sym = state.resolved_symbols.get(node)
-        if not is_instance_compat(sym, (ChDef, PrmDef)):
-            # FIXME why is this case here?
-            return
-        backend = state.backend
-        if node in backend.read_buffers:
-            # The AST can share one expression between two places.
-            # FIXME true but can you prove it can happen with tlm/prms? if not it should error
-            return
-        value_type = state.synthesized_types[node]
-        # Semantics rejects reads of non-constant-size (string-containing)
-        # types, so the value always has a static serialized layout.
-        assert is_type_constant_size(value_type), value_type
-        name = "tlm_buf" if is_instance_compat(sym, ChDef) else "prm_buf"
-        backend.read_buffers[node] = create_byte_buffer(
-            backend.module, name, bytearray(value_type.max_size)
+    def _create_temp_slot(self, expr: AstExpr, state: CompileState) -> None:
+        """Give *expr* -- a value that denotes no location -- a stack slot to
+        be copied into, so an access into it has an address to GEP into."""
+        slots = state.backend.temp_slots
+        assert expr not in slots, expr
+        slots[expr] = self.builder.alloca(
+            state.contextual_types[expr].llvm_type, name="temp"
         )
-        # FIXME do we need all these different buffers? or could we just use one buf for all these
-        # kinds of reads with a single max size? what properties do we need to be sure about to
-        # allow this?
-        # i think we just need to be sure that if we write to the buffer, we read it out into a
-        # typed value without the possibility of anything else getting in between
-        if is_instance_compat(sym, ChDef) and backend.tlm_time_buffer is None:
-            backend.tlm_time_buffer = create_byte_buffer(
-                backend.module, "tlm_time", bytearray(TIME.max_size)
-            )
 
     def _create_command_buffer(
         self, node: AstFuncCall, func: CommandSymbol, state: CompileState
@@ -992,9 +974,7 @@ class AssignAddresses(TopDownVisitor):
 
         buf = create_byte_buffer(state.backend.module, "cmd_buf", contents)
         buf.global_constant = not runtime_args
-        state.backend.cmd_buffers[node] = CommandBuffer(
-            buf, len(contents), runtime_args
-        )
+        state.backend.cmd_buffers[node] = CommandBuffer(buf, runtime_args)
 
 
 class EmitLlvmStmt(Emitter):
@@ -1220,6 +1200,48 @@ class DeclareFunctions(Visitor):
         state.backend.funcs[node] = fn
 
 
+class CreateTlmPrmBuffers(TopDownVisitor):
+    """Creates the buffers the telemetry-channel and parameter reads share
+    (see LlvmBackendState.tlm_prm_buffer), before any function is lowered:
+    one value buffer sized to the largest read, plus the Fw.Time buffer when
+    any read is a telemetry read."""
+
+    def __init__(self):
+        super().__init__()
+        self.max_value_size = 0
+        self.reads_tlm = False
+
+    def run(self, start: Ast, state: CompileState):
+        super().run(start, state)
+        module = state.backend.module
+        if self.max_value_size > 0:
+            state.backend.tlm_prm_buffer = create_byte_buffer(
+                module, "tlm_prm_buf", bytearray(self.max_value_size)
+            )
+        if self.reads_tlm:
+            state.backend.tlm_time_buffer = create_byte_buffer(
+                module, "tlm_time", bytearray(TIME.max_size)
+            )
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            return STOP_DESCENT  # never lowered, so its reads don't count
+
+    def visit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
+        sym = state.resolved_symbols.get(node)
+        if is_instance_compat(sym, ChDef):
+            value_type = sym.ch_type
+            self.reads_tlm = True
+        elif is_instance_compat(sym, PrmDef):
+            value_type = sym.prm_type
+        else:
+            return
+        # Semantics rejects reads of non-constant-size (string-containing)
+        # types, so the value always has a static serialized layout.
+        assert is_type_constant_size(value_type), value_type
+        self.max_value_size = max(self.max_value_size, value_type.max_size)
+
+
 class GenerateLlvmModule:
     """Builds the LLVM module for a sequence: declares an LLVM function for
     the entry point and for every used script function, then defines each one
@@ -1238,6 +1260,7 @@ class GenerateLlvmModule:
         declare_host_imports(module)
         state.backend = LlvmBackendState(module)
         self._create_flags_slot(state)
+        CreateTlmPrmBuffers().run(root_block, state)
 
         # The user entrypoint (see FPY_ENTRY_POINT): void main(), where
         # returning at all means success. Created before the script functions

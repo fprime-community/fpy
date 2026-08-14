@@ -223,7 +223,16 @@ class AssignFrameOffsets(Visitor):
         super().run(start, state)
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        self._layout_function_frame(node, state)
+        # Formal parameters sit before the frame start, at negative offsets.
+        frame_offsets = state.backend.frame_offsets
+        func = state.resolved_symbols[node.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg_name, arg_type, _default in reversed(func.args):
+            arg_offset -= arg_type.max_size
+            frame_offsets[body_values[arg_name]] = arg_offset
+
+        state.backend.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
 
     def _layout_main_frame(self, state: CompileState):
         # Sequence args arrive on the stack first, then the flags slot -- which
@@ -240,19 +249,6 @@ class AssignFrameOffsets(Visitor):
         state.backend.frame_sizes[state.main_block] = self._layout_locals(
             state.main_block, offset, state
         )
-
-    def _layout_function_frame(self, node: AstDef, state: CompileState):
-        # FIXME you can inline this func
-        # Formal parameters sit before the frame start, at negative offsets.
-        frame_offsets = state.backend.frame_offsets
-        func = state.resolved_symbols[node.name]
-        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
-        arg_offset = -STACK_FRAME_HEADER_SIZE
-        for arg_name, arg_type, _default in reversed(func.args):
-            arg_offset -= arg_type.max_size
-            frame_offsets[body_values[arg_name]] = arg_offset
-
-        state.backend.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
 
     def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
         """Lay out every local in *frame_block*'s frame, starting at *offset*,

@@ -383,7 +383,6 @@ CMD_RESPONSE_EXECUTION_ERROR = 4
 _seq_scratch_dir: tempfile.TemporaryDirectory | None = None
 
 
-# FIXME again should be fpybc. it's all either wasm or fpybc
 def _write_seq_for_harness(
     directives: list[Directive],
     arg_types: list[tuple[str, FpyType]] = None,

@@ -31,7 +31,6 @@ class HarnessError(Exception):
     a malformed reply, or crashed. Distinct from a sequence failing."""
 
 
-# FIXME this should be called build fpybc harness
 def build_harness() -> None:
     """Builds the FpySequencer harness executable from the fprime submodule.
     The build is incremental, so this is cheap when nothing changed."""
@@ -168,7 +167,6 @@ _wasm_harness: SequencerHarness | None = None
 _fpy_build_error: HarnessError | None = None
 
 
-# FIXME: should be fpybc
 def fpy_harness() -> SequencerHarness:
     """The shared harness for the fpy bytecode backend, building its binary
     on first use."""
