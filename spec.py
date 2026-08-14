@@ -1,7 +1,9 @@
+from abc import ABC
 from enum import Enum
 from pathlib import Path
 from typing import (
     Generic,
+    Literal,
     Mapping,
     NamedTuple,
     Sequence,
@@ -24,79 +26,311 @@ class CompileError(Exception):
 
 type Id = int
 
-
-class Ident(NamedTuple):
+class Ast(ABC, NamedTuple):
     id: Id
+
+class AstIdent(Ast):
     text: str
 
 
-type QualifiedIdent = ProperQualifiedIdent | Ident
+# hmmm... qualified identifier. would be any chain of period separated identifiers
+# purely a syntactic construct
+# a dot expr is any expr plus a period plus an ident. must know semantic info to know whether qual ident is a dot expr or 
 
 
-class ProperQualifiedIdent(NamedTuple):
-    id: Id
-    qualifier: QualifiedIdent
-    ident: Ident
+# if we were going to transform this into a simpler language, one of the first things we'd do is transform the dot exprs and qual names into 
+# separate syntactic constructs. so let's do that!
+
+def is_dot_expr(expr: AstExpr) -> bool:
+    if isinstance(expr, AstPeriodSeparator):
+        pass
 
 
-class VarDef(NamedTuple):
-    id: Id
-    ident: Ident
+
+type AstQualifiedIdent = AstProperQualifiedIdent | AstIdent
 
 
-class FuncDef(NamedTuple):
-    id: Id
-    ident: Ident
+class AstProperQualifiedIdent(Ast):
+    qualifier: AstQualifiedIdent
+    ident: AstIdent
 
 
-class ModuleDef(NamedTuple):
-    id: Id
-    ident: Ident
+class AstVarDef(Ast):
+    ident: AstIdent
+    type_expr: AstExpr
+    initial_value: AstExpr
 
 
-class SequenceDef(NamedTuple):
-    id: Id
+class AstFuncDef(Ast):
+    ident: AstIdent
+
+
+
+class AstString(Ast):
+    value: str
+
+
+# store floats without regard to precision
+type FloatToken = str
+
+
+class AstNumber(Ast):
+    value: int | FloatToken
+
+
+class AstBoolean(Ast):
+    value: Literal[True] | Literal[False]
+
+
+type AstLiteral = AstString | AstNumber | AstBoolean
+
+
+class AstGetAttr(Ast):
+    parent: AstExpr
+    attr: str
+
+
+class AstIndexExpr(Ast):
+    parent: AstExpr
+    item: AstExpr
+
+
+class AstNamedArgument(Ast):
+    name: str
+    value: "AstExpr"
+
+
+class AstFuncCall(Ast):
+    func: "AstExpr"
+    # args can contain both positional (AstExpr) and named arguments (AstNamedArgument)
+    args: list[Union["AstExpr", AstNamedArgument]] | None
+
+
+class AstPass(Ast):
+    pass  # ha ha
+
+
+class AstBinaryOp(Ast):
+    lhs: AstExpr
+    op: str
+    rhs: AstExpr
+
+
+class AstUnaryOp(Ast):
+    op: str
+    val: AstExpr
+
+
+class AstRange(Ast):
+    lower_bound: AstExpr
+    op: str
+    upper_bound: AstExpr
+
+
+class AstAnonStruct(Ast):
+    members: list[tuple[str, "AstExpr"]]
+
+
+class AstAnonArray(Ast):
+    elements: list["AstExpr"]
+
+
+AstOp = Union[AstBinaryOp, AstUnaryOp]
+
+type AstExpr = AstFuncCall | AstLiteral | AstGetAttr | AstIndexExpr | AstIdent | AstOp | AstRange | AstAnonStruct | AstAnonArray
+
+
+
+class AstAssign(Ast):
+    lhs: AstExpr
+    type_ann: AstExpr | None
+    rhs: AstExpr
+
+
+class AstAugAssign(Ast):
+    """An augmented assignment (lhs op= rhs). Desugared into
+    AstAssign(lhs, None, AstBinaryOp(lhs, op, rhs)) before semantic analysis."""
+
+    lhs: AstExpr
+    op: str
+    rhs: AstExpr
+
+
+class AstElif(Ast):
+    condition: AstExpr
+    body: "AstBlock"
+
+
+class AstIf(Ast):
+    condition: AstExpr
+    body: "AstBlock"
+    elifs: list[AstElif]
+    els: Union["AstBlock", None]
+
+
+class AstFor(Ast):
+    loop_var: AstIdent
+    range: AstExpr
+    body: AstBlock
+
+
+class AstWhile(Ast):
+    condition: AstExpr
+    body: AstBlock
+
+
+class AstCheck(Ast):
+    condition: AstExpr
+    timeout: Union[AstExpr, None]  # The timeout interval, or None if `never`/absent
+    persist: Union[AstExpr, None]  # Default: 0 second interval
+    period: Union[AstExpr, None]  # Default: 1 second interval
+    body: Union["AstBlock", None]  # None for body-less check
+    timeout_body: Union["AstBlock", None] = None
+    timeout_never: bool = False  # True if the timeout clause is `never`
+
+
+class AstAssert(Ast):
+    condition: AstExpr
+    exit_code: Union[AstExpr, None]
+
+
+class AstBreak(Ast):
+    pass
+
+
+class AstContinue(Ast):
+    pass
+
+
+class AstReturn(Ast):
+    value: Union[AstExpr, None]
+
+
+class AstDef(Ast):
+    name: AstIdent
+    # parameters is a list of (ident, type, default_value) tuples
+    # default_value is None if no default is provided
+    parameters: Union[list[tuple[AstIdent, AstExpr, AstExpr | None]], None]
+    return_type: Union[AstExpr, None]
+    body: AstBlock
+
+
+class AstSequenceMetadata(Ast):
+    parameters: Union[list[tuple[AstIdent, AstExpr]], None]
+
+
+class AstImport(Ast):
+    """An import statement. Only valid as a top-level statement.
+
+    `import [dots] a.b.c [as alias]` and
+    `from [dots] a.b.c import (* | m1 [as x], ...)`.
+    """
+
+    is_from: bool
+    """True for a `from` import, False for a plain `import`."""
+    num_dots: int
+    """Number of leading dots. 0 means absolute; >0 means relative."""
+    path: list[str]
+    """The dotted path segments after any leading dots (at least one)."""
+    alias: Union[str, None]
+    """The `as` alias for a plain `import ... as alias`, else None."""
+    members: Union[list[tuple[str, Union[str, None]]], None]
+    """For a `from` import: list of (member_name, alias_or_None). None for a
+    plain import. Empty/None when `is_star` is True."""
+    is_star: bool
+    """True for `from ... import *`."""
+
+
+AstStmt = Union[
+    AstExpr,
+    AstAssign,
+    AstAugAssign,
+    AstPass,
+    AstIf,
+    AstElif,
+    AstFor,
+    AstBreak,
+    AstContinue,
+    AstWhile,
+    AstCheck,
+    AstAssert,
+    AstDef,
+    AstSequenceMetadata,
+    AstReturn,
+]
+AstStmtWithExpr = Union[
+    AstExpr,
+    AstAssign,
+    AstAugAssign,
+    AstIf,
+    AstElif,
+    AstFor,
+    AstWhile,
+    AstCheck,
+    AstAssert,
+    AstDef,
+    AstReturn,
+]
+AstNodeWithSideEffects = Union[
+    AstFuncCall,
+    AstAssign,
+    AstAugAssign,
+    AstIf,
+    AstElif,
+    AstFor,
+    AstWhile,
+    AstCheck,
+    AstAssert,
+    AstBreak,
+    AstContinue,
+    AstDef,
+    AstReturn,
+]
+
+
+class AstBlock(Ast):
+    stmts: list[AstStmt]
+
+
+class ModuleDef(Ast):
+    ident: AstIdent
+
+
+class SequenceDef(Ast):
     path: Path
 
 
-class DirectoryDef(NamedTuple):
-    id: Id
+class DirectoryDef(Ast):
     path: Path
 
 
 # from dict
 class TypeDef(NamedTuple):
-    id: Id
-    ident: Ident
+    ident: AstIdent
 
 
 # from dict
 class EnumConstantDef(NamedTuple):
-    id: Id
-    ident: Ident
+    ident: AstIdent
 
 
 # from dict
 class TypeCtorDef(NamedTuple):
-    id: Id
-    ident: Ident
+    ident: AstIdent
 
 
 # from dict
 class CommandDef(NamedTuple):
-    id: Id
-    ident: Ident
-
-
+    ident: AstIdent
 # semantics
 
 
 class VarSymbol(NamedTuple):
-    defn: VarDef
+    defn: AstVarDef
 
 
 class FuncSymbol(NamedTuple):
-    defn: FuncDef
+    defn: AstFuncDef
 
 
 class ModuleSymbol(NamedTuple):
@@ -159,6 +393,8 @@ TypeNameGroup = NameGroup[TypeSymbol | QualifierSymbol]()
 
 
 class Scope(NamedTuple):
+    # the name groups _are_ the keys of this map
+    # names _are_ the keys of the inner map
     names: Mapping[NameGroup[Symbol], Mapping[Name, Symbol]]
     parent: "Scope|None"
 
@@ -179,7 +415,7 @@ class CompileState(NamedTuple):
 
 
 def resolve_ident[S: Symbol](
-    ident: Ident, scope: Scope, name_group: NameGroup[S], state: CompileState
+    ident: AstIdent, scope: Scope, name_group: NameGroup[S], state: CompileState
 ) -> S:
     names_in_group_in_scope = scope.names_in_group(name_group)
     for name, sym in names_in_group_in_scope.items():
@@ -193,7 +429,7 @@ def resolve_ident[S: Symbol](
 
 
 def resolve_proper_qual_ident[S: Symbol](
-    qi: ProperQualifiedIdent,
+    qi: AstProperQualifiedIdent,
     scope: Scope,
     name_group: NameGroup[S],
     state: CompileState,
@@ -209,8 +445,9 @@ def resolve_proper_qual_ident[S: Symbol](
 
 
 def resolve_qual_ident[S: Symbol](
-    qi: QualifiedIdent, scope: Scope, name_group: NameGroup[S], state: CompileState
+    qi: AstQualifiedIdent, scope: Scope, name_group: NameGroup[S], state: CompileState
 ) -> S:
-    if isinstance(qi, Ident):
+    if isinstance(qi, AstIdent):
         return resolve_ident(qi, scope, name_group, state)
     return resolve_proper_qual_ident(qi, scope, name_group, state)
+

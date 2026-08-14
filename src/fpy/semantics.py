@@ -710,11 +710,7 @@ class CheckResolvedSymbolKinds(Visitor):
     """Verify each resolved identifier is the KIND its name group requires: a
     callee must be callable, a type annotation must be a type, and a value must
     be a value -- not a module, which is legal only as a member-access
-    qualifier (`Fw` in `Fw.Time`, never bare `Fw`).
-
-    The name group comes from AssignNameGroups, so no parent lookup is needed;
-    this replaces the old parallel visit methods and the module-as-value check
-    that used to live in the (bottom-up) type pass."""
+    qualifier (`Fw` in `Fw.Time`, never bare `Fw`)."""
 
     def visit_default(self, node: Ast, state: CompileState):
         ng = state.contextual_name_group.get(node)
