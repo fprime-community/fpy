@@ -13,6 +13,12 @@ from fpy.test_helpers import (
 
 class TestConstantFolding:
 
+    def test_asdf(self, fprime_test_api):
+        seq = """
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
     def test_overflow_compile_error(self, fprime_test_api):
         seq = """
 val1: U8 = 256  # Should fail: value too large for U8

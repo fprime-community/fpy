@@ -19,13 +19,45 @@ This document defines the semantics of all mathematical actions and builtin func
 
 `F32`, and `F64` are the primitive IEEE floating-point types with bitwidths 32 and 64, respectively.
 
-## Casts
+## Call expressions
 
-A cast is an expression which converts a value `V` of numerical type `S` to a value `R` of numerical type `T`.
+callable_expr(argument_list)
 
-Casts are guaranteed not to end the program, and have no undefined behavior.
+## Cast expression
 
+A cast expression is a call expression whose callable expression is an identifier naming a cast function definition.
 
+Each concrete numeric type with name `T` has an associated cast function definition with the same name.
+
+A cast function has one formal parameter of `Number` type, and returns a value of type `T`.
+
+Casts cannot end the program, and have no undefined behavior.
+
+* Casting from an integer to an integer wraps.
+    * Casting between integers of different signedness just reinterprets the binary representation
+        * `U8(255) == U8(-128)`
+* Casting from an integer to a float rounds, with ties rounded to even.
+    * `0` is rounded to `+0`
+* Casting from a float to a float rounds, with ties rounded to even.
+    * Positive or negative infinity and `NaN` round to themselves
+    * If the value exceeds the IEEE
+1. `round_T(NaN) = NaN`
+2. `round_T(+∞) = +∞`, `round_T(−∞) = −∞`
+3. `round_T(0) = +0`
+4. For nonzero real `r`: the value of `⟦T⟧` nearest to `r`, ties to the one
+   with even least significant mantissa digit. If `|r|` exceeds the IEEE
+   overflow threshold for `T`, the result is `+∞` or `−∞` with the sign of
+   `r` (**not** the largest finite value). If `r` rounds to zero, the result
+   is `+0` or `−0` with the sign of `r`.
+
+A cast of value `x` from type `S` to type `T` behaves as follows:
+
+| `S` | `T` | `cast_{S→T}(x)` |
+|---|---|---|
+| integer | integer | `wrap_T(x)` |
+| integer | float | `round_T(x)` |
+| float | float | `±0_T` if `x = ±0_S` (same sign); else `round_T(⟦x⟧)` |
+| float | integer | `clamp_T(trunc(⟦x⟧))` |
 
 If T is a float type, then R is the nearest representable
 
