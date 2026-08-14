@@ -1,0 +1,5 @@
+# Parameter read; the harness answers with the declared value (F32 5.0)
+# harness: prm Ref.cmdSeq0.STATEMENT_TIMEOUT_SECS 40a00000
+if Ref.cmdSeq0.STATEMENT_TIMEOUT_SECS == 5.0:
+    exit(0)
+exit(1)

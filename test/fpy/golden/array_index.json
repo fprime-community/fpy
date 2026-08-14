@@ -1,0 +1,33 @@
+{
+  "common": {
+    "cmdResponse": 0,
+    "cmds": [],
+    "lastDirectiveError": 0,
+    "reachedRunning": true,
+    "sequencesSucceeded": 1,
+    "serial": []
+  },
+  "fpybc": {
+    "events": [
+      {
+        "id": 15,
+        "severity": 5,
+        "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
+      }
+    ],
+    "frameStart": 0,
+    "stack": "ff000000070000000901",
+    "state": 2,
+    "statementsDispatched": 95
+  },
+  "wasm": {
+    "events": [
+      {
+        "id": 7,
+        "severity": 5,
+        "text": "(WasmSequencer) SequenceSucceeded : Wasm program completed successfully"
+      }
+    ],
+    "state": 3
+  }
+}

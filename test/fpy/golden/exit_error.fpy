@@ -1,0 +1,2 @@
+# A nonzero exit; the .json golden pins how the failure is reported
+exit(3)

@@ -148,10 +148,10 @@ class FpybcBackendState(BackendState):
     """The fpybc backend's view of a program: how its variables are laid out,
     and what it has emitted so far."""
 
-    frame_offsets: dict[VariableSymbol, int] = field(default_factory=dict)
+    variable_frame_offsets: dict[VariableSymbol, int] = field(default_factory=dict)
     """variable to the offset of its storage within its frame"""
 
-    frame_sizes: dict[Ast, int] = field(default_factory=dict)
+    block_frame_sizes: dict[AstBlock, int] = field(default_factory=dict)
     """the block that owns a frame, to the total size in bytes of that frame's
     locals"""
 
@@ -187,7 +187,7 @@ class _LayOutFrameLocals(TopDownVisitor):
         self.offset = offset
 
     def visit_AstBlock(self, node: AstBlock, state: CompileState):
-        frame_offsets = state.backend.frame_offsets
+        frame_offsets = state.backend.variable_frame_offsets
         for sym in state.enclosing_scope[node].group(NameGroup.VALUE).values():
             if is_instance_compat(sym, VariableSymbol) and sym not in frame_offsets:
                 frame_offsets[sym] = self.offset
@@ -223,12 +223,25 @@ class AssignFrameOffsets(Visitor):
         super().run(start, state)
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
-        self._layout_function_frame(node, state)
+        # Formal parameters sit before the frame start, at negative offsets.
+        frame_offsets = state.backend.variable_frame_offsets
+        func_sym = state.resolved_symbols[node.name]
+        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
+        arg_offset = -STACK_FRAME_HEADER_SIZE
+        for arg_name, arg_type, _default in reversed(func_sym.args):
+            arg_offset -= arg_type.max_size
+            arg_var = body_values[arg_name]
+            assert is_instance_compat(arg_var, VariableSymbol), arg_var
+            frame_offsets[arg_var] = arg_offset
+
+        state.backend.block_frame_sizes[node.body] = self._layout_locals(
+            node.body, 0, state
+        )
 
     def _layout_main_frame(self, state: CompileState):
         # Sequence args arrive on the stack first, then the flags slot -- which
         # lives in the base scope but occupies a slot in the main frame here.
-        frame_offsets = state.backend.frame_offsets
+        frame_offsets = state.backend.variable_frame_offsets
         offset = 0
         for name, arg_type in state.this_seq_arg_specs:
             arg_var = state.main_scope.group(NameGroup.VALUE)[name]
@@ -237,22 +250,9 @@ class AssignFrameOffsets(Visitor):
         frame_offsets[state.flags_var] = offset
         offset += state.flags_var.type.max_size
 
-        state.backend.frame_sizes[state.main_block] = self._layout_locals(
+        state.backend.block_frame_sizes[state.main_block] = self._layout_locals(
             state.main_block, offset, state
         )
-
-    def _layout_function_frame(self, node: AstDef, state: CompileState):
-        # FIXME you can inline this func
-        # Formal parameters sit before the frame start, at negative offsets.
-        frame_offsets = state.backend.frame_offsets
-        func = state.resolved_symbols[node.name]
-        body_values = state.enclosing_scope[node.body].group(NameGroup.VALUE)
-        arg_offset = -STACK_FRAME_HEADER_SIZE
-        for arg_name, arg_type, _default in reversed(func.args):
-            arg_offset -= arg_type.max_size
-            frame_offsets[body_values[arg_name]] = arg_offset
-
-        state.backend.frame_sizes[node.body] = self._layout_locals(node.body, 0, state)
 
     def _layout_locals(self, frame_block: AstBlock, offset: int, state) -> int:
         """Lay out every local in *frame_block*'s frame, starting at *offset*,
@@ -280,7 +280,7 @@ class GenerateFunctions(Visitor):
         code = [entry_label]
 
         # Allocate space for local variables
-        frame_size_bytes = state.backend.frame_sizes[node.body]
+        frame_size_bytes = state.backend.block_frame_sizes[node.body]
         if frame_size_bytes > 0:
             code.append(AllocateDirective(frame_size_bytes))
 
@@ -506,7 +506,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dirs.append(not_ok_label)
         # response was not OK — read flags.assert_cmd_success from the stack
         # assert_cmd_success is at offset 0 within the flags struct
-        flag_offset = state.backend.frame_offsets[state.flags_var]
+        flag_offset = state.backend.variable_frame_offsets[state.flags_var]
         dirs.append(LoadAbsDirective(flag_offset, BOOL.max_size))
         # if flag is false, skip to end (don't exit)
         dirs.append(IrIf(end_label))
@@ -927,7 +927,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         # a global variable. At top level, stack_frame_start = 0, so a
         # frame-relative offset is already the absolute one.
         use_abs = self.in_function and sym.is_global
-        offset = state.backend.frame_offsets[sym]
+        offset = state.backend.variable_frame_offsets[sym]
         if use_abs:
             dirs = [LoadAbsDirective(offset, sym.type.max_size)]
         else:
@@ -1280,12 +1280,12 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dynamic_components = []
 
         if is_instance_compat(lhs, VariableSymbol):
-            base_frame_offset = state.backend.frame_offsets[lhs]
+            base_frame_offset = state.backend.variable_frame_offsets[lhs]
             is_global_var = lhs.is_global
         else:
             assert is_instance_compat(lhs, FieldAccess), lhs
             assert is_instance_compat(lhs.base_sym, VariableSymbol), lhs.base_sym
-            base_frame_offset = state.backend.frame_offsets[lhs.base_sym]
+            base_frame_offset = state.backend.variable_frame_offsets[lhs.base_sym]
             is_global_var = lhs.base_sym.is_global
 
             # Walk the field access chain to compute the total offset.
@@ -1413,14 +1413,16 @@ class GenerateSequence(EmitterWithNodeInfo):
 
         flags_type = state.flags_var.type
         args_size = sum(t.max_size for _, t in state.this_seq_arg_specs)
-        assert state.backend.frame_offsets[state.flags_var] == args_size
+        assert state.backend.variable_frame_offsets[state.flags_var] == args_size
         flags_default = FpyValue(flags_type, dict(flags_type.member_defaults))
         main_body.append(PushValDirective(flags_default.serialize()))
 
         # we can calc how much space the user-defined lvars take by subtracting
         # the sequence args size, and the flags size, from the frame size
 
-        remaining = state.backend.frame_sizes[node] - flags_type.max_size - args_size
+        remaining = (
+            state.backend.block_frame_sizes[node] - flags_type.max_size - args_size
+        )
         assert remaining >= 0, remaining
 
         # allocate space for local variables

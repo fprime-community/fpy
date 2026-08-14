@@ -37,7 +37,7 @@ from fpy.error import BackendError
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
-    compile_seq_wasm,
+    compile_seq,
     default_dictionary,
     run_seq_wasm,
     run_seq_wasm_with_cmds,
@@ -58,12 +58,6 @@ from fpy.types import (
     U32,
     U64,
 )
-
-# Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
-# marker makes conftest build the spacewasm runner on demand, so these always
-# run on the wasm backend even when --wasm isn't passed.
-pytestmark = pytest.mark.wasm
-
 
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
@@ -544,7 +538,7 @@ class TestWasmExponent:
         # Document the host-call contract: the linked module imports env.pow.
         # An import-section entry encodes as <len>module <len>name <kind>, so a
         # function import of env.pow is exactly this byte run.
-        wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
+        _, wasm = compile_seq("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n", "wasm")
         assert b"\x03env\x03pow\x00" in wasm
 
 
@@ -1046,28 +1040,30 @@ class TestWasmCommands:
     compile time; runtime arguments are byte-swapped and stored into their
     packed offsets before each dispatch."""
 
-    def _opcode(self, name: str) -> bytes:
-        d = load_dictionary(default_dictionary)
-        return struct.pack(">I", d["cmd_name_dict"][name].opcode)
+    def _opcode_int(self, name: str) -> int:
+        return load_dictionary(default_dictionary)["cmd_name_dict"][name].opcode
+
+    def _opcode_bytes(self, name: str) -> bytes:
+        return struct.pack(">I", self._opcode_int(name))
 
     def test_cmd_emits_fprime_cmd_import(self):
         # Document the host-call contract: the linked module imports
         # fprime_v1.cmd. An import-section entry encodes as
         # <len>module <len>name <kind>, so this byte run is exactly that entry.
-        wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
+        _, wasm = compile_seq("CdhCore.cmdDisp.CMD_NO_OP()\n", "wasm")
         assert b"\x09fprime_v1\x03cmd\x00" in wasm
 
     def test_const_no_arg_command(self):
         code, cmds = run_seq_wasm_with_cmds("CdhCore.cmdDisp.CMD_NO_OP()\n")
         assert code == NO_ERROR
-        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
+        assert cmds == [self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP")]
 
     def test_const_string_arg_is_compact(self):
         # A constant string serializes at its actual length (u16 big-endian
         # prefix + bytes), not its declared capacity.
         code, cmds = run_seq_wasm_with_cmds('CdhCore.cmdDisp.CMD_NO_OP_STRING("hi")\n')
         assert code == NO_ERROR
-        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected = self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP_STRING")
         expected += struct.pack(">H", 2) + b"hi"
         assert cmds == [expected]
 
@@ -1075,7 +1071,7 @@ class TestWasmCommands:
         # An empty string is just the zero length prefix.
         code, cmds = run_seq_wasm_with_cmds('CdhCore.cmdDisp.CMD_NO_OP_STRING("")\n')
         assert code == NO_ERROR
-        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected = self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP_STRING")
         expected += struct.pack(">H", 0)
         assert cmds == [expected]
 
@@ -1088,7 +1084,7 @@ class TestWasmCommands:
         assert code == NO_ERROR
         data = "héllo✓".encode("utf-8")
         assert len(data) == 9
-        expected = self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+        expected = self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP_STRING")
         expected += struct.pack(">H", len(data)) + data
         assert cmds == [expected]
 
@@ -1102,7 +1098,7 @@ class TestWasmCommands:
             "CdhCore.cmdDisp.CMD_TEST_CMD_1(var1, var2, var3)\n"
         )
         assert code == NO_ERROR
-        expected = self._opcode("CdhCore.cmdDisp.CMD_TEST_CMD_1")
+        expected = self._opcode_bytes("CdhCore.cmdDisp.CMD_TEST_CMD_1")
         expected += struct.pack(">ifB", -2, 1.5, 8)
         assert cmds == [expected]
 
@@ -1115,7 +1111,7 @@ class TestWasmCommands:
             "Ref.cmdSeq0.SET_BREAKPOINT(idx, flag)\n"
         )
         assert code == NO_ERROR
-        expected = self._opcode("Ref.cmdSeq0.SET_BREAKPOINT")
+        expected = self._opcode_bytes("Ref.cmdSeq0.SET_BREAKPOINT")
         expected += struct.pack(">I", 3) + byte
         assert cmds == [expected]
 
@@ -1127,7 +1123,7 @@ class TestWasmCommands:
             'CdhCore.health.HLTH_PING_ENABLE("task1", en)\n'
         )
         assert code == NO_ERROR
-        expected = self._opcode("CdhCore.health.HLTH_PING_ENABLE")
+        expected = self._opcode_bytes("CdhCore.health.HLTH_PING_ENABLE")
         expected += struct.pack(">H", 5) + b"task1"  # entry: String_40
         expected += struct.pack(">B", 1)  # enable: Fw.Enabled (u8 rep), ENABLED
         assert cmds == [expected]
@@ -1141,7 +1137,7 @@ class TestWasmCommands:
             "Ref.typeDemo.SEND_SCALARS(s)\n"
         )
         assert code == NO_ERROR
-        expected = self._opcode("Ref.typeDemo.SEND_SCALARS")
+        expected = self._opcode_bytes("Ref.typeDemo.SEND_SCALARS")
         expected += struct.pack(">bhiqBHIQfd", -1, -2, -3, -4, 1, 2, 3, 4, 1.5, -2.5)
         assert cmds == [expected]
 
@@ -1152,7 +1148,7 @@ class TestWasmCommands:
             "Ref.typeDemo.CHOICES(c)\n"
         )
         assert code == NO_ERROR
-        expected = self._opcode("Ref.typeDemo.CHOICES")
+        expected = self._opcode_bytes("Ref.typeDemo.CHOICES")
         expected += struct.pack(">ii", 1, 2)  # TWO = 1, RED = 2
         assert cmds == [expected]
 
@@ -1162,10 +1158,10 @@ class TestWasmCommands:
         )
         assert code == NO_ERROR
         assert cmds == [
-            self._opcode("CdhCore.cmdDisp.CMD_NO_OP_STRING")
+            self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP_STRING")
             + struct.pack(">H", 1)
             + b"a",
-            self._opcode("CdhCore.cmdDisp.CMD_NO_OP"),
+            self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP"),
         ]
 
     def test_captured_response_compares_ok(self):
@@ -1179,7 +1175,7 @@ class TestWasmCommands:
         code, _ = run_seq_wasm_with_cmds(
             "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert ret == Fw.CmdResponse.BUSY\n",
-            cmd_response=5,  # BUSY
+            cmd_responses={self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 5},  # BUSY
         )
         assert code == NO_ERROR
 
@@ -1189,26 +1185,22 @@ class TestWasmCommands:
         code, _ = run_seq_wasm_with_cmds(
             "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert ret == Fw.CmdResponse.EXECUTION_ERROR\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == NO_ERROR
 
     def test_bare_failing_command_exits_cmd_fail(self):
         code, cmds = run_seq_wasm_with_cmds(
             "CdhCore.cmdDisp.CMD_NO_OP()\nassert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == DirectiveErrorCode.CMD_FAIL.value
         # The command was dispatched; the sequence ended on its response.
-        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
-
-    def test_bare_failing_command_via_fail_opcodes(self):
-        d = load_dictionary(default_dictionary)
-        code, _ = run_seq_wasm_with_cmds(
-            "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            failing_opcodes={d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode},
-        )
-        assert code == DirectiveErrorCode.CMD_FAIL.value
+        assert cmds == [self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP")]
 
     def test_assert_cmd_success_flag_disables_check(self):
         # With the flag cleared, failing bare commands don't end the sequence;
@@ -1217,10 +1209,12 @@ class TestWasmCommands:
             "flags.assert_cmd_success = False\n"
             "CdhCore.cmdDisp.CMD_NO_OP()\n"
             "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == NO_ERROR
-        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")] * 2
+        assert cmds == [self._opcode_bytes("CdhCore.cmdDisp.CMD_NO_OP")] * 2
 
     def test_bare_command_inside_if_block(self):
         # The response check applies to bare commands in nested blocks too.
@@ -1229,7 +1223,9 @@ class TestWasmCommands:
             "if x == 1:\n"
             "    CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
+            cmd_responses={
+                self._opcode_int("CdhCore.cmdDisp.CMD_NO_OP"): 4  # EXECUTION_ERROR
+            },
         )
         assert code == DirectiveErrorCode.CMD_FAIL.value
 

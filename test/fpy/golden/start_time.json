@@ -1,0 +1,24 @@
+{
+  "fpybc": {
+    "cmdResponse": 0,
+    "cmds": [],
+    "events": [
+      {
+        "id": 15,
+        "severity": 5,
+        "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
+      }
+    ],
+    "frameStart": 0,
+    "lastDirectiveError": 0,
+    "reachedRunning": true,
+    "sequencesSucceeded": 1,
+    "serial": [],
+    "stack": "ff000200000000050003d090",
+    "state": 2,
+    "statementsDispatched": 58
+  },
+  "wasm": {
+    "compileError": "NotImplementedError: this builtin has no LLVM/wasm lowering yet"
+  }
+}

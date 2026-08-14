@@ -17,16 +17,17 @@ from fpy.error import BackendError
 fpybc_grammar_str = (Path(__file__).parent / "grammar.lark").read_text(encoding="utf-8")
 
 
-def parse(text: str):
-    parser = Lark(
-        fpybc_grammar_str,
-        start="input",
-        parser="lalr",
-        propagate_positions=True,
-        maybe_placeholders=True,
-    )
+_fpybc_parser = Lark(
+    fpybc_grammar_str,
+    start="input",
+    parser="lalr",
+    propagate_positions=True,
+    maybe_placeholders=True,
+)
 
-    tree = parser.parse(text)
+
+def parse(text: str):
+    tree = _fpybc_parser.parse(text)
     transformed = FpyBcTransformer().transform(tree)
     return transformed
 

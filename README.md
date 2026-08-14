@@ -240,7 +240,7 @@ prm_3: U8 = Ref.sendBuffComp.parameter3
 
 A significant limitation of this is that it will only return the value most recently saved to the parameter database. This means you must command `_PRM_SAVE` before the sequence will see the new value.
 
-> Note:  If a telemetry channel and parameter have the same fully-qualified name, the fully-qualified name will get the value of the telemetry channel
+> Note: If two dictionary items have the same fully-qualified name, the name resolves to the first match in this order: telemetry channel, parameter, enum constant, FPP constant.
 
 ## Conditionals
 Fpy supports comparison operators:
@@ -759,7 +759,6 @@ The wasm harness is built automatically at the start of the test session, with a
 
 Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
 
-# FIXME I'd like to remove the use-gds feature
 ### `--use-gds`
 
 By default, tests run against a local `Svc::FpySequencer` through the harness. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).

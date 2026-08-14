@@ -1,0 +1,2 @@
+# A failing assert with an explicit exit code
+assert 1 == 2, 55

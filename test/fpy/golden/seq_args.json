@@ -1,0 +1,24 @@
+{
+  "fpybc": {
+    "cmdResponse": 0,
+    "cmds": [],
+    "events": [
+      {
+        "id": 15,
+        "severity": 5,
+        "text": "(FpySequencer) SequenceDone : Completed sequence file s0.bin"
+      }
+    ],
+    "frameStart": 0,
+    "lastDirectiveError": 0,
+    "reachedRunning": true,
+    "sequencesSucceeded": 1,
+    "serial": [],
+    "stack": "00000007ff",
+    "state": 2,
+    "statementsDispatched": 7
+  },
+  "wasm": {
+    "compileError": "BackendError: <golden-test>: LLVM backend can't lower sequences with parameters yet"
+  }
+}

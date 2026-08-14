@@ -1,0 +1,25 @@
+name: no fixmes
+
+on:
+  pull_request:
+  push:
+    branches: [ main, devel ]
+# Cancel in-progress runs if a newer run is started on a given PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !contains(github.ref, 'devel') && !contains(github.ref, 'release/')}}
+
+jobs:
+  no-fixmes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on FIXME markers in src or test
+        # The marker string fails the check whatever the language. git grep
+        # searches only tracked files and does not descend into submodules.
+        # Exempt a file by adding an ":(exclude)path" pathspec to the command.
+        run: |
+          if git grep -n "FIXME" -- src test; then
+            echo "::error::FIXME markers found (see log); resolve them before merging"
+            exit 1
+          fi

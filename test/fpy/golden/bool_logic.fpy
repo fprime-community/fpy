@@ -1,0 +1,5 @@
+# Short-circuit and/or over runtime operands
+x: U64 = 5
+ok: bool = (x == 5) and (x > 10)
+assert ok == False
+assert (x == 1) or (x == 5)

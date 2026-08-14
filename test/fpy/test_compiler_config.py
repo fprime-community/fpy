@@ -532,6 +532,55 @@ def test_timebase_tb_none_wrong_value_raises_error():
         _clear_caches()
 
 
+def test_log_severity_mismatch_raises_error():
+    """Test that a Fw.LogSeverity that doesn't match the canonical one raises an error."""
+    _clear_caches()
+
+    with open(DEFAULT_DICTIONARY, "r") as f:
+        base_dict = json.load(f)
+    for type_def in base_dict.get("typeDefinitions", []):
+        if type_def.get("qualifiedName") == "Fw.LogSeverity":
+            type_def["enumeratedConstants"][0]["value"] = 42  # FATAL is 1
+            break
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(base_dict, temp_file)
+    temp_file.close()
+
+    try:
+        from fpy.error import DictionaryError
+
+        with pytest.raises(DictionaryError, match="Fw.LogSeverity"):
+            get_base_compile_state(temp_file.name, {})
+    finally:
+        Path(temp_file.name).unlink()
+        _clear_caches()
+
+
+def test_log_severity_missing_raises_error():
+    """Test that a dictionary without Fw.LogSeverity raises an error."""
+    _clear_caches()
+
+    with open(DEFAULT_DICTIONARY, "r") as f:
+        base_dict = json.load(f)
+    base_dict["typeDefinitions"] = [
+        t
+        for t in base_dict.get("typeDefinitions", [])
+        if t.get("qualifiedName") != "Fw.LogSeverity"
+    ]
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump(base_dict, temp_file)
+    temp_file.close()
+
+    try:
+        from fpy.error import DictionaryError
+
+        with pytest.raises(DictionaryError, match="Fw.LogSeverity"):
+            get_base_compile_state(temp_file.name, {})
+    finally:
+        Path(temp_file.name).unlink()
+        _clear_caches()
+
+
 def test_timebase_additional_constants_available():
     """Test that additional TimeBase constants from dict are usable in code."""
     _clear_caches()

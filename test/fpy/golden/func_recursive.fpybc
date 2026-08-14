@@ -1,0 +1,30 @@
+goto 20
+load_rel -16 8
+push_val 0 0 0 0 0 0 0 2
+ult
+if 8
+push_val 0 0 0 0 0 0 0 1
+return 8 8
+goto 8
+load_rel -16 8
+push_val 0 0 0 0 0 0 0 1
+sub
+push_val 0 0 0 1
+call
+load_rel -16 8
+push_val 0 0 0 0 0 0 0 2
+sub
+push_val 0 0 0 1
+call
+add
+return 8 8
+push_val 255
+push_val 0 0 0 0 0 0 0 10
+push_val 0 0 0 1
+call
+push_val 0 0 0 0 0 0 0 89
+ieq
+not
+if 30
+push_val 0 0 0 7
+exit

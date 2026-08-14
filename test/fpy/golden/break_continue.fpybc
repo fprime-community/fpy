@@ -1,0 +1,38 @@
+push_val 255
+allocate 16
+push_val 0 0 0 0 0 0 0 0
+store_rel_const_offset 1 8
+push_val 0 0 0 0 0 0 0 0
+store_rel_const_offset 9 8
+push_val 255
+if 31
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 1
+add
+store_rel_const_offset 1 8
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 10
+uge
+if 18
+goto 31
+goto 18
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 2
+umod
+push_val 0 0 0 0 0 0 0 1
+ieq
+if 26
+goto 6
+goto 26
+load_rel 9 8
+push_val 0 0 0 0 0 0 0 1
+add
+store_rel_const_offset 9 8
+goto 6
+load_rel 9 8
+push_val 0 0 0 0 0 0 0 4
+ieq
+not
+if 38
+push_val 0 0 0 7
+exit

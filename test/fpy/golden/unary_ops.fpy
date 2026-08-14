@@ -1,0 +1,6 @@
+# Unary negate and not on runtime operands
+x: I64 = 5
+assert -x == -5
+assert +x == 5
+b: bool = False
+assert not b

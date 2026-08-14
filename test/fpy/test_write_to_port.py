@@ -27,7 +27,7 @@ from fpy.test_helpers import (
 
 
 def pop_dirs(seq: str) -> list[PopSerializableDirective]:
-    _, directives, _ = compile_seq(seq)
+    _, (directives, _) = compile_seq(seq)
     return [d for d in directives if isinstance(d, PopSerializableDirective)]
 
 

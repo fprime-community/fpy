@@ -550,7 +550,7 @@ assert iabs(I64(-2**63 + 1)) == 2**63 - 1
     def test_abs_i64_int_min_overflows(self, fprime_test_api):
         """abs(I64 min) is not representable in I64, so the sequence ends
         with ARITHMETIC_OVERFLOW rather than wrapping."""
-        if test_helpers.USE_WASM:
+        if test_helpers.BACKEND == "wasm":
             pytest.skip("wasm backend does not implement arithmetic traps yet")
         seq = """
 val: I64 = iabs(I64(-2**63))

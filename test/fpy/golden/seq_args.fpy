@@ -1,0 +1,4 @@
+# Sequence arguments; the harness passes the declared bytes (U32 7)
+# harness: arg 00000007
+sequence(x: U32)
+assert x == 7

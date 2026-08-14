@@ -1,0 +1,5 @@
+# Struct construction, member read, and in-place member write
+p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)
+p.value = 9.5
+assert p.time == 3.0
+assert p.value == 9.5

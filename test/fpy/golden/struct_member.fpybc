@@ -1,0 +1,26 @@
+push_val 255
+allocate 8
+push_val 64 64 0 0 64 128 0 0
+store_rel_const_offset 1 8
+push_val 65 24 0 0
+store_rel_const_offset 5 4
+load_rel 1 8
+push_val 0 0 0 0
+get_field 8 4
+fpext
+push_val 64 8 0 0 0 0 0 0
+feq
+not
+if 16
+push_val 0 0 0 7
+exit
+load_rel 1 8
+push_val 0 0 0 4
+get_field 8 4
+fpext
+push_val 64 35 0 0 0 0 0 0
+feq
+not
+if 26
+push_val 0 0 0 7
+exit

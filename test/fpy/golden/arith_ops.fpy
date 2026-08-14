@@ -1,0 +1,15 @@
+# Every binary arithmetic operator on runtime (non-folded) operands,
+# including floored division and modulo on negative values
+x: I64 = 17
+y: I64 = 5
+assert x + y == 22
+assert x - y == 12
+assert x * y == 85
+assert x // y == 3
+assert x % y == 2
+neg: I64 = -17
+assert neg // y == -4
+assert neg % y == 3
+f: F64 = 7.0
+assert f / 2.0 == 3.5
+assert f ** 2.0 == 49.0

@@ -1,0 +1,7 @@
+# Explicit numeric casts on runtime values: float->int truncation,
+# int narrowing, int->float
+f: F64 = 5.9
+assert I32(f) == 5
+n: I32 = 300
+assert U8(n) == 44
+assert F64(n) == 300.0

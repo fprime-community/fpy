@@ -68,6 +68,7 @@ harness::HarnessResult FpySequencerTester::run(const harness::HarnessRequest& re
     // response, so the Python side can cross-check the two.
     FpySequencer& seq = this->m_sequencer;
     this->m_result.state = static_cast<I32>(seq.sequencer_getState());
+    this->m_result.hasVmState = true;
     this->m_result.statementsDispatched = seq.m_statementsDispatched;
     this->m_result.lastDirectiveError = static_cast<I32>(seq.m_tlm.lastDirectiveError);
     this->m_result.sequencesSucceeded = seq.m_tlm.sequencesSucceeded;
@@ -171,13 +172,13 @@ void FpySequencerTester::comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& da
     FwSizeType cmdSize = packetSize - sizeof(FwPacketDescriptorType);
     this->m_result.cmds.emplace_back(cmd, cmd + cmdSize);
 
-    Fw::CmdResponse response(static_cast<Fw::CmdResponse::T>(request.cmdResponse));
+    Fw::CmdResponse response(Fw::CmdResponse::OK);
     if (request.seqRunOpcodes.count(opcode) > 0) {
         const U8* args = cmd + sizeof(FwOpcodeType);
         FwSizeType argsSize = cmdSize - sizeof(FwOpcodeType);
         response = this->runChildSequence(args, argsSize);
-    } else if (request.failOpcodes.count(opcode) > 0) {
-        response = Fw::CmdResponse::EXECUTION_ERROR;
+    } else if (request.cmdResponses.count(opcode) > 0) {
+        response = Fw::CmdResponse(static_cast<Fw::CmdResponse::T>(request.cmdResponses.at(opcode)));
     }
 
     // Answer right away, echoing the context back as the command sequence

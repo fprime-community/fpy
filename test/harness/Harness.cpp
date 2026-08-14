@@ -60,9 +60,10 @@ HarnessRequest parseRequest(const JsonValue& json) {
         request.seconds = static_cast<U32>(require(*time, "seconds").intValue);
         request.useconds = static_cast<U32>(require(*time, "useconds").intValue);
     }
-    if (const JsonValue* opcodes = json.get("failOpcodes")) {
-        for (const JsonValue& opcode : opcodes->items) {
-            request.failOpcodes.insert(static_cast<U32>(opcode.intValue));
+    if (const JsonValue* responses = json.get("cmdResponses")) {
+        for (const auto& member : responses->members) {
+            request.cmdResponses[static_cast<U32>(std::stoull(member.first))] =
+                static_cast<U8>(member.second.intValue);
         }
     }
     if (const JsonValue* opcodes = json.get("seqRunOpcodes")) {
@@ -72,9 +73,6 @@ HarnessRequest parseRequest(const JsonValue& json) {
     }
     if (const JsonValue* size = json.get("seqArgsBufferSize")) {
         request.seqArgsBufferSize = static_cast<U32>(size->intValue);
-    }
-    if (const JsonValue* response = json.get("cmdResponse")) {
-        request.cmdResponse = static_cast<U8>(response->intValue);
     }
     return request;
 }
@@ -89,7 +87,9 @@ JsonValue resultToJson(const HarnessResult& result) {
     }
     json.set("state", JsonValue::makeInt(result.state));
     json.set("reachedRunning", JsonValue::makeBool(result.reachedRunning));
-    json.set("statementsDispatched", JsonValue::makeInt(static_cast<I64>(result.statementsDispatched)));
+    if (result.hasVmState) {
+        json.set("statementsDispatched", JsonValue::makeInt(static_cast<I64>(result.statementsDispatched)));
+    }
     json.set("lastDirectiveError", JsonValue::makeInt(result.lastDirectiveError));
     if (result.exited) {
         json.set("exitCode", JsonValue::makeInt(result.exitCode));
@@ -123,8 +123,10 @@ JsonValue resultToJson(const HarnessResult& result) {
     }
     json.set("serial", serial);
 
-    json.set("stack", JsonValue::makeString(hexEncode(result.stack)));
-    json.set("frameStart", JsonValue::makeInt(result.frameStart));
+    if (result.hasVmState) {
+        json.set("stack", JsonValue::makeString(hexEncode(result.stack)));
+        json.set("frameStart", JsonValue::makeInt(result.frameStart));
+    }
     json.set("sequencesSucceeded", JsonValue::makeInt(static_cast<I64>(result.sequencesSucceeded)));
     return json;
 }

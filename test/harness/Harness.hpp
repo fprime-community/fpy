@@ -38,8 +38,8 @@ struct HarnessRequest {
     U8 timeContext = 0;
     U32 seconds = 0;
     U32 useconds = 0;
-    // Commands that complete with EXECUTION_ERROR.
-    std::set<U32> failOpcodes;
+    // Per-command response overrides (opcode -> Fw.CmdResponse value).
+    std::map<U32, U8> cmdResponses;
     // Commands that mean "run another sequence". Their arguments are parsed
     // as (fileName, blockState, seqArgs) and the child sequence is run for
     // real on a nested tester; its outcome becomes the command response.
@@ -48,8 +48,6 @@ struct HarnessRequest {
     // of a seq-run command. (The dictionary's buffer length can differ from
     // the flight build's Svc::SeqArgs, so the flight type cannot be used.)
     U32 seqArgsBufferSize = 0;
-    // Response for all other commands (an Fw.CmdResponse value, default OK).
-    U8 cmdResponse = 0;
 };
 
 struct HarnessEvent {
@@ -79,7 +77,13 @@ struct HarnessResult {
     // (false means the sequence failed validation or loading).
     I32 state = 0;
     bool reachedRunning = false;
+    // The FpySequencer's VM state, absent for the wasm harness: statements
+    // dispatched, the bytes left on the stack after the run, and the frame
+    // start.
+    bool hasVmState = false;
     U64 statementsDispatched = 0;
+    std::vector<U8> stack;
+    U32 frameStart = 0;
     // The last directive error the sequencer recorded (its telemetry).
     I32 lastDirectiveError = 0;
     // Exit code, present only when the sequence exited with a nonzero code.
@@ -91,9 +95,6 @@ struct HarnessResult {
     // Each command the sequence dispatched: serialized opcode + arguments.
     std::vector<std::vector<U8>> cmds;
     std::vector<HarnessSerialWrite> serial;
-    // The bytes left on the sequencer's stack after the run.
-    std::vector<U8> stack;
-    U32 frameStart = 0;
     U64 sequencesSucceeded = 0;
 };
 

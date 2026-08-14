@@ -1,0 +1,7 @@
+# Commands with runtime scalar arguments and a constant string argument;
+# the .json golden pins the exact serialized command buffers
+v1: I32 = -2
+v2: F32 = 1.5
+v3: U8 = 8
+CdhCore.cmdDisp.CMD_TEST_CMD_1(v1, v2, v3)
+CdhCore.cmdDisp.CMD_NO_OP_STRING("hello")

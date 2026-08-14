@@ -1,0 +1,6 @@
+push_val 255
+push_val 0
+not
+if 6
+push_val 0 0 0 55
+exit

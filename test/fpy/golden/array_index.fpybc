@@ -1,0 +1,107 @@
+push_val 255
+allocate 9
+push_val 0 0 0 7 0 0 0 8
+store_rel_const_offset 1 8
+push_val 1
+store_rel_const_offset 9 1
+load_rel 1 8
+load_rel 9 1
+siext_8_64
+push_val 0 0 0 8
+push_val 0 0 0 0
+peek
+push_val 0 0 0 0 0 0 0 2
+sge
+push_val 0 0 0 8
+push_val 0 0 0 1
+peek
+push_val 0 0 0 0 0 0 0 0
+slt
+or
+if 23
+push_val 0 0 0 11
+exit
+push_val 0 0 0 0 0 0 0 4
+mul
+itrunc_64_32
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 1
+add
+itrunc_64_32
+load_rel 9 1
+siext_8_64
+push_val 0 0 0 8
+push_val 0 0 0 0
+peek
+push_val 0 0 0 0 0 0 0 2
+sge
+push_val 0 0 0 8
+push_val 0 0 0 1
+peek
+push_val 0 0 0 0 0 0 0 0
+slt
+or
+if 47
+push_val 0 0 0 11
+exit
+push_val 0 0 0 0 0 0 0 4
+mul
+push_val 0 0 0 0 0 0 0 1
+add
+itrunc_64_32
+store_rel 4
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 0
+push_val 0 0 0 8
+push_val 0 0 0 0
+peek
+push_val 0 0 0 0 0 0 0 2
+sge
+push_val 0 0 0 8
+push_val 0 0 0 1
+peek
+push_val 0 0 0 0 0 0 0 0
+slt
+or
+if 69
+push_val 0 0 0 11
+exit
+push_val 0 0 0 0 0 0 0 4
+mul
+itrunc_64_32
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 7
+ieq
+not
+if 80
+push_val 0 0 0 7
+exit
+load_rel 1 8
+push_val 0 0 0 0 0 0 0 1
+push_val 0 0 0 8
+push_val 0 0 0 0
+peek
+push_val 0 0 0 0 0 0 0 2
+sge
+push_val 0 0 0 8
+push_val 0 0 0 1
+peek
+push_val 0 0 0 0 0 0 0 0
+slt
+or
+if 96
+push_val 0 0 0 11
+exit
+push_val 0 0 0 0 0 0 0 4
+mul
+itrunc_64_32
+get_field 8 4
+ziext_32_64
+push_val 0 0 0 0 0 0 0 9
+ieq
+not
+if 107
+push_val 0 0 0 7
+exit
