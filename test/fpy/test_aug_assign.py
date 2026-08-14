@@ -1,3 +1,5 @@
+import pytest
+
 from fpy.test_helpers import assert_compile_failure, assert_run_success
 
 
@@ -6,59 +8,30 @@ class TestAugmentedAssignment:
     before semantic analysis, so they follow the exact same typing and
     assignment-target rules as the plain form."""
 
-    def test_add_assign(self, fprime_test_api):
-        seq = """
-x: I64 = 7
-x += 3
-assert x == 10
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_sub_assign(self, fprime_test_api):
-        seq = """
-x: I64 = 7
-x -= 3
-assert x == 4
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_mul_assign(self, fprime_test_api):
-        seq = """
-x: I64 = 7
-x *= 3
-assert x == 21
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_div_assign(self, fprime_test_api):
-        seq = """
-f: F64 = 9.0
-f /= 2.0
-assert f == 4.5
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_mod_assign(self, fprime_test_api):
-        seq = """
-x: I64 = 17
-x %= 5
-assert x == 2
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_pow_assign(self, fprime_test_api):
-        seq = """
-f: F64 = 4.5
-f **= 2.0
-assert f == 20.25
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_floor_div_assign(self, fprime_test_api):
-        seq = """
-x: I64 = 17
-x //= 5
-assert x == 3
+    @pytest.mark.parametrize(
+        "type_name, initial, operator, operand, expected",
+        [
+            ("I64", "7", "+", "3", "10"),
+            ("I64", "7", "-", "3", "4"),
+            ("I64", "7", "*", "3", "21"),
+            ("I64", "17", "%", "5", "2"),
+            ("I64", "17", "//", "5", "3"),
+            ("I64", "-17", "//", "5", "-4"),
+            ("F64", "9.0", "/", "2.0", "4.5"),
+            ("F64", "4.5", "**", "2.0", "20.25"),
+            ("F64", "7.5", "+", "0.25", "7.75"),
+            ("F64", "7.5", "-", "0.25", "7.25"),
+            ("F64", "7.5", "*", "2.0", "15.0"),
+        ],
+        ids=lambda v: str(v),
+    )
+    def test_operator(
+        self, fprime_test_api, type_name, initial, operator, operand, expected
+    ):
+        seq = f"""
+x: {type_name} = {initial}
+x {operator}= {operand}
+assert x == {expected}
 """
         assert_run_success(fprime_test_api, seq)
 

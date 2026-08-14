@@ -21,6 +21,8 @@ from fpy.bytecode.assembler import (
 )
 from fpy.bytecode.directives import (
     Directive,
+    DirectiveId,
+    StackOpDirective,
     # Directives with no args
     NoOpDirective,
     WaitRelDirective,
@@ -101,376 +103,94 @@ from fpy.bytecode.directives import (
 )
 from fpy.bytecode.assembler import serialize_directives, deserialize_directives
 
+# Every concrete directive, discovered from the class hierarchy so that a newly
+# added directive is round-trip tested without editing this file.
+ALL_DIRECTIVES = sorted(
+    (
+        c
+        for c in Directive.__subclasses__() + StackOpDirective.__subclasses__()
+        if c.opcode is not DirectiveId.INVALID
+    ),
+    key=lambda c: c.__name__,
+)
+
+
+def _representative(cls) -> Directive:
+    """An instance of *cls* carrying a distinct in-range value in every field."""
+    kwargs = {}
+    for i, f in enumerate(fields(cls)):
+        fpy_type = cls._FIELD_TYPES.get(f.name)
+        if fpy_type is None:
+            kwargs[f.name] = bytes(range(i + 1))
+        elif fpy_type.name.startswith("I"):
+            kwargs[f.name] = -(i + 1)
+        else:
+            kwargs[f.name] = i + 1
+    return cls(**kwargs)
+
+
+def assert_roundtrips(original: Directive):
+    """Serializing one directive and reading it back yields an equal directive."""
+    serialized, _ = serialize_directives([original])
+    deserialized, arg_type_names = deserialize_directives(serialized)
+
+    assert len(deserialized) == 1
+    assert arg_type_names == []
+    result = deserialized[0]
+    assert type(result) == type(original)
+    for field in fields(original):
+        if field.name in ("meta", "id"):
+            continue
+        original_val = getattr(original, field.name)
+        result_val = getattr(result, field.name)
+        assert (
+            original_val == result_val
+        ), f"Field {field.name}: {original_val} != {result_val}"
+
 
 class TestDirectiveSerializationRoundTrip:
-    """Test that each directive can be serialized and deserialized correctly."""
-
-    def test_no_op(self):
-        original = NoOpDirective()
-        self._test_roundtrip(original)
-
-    def test_wait_rel(self):
-        original = WaitRelDirective()
-        self._test_roundtrip(original)
-
-    def test_wait_abs(self):
-        original = WaitAbsDirective()
-        self._test_roundtrip(original)
-
-    def test_exit(self):
-        original = ExitDirective()
-        self._test_roundtrip(original)
-
-    def test_push_time(self):
-        original = PushTimeDirective()
-        self._test_roundtrip(original)
-
-    def test_push_rand(self):
-        original = PushRandDirective()
-        self._test_roundtrip(original)
-
-    def test_set_seed(self):
-        original = SetSeedDirective()
-        self._test_roundtrip(original)
-
-    def test_call(self):
-        original = CallDirective()
-        self._test_roundtrip(original)
-
-    def test_peek(self):
-        original = PeekDirective()
-        self._test_roundtrip(original)
-
-    # Boolean operators
-    def test_or(self):
-        original = OrDirective()
-        self._test_roundtrip(original)
-
-    def test_and(self):
-        original = AndDirective()
-        self._test_roundtrip(original)
-
-    def test_not(self):
-        original = NotDirective()
-        self._test_roundtrip(original)
-
-    # Integer comparison operators
-    def test_int_equal(self):
-        original = IntEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_int_not_equal(self):
-        original = IntNotEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_less_than(self):
-        original = UnsignedLessThanDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_less_than_or_equal(self):
-        original = UnsignedLessThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_greater_than(self):
-        original = UnsignedGreaterThanDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_greater_than_or_equal(self):
-        original = UnsignedGreaterThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_less_than(self):
-        original = SignedLessThanDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_less_than_or_equal(self):
-        original = SignedLessThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_greater_than(self):
-        original = SignedGreaterThanDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_greater_than_or_equal(self):
-        original = SignedGreaterThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    # Float comparison operators
-    def test_float_equal(self):
-        original = FloatEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_float_not_equal(self):
-        original = FloatNotEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_float_less_than(self):
-        original = FloatLessThanDirective()
-        self._test_roundtrip(original)
-
-    def test_float_less_than_or_equal(self):
-        original = FloatLessThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    def test_float_greater_than(self):
-        original = FloatGreaterThanDirective()
-        self._test_roundtrip(original)
-
-    def test_float_greater_than_or_equal(self):
-        original = FloatGreaterThanOrEqualDirective()
-        self._test_roundtrip(original)
-
-    # Integer arithmetic operators
-    def test_int_add(self):
-        original = IntAddDirective()
-        self._test_roundtrip(original)
-
-    def test_int_subtract(self):
-        original = IntSubtractDirective()
-        self._test_roundtrip(original)
-
-    def test_int_multiply(self):
-        original = IntMultiplyDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_int_divide(self):
-        original = UnsignedIntDivideDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_int_divide(self):
-        original = SignedIntDivideDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_modulo(self):
-        original = SignedModuloDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_modulo(self):
-        original = UnsignedModuloDirective()
-        self._test_roundtrip(original)
-
-    # Float arithmetic operators
-    def test_float_add(self):
-        original = FloatAddDirective()
-        self._test_roundtrip(original)
-
-    def test_float_subtract(self):
-        original = FloatSubtractDirective()
-        self._test_roundtrip(original)
-
-    def test_float_multiply(self):
-        original = FloatMultiplyDirective()
-        self._test_roundtrip(original)
-
-    def test_float_divide(self):
-        original = FloatDivideDirective()
-        self._test_roundtrip(original)
-
-    def test_float_exponent(self):
-        original = FloatExponentDirective()
-        self._test_roundtrip(original)
-
-    def test_float_log(self):
-        original = FloatLogDirective()
-        self._test_roundtrip(original)
-
-    def test_float_modulo(self):
-        original = FloatModuloDirective()
-        self._test_roundtrip(original)
-
-    # Type conversion operators
-    def test_float_truncate(self):
-        original = FloatTruncateDirective()
-        self._test_roundtrip(original)
-
-    def test_float_extend(self):
-        original = FloatExtendDirective()
-        self._test_roundtrip(original)
-
-    def test_float_to_signed_int(self):
-        original = FloatToSignedIntDirective()
-        self._test_roundtrip(original)
-
-    def test_signed_int_to_float(self):
-        original = SignedIntToFloatDirective()
-        self._test_roundtrip(original)
-
-    def test_float_to_unsigned_int(self):
-        original = FloatToUnsignedIntDirective()
-        self._test_roundtrip(original)
-
-    def test_unsigned_int_to_float(self):
-        original = UnsignedIntToFloatDirective()
-        self._test_roundtrip(original)
-
-    # Integer extension/truncation
-    def test_siext_8_64(self):
-        original = IntegerSignedExtend8To64Directive()
-        self._test_roundtrip(original)
-
-    def test_siext_16_64(self):
-        original = IntegerSignedExtend16To64Directive()
-        self._test_roundtrip(original)
-
-    def test_siext_32_64(self):
-        original = IntegerSignedExtend32To64Directive()
-        self._test_roundtrip(original)
-
-    def test_ziext_8_64(self):
-        original = IntegerZeroExtend8To64Directive()
-        self._test_roundtrip(original)
-
-    def test_ziext_16_64(self):
-        original = IntegerZeroExtend16To64Directive()
-        self._test_roundtrip(original)
-
-    def test_ziext_32_64(self):
-        original = IntegerZeroExtend32To64Directive()
-        self._test_roundtrip(original)
-
-    def test_itrunc_64_8(self):
-        original = IntegerTruncate64To8Directive()
-        self._test_roundtrip(original)
-
-    def test_itrunc_64_16(self):
-        original = IntegerTruncate64To16Directive()
-        self._test_roundtrip(original)
-
-    def test_itrunc_64_32(self):
-        original = IntegerTruncate64To32Directive()
-        self._test_roundtrip(original)
-
-    # Directives with arguments
-    def test_allocate(self):
-        original = AllocateDirective(size=100)
-        self._test_roundtrip(original)
-
-    def test_allocate_zero(self):
-        original = AllocateDirective(size=0)
-        self._test_roundtrip(original)
-
-    def test_allocate_large(self):
-        original = AllocateDirective(size=0xFFFFFFFF)
-        self._test_roundtrip(original)
-
-    def test_store_rel(self):
-        original = StoreRelDirective(size=8)
-        self._test_roundtrip(original)
-
-    def test_store_rel_const_offset(self):
-        original = StoreRelConstOffsetDirective(lvar_offset=16, size=4)
-        self._test_roundtrip(original)
-
-    def test_store_rel_const_offset_negative(self):
-        original = StoreRelConstOffsetDirective(lvar_offset=-8, size=4)
-        self._test_roundtrip(original)
-
-    def test_store_abs(self):
-        original = StoreAbsDirective(size=8)
-        self._test_roundtrip(original)
-
-    def test_store_abs_const_offset(self):
-        original = StoreAbsConstOffsetDirective(global_offset=100, size=4)
-        self._test_roundtrip(original)
-
-    def test_load_rel(self):
-        original = LoadRelDirective(lvar_offset=0, size=8)
-        self._test_roundtrip(original)
-
-    def test_load_rel_negative_offset(self):
-        original = LoadRelDirective(lvar_offset=-16, size=4)
-        self._test_roundtrip(original)
-
-    def test_load_abs(self):
-        original = LoadAbsDirective(global_offset=50, size=8)
-        self._test_roundtrip(original)
-
-    def test_discard(self):
-        original = DiscardDirective(size=4)
-        self._test_roundtrip(original)
-
-    def test_push_val_empty(self):
-        original = PushValDirective(val=b"")
-        self._test_roundtrip(original)
-
-    def test_push_val_single_byte(self):
-        original = PushValDirective(val=b"\x42")
-        self._test_roundtrip(original)
-
-    def test_push_val_multiple_bytes(self):
-        original = PushValDirective(val=b"\x00\x01\x02\x03\x04\x05\x06\x07")
-        self._test_roundtrip(original)
-
-    def test_push_val_all_byte_values(self):
-        original = PushValDirective(val=bytes(range(256)))
-        self._test_roundtrip(original)
-
-    def test_const_cmd(self):
-        original = ConstCmdDirective(cmd_opcode=123, args=b"\x01\x02\x03")
-        self._test_roundtrip(original)
-
-    def test_const_cmd_empty_args(self):
-        original = ConstCmdDirective(cmd_opcode=456, args=b"")
-        self._test_roundtrip(original)
-
-    def test_goto(self):
-        original = GotoDirective(dir_idx=10)
-        self._test_roundtrip(original)
-
-    def test_goto_zero(self):
-        original = GotoDirective(dir_idx=0)
-        self._test_roundtrip(original)
-
-    def test_if(self):
-        original = IfDirective(false_goto_dir_index=5)
-        self._test_roundtrip(original)
-
-    def test_push_tlm_val(self):
-        original = PushTlmValDirective(chan_id=100)
-        self._test_roundtrip(original)
-
-    def test_push_prm(self):
-        original = PushPrmDirective(prm_id=200)
-        self._test_roundtrip(original)
-
-    def test_stack_cmd(self):
-        original = StackCmdDirective(args_size=16)
-        self._test_roundtrip(original)
-
-    def test_memcmp(self):
-        original = MemCompareDirective(size=32)
-        self._test_roundtrip(original)
-
-    def test_get_field(self):
-        original = GetFieldDirective(parent_size=64, member_size=8)
-        self._test_roundtrip(original)
-
-    def test_return(self):
-        original = ReturnDirective(return_val_size=8, call_args_size=16)
-        self._test_roundtrip(original)
-
-    def _test_roundtrip(self, original: Directive):
-        """Helper to test serialize/deserialize round-trip for a single directive."""
-        dirs = [original]
-        serialized, _ = serialize_directives(dirs)
-        deserialized, arg_type_names = deserialize_directives(serialized)
-
-        assert len(deserialized) == 1
-        assert arg_type_names == []
-        result = deserialized[0]
-
-        # Check type matches
-        assert type(result) == type(original)
-
-        # Check all fields match
-        for field in fields(original):
-            if field.name in ("meta", "id"):
-                continue
-            original_val = getattr(original, field.name)
-            result_val = getattr(result, field.name)
-            assert (
-                original_val == result_val
-            ), f"Field {field.name}: {original_val} != {result_val}"
+    """Every directive survives serialize -> deserialize unchanged."""
+
+    @pytest.mark.parametrize("cls", ALL_DIRECTIVES, ids=lambda c: c.__name__)
+    def test_roundtrip(self, cls):
+        assert_roundtrips(_representative(cls))
+
+    def test_opcodes_are_unique(self):
+        opcodes = [c.opcode for c in ALL_DIRECTIVES]
+        assert len(set(opcodes)) == len(opcodes)
+
+    # Field values _representative does not reach: the ends of each field's
+    # range, and the empty and maximal byte strings.
+    @pytest.mark.parametrize(
+        "directive",
+        [
+            AllocateDirective(size=0),
+            AllocateDirective(size=0xFFFFFFFF),
+            StoreRelConstOffsetDirective(lvar_offset=-8, size=4),
+            StoreRelConstOffsetDirective(lvar_offset=0x7FFFFFFF, size=4),
+            StoreAbsConstOffsetDirective(global_offset=-1, size=4),
+            LoadRelDirective(lvar_offset=0, size=8),
+            LoadRelDirective(lvar_offset=-0x80000000, size=4),
+            LoadAbsDirective(global_offset=50, size=8),
+            DiscardDirective(size=0),
+            GotoDirective(dir_idx=0),
+            IfDirective(false_goto_dir_index=0),
+            PushValDirective(val=b""),
+            PushValDirective(val=b"\x42"),
+            PushValDirective(val=bytes(range(256))),
+            ConstCmdDirective(cmd_opcode=456, args=b""),
+            ConstCmdDirective(cmd_opcode=0xFFFFFFFF, args=b"\x01\x02\x03"),
+            PushTlmValDirective(chan_id=0),
+            PushPrmDirective(prm_id=0xFFFFFFFF),
+            StackCmdDirective(args_size=0),
+            MemCompareDirective(size=0xFFFFFFFF),
+            GetFieldDirective(parent_size=64, member_size=8),
+            ReturnDirective(return_val_size=0, call_args_size=0),
+        ],
+        ids=lambda d: type(d).__name__.replace("Directive", ""),
+    )
+    def test_roundtrip_field_extremes(self, directive):
+        assert_roundtrips(directive)
 
 
 class TestAssemblerParsing:
@@ -603,71 +323,11 @@ exit
         assert len(dirs) == 2
 
     def test_parse_all_no_arg_ops(self):
-        """Test that all no-arg operations can be parsed."""
-        ops = [
-            "no_op",
-            "siext_8_64",
-            "siext_16_64",
-            "siext_32_64",
-            "ziext_8_64",
-            "ziext_16_64",
-            "ziext_32_64",
-            "itrunc_64_8",
-            "itrunc_64_16",
-            "itrunc_64_32",
-            "fmod",
-            "smod",
-            "umod",
-            "add",
-            "sub",
-            "mul",
-            "udiv",
-            "sdiv",
-            "fadd",
-            "fsub",
-            "fmul",
-            "fpow",
-            "fdiv",
-            "flog",
-            "wait_rel",
-            "wait_abs",
-            "or",
-            "and",
-            "ieq",
-            "ine",
-            "ult",
-            "ule",
-            "ugt",
-            "uge",
-            "slt",
-            "sle",
-            "sgt",
-            "sge",
-            "fge",
-            "fle",
-            "flt",
-            "fgt",
-            "feq",
-            "fne",
-            "not",
-            "fptrunc",
-            "fpext",
-            "fptosi",
-            "sitofp",
-            "fptoui",
-            "uitofp",
-            "exit",
-            "push_time",
-            "push_rand",
-            "set_seed",
-            "call",
-            "peek",
-        ]
-        for op in ops:
-            text = f"{op}\n"
-            body = fpybc_parse(text)
-            dirs = assemble(body)
-            assert len(dirs) == 1, f"Failed for {op}"
+        """Every no-arg directive's mnemonic assembles back to its own class."""
+        no_arg = [c for c in ALL_DIRECTIVES if not fields(c)]
+        text = "".join(c.opcode.name.lower() + "\n" for c in no_arg)
+        dirs = assemble(fpybc_parse(text))
+        assert [type(d) for d in dirs] == no_arg
 
     def test_parse_get_field(self):
         text = "get_field 64 8\n"
@@ -768,81 +428,21 @@ exit
         self._test_text_roundtrip(text)
 
     def test_roundtrip_all_no_arg_ops(self):
-        """Test round-trip for all no-arg operations."""
-        ops = [
-            "no_op",
-            "siext_8_64",
-            "siext_16_64",
-            "siext_32_64",
-            "ziext_8_64",
-            "ziext_16_64",
-            "ziext_32_64",
-            "itrunc_64_8",
-            "itrunc_64_16",
-            "itrunc_64_32",
-            "fmod",
-            "smod",
-            "umod",
-            "add",
-            "sub",
-            "mul",
-            "udiv",
-            "sdiv",
-            "fadd",
-            "fsub",
-            "fmul",
-            "fpow",
-            "fdiv",
-            "flog",
-            "wait_rel",
-            "wait_abs",
-            "or",
-            "and",
-            "ieq",
-            "ine",
-            "ult",
-            "ule",
-            "ugt",
-            "uge",
-            "slt",
-            "sle",
-            "sgt",
-            "sge",
-            "fge",
-            "fle",
-            "flt",
-            "fgt",
-            "feq",
-            "fne",
-            "not",
-            "fptrunc",
-            "fpext",
-            "fptosi",
-            "sitofp",
-            "fptoui",
-            "uitofp",
-            "exit",
-            "push_time",
-            "push_rand",
-            "set_seed",
-            "call",
-            "peek",
-        ]
-        for op in ops:
-            self._test_text_roundtrip(f"{op}\n")
+        """text -> directives -> text -> directives is stable for every no-arg
+        directive, and preserves the order and identity of each one."""
+        no_arg = [c for c in ALL_DIRECTIVES if not fields(c)]
+        text = "".join(c.opcode.name.lower() + "\n" for c in no_arg)
+
+        dirs = assemble(fpybc_parse(text))
+        dirs2 = assemble(fpybc_parse(fpybc_directives_to_fpyasm(dirs)))
+
+        assert [type(d) for d in dirs] == no_arg
+        assert [type(d) for d in dirs2] == no_arg
 
     def _test_text_roundtrip(self, original_text: str):
         """Helper to test text -> directives -> text round-trip."""
-        # Parse and assemble
-        body = fpybc_parse(original_text)
-        dirs = assemble(body)
-
-        # Disassemble back to text
-        result_text = fpybc_directives_to_fpyasm(dirs)
-
-        # Parse again and compare directives
-        body2 = fpybc_parse(result_text)
-        dirs2 = assemble(body2)
+        dirs = assemble(fpybc_parse(original_text))
+        dirs2 = assemble(fpybc_parse(fpybc_directives_to_fpyasm(dirs)))
 
         assert len(dirs) == len(dirs2)
         for d1, d2 in zip(dirs, dirs2):

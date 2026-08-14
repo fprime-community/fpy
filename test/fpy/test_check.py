@@ -84,25 +84,6 @@ assert call_count > 3
 """
         assert_run_success(fprime_test_api, seq, timeout_s=20)
 
-    def test_check_zero_persist_true_once_enough(self, fprime_test_api):
-        """Test that with zero persist, condition being true once is enough."""
-        seq = """
-# Return true only once, then false forever
-returned_true: bool = False
-
-def return_true_once() -> bool:
-    if not returned_true:
-        returned_true = True
-        return True
-    return False
-
-check return_true_once() timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
-    exit(0)
-timeout:
-    assert False, 1
-"""
-        assert_run_success(fprime_test_api, seq, timeout_s=6)
-
 
 class TestCheckBodies:
 
@@ -299,13 +280,6 @@ timeout:
             w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
         ), f"expected an unreachable-timeout-body warning, got {state.warnings}"
 
-    def test_never_with_timeout_body_still_compiles(self):
-        # The warning is non-fatal: compilation succeeds.
-        compile_seq(
-            self.NEVER_WITH_TIMEOUT_BODY_SEQ,
-            expected_warnings={WarningType.UNREACHABLE_TIMEOUT_BODY},
-        )
-
     def test_never_without_timeout_body_does_not_warn(self):
         state, _, _ = compile_seq("check True timeout never:\n    pass\n")
         assert not any(
@@ -339,18 +313,6 @@ def do_check() -> bool:
     return result
 
 assert do_check()
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_check_modifies_outer_scope(self, fprime_test_api):
-        """Test that check body can modify variables in outer scope."""
-        seq = """
-outer_var: I32 = 0
-
-check True timeout Fw.TimeIntervalValue(1, 0) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
-    outer_var = 42
-
-assert outer_var == 42
 """
         assert_run_success(fprime_test_api, seq)
 

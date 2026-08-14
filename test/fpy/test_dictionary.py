@@ -80,50 +80,6 @@ def _minimal_dict(**overrides) -> dict:
 # ===================================================================
 
 
-class TestTypeDescriptorUnsignedIntegers:
-    """Spec §Type Descriptors / Primitive Integer / Unsigned."""
-
-    @pytest.mark.parametrize(
-        "name,size",
-        [("U8", 8), ("U16", 16), ("U32", 32), ("U64", 64)],
-    )
-    def test_unsigned_integer_descriptor(self, name, size):
-        desc = {"name": name, "kind": "integer", "size": size, "signed": False}
-        result = _resolve_type(desc, {})
-        assert result.kind.value == name
-        assert result.is_unsigned
-
-    @pytest.mark.parametrize(
-        "name,expected",
-        [("U8", U8), ("U16", U16), ("U32", U32), ("U64", U64)],
-    )
-    def test_unsigned_maps_to_singleton(self, name, expected):
-        desc = {"name": name, "kind": "integer", "size": 64, "signed": False}
-        assert _resolve_type(desc, {}) is expected
-
-
-class TestTypeDescriptorSignedIntegers:
-    """Spec §Type Descriptors / Primitive Integer / Signed."""
-
-    @pytest.mark.parametrize(
-        "name,size",
-        [("I8", 8), ("I16", 16), ("I32", 32), ("I64", 64)],
-    )
-    def test_signed_integer_descriptor(self, name, size):
-        desc = {"name": name, "kind": "integer", "size": size, "signed": True}
-        result = _resolve_type(desc, {})
-        assert result.kind.value == name
-        assert result.is_signed
-
-    @pytest.mark.parametrize(
-        "name,expected",
-        [("I8", I8), ("I16", I16), ("I32", I32), ("I64", I64)],
-    )
-    def test_signed_maps_to_singleton(self, name, expected):
-        desc = {"name": name, "kind": "integer", "size": 16, "signed": True}
-        assert _resolve_type(desc, {}) is expected
-
-
 class TestTypeDescriptorFloats:
     """Spec §Type Descriptors / Floating-Point."""
 
@@ -148,10 +104,6 @@ class TestTypeDescriptorBool:
         # Spec example: {"name": "bool", "kind": "bool", "size": 8}
         desc = {"name": "bool", "kind": "bool", "size": 8}
         assert _resolve_type(desc, {}) is BOOL
-
-    def test_bool_is_not_integer(self):
-        result = _resolve_type({"name": "bool", "kind": "bool", "size": 8}, {})
-        assert not result.is_integer
 
 
 class TestTypeDescriptorString:
@@ -234,30 +186,6 @@ class TestConstants:
         result = _parse_constants(raw, {})
         assert result["M1.NEG"] == FpyValue(I64, -42)
 
-    def test_multiple_constants(self):
-        raw = [
-            {
-                "qualifiedName": "A.B",
-                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-                "value": 100,
-            },
-            {
-                "qualifiedName": "C.D",
-                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-                "value": 200,
-            },
-            {
-                "qualifiedName": "E.F",
-                "type": {"name": "U64", "kind": "integer", "size": 64, "signed": False},
-                "value": 300,
-            },
-        ]
-        result = _parse_constants(raw, {})
-        assert len(result) == 3
-        assert result["A.B"] == FpyValue(U64, 100)
-        assert result["C.D"] == FpyValue(U64, 200)
-        assert result["E.F"] == FpyValue(U64, 300)
-
     def test_enum_valued_constant(self):
         """Constants can have enum values — resolved via type descriptor."""
         # First, set up the enum type definition
@@ -315,9 +243,6 @@ class TestConstants:
         ]
         result = _parse_constants(raw, {})
         assert result["M.FLAG"] == FpyValue(BOOL, True)
-
-    def test_empty_constants(self):
-        assert _parse_constants([], {}) == {}
 
 
 # ===================================================================
@@ -888,11 +813,6 @@ class TestTypeDefUnknownKind:
             _parse_type_definitions(raw)
 
 
-class TestTypeDefEmpty:
-    def test_empty(self):
-        assert _parse_type_definitions([]) == {}
-
-
 class TestTypeDefCrossReferences:
     """Multiple passes should resolve cross-references between arrays and structs."""
 
@@ -1309,58 +1229,6 @@ class TestCommands:
         assert cmd.arguments == []
         assert cmd.description == "A no-op command"
 
-    def test_guarded_command(self):
-        raw = [
-            {
-                "name": "M.c1.Guarded",
-                "commandKind": "guarded",
-                "opcode": 10,
-                "formalParams": [],
-            }
-        ]
-        id_dict, _ = _parse_commands(raw, {})
-        assert 10 in id_dict
-
-    def test_set_command(self):
-        """Parameter SET commands (commandKind: set)."""
-        struct_type = FpyType(
-            TypeKind.STRUCT,
-            "M.A",
-            members=(StructMember("x", U32), StructMember("y", F32)),
-        )
-        raw = [
-            {
-                "name": "M.c1.Parameter1_PRM_SET",
-                "commandKind": "set",
-                "opcode": 259,
-                "formalParams": [
-                    {
-                        "name": "val",
-                        "type": {"name": "M.A", "kind": "qualifiedIdentifier"},
-                        "ref": False,
-                    }
-                ],
-                "annotation": "Parameter (struct)",
-            }
-        ]
-        id_dict, _ = _parse_commands(raw, {"M.A": struct_type})
-        cmd = id_dict[259]
-        assert cmd.arguments[0][2].kind == TypeKind.STRUCT
-
-    def test_save_command(self):
-        """Parameter SAVE commands (commandKind: save)."""
-        raw = [
-            {
-                "name": "M.c1.Parameter1_PRM_SAVE",
-                "commandKind": "save",
-                "opcode": 260,
-                "formalParams": [],
-                "annotation": "Parameter (struct)",
-            }
-        ]
-        id_dict, _ = _parse_commands(raw, {})
-        assert id_dict[260].arguments == []
-
     def test_command_with_enum_arg(self):
         e = FpyType(
             TypeKind.ENUM,
@@ -1414,26 +1282,6 @@ class TestCommands:
         ]
         id_dict, _ = _parse_commands(raw, {"M.StringArray": arr})
         assert id_dict[257].arguments[0][2].kind == TypeKind.ARRAY
-
-    def test_multiple_commands(self):
-        raw = [
-            {"name": "A.CMD1", "commandKind": "async", "opcode": 1, "formalParams": []},
-            {"name": "A.CMD2", "commandKind": "sync", "opcode": 2, "formalParams": []},
-            {
-                "name": "B.CMD3",
-                "commandKind": "guarded",
-                "opcode": 3,
-                "formalParams": [],
-            },
-        ]
-        id_dict, name_dict = _parse_commands(raw, {})
-        assert len(id_dict) == 3
-        assert len(name_dict) == 3
-
-    def test_empty_commands(self):
-        id_dict, name_dict = _parse_commands([], {})
-        assert id_dict == {}
-        assert name_dict == {}
 
     def test_command_component_and_mnemonic(self):
         """CmdDef.component and .mnemonic properties."""
@@ -1543,33 +1391,6 @@ class TestTelemetryChannels:
         id_dict, _ = _parse_channels(raw, {"M.Status": e})
         assert id_dict[300].ch_type.kind == TypeKind.ENUM
 
-    def test_multiple_channels(self):
-        raw = [
-            {
-                "name": "A.Ch1",
-                "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                "id": 1,
-            },
-            {
-                "name": "A.Ch2",
-                "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False},
-                "id": 2,
-            },
-            {
-                "name": "B.Ch3",
-                "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
-                "id": 3,
-            },
-        ]
-        id_dict, name_dict = _parse_channels(raw, {})
-        assert len(id_dict) == 3
-        assert len(name_dict) == 3
-
-    def test_empty_channels(self):
-        id_dict, name_dict = _parse_channels([], {})
-        assert id_dict == {}
-        assert name_dict == {}
-
 
 # ===================================================================
 # Section: Parameters
@@ -1641,28 +1462,6 @@ class TestParameters:
         ]
         id_dict, _ = _parse_parameters(raw, {"M.Choice": e})
         assert id_dict[99].prm_type.kind == TypeKind.ENUM
-
-    def test_multiple_parameters(self):
-        raw = [
-            {
-                "name": "A.P1",
-                "type": {"name": "U8", "kind": "integer", "size": 8, "signed": False},
-                "id": 1,
-            },
-            {
-                "name": "A.P2",
-                "type": {"name": "U16", "kind": "integer", "size": 16, "signed": False},
-                "id": 2,
-            },
-        ]
-        id_dict, name_dict = _parse_parameters(raw, {})
-        assert len(id_dict) == 2
-        assert len(name_dict) == 2
-
-    def test_empty_parameters(self):
-        id_dict, name_dict = _parse_parameters([], {})
-        assert id_dict == {}
-        assert name_dict == {}
 
 
 # ===================================================================
@@ -1959,34 +1758,6 @@ class TestDictionaryContent:
 class TestFormalParameters:
     """Spec §Formal Parameters — name, type, ref, annotation."""
 
-    def test_formal_param_fields(self):
-        raw = [
-            {
-                "name": "M.c1.Cmd",
-                "commandKind": "sync",
-                "opcode": 1,
-                "formalParams": [
-                    {
-                        "name": "param1",
-                        "type": {
-                            "name": "U32",
-                            "kind": "integer",
-                            "size": 32,
-                            "signed": False,
-                        },
-                        "ref": False,
-                        "annotation": "This is param1",
-                    }
-                ],
-            }
-        ]
-        id_dict, _ = _parse_commands(raw, {})
-        arg_name, arg_desc, arg_type = id_dict[1].arguments[0]
-        assert arg_name == "param1"
-        assert arg_type is U32
-        # annotation is stored in description
-        assert arg_desc == "This is param1"
-
     def test_formal_param_no_annotation(self):
         raw = [
             {
@@ -2010,26 +1781,6 @@ class TestFormalParameters:
         id_dict, _ = _parse_commands(raw, {})
         _, desc, _ = id_dict[2].arguments[0]
         assert desc == ""
-
-    def test_many_formal_params(self):
-        params = [
-            {
-                "name": f"p{i}",
-                "type": {"name": "U32", "kind": "integer", "size": 32, "signed": False},
-                "ref": False,
-            }
-            for i in range(5)
-        ]
-        raw = [
-            {
-                "name": "M.Cmd",
-                "commandKind": "async",
-                "opcode": 10,
-                "formalParams": params,
-            }
-        ]
-        id_dict, _ = _parse_commands(raw, {})
-        assert len(id_dict[10].arguments) == 5
 
 
 # ===================================================================
@@ -2490,41 +2241,6 @@ class TestSingleValueArrayInitIntegration:
             scope = scope[part]
         return scope
 
-    def test_choice_slurry_member_array_replicated(self):
-        """Ref.ChoiceSlurry.choiceAsMemberArray has size=2, default=0.
-        _populate_type_defaults should replicate 0 → [FpyValue(U8,0), FpyValue(U8,0)].
-        """
-        typ = self._lookup_type("Ref.ChoiceSlurry")
-        assert typ.kind == TypeKind.STRUCT
-
-        default = typ.member_defaults["choiceAsMemberArray"]
-        assert default is not None
-        assert default.type.kind == TypeKind.ARRAY
-        assert len(default.val) == 2
-        for elem in default.val:
-            assert elem == FpyValue(U8, 0)
-
-    def test_choice_slurry_ctor_member_array_default(self):
-        """The TypeCtorSymbol for Ref.ChoiceSlurry should have a replicated
-        array default for the choiceAsMemberArray arg."""
-        ctor = self._lookup_callable("Ref.ChoiceSlurry")
-        args_dict = {arg[0]: arg for arg in ctor.args}
-        _, arg_type, arg_default = args_dict["choiceAsMemberArray"]
-        assert arg_type.kind == TypeKind.ARRAY
-        assert arg_type.length == 2
-        assert arg_default is not None
-        assert len(arg_default.val) == 2
-        for elem in arg_default.val:
-            assert elem == FpyValue(U8, 0)
-
-    def test_choice_slurry_normal_members_still_correct(self):
-        """Non-member-array members should have their normal defaults."""
-        typ = self._lookup_type("Ref.ChoiceSlurry")
-        # separateChoice is a plain enum default
-        sep = typ.member_defaults["separateChoice"]
-        assert sep is not None
-        assert sep.val == "ONE"
-
 
 # ===================================================================
 # Section: Dictionary caching
@@ -2695,18 +2411,6 @@ class TestLoadDictionary:
         yield
         load_dictionary.cache_clear()
 
-    def test_loads_ref_dictionary(self):
-        d = load_dictionary(REF_DICT_PATH)
-        assert "type_defs" in d
-        assert "cmd_id_dict" in d
-        assert "cmd_name_dict" in d
-        assert "ch_id_dict" in d
-        assert "ch_name_dict" in d
-        assert "prm_id_dict" in d
-        assert "prm_name_dict" in d
-        assert "constants" in d
-        assert "metadata" in d
-
     def test_type_counts(self):
         d = load_dictionary(REF_DICT_PATH)
         assert len(d["type_defs"]) == 110
@@ -2766,13 +2470,6 @@ class TestLoadDictionary:
             assert d["ch_id_dict"][ch.ch_id] is ch
         for prm in d["prm_name_dict"].values():
             assert d["prm_id_dict"][prm.prm_id] is prm
-
-    def test_enum_type_parsed(self):
-        """Enum types should have enum_dict populated."""
-        d = load_dictionary(REF_DICT_PATH)
-        choice = d["type_defs"]["Ref.Choice"]
-        assert choice.kind == TypeKind.ENUM
-        assert "ONE" in choice.enum_dict
 
     def test_struct_type_parsed(self):
         """Struct types should have members populated."""

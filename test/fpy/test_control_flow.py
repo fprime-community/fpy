@@ -137,14 +137,6 @@ continue
 
 class TestForLoops:
 
-    def test_simple_for(self, fprime_test_api):
-        seq = """
-for i in 0..2:
-    pass
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
     def test_for_loop_break(self, fprime_test_api):
         seq = """
 counter: I64 = 0

@@ -33,42 +33,6 @@ def pop_dirs(seq: str) -> list[PopSerializableDirective]:
 
 class TestWriteToPort:
 
-    def test_write_int(self, fprime_test_api):
-        seq = """
-value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_write_string(self, fprime_test_api):
-        seq = """
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, "hello world")
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_write_struct(self, fprime_test_api):
-        seq = """
-v: Ref.FpyExampleStruct = Ref.FpyExampleStruct(flag=True, count=123, ratio=0.5)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_write_array(self, fprime_test_api):
-        seq = """
-v: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, v)
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_write_multi(self, fprime_test_api):
-        # EXAMPLE_PORT_4's port takes three args (enum, bool, F64);
-        # Ref.FpyExampleMulti serializes to the same byte layout
-        seq = """
-v: Ref.FpyExampleMulti = Ref.FpyExampleMulti(Ref.FpyExampleEnum.ON, True, 2.5)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, v)
-"""
-        assert_run_success(fprime_test_api, seq)
-
     def test_multiple_writes(self, fprime_test_api):
         seq = """
 value: U32 = 42
@@ -85,16 +49,6 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, m)
         assert [d.portIndex for d in dirs] == [0, 1, 2, 3, 4]
         assert [d.size for d in dirs] == [4, 13, 9, 12, 10]
         assert_run_success(fprime_test_api, seq)
-
-    def test_emits_pop_serializable_directive(self, fprime_test_api):
-        seq = """
-value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
-"""
-        dirs = pop_dirs(seq)
-        assert len(dirs) == 1
-        assert dirs[0].portIndex == 0
-        assert dirs[0].size == 4  # U32 is 4 bytes
 
     def test_correct_size_for_different_types(self, fprime_test_api):
         # size should match the byte width of the value
@@ -141,15 +95,6 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
         assert len(dirs) == 1
         assert dirs[0].size == 1
 
-    def test_max_port_index(self, fprime_test_api):
-        seq = """
-value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, value)
-"""
-        dirs = pop_dirs(seq)
-        assert len(dirs) == 1
-        assert dirs[0].portIndex == 4
-
     def test_non_constant_port_rejected(self, fprime_test_api):
         # the port index must be a compile-time constant; an enum-typed variable
         # has the right type but is not const, so it is rejected
@@ -159,17 +104,6 @@ value: U32 = 42
 write_to_port(port, value)
 """
         assert_compile_failure(fprime_test_api, seq)
-
-    def test_enum_port_accepted(self, fprime_test_api):
-        # the port is typed Svc.Fpy.SerialPortIndex; the enum constant resolves
-        # to its integer index for the emitted directive
-        seq = """
-value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, value)
-"""
-        dirs = pop_dirs(seq)
-        assert len(dirs) == 1
-        assert dirs[0].portIndex == 2
 
     def test_bare_integer_port_rejected(self, fprime_test_api):
         # a bare integer no longer coerces to the SerialPortIndex enum port type

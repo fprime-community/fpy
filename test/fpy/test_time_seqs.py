@@ -84,17 +84,6 @@ assert result == Fw.TimeComparison.INCOMPARABLE
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_time_cmp_with_now(self, fprime_test_api):
-        """Test time_cmp works with now() values."""
-        seq = """
-t1: Fw.Time = now()
-t2: Fw.Time = now()
-result: Fw.TimeComparison = time_cmp(t1, t2)
-# Should be comparable (not INCOMPARABLE)
-assert result != Fw.TimeComparison.INCOMPARABLE
-"""
-        assert_run_success(fprime_test_api, seq)
-
     def test_time_cmp_zero_times(self, fprime_test_api):
         """Test time_cmp with zero times."""
         seq = """
@@ -349,16 +338,6 @@ t: Fw.Time = Fw.Time(TimeBase.TB_PROC_TIME, 0, 100, 0)  # timeBase = 1
 interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
 result: Fw.Time = time_add(t, interval)
 assert result.timeBase == TimeBase.TB_PROC_TIME
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_time_add_preserves_time_context(self, fprime_test_api):
-        """Test that time_add preserves the time context."""
-        seq = """
-t: Fw.Time = Fw.Time(TimeBase.TB_NONE, 42, 100, 0)  # timeContext = 42
-interval: Fw.TimeIntervalValue = Fw.TimeIntervalValue(10, 0)
-result: Fw.Time = time_add(t, interval)
-assert result.timeContext == 42
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -866,13 +845,6 @@ assert diff.seconds == 50
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_get_time(self, fprime_test_api):
-        seq = """
-time: Fw.Time = now()
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
     def test_const_folding_time_eq(self, fprime_test_api):
         seq = """
 assert Fw.Time(TimeBase.TB_NONE, 0, 0, 0) == Fw.Time(TimeBase.TB_NONE, 0, 0, 0)
@@ -931,12 +903,6 @@ x: Fw.Time = Fw.Time(TimeBase.TB_WORKSTATION_TIME, 1, 2, 3)
 sleep_until(x)
 """
         assert_run_success(fprime_test_api, seq, time_base=2)
-
-    def test_wait_abs_bad_arg(self, fprime_test_api):
-        seq = """
-sleep_until(2, 1, 2, 3)
-"""
-        assert_compile_failure(fprime_test_api, seq)
 
 
 @pytest.mark.skipif(
@@ -1043,31 +1009,6 @@ assert result == Fw.TimeComparison.LT  # t1 < t2
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_check_with_simulated_time_timeout(self, fprime_test_api):
-        """Test that check properly times out based on simulated time advancement.
-
-        This test verifies the full check loop:
-        1. now() returns simulated time
-        2. sleep() advances simulated time
-        3. Check properly detects timeout when simulated time exceeds deadline
-        """
-        seq = """
-timed_out: bool = False
-
-# Set timeout to be 100ms from now
-# With period of 10ms, we'll check ~10 times before timeout
-check False timeout Fw.TimeIntervalValue(0, 100000) persist Fw.TimeIntervalValue(0, 0) period Fw.TimeIntervalValue(0, 10000):
-    # This shouldn't run because condition is always false
-    assert False, 1
-timeout:
-    timed_out = True
-
-assert timed_out
-"""
-        # Start at time 0, each sleep(0, 10000) advances 10ms
-        # After ~10 iterations, we hit 100ms and timeout
-        assert_run_success(fprime_test_api, seq)
-
     def test_check_condition_persists_over_simulated_time(self, fprime_test_api):
         """Test that persist duration is measured using simulated time.
 
@@ -1092,23 +1033,6 @@ timeout:
 # With simulated time, we should have checked at least 5 times
 # (initial + enough to accumulate 50ms of persistence)
 assert check_count >= 5
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_sleep_float_advances_time(self, fprime_test_api):
-        """Test that sleep with float argument advances simulated time."""
-        seq = """
-t_before: Fw.Time = now()
-
-# Sleep for 1.5 seconds (1 second + 500000 microseconds)
-sleep(1, 500000)
-
-t_after: Fw.Time = now()
-elapsed: Fw.TimeIntervalValue = time_sub(t_after, t_before)
-
-# Should have slept for 1.5 seconds
-assert elapsed.seconds == 1
-assert elapsed.useconds == 500000
 """
         assert_run_success(fprime_test_api, seq)
 

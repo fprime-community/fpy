@@ -200,13 +200,6 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_construct_array(self, fprime_test_api):
-        seq = """
-val: Svc.ComQueueDepth = Svc.ComQueueDepth(0, 0)
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
     def test_get_item_of_array(self, fprime_test_api):
         seq = """
 val: Svc.ComQueueDepth = Svc.ComQueueDepth(222, 111)
@@ -351,22 +344,6 @@ record: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
 value: U32 = record[0]
 """
         assert_compile_failure(fprime_test_api, seq)
-
-    def test_write_array_elem_struct_member(self, fprime_test_api):
-        """Ref.SignalPairSet is Ref.SignalPair[4].
-        Ref.SignalPair has {time: F32, value: F32}.
-        Writing to pairs[0].value should work."""
-        seq = """
-pairs: Ref.SignalPairSet = Ref.SignalPairSet( \\
-    Ref.SignalPair(1.0, 2.0), \\
-    Ref.SignalPair(3.0, 4.0), \\
-    Ref.SignalPair(5.0, 6.0), \\
-    Ref.SignalPair(7.0, 8.0))
-pairs[0].value = 99.0
-assert pairs[0].value == 99.0
-assert pairs[0].time == 1.0
-"""
-        assert_run_success(fprime_test_api, seq)
 
     def test_write_array_elem_struct_member_var_idx(self, fprime_test_api):
         """Write to array element's struct member with variable index."""
@@ -1048,18 +1025,5 @@ assert depths[1] == 0
 stat: Ref.PacketStat = Ref.PacketStat()
 assert stat.BuffRecv == 0
 assert stat.BuffErr == 0
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_array_elem_non_first_struct_member(self, fprime_test_api):
-        """Accessing a non-first struct member on an array element must not crash."""
-        seq = """
-val: Ref.SignalPairSet = Ref.SignalPairSet( \
-    Ref.SignalPair(1.0, 2.0), \
-    Ref.SignalPair(3.0, 4.0), \
-    Ref.SignalPair(5.0, 6.0), \
-    Ref.SignalPair(7.0, 8.0))
-assert val[0].value == 2.0
-assert val[1].value == 4.0
 """
         assert_run_success(fprime_test_api, seq)

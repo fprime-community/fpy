@@ -82,6 +82,9 @@ goto_tag: NAME ":"
   | "call"
   | "peek"
   | "pop_event"
+  | "ffloor"
+  | "iabs"
+  | "fabs"
 _uint: [UNARY_IDENTITY] DEC_NUMBER
 _int: NEG_DEC_NUMBER
 _float: FLOAT_NUMBER

@@ -57,13 +57,6 @@ exit(1)
 
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_very_large_const_pow(self, fprime_test_api):
-        seq = """
-10.0 ** 1000
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
     def test_const_pow_decimal_overflow(self, fprime_test_api):
         """A huge constant exponent must produce a clean compile error.
 

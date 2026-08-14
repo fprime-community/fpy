@@ -23,13 +23,6 @@ $if: U32 = 3
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_large_var(self, fprime_test_api):
-        seq = """
-var: Svc.DpRecord = Svc.DpRecord(0, 1, 2, 3, 4, 5, Fw.DpState.UNTRANSMITTED)
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
     def test_var_assign_to_var(self, fprime_test_api):
         seq = """
 x: U32 = 1

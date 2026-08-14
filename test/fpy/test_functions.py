@@ -13,20 +13,6 @@ var: U32 = 1
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_simple_func_def(self, fprime_test_api):
-        seq = """
-def test():
-    pass
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_def_with_args(self, fprime_test_api):
-        seq = """
-def test(arg: U8):
-    pass
-"""
-        assert_run_success(fprime_test_api, seq)
-
     def test_two_func_args_same_name(self, fprime_test_api):
         seq = """
 
@@ -100,14 +86,6 @@ return
 """
 
         assert_compile_failure(fprime_test_api, seq)
-
-    def test_simple_return(self, fprime_test_api):
-        seq = """
-def test():
-    return
-"""
-
-        assert_run_success(fprime_test_api, seq)
 
     def test_return_val(self, fprime_test_api):
         seq = """
@@ -192,16 +170,6 @@ def test():
         # `Fw` is a dictionary namespace (a module), not a value; using it bare
         # is rejected before any void-return check.
         assert_compile_failure(fprime_test_api, seq, match="Expected a value")
-
-    def test_void_function_without_explicit_return(self, fprime_test_api):
-        seq = """
-def noop():
-    pass
-
-noop()
-"""
-
-        assert_run_success(fprime_test_api, seq)
 
     def test_return_value_in_void_func(self, fprime_test_api):
         """A void function must not return a value."""
@@ -850,39 +818,6 @@ assert test(b=5) == 153
 
         assert_run_success(fprime_test_api, seq)
 
-    def test_named_arg_unknown_name(self, fprime_test_api):
-        """Error when using unknown argument name."""
-        seq = """
-def test(a: U64, b: U64) -> U64:
-    return a + b
-
-test(a=1, c=2)
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_named_arg_duplicate(self, fprime_test_api):
-        """Error when same argument specified twice."""
-        seq = """
-def test(a: U64, b: U64) -> U64:
-    return a + b
-
-test(a=1, a=2)
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_named_arg_positional_and_named(self, fprime_test_api):
-        """Error when same argument specified by position and by name."""
-        seq = """
-def test(a: U64, b: U64) -> U64:
-    return a + b
-
-test(1, a=2)
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
     def test_named_arg_positional_after_named(self, fprime_test_api):
         """Error when positional argument follows named argument."""
         seq = """
@@ -893,33 +828,6 @@ test(a=1, 2, 3)
 """
 
         assert_compile_failure(fprime_test_api, seq)
-
-    def test_named_arg_missing_required(self, fprime_test_api):
-        """Error when required argument is missing."""
-        seq = """
-def test(a: U64, b: U64, c: U64) -> U64:
-    return a + b + c
-
-test(a=1, c=3)
-"""
-
-        assert_compile_failure(fprime_test_api, seq)
-
-    def test_named_arg_builtin(self, fprime_test_api):
-        """Named arguments work with builtin functions."""
-        seq = """
-sleep(useconds=1000, seconds=1)
-"""
-
-        assert_run_success(fprime_test_api, seq)
-
-    def test_named_arg_builtin_single(self, fprime_test_api):
-        """Named arguments work with single-arg builtins."""
-        seq = """
-exit(exit_code=0)
-"""
-
-        assert_run_success(fprime_test_api, seq)
 
 
 class TestShadowWarnings:

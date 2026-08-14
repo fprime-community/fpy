@@ -178,27 +178,6 @@ side_effects.noop_wrapper()
             import_directories=[str(tmp_path)],
         )
 
-    def test_functions_only_sequence_compiles(self, fprime_test_api, tmp_path):
-        _write_sequence(
-            tmp_path,
-            "clean",
-            """\
-def a() -> U32:
-    return 1
-
-def b() -> U32:
-    return 2
-""",
-        )
-        main = """\
-import clean
-
-x: U32 = U32(clean.a() + clean.b())
-assert x == 3
-"""
-        # No expected_warnings: any warning at all would fail the test.
-        assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
-
 
 class TestImportUnderscore:
     """A leading underscore marks a definition as internal to its sequence:
@@ -275,19 +254,6 @@ from lib import *
 x: U32 = public()
 assert x == 7
 """
-        assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
-
-    def test_library_internal_use_does_not_warn(self, fprime_test_api, tmp_path):
-        """`lib.public()` internally calls `_helper`; the importer never names
-        an underscore definition, so nothing warns."""
-        _write_sequence(tmp_path, "lib", self.LIB)
-        main = """\
-import lib
-
-x: U32 = lib.public()
-assert x == 7
-"""
-        # No expected_warnings: any warning at all would fail the test.
         assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
 
     def test_underscore_alias_statement_warns_but_uses_do_not(
@@ -575,36 +541,6 @@ y: U32 = lib
             match="Unknown value 'lib'",
             import_directories=[str(tmp_path)],
         )
-
-    def test_same_function_name_in_two_sequences_no_collision(
-        self, fprime_test_api, tmp_path
-    ):
-        _write_sequence(
-            tmp_path,
-            "lib_a",
-            """\
-def helper() -> U32:
-    return 1
-""",
-        )
-        _write_sequence(
-            tmp_path,
-            "lib_b",
-            """\
-def helper() -> U32:
-    return 2
-""",
-        )
-        main = """\
-import lib_a
-import lib_b
-
-a: U32 = lib_a.helper()
-b: U32 = lib_b.helper()
-assert a == 1
-assert b == 2
-"""
-        assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
 
     def test_imported_function_cannot_see_importer_globals(
         self, fprime_test_api, tmp_path

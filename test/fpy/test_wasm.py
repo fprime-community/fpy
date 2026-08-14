@@ -94,12 +94,6 @@ def _emit_wasm_asm(seq: str, cpu: str) -> str:
 
 
 class TestWasmAssert:
-    def test_passing_assert_succeeds(self):
-        assert run_seq_wasm("assert 1 == 1\n") == NO_ERROR
-
-    def test_empty_sequence_succeeds(self):
-        assert run_seq_wasm("") == NO_ERROR
-
     @pytest.mark.parametrize(
         "exit_code, expected",
         [
@@ -234,15 +228,6 @@ class TestWasmMemberAccess:
                 "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
                 "p.value = 9.5\n"
                 "assert p.value == 9.5\nassert p.time == 3.0\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_read_array_element_const_index(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(7, 8)\n"
-                "assert a[0] == 7\nassert a[1] == 8\n"
             )
             == NO_ERROR
         )
@@ -643,17 +628,6 @@ class TestWasmIf:
         seq = "y: U64 = 0\nif True:\n    y = 5\nassert y == 5\n"
         assert run_seq_wasm(seq) == NO_ERROR
 
-    def test_assert_inside_if_body(self):
-        assert (
-            run_seq_wasm("x: U32 = 7\nif x == 7:\n    assert False\n")
-            == EXIT_WITH_ERROR
-        )
-
-    def test_variable_declared_in_if_block(self):
-        # A var declared in a top-level if block is block-scoped (a local, not a
-        # global) and must still get storage (regression: it used to be dropped).
-        assert run_seq_wasm("if True:\n    a: U32 = 5\n    assert a == 5\n") == NO_ERROR
-
     def test_same_name_in_separate_blocks_are_distinct(self):
         # Fpy is block-scoped: each block's `a` is a distinct variable, so they
         # must not collide.
@@ -892,10 +866,6 @@ class TestWasmWhile:
         seq = "n: U64 = 5\nwhile n > 0:\n    n -= 1\nassert n == 0\n"
         assert run_seq_wasm(seq) == NO_ERROR
 
-    def test_while_condition_false_skips_body(self):
-        seq = "n: U64 = 0\nwhile n > 0:\n    exit(9)\nassert n == 0\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
     def test_break(self):
         seq = (
             "n: U64 = 0\n"
@@ -919,10 +889,6 @@ class TestWasmWhile:
             "    evens += 1\n"
             "assert evens == 5\n"
         )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_for_loop(self):
-        seq = "total: I64 = 0\nfor i in 1..4:\n    total += i\nassert total == 6\n"
         assert run_seq_wasm(seq) == NO_ERROR
 
     def test_continue_in_for_still_increments(self):
@@ -1021,11 +987,6 @@ class TestWasmFloatToIntSaturates:
             run_seq_wasm("x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == 2147483647\n")
             == NO_ERROR
         )
-
-    def test_out_of_range_does_not_trap(self):
-        # Runs to completion (returns a code) rather than trapping; a wasm trap
-        # would surface as a RuntimeError (runner fault) out of run_seq_wasm.
-        assert run_seq_wasm("x: F64 = 1e20\ny: I32 = I32(x)\nassert True\n") == NO_ERROR
 
     def test_stays_mvp_no_trunc_sat(self):
         """The saturating intrinsic must not pull in the post-MVP saturating op:

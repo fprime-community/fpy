@@ -104,6 +104,7 @@ dev = [
     "fprime-fpy[wasm]",
     "black>=26.5.1",
     "pre-commit>=4.6.0",
+    "pytest-cov>=7.1.0",
     {include-group = "harness"},
 ]
 harness = [

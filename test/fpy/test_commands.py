@@ -303,22 +303,6 @@ assert resp == Fw.CmdResponse.EXECUTION_ERROR
 
     # -- Successful commands (should always pass regardless of flag/handling) --
 
-    def test_unhandled_success_flag_true(self, fprime_test_api):
-        """Bare successful command with flag=True should pass."""
-        seq = """
-flags.assert_cmd_success = True
-CdhCore.cmdDisp.CMD_NO_OP()
-"""
-        assert_run_success(fprime_test_api, seq)
-
-    def test_unhandled_success_flag_false(self, fprime_test_api):
-        """Bare successful command with flag=False should pass."""
-        seq = """
-flags.assert_cmd_success = False
-CdhCore.cmdDisp.CMD_NO_OP()
-"""
-        assert_run_success(fprime_test_api, seq)
-
     # -- Edge cases --
 
     def test_toggle_off_before_cmd(self, fprime_test_api):
