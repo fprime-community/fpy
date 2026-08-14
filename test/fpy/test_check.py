@@ -291,7 +291,7 @@ timeout:
 """
 
     def test_never_with_timeout_body_warns(self):
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             self.NEVER_WITH_TIMEOUT_BODY_SEQ,
             expected_warnings={WarningType.UNREACHABLE_TIMEOUT_BODY},
         )
@@ -307,14 +307,14 @@ timeout:
         )
 
     def test_never_without_timeout_body_does_not_warn(self):
-        state, _, _ = compile_seq("check True timeout never:\n    pass\n")
+        state, _ = compile_seq("check True timeout never:\n    pass\n")
         assert not any(
             w.type == WarningType.UNREACHABLE_TIMEOUT_BODY for w in state.warnings
         )
 
     def test_finite_timeout_with_timeout_body_does_not_warn(self):
         # A real timeout with a timeout body is the normal, reachable case.
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             "check True timeout Fw.TimeIntervalValue(1, 0):\n"
             "    pass\n"
             "timeout:\n"

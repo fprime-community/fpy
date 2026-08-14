@@ -37,7 +37,7 @@ from fpy.error import BackendError
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
-    compile_seq_wasm,
+    compile_seq,
     default_dictionary,
     run_seq_wasm,
     run_seq_wasm_with_cmds,
@@ -58,12 +58,6 @@ from fpy.types import (
     U32,
     U64,
 )
-
-# Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
-# marker makes conftest build the spacewasm runner on demand, so these always
-# run on the wasm backend even when --wasm isn't passed.
-pytestmark = pytest.mark.wasm
-
 
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
 EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
@@ -544,7 +538,7 @@ class TestWasmExponent:
         # Document the host-call contract: the linked module imports env.pow.
         # An import-section entry encodes as <len>module <len>name <kind>, so a
         # function import of env.pow is exactly this byte run.
-        wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
+        _, wasm = compile_seq("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n", "wasm")
         assert b"\x03env\x03pow\x00" in wasm
 
 
@@ -1056,7 +1050,7 @@ class TestWasmCommands:
         # Document the host-call contract: the linked module imports
         # fprime_v1.cmd. An import-section entry encodes as
         # <len>module <len>name <kind>, so this byte run is exactly that entry.
-        wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
+        _, wasm = compile_seq("CdhCore.cmdDisp.CMD_NO_OP()\n", "wasm")
         assert b"\x09fprime_v1\x03cmd\x00" in wasm
 
     def test_const_no_arg_command(self):

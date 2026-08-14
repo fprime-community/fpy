@@ -72,17 +72,17 @@ class TestIgnoreWarnings:
     """--ignore silently drops the warning."""
 
     def test_ignore_suppresses_warning(self):
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             EMPTY_RANGE_SEQ, ignored_warnings={WarningType.EMPTY_RANGE}
         )
         assert state.warnings == []
 
     def test_ignore_all_suppresses_warning(self):
-        state, _, _ = compile_seq(EMPTY_RANGE_SEQ, ignored_warnings=set(WarningType))
+        state, _ = compile_seq(EMPTY_RANGE_SEQ, ignored_warnings=set(WarningType))
         assert state.warnings == []
 
     def test_ignore_unrelated_type_keeps_warning(self):
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             EMPTY_RANGE_SEQ,
             ignored_warnings={WarningType.IMPORT_UNDERSCORE},
             expected_warnings={WarningType.EMPTY_RANGE},
@@ -103,7 +103,7 @@ class TestEscalateWarnings:
 
     def test_unrelated_error_type_does_not_fail(self):
         # Escalating a different warning type must not affect the empty-range warning.
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             EMPTY_RANGE_SEQ, error_warnings={WarningType.IMPORT_UNDERSCORE}
         )
         assert any(w.type == WarningType.EMPTY_RANGE for w in state.warnings)

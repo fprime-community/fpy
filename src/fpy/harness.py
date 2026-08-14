@@ -162,9 +162,10 @@ class SequencerHarness:
 
 _fpybc_harness: SequencerHarness | None = None
 _wasm_harness: SequencerHarness | None = None
-# The first failed build, re-raised on later calls: retrying the build once
+# The first failed builds, re-raised on later calls: retrying a build once
 # it has failed only repeats the same slow failure.
 _fpybc_build_error: HarnessError | None = None
+_wasm_build_error: HarnessError | None = None
 
 
 def fpybc_harness() -> SequencerHarness:
@@ -184,9 +185,17 @@ def fpybc_harness() -> SequencerHarness:
 
 
 def wasm_harness() -> SequencerHarness:
-    """The shared harness for the LLVM/wasm backend."""
-    global _wasm_harness
+    """The shared harness for the LLVM/wasm backend, building its binary on
+    first use."""
+    global _wasm_harness, _wasm_build_error
+    if _wasm_build_error is not None:
+        raise _wasm_build_error
     if _wasm_harness is None:
+        try:
+            build_wasm_harness()
+        except HarnessError as e:
+            _wasm_build_error = e
+            raise
         _wasm_harness = SequencerHarness(WASM_HARNESS_BINARY)
     return _wasm_harness
 

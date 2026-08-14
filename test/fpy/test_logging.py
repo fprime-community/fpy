@@ -29,7 +29,7 @@ log("oh no", Fw.LogSeverity.FATAL)
         seq = """
 log("test message")
 """
-        _, directives, _ = compile_seq(seq)
+        _, (directives, _) = compile_seq(seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
         assert len(push_vals) >= 3
         # ACTIVITY_HI = 5
@@ -40,7 +40,7 @@ log("test message")
         seq = """
 log("critical", Fw.LogSeverity.FATAL)
 """
-        _, directives, _ = compile_seq(seq)
+        _, (directives, _) = compile_seq(seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
         assert len(push_vals) >= 3
         # FATAL = 1
@@ -51,7 +51,7 @@ log("critical", Fw.LogSeverity.FATAL)
         seq = """
 log("watch out", Fw.LogSeverity.WARNING_HI)
 """
-        _, directives, _ = compile_seq(seq)
+        _, (directives, _) = compile_seq(seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
         assert len(push_vals) >= 3
         # WARNING_HI = 2
@@ -61,7 +61,7 @@ log("watch out", Fw.LogSeverity.WARNING_HI)
         seq = """
 log("test")
 """
-        _, directives, _ = compile_seq(seq)
+        _, (directives, _) = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopEventDirective)]
         assert len(pop_dirs) == 1
         # message_size should be pushed onto the stack before POP_EVENT
@@ -73,7 +73,7 @@ log("test")
         seq = """
 log("roundtrip test")
 """
-        _, directives, _ = compile_seq(seq)
+        _, (directives, _) = compile_seq(seq)
         pop_dirs = [d for d in directives if isinstance(d, PopEventDirective)]
         assert len(pop_dirs) == 1
 

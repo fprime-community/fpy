@@ -42,7 +42,7 @@ from fpy.compiler import (
 from fpy.dictionary import load_dictionary
 from fpy.error import BackendError
 from fpy.state import get_base_compile_state
-from fpy.test_helpers import run_seq_raw, run_wasm_raw
+from fpy.test_helpers import run_seq, run_wasm
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -58,7 +58,7 @@ _HARNESS_INPUT = re.compile(r"^#\s*harness:\s*(.+?)\s*$", re.MULTILINE)
 def parse_harness_inputs(source: str) -> dict:
     """The harness run inputs declared in the sequence's "# harness:"
     comments (see the module docstring for the directives), as keyword
-    arguments for run_seq_raw / run_wasm_raw."""
+    arguments for run_seq / run_wasm."""
     d = load_dictionary(DEFAULT_DICTIONARY)
     inputs = {"tlm": {}, "prms": {}, "cmd_responses": {}}
     args = b""
@@ -126,7 +126,7 @@ def run_on_fpybc_harness(name: str, source: str) -> dict:
     returning the raw JSON reply."""
     directives, arg_types = analysis_to_fpybc_directives(_analyze(source))
     inputs = parse_harness_inputs(source)
-    reply = run_seq_raw(directives, arg_types=arg_types, **inputs)
+    reply = run_seq(directives, arg_types=arg_types, raw=True, **inputs)
     assert "error" not in reply, f"harness failed to run {name}: {reply}"
     return reply
 
@@ -140,7 +140,7 @@ def run_on_wasm_harness(name: str, source: str) -> dict:
         wasm, _ = analysis_to_wasm(state)
     except (BackendError, NotImplementedError) as e:
         return {"compileError": f"{type(e).__name__}: {e}"}
-    reply = run_wasm_raw(wasm, **parse_harness_inputs(source))
+    reply = run_wasm(wasm, raw=True, **parse_harness_inputs(source))
     assert "error" not in reply, f"harness failed to run {name}: {reply}"
     return reply
 
@@ -244,7 +244,6 @@ def test_golden_run_fpybc(test_name: str, update_goldens: bool):
     )
 
 
-@pytest.mark.wasm
 @pytest.mark.parametrize("test_name", get_golden_test_cases())
 def test_golden_run_wasm(test_name: str, update_goldens: bool):
     """Run the compiled sequence on the WasmSequencer harness and compare the

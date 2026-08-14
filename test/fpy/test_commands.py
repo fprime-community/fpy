@@ -71,8 +71,8 @@ exit(1)
     def test_too_many_dirs(self, fprime_test_api):
         from fpy.types import MAX_DIRECTIVES_COUNT
 
-        # read through the module: conftest sets USE_WASM from the --wasm flag
-        if test_helpers.USE_WASM:
+        # read through the module: conftest sets BACKEND from the --wasm flag
+        if test_helpers.BACKEND == "wasm":
             pytest.skip("the directive-count limit is bytecode-specific")
         seq = "CdhCore.cmdDisp.CMD_NO_OP()\n" * (MAX_DIRECTIVES_COUNT + 1)
         assert_compile_failure(fprime_test_api, seq)

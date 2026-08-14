@@ -14,8 +14,8 @@ def _oor_float_to_int(saturated, wrapped):
     backend: the LLVM/wasm backend saturates at the target width (Rust `as`
     semantics -- clamp to the target type's min/max), while the bytecode VM
     saturates at 64 bits and then wrap-truncates to the target width. Reads
-    test_helpers.USE_WASM at call time (conftest sets it from the --wasm flag)."""
-    return saturated if test_helpers.USE_WASM else wrapped
+    test_helpers.BACKEND at call time (conftest sets it from the --wasm flag)."""
+    return saturated if test_helpers.BACKEND == "wasm" else wrapped
 
 
 class TestEnums:

@@ -61,31 +61,9 @@ class ValidationError(Exception):
 ALL_WARNINGS = frozenset(WarningType)
 
 
-# FIXME inline this func
-def _default_error_warnings(error_warnings, ignored_warnings, expected_warnings):
-    """The set of warnings to promote to errors. An explicit *error_warnings*
-    wins; otherwise it is every warning except those expected or ignored."""
-    if error_warnings is not None:
-        return error_warnings
-    return ALL_WARNINGS - set(expected_warnings or ()) - set(ignored_warnings or ())
-
-
-# FIXME inline this func
-def _assert_expected_emitted(state, expected_warnings):
-    """A warning in *expected_warnings* must actually be emitted, not merely
-    allowed -- so declaring it both permits it and asserts it. (Unexpected
-    warnings already fail via promotion to errors.)"""
-    if not expected_warnings:
-        return
-    emitted = {w.type for w in state.warnings}
-    missing = set(expected_warnings) - emitted
-    assert not missing, f"expected warnings not emitted: {missing} (got {emitted})"
-
-
-def _compile(
+def compile_seq(
     seq: str,
-    # FIXME this should be a "backend" str, either wasm or fpybc.
-    to_wasm: bool,
+    backend: str = "fpybc",
     ground_binary_dir: str = None,
     ignored_warnings=None,
     error_warnings=None,
@@ -93,21 +71,27 @@ def _compile(
     import_directories: list[str] | None = None,
     main_file_dir: str | None = None,
     main_file_path: str | None = None,
-):
-    """Compile a sequence string and return (state, backend output): the wasm
-    binary bytes when *to_wasm*, else (directives, arg_types).
+) -> tuple[CompileState, tuple[list[Directive], list[tuple[str, FpyType]]] | bytes]:
+    """Compile a sequence string on *backend* and return (state, output):
+    (directives, arg_types) for "fpybc", the runnable wasm binary bytes for
+    "wasm".
 
     By default every warning is a hard error; pass *expected_warnings* to allow
     (and still collect) specific ones."""
     fpy.error.file_name = "<test>"
 
+    # Warnings not explicitly expected or ignored are promoted to errors, so
+    # a stray warning a test did not mean to trigger fails it.
+    if error_warnings is None:
+        error_warnings = (
+            ALL_WARNINGS - set(expected_warnings or ()) - set(ignored_warnings or ())
+        )
+
     state = get_base_compile_state(
         default_dictionary,
         ground_binary_dir,
         ignored_warnings=ignored_warnings,
-        error_warnings=_default_error_warnings(
-            error_warnings, ignored_warnings, expected_warnings
-        ),
+        error_warnings=error_warnings,
         import_directories=import_directories,
         main_file_dir=main_file_dir,
         main_file_path=main_file_path,
@@ -116,33 +100,22 @@ def _compile(
     try:
         body = text_to_ast(seq)
         state = analyze_ast(body, state)
-        if to_wasm:
+        if backend == "wasm":
             output, _ = analysis_to_wasm(state)
         else:
+            assert backend == "fpybc", backend
             output = analysis_to_fpybc_directives(state)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
-    _assert_expected_emitted(state, expected_warnings)
+    # A warning in *expected_warnings* must actually be emitted, not merely
+    # allowed -- so declaring it both permits it and asserts it.
+    if expected_warnings:
+        emitted = {w.type for w in state.warnings}
+        missing = set(expected_warnings) - emitted
+        assert not missing, f"expected warnings not emitted: {missing} (got {emitted})"
+
     return state, output
-
-
-# FIXME inline this func
-def compile_seq(
-    seq: str, **kwargs
-) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string to fpy bytecode. Returns
-    (state, directives, arg_types). See _compile for the keyword args."""
-    state, (directives, arg_types) = _compile(seq, to_wasm=False, **kwargs)
-    return state, directives, arg_types
-
-
-# FIXME inline this func
-def compile_seq_wasm(seq: str, **kwargs) -> bytes:
-    """Compile a sequence string to a runnable wasm binary (the LLVM backend).
-    See _compile for the keyword args."""
-    _, wasm = _compile(seq, to_wasm=True, **kwargs)
-    return wasm
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +171,7 @@ def _serialize_args(args: list[FpyValue] | None) -> bytes | None:
 # ---------------------------------------------------------------------------
 
 
-# FIXME rename to make run request
-def _run_request(
+def _make_run_request(
     seq_file: str,
     seq_dir: str,
     tlm: dict[str, bytes] = None,
@@ -210,11 +182,10 @@ def _run_request(
     args: bytes = None,
     cmd_responses: dict[int, int] = None,
 ) -> dict:
-    # FIXME explain that this builds a run request
-    """The run request fields common to both sequencer harnesses. *tlm* and
-    *prms* map channel/parameter names to the serialized values the harness
-    answers reads with; every command completes OK unless *cmd_responses*
-    maps its opcode to another Fw.CmdResponse value."""
+    """Build a run request, with the fields common to both sequencer
+    harnesses. *tlm* and *prms* map channel/parameter names to the serialized
+    values the harness answers reads with; every command completes OK unless
+    *cmd_responses* maps its opcode to another Fw.CmdResponse value."""
     d = load_dictionary(default_dictionary)
     responses = cmd_responses or {}
     request = {
@@ -254,12 +225,9 @@ def _seq_args_buffer_len(d: dict) -> int:
 def _expected_stack_bytes(directives: list[Directive], args: bytes | None) -> int:
     """The exact stack size a successful run must end with: the sequence
     arguments plus the frame setup (PushVal for the flags default, then
-    optionally Allocate for the remaining locals).
-
-    # FIXME instead of having this in docstring, it should be a comment:
-     If functions are present
-    the first directive is a Goto that jumps past them; the setup starts at
-    its target."""
+    optionally Allocate for the remaining locals)."""
+    # If functions are present the first directive is a Goto that jumps past
+    # them; the setup starts at its target.
     setup_start = 0
     if directives and isinstance(directives[0], GotoDirective):
         setup_start = directives[0].dir_idx
@@ -281,8 +249,7 @@ def _as_int(v) -> int:
     return v.value if isinstance(v, DirectiveErrorCode) else v
 
 
-# FIXME can't we fold this into run_seq?
-def run_seq_raw(
+def run_seq(
     directives: list[Directive],
     tlm: dict[str, bytes] = None,
     time_base: int = 0,
@@ -294,10 +261,19 @@ def run_seq_raw(
     ground_binary_dir: str = None,
     prms: dict[str, bytes] = None,
     cmd_responses: dict[int, int] = None,
-) -> dict:
+    raw: bool = False,
+) -> list[bytes] | dict:
     """Run a list of directives on a real Svc::FpySequencer through the test
-    harness (test/harness) and return the harness's raw JSON reply. See
-    _run_request for the inputs."""
+    harness (test/harness). Returns the command buffers the sequence
+    dispatched (the big-endian serialized FwOpcodeType + arguments), in call
+    order -- or the harness's raw JSON reply, uninterpreted, with *raw*. See
+    _make_run_request for the inputs.
+
+    Raises ValidationError when the sequencer rejects the sequence before
+    running it, and RuntimeError when the sequence fails: with the
+    DirectiveErrorCode for a trap, or the raw error code int for a nonzero
+    exit.
+    """
     d = load_dictionary(default_dictionary)
 
     # When the test provides a ground_binary_dir, that directory doubles as
@@ -309,7 +285,7 @@ def run_seq_raw(
     if seq_run_opcodes is None and ground_binary_dir is not None:
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
 
-    request = _run_request(
+    request = _make_run_request(
         seq_file,
         seq_dir,
         tlm=tlm,
@@ -324,21 +300,9 @@ def run_seq_raw(
         request["seqRunOpcodes"] = sorted(seq_run_opcodes)
         request["seqArgsBufferSize"] = _seq_args_buffer_len(d)
 
-    return fpybc_harness().run(request)
-
-
-def run_seq(directives: list[Directive], **run_kwargs) -> list[bytes]:
-    """Run a list of directives on a real Svc::FpySequencer through the test
-    harness (test/harness). Returns the command buffers the sequence
-    dispatched (the big-endian serialized FwOpcodeType + arguments), in call
-    order. See run_seq_raw for the keyword args.
-
-    Raises ValidationError when the sequencer rejects the sequence before
-    running it, and RuntimeError when the sequence fails: with the
-    DirectiveErrorCode for a trap, or the raw error code int for a nonzero
-    exit.
-    """
-    result = run_seq_raw(directives, **run_kwargs)
+    result = fpybc_harness().run(request)
+    if raw:
+        return result
 
     if "error" in result:
         raise HarnessError(result["error"])
@@ -361,7 +325,7 @@ def run_seq(directives: list[Directive], **run_kwargs) -> list[bytes]:
             )
         # A finished run must leave exactly the stack bytes the compiler
         # expected; a leak of even one byte is a failure.
-        expected_stack = _expected_stack_bytes(directives, run_kwargs.get("args"))
+        expected_stack = _expected_stack_bytes(directives, args)
         actual_stack = len(bytes.fromhex(result["stack"]))
         if actual_stack != expected_stack:
             raise RuntimeError(f"Sequence leaked {actual_stack - expected_stack} bytes")
@@ -385,7 +349,7 @@ def run_seq(directives: list[Directive], **run_kwargs) -> list[bytes]:
     raise RuntimeError(DirectiveErrorCode(result["lastDirectiveError"]))
 
 
-def run_wasm_raw(
+def run_wasm(
     wasm: bytes,
     tlm: dict[str, bytes] = None,
     prms: dict[str, bytes] = None,
@@ -394,12 +358,14 @@ def run_wasm_raw(
     initial_time_us: int = 0,
     args: bytes = None,
     cmd_responses: dict[int, int] = None,
-) -> dict:
+    raw: bool = False,
+) -> tuple[int, list[tuple[int, str]], list[bytes]] | dict:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
-    the wasm harness and return the harness's raw JSON reply. See _run_request
-    for the inputs."""
+    the wasm harness and return (error code, reported events, dispatched
+    command buffers) -- or the harness's raw JSON reply, uninterpreted, with
+    *raw*. See _make_run_request for the inputs."""
     seq_dir, seq_file = _write_for_harness(wasm, "m0.wasm")
-    request = _run_request(
+    request = _make_run_request(
         seq_file,
         seq_dir,
         tlm=tlm,
@@ -410,16 +376,9 @@ def run_wasm_raw(
         args=args,
         cmd_responses=cmd_responses,
     )
-    return wasm_harness().run(request)
-
-
-def run_wasm(
-    wasm: bytes, **run_kwargs
-) -> tuple[int, list[tuple[int, str]], list[bytes]]:
-    """Run an already-linked wasm module on a real Svc::WasmSequencer through
-    the wasm harness and return (error code, reported events, dispatched
-    command buffers). See run_wasm_raw for the keyword args."""
-    result = run_wasm_raw(wasm, **run_kwargs)
+    result = wasm_harness().run(request)
+    if raw:
+        return result
 
     if "error" in result:
         raise HarnessError(result["error"])
@@ -449,9 +408,9 @@ def _run_seq_wasm(
     **kwargs,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Compile *seq* to wasm and run it through the wasm harness. Returns
-    (error code, reported events, dispatched command buffers). See _compile
+    (error code, reported events, dispatched command buffers). See compile_seq
     for the remaining keyword args."""
-    wasm = compile_seq_wasm(seq, **kwargs)
+    _, wasm = compile_seq(seq, "wasm", **kwargs)
     return run_wasm(wasm, cmd_responses=cmd_responses)
 
 
@@ -521,13 +480,10 @@ def lookup_type(type_name: str) -> FpyType:
     return load_dictionary(default_dictionary)["type_defs"][type_name]
 
 
-def assert_compile_success(fprime_test_api, seq: str, **kwargs):
-    """Compile *seq* on the current backend. See _compile for the keyword
-    args."""
-    if USE_WASM:
-        compile_seq_wasm(seq, **kwargs)
-    else:
-        compile_seq(seq, **kwargs)
+def assert_compile_success(fprime_test_api, seq: str, backend: str = None, **kwargs):
+    """Compile *seq* on *backend* (the session backend by default). See
+    compile_seq for the keyword args."""
+    compile_seq(seq, backend or BACKEND, **kwargs)
 
 
 def assert_compile_failure(fprime_test_api, seq: str, match: str = None, **kwargs):
@@ -545,6 +501,7 @@ def assert_compile_failure(fprime_test_api, seq: str, match: str = None, **kwarg
 def assert_run_success(
     fprime_test_api,
     seq: str,
+    backend: str = None,
     timeout_s: int = 4,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
@@ -553,21 +510,23 @@ def assert_run_success(
     main_file_dir: str | None = None,
     **run_kwargs,
 ) -> list[bytes] | None:
-    """Compile *seq* on the current backend, run it, and assert it succeeds.
-    Returns the command buffers the sequence dispatched, or None when running
-    against a live GDS deployment. The remaining keyword args (tlm, prms,
-    time, cmd_responses, ...) are the current backend's run_*_raw inputs.
+    """Compile *seq* on *backend* (the session backend by default), run it,
+    and assert it succeeds. Returns the command buffers the sequence
+    dispatched, or None when running against a live GDS deployment. The
+    remaining keyword args (tlm, prms, time, cmd_responses, ...) are the
+    backend's run_seq / run_wasm inputs.
 
     Runs on the test harness by default, or against a live GDS deployment
     when fprime_test_api is not None (--use-gds)."""
+    backend = backend or BACKEND
     compile_kwargs = dict(
         ground_binary_dir=ground_binary_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
-    if USE_WASM:
-        wasm = compile_seq_wasm(seq, **compile_kwargs)
+    if backend == "wasm":
+        _, wasm = compile_seq(seq, "wasm", **compile_kwargs)
         if fprime_test_api is not None:
             _run_gds(
                 fprime_test_api,
@@ -583,7 +542,7 @@ def assert_run_success(
             raise RuntimeError(f"wasm sequence returned error code {code}")
         return cmds
 
-    _, directives, arg_types = compile_seq(seq, **compile_kwargs)
+    _, (directives, arg_types) = compile_seq(seq, **compile_kwargs)
     args_bytes = _serialize_args(args)
     if fprime_test_api is not None:
         _run_gds(
@@ -609,16 +568,18 @@ def assert_run_failure(
     seq: str,
     error_code: DirectiveErrorCode | int = None,
     validation_error: bool = False,
+    backend: str = None,
     args: list[FpyValue] = None,
     ground_binary_dir: str = None,
     import_directories: list[str] | None = None,
     **run_kwargs,
 ):
-    """Compile *seq* on the current backend, run it, and assert it fails:
-    with *error_code* (a DirectiveErrorCode trap or a raw exit code int), or
-    with *validation_error* when the sequencer must reject the sequence
-    before running it. The remaining keyword args (tlm, prms, time,
-    cmd_responses, ...) are the current backend's run_*_raw inputs."""
+    """Compile *seq* on *backend* (the session backend by default), run it,
+    and assert it fails: with *error_code* (a DirectiveErrorCode trap or a
+    raw exit code int), or with *validation_error* when the sequencer must
+    reject the sequence before running it. The remaining keyword args (tlm,
+    prms, time, cmd_responses, ...) are the backend's run_seq / run_wasm
+    inputs."""
     assert not (
         error_code is not None and validation_error
     ), "Cannot specify both error_code and validation_error"
@@ -626,11 +587,12 @@ def assert_run_failure(
         error_code is not None or validation_error
     ), "Must specify either error_code or validation_error"
 
+    backend = backend or BACKEND
     compile_kwargs = dict(
         ground_binary_dir=ground_binary_dir, import_directories=import_directories
     )
-    if USE_WASM:
-        wasm = compile_seq_wasm(seq, **compile_kwargs)
+    if backend == "wasm":
+        _, wasm = compile_seq(seq, "wasm", **compile_kwargs)
         if fprime_test_api is not None:
             _run_gds(
                 fprime_test_api,
@@ -650,7 +612,7 @@ def assert_run_failure(
             raise RuntimeError(f"wasm sequence returned {code}, expected {error_code}")
         return
 
-    _, directives, arg_types = compile_seq(seq, **compile_kwargs)
+    _, (directives, arg_types) = compile_seq(seq, **compile_kwargs)
     args_bytes = _serialize_args(args)
     if fprime_test_api is not None:
         _run_gds(

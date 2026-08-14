@@ -124,7 +124,7 @@ result: U32 = lib.add_one(41)
 assert result == 42
 """
         # Funcs-only sequence: compiles cleanly with no side-effect warning...
-        state, _, _ = compile_seq(main, import_directories=[str(tmp_path)])
+        state, _ = compile_seq(main, import_directories=[str(tmp_path)])
         assert state.warnings == []
         # ...and the embedded assert holds at run time.
         assert_run_success(fprime_test_api, main, import_directories=[str(tmp_path)])
@@ -305,7 +305,7 @@ assert x == 7
 assert y == 7
 """
         expected = {WarningType.IMPORT_UNDERSCORE}
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             main, import_directories=[str(tmp_path)], expected_warnings=expected
         )
         underscore_warnings = [
@@ -422,7 +422,7 @@ import lib
 result: U32 = lib.add_one(n)
 assert result == 42
 """
-        state, _, _ = compile_seq(main, import_directories=[str(tmp_path)])
+        state, _ = compile_seq(main, import_directories=[str(tmp_path)])
         assert state.warnings == []
         assert_run_success(
             fprime_test_api,
@@ -1172,7 +1172,7 @@ import cyc_b
 x: U32 = U32(cyc_a.a() + cyc_b.b())
 assert x == 3
 """
-        state, _, _ = compile_seq(main, import_directories=[str(tmp_path)])
+        state, _ = compile_seq(main, import_directories=[str(tmp_path)])
         loaded = {Path(p).stem for p in state.loaded_sequences}
         assert loaded == {"cyc_a", "cyc_b"}
         assert len(state.imported_blocks) == 2
@@ -1196,7 +1196,7 @@ x: U32 = main.f()
 assert x == 3
 """
         main_file.write_text(main)
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             main,
             import_directories=[],
             main_file_dir=str(tmp_path),
@@ -1868,7 +1868,7 @@ x: U32 = a()
 assert x == 1
 """
         expected = {WarningType.IMPORT_DUPLICATE}
-        state, _, _ = compile_seq(
+        state, _ = compile_seq(
             main, import_directories=[str(tmp_path)], expected_warnings=expected
         )
         duplicate_warnings = [
