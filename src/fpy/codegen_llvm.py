@@ -148,12 +148,6 @@ def create_byte_buffer(
     return buf
 
 
-def byte_buffer_size(buf: "ir.GlobalVariable") -> int:
-    """The length of a create_byte_buffer global's [N x i8] array, so a size
-    handed to the host always comes from the buffer itself."""
-    return buf.type.pointee.count
-
-
 def is_addressable(expr: AstExpr, state: CompileState) -> bool:
     """True when *expr* denotes a location rather than a computed value, so
     that a pointer to it can be formed: *expr* is a variable, or a
@@ -500,12 +494,10 @@ class EmitLlvmExpr(Emitter):
     def _emit_tlm_prm_read(
         self, node: AstExpr, sym: ChDef | PrmDef, state: CompileState
     ) -> ir.Value:
-        """Read a telemetry channel's or parameter's current value through
-        the tlm/prm host import: the host serializes the value into the
-        shared read buffer, faulting with TLM_CHAN_NOT_FOUND/PRM_NOT_FOUND
-        unless the host reports it VALID -- the bytecode directives' failure
-        semantics. Returns the value deserialized at the node's synthesized
-        type (the channel's or parameter's own type)."""
+        """Read the current value of the telemetry channel or parameter *sym*.
+        The host writes the value into the shared read buffer and reports
+        whether it is valid; an invalid value faults with TLM_CHAN_NOT_FOUND
+        or PRM_NOT_FOUND. Returns the value read out of the buffer."""
         b = self.builder
         i32 = ir.IntType(32)
         i8_ptr = ir.IntType(8).as_pointer()
@@ -513,19 +505,21 @@ class EmitLlvmExpr(Emitter):
         # so this read's value fits.
         buf = state.backend.tlm_prm_buffer
         assert buf is not None, "CreateTlmPrmBuffers did not see this read"
+        buf_size = buf.type.pointee.count
         buf_args = [
             b.bitcast(buf, i8_ptr),
-            ir.Constant(i32, byte_buffer_size(buf)),
+            ir.Constant(i32, buf_size),
         ]
         if is_instance_compat(sym, ChDef):
             time_buf = state.backend.tlm_time_buffer
             assert time_buf is not None, "CreateTlmPrmBuffers did not see this read"
+            time_buf_size = time_buf.type.pointee.count
             valid = b.call(
                 b.module.globals[HOST_TLM_FUNC_NAME],
                 [
                     ir.Constant(ir.IntType(64), sym.ch_id),
                     b.bitcast(time_buf, i8_ptr),
-                    ir.Constant(i32, byte_buffer_size(time_buf)),
+                    ir.Constant(i32, time_buf_size),
                     *buf_args,
                 ],
             )
@@ -676,11 +670,12 @@ class EmitLlvmExpr(Emitter):
 
         # The host returns the response widened to i32; narrow it back to
         # Fw.CmdResponse's type.
+        buf_size = command.buf.type.pointee.count
         response = b.call(
             b.module.globals[HOST_CMD_FUNC_NAME],
             [
                 b.bitcast(command.buf, ir.IntType(8).as_pointer()),
-                ir.Constant(ir.IntType(32), byte_buffer_size(command.buf)),
+                ir.Constant(ir.IntType(32), buf_size),
             ],
         )
         # assumption: the response is a valid cmd response code
