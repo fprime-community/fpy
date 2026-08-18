@@ -27,6 +27,7 @@ Deser
 downcasted
 downcasting
 elifs
+emittable
 ev
 fcmp
 fd
@@ -101,6 +102,7 @@ noreturn
 nsize
 oob
 oor
+PANICOCCURRED
 passthrough
 pb
 pemdas
@@ -109,6 +111,7 @@ postlex
 postlexer
 prm
 PRNG
+PROGRAMEXITED
 ptrs
 px
 py
@@ -149,6 +152,7 @@ umod
 uncatchably
 unconfigure
 une
+UNINIT
 uniqued
 unistd
 urem
