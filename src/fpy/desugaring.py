@@ -1,12 +1,10 @@
 from __future__ import annotations
 import copy
-from typing import Union
 from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
-    AstAnonArray,
-    AstAnonStruct,
+    AstAnonExpr,
     AstAssert,
     AstAssign,
     AstAugAssign,
@@ -38,7 +36,6 @@ from fpy.types import (
 from fpy.state import (
     CompileState,
     ForLoopAnalysis,
-    make_type_ctor,
 )
 from fpy.error import WarningType
 from fpy.symbols import (
@@ -905,17 +902,16 @@ class DesugarAnonExprs(Transformer):
 
     def __init__(self):
         super().__init__()
-        # FIXME use type union for anonstruct/array
-        self.replaced: dict[Ast, AstFuncCall] = {}
+        self.replaced: dict[AstAnonExpr, AstFuncCall] = {}
         """each desugared anonymous expr -> the call that replaced it"""
 
     def run(self, start: Ast, state: CompileState):
         super().run(start, state)
         if len(state.errors) != 0:
             return
-        # FIXME confusing comment. make much more clear and use simple language
-        # A call's resolved args are a list of the call's own, so point any
-        # that name a desugared anonymous expr at its replacement.
+        # Replacing a node in the tree does not replace it in
+        # state.resolved_args, which lists argument nodes separately from the
+        # tree. Do that here, for every call.
         for call, args in state.resolved_args.items():
             state.resolved_args[call] = [
                 self.replaced.get(arg, arg) if isinstance(arg, Ast) else arg
@@ -923,27 +919,17 @@ class DesugarAnonExprs(Transformer):
             ]
 
     def visit_AstAnonStruct_AstAnonArray(
-        self, node: Union[AstAnonStruct, AstAnonArray], state: CompileState
+        self, node: AstAnonExpr, state: CompileState
     ) -> AstFuncCall:
-        target = state.contextual_types[node]
-        if target.kind not in (TypeKind.STRUCT, TypeKind.ARRAY):
-            # FIXME is there a more clear and obvious way to check that the
-            # expr was coerced to a type? also let's use a more generic error message, avoid
-            # mentioning anonymous i think
-            if isinstance(node, AstAnonStruct):
-                what, a_kind = "struct", "a struct"
-            else:
-                what, a_kind = "array", "an array"
-            state.err(
-                f"Anonymous {what} is not used where {a_kind} type is expected, "
-                f"so its type cannot be determined",
-                node,
-            )
+        # An expr's contextual type is its own (synthesized) type until
+        # something coerces it. Nothing coerced this one, so it has no type.
+        if state.contextual_types[node] == state.synthesized_types[node]:
+            state.err("Cannot infer the type of this expression from its context", node)
             return None
+        target = state.contextual_types[node]
+        assert target.kind in (TypeKind.STRUCT, TypeKind.ARRAY), target
 
-        # FIXME this is wrong, why are we constructing a new symbol here? we should look up a symbol
-        # or there should be some mapping of type to type ctor
-        ctor = make_type_ctor(target.name, target)
+        ctor = state.type_ctors[target]
         func = AstIdent(node.meta, target.name)
         func.id = state.next_node_id
         state.next_node_id += 1

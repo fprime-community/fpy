@@ -82,7 +82,7 @@ val: Fw.TimeIntervalValue = {seconds: True}
         seq = """
 val: U32 = {seconds: 1}
 """
-        assert_compile_failure(fprime_test_api, seq, match="found anonymous struct")
+        assert_compile_failure(fprime_test_api, seq, match="found struct literal")
 
     def test_anon_struct_bare_statement(self, fprime_test_api):
         """An anonymous struct not coerced to any type has no constructor to
@@ -90,14 +90,14 @@ val: U32 = {seconds: 1}
         seq = """
 {seconds: 1}
 """
-        assert_compile_failure(fprime_test_api, seq, match="Anonymous struct")
+        assert_compile_failure(fprime_test_api, seq, match="Cannot infer the type")
 
     def test_anon_struct_sized_arg(self, fprime_test_api):
         """A parameter accepting any sized value gives an anon struct no type."""
         seq = """
 write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, {seconds: 1})
 """
-        assert_compile_failure(fprime_test_api, seq, match="found anonymous struct")
+        assert_compile_failure(fprime_test_api, seq, match="found struct literal")
 
 
 class TestAnonStructAdvanced:
@@ -217,8 +217,7 @@ val: Svc.ComQueueDepth = [True, False]
         seq = """
 val: U32 = [1, 2, 3]
 """
-        # FIXME yeah let's remove the word anonymous from the err msgs
-        assert_compile_failure(fprime_test_api, seq, match="found anonymous array")
+        assert_compile_failure(fprime_test_api, seq, match="found array literal")
 
     def test_anon_array_bare_statement(self, fprime_test_api):
         """An anonymous array not coerced to any type has no constructor to
@@ -226,7 +225,7 @@ val: U32 = [1, 2, 3]
         seq = """
 [1, 2]
 """
-        assert_compile_failure(fprime_test_api, seq, match="Anonymous array")
+        assert_compile_failure(fprime_test_api, seq, match="Cannot infer the type")
 
     def test_anon_array_incompatible_element_types(self, fprime_test_api):
         """Each element is coerced to the target's element type."""
@@ -298,23 +297,61 @@ assert val.history[3] == 4.0
 
 
 class TestAnonDirectAccess:
-    """An anonymous literal only gets a type from the context it is coerced
-    in, so there is no type to access a member or element of."""
+    """Member/index access directly on an anonymous literal used to be
+    supported: the literal was typed from its own members, and the access
+    emitted just the accessed member's expression. An anonymous literal now
+    only gets a type from the context it is coerced in, so there is no type
+    to access a member or element of, and every such access is an error.
 
-    # FIXME just keep the old tests around, just have them fail, explain it's to check if in the future
-    # we ever go back to old anon semantics
+    The old tests are kept, asserting failure, so that a future return to the
+    old semantics shows up here."""
 
     def test_anon_struct_member_access(self, fprime_test_api):
+        """Access a specific member from an anonymous struct literal."""
         seq = """
 a: U32 = {x: 10, y: 20, z: 30}.y
+assert a == 20
 """
-        assert_compile_failure(fprime_test_api, seq, match="anonymous struct")
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
+
+    def test_anon_struct_member_access_nonexistent(self, fprime_test_api):
+        """Accessing a non-existent member should fail."""
+        seq = """
+x: U32 = {xyz: 123}.abc
+"""
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
 
     def test_anon_array_index_access(self, fprime_test_api):
+        """Index into an anonymous array literal with a constant index."""
         seq = """
 x: U32 = [1, 2, 3][1]
+assert x == 2
 """
-        assert_compile_failure(fprime_test_api, seq, match="anonymous array")
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
+
+    def test_anon_array_index_out_of_bounds(self, fprime_test_api):
+        """Out-of-bounds index on anonymous array should fail."""
+        seq = """
+x: U32 = [1, 2, 3][3]
+"""
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
+
+    def test_anon_struct_member_access_with_variable(self, fprime_test_api):
+        """Access member of anon struct where member value is a runtime variable."""
+        seq = """
+y: U32 = 42
+x: U32 = {a: y}.a
+assert x == 42
+"""
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
+
+    def test_anon_array_dynamic_index_fails(self, fprime_test_api):
+        """Dynamic (non-constant) indexing on anonymous array should fail."""
+        seq = """
+i: I64 = 1
+x: U32 = [10, 20, 30][i]
+"""
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
 
     def test_ctor_member_access(self, fprime_test_api):
         """The constructor call an anonymous struct stands for can be accessed."""

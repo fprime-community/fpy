@@ -49,7 +49,6 @@ from fpy.types import (
 from fpy.state import (
     CompileState,
     ForLoopAnalysis,
-    make_type_ctor,
 )
 from fpy.error import WarningType
 from fpy.symbols import (
@@ -94,6 +93,7 @@ from fpy.bytecode.directives import (
 )
 from fpy.syntax import (
     AstAssert,
+    AstAnonExpr,
     AstAnonStruct,
     AstAnonArray,
     AstBinaryOp,
@@ -270,6 +270,16 @@ class CheckAssignSyntax(TopDownVisitor):
                 node,
             )
             return
+
+
+class CheckAnonStructMembers(Visitor):
+    def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
+        seen_names: set[str] = set()
+        for member in node.members:
+            if member.name in seen_names:
+                state.err(f"Duplicate member '{member.name}'", member)
+                return
+            seen_names.add(member.name)
 
 
 class DefineFunctions(TopDownVisitor):
@@ -1280,43 +1290,47 @@ class PickTypesAndResolveFields(Visitor):
 
     def _coerce_anon_expr(
         self,
-        node: Union[AstAnonStruct, AstAnonArray],
+        node: AstAnonExpr,
         anon_type: FpyType,
         target: FpyType,
         state: CompileState,
     ) -> bool:
         """Coerce an anonymous struct/array to *target*. The anonymous expr is
         a call of the target type's constructor, with its members as named
-        arguments / its elements as positional arguments, so its members/elements are resolved and coerced as
-        that call's arguments, and a mismatch is reported as it would be for
-        the call."""
+        arguments / its elements as positional arguments, so it is checked
+        exactly as that call would be."""
         if anon_type.kind == TypeKind.ANON_STRUCT:
             target_kind, args = TypeKind.STRUCT, node.members
         else:
             target_kind, args = TypeKind.ARRAY, node.elements
-        # FIXME it's not obvious to me why the check for is_type_constant_size is here
-        # Also, why do we need this check, shouldn't resolve args handle it for us?
-        if target.kind != target_kind or not is_type_constant_size(target):
+        if target.kind != target_kind:
             state.err(
                 f"Expected {target.display_name}, found {anon_type.display_name}",
                 node,
             )
             return False
 
-        # FIXME stop creating symbols, this is wrong
-        ctor = make_type_ctor(target.name, target)
-        resolved = self.resolve_args(node, ctor, args, state)
-        if is_instance_compat(resolved, CompileError):
-            state.errors.append(resolved)
+        ctor = state.type_ctors[target]
+        if not self._check_ctor_type(ctor, node, state):
             return False
-        for value_expr, (_, arg_type, _) in zip(resolved, ctor.args):
-            if not is_instance_compat(value_expr, Ast):
-                continue  # a filled-in FpyValue default
-            if not self.coerce_expr_type(value_expr, arg_type, state):
-                return False
-        state.resolved_args[node] = resolved
+        if self._resolve_call(node, ctor, args, state) is None:
+            return False
         state.contextual_types[node] = target
         return True
+
+    def _check_ctor_type(
+        self, ctor: TypeCtorSymbol, node: Ast, state: CompileState
+    ) -> bool:
+        """A constructor call makes a runtime value of its type, and a runtime
+        value must be constant-sized. Reports an error at *node* and returns
+        False if the type is not."""
+        if is_type_constant_size(ctor.type):
+            return True
+        state.err(
+            f"Type {ctor.type.display_name} is not constant-sized (contains strings)",
+            node,
+        )
+        return False
 
     def find_common_type(
         self, first_type: FpyType, second_type: FpyType
@@ -1442,8 +1456,9 @@ class PickTypesAndResolveFields(Visitor):
         if not is_type_constant_size(concrete):
             return None
 
+        # every member must exist in the concrete struct and be coercible to
+        # it.
         target_members = {m.name: m for m in concrete.members}
-        # FIXME explain this change
         for member in anon.members:
             if member.name not in target_members:
                 return None
@@ -1508,7 +1523,7 @@ class PickTypesAndResolveFields(Visitor):
 
             if parent_type.kind == TypeKind.ANON_STRUCT:
                 state.err(
-                    "Cannot access a member of an anonymous struct",
+                    "Cannot access a member of a struct literal",
                     node,
                 )
                 return
@@ -1587,7 +1602,7 @@ class PickTypesAndResolveFields(Visitor):
 
         if parent_type.kind == TypeKind.ANON_ARRAY:
             state.err(
-                "Cannot index an anonymous array",
+                "Cannot index an array literal",
                 node,
             )
             return
@@ -1788,9 +1803,11 @@ class PickTypesAndResolveFields(Visitor):
         resolved = self._resolve_time_op(lhs_type, rhs_type, node.op)
         if resolved is not None:
             resolved_lhs, resolved_rhs, common_type, result_type, _, _ = resolved
-            # _resolve_time_op already confirmed coercibility
-            assert self.coerce_expr_type(node.lhs, resolved_lhs, state)
-            assert self.coerce_expr_type(node.rhs, resolved_rhs, state)
+            if not self.coerce_expr_type(node.lhs, resolved_lhs, state):
+                return
+            if not self.coerce_expr_type(node.rhs, resolved_rhs, state):
+                return
+                # FIXME prove that this can happen with a test
             state.op_intermediate_types[node] = common_type
             state.synthesized_types[node] = result_type
             state.contextual_types[node] = result_type
@@ -1845,16 +1862,6 @@ class PickTypesAndResolveFields(Visitor):
         state.contextual_types[node] = BOOL
 
     def visit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
-        seen_names: set[str] = set()
-        # FIXME duplicate member check and other similar anon expr checks could be put into separate pass
-        for member in node.members:
-            if member.name in seen_names:
-                state.err(
-                    f"Duplicate member '{member.name}' in anonymous struct", member
-                )
-                return
-            seen_names.add(member.name)
-
         # Synthesize an anonymous struct type from the member expressions
         members = tuple(
             StructMember(m.name, state.synthesized_types[m.value]) for m in node.members
@@ -1996,6 +2003,7 @@ class PickTypesAndResolveFields(Visitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
+        # FIXME this should be in another pass. maybe could put in an existing one? can you prove this can get hit?
         if func is None:
             # if it were a reference to a callable, it would have already been resolved
             # if it were a symbol to something else, it would have already errored
@@ -2003,27 +2011,36 @@ class PickTypesAndResolveFields(Visitor):
             state.err(f"Unknown function", node.func)
             return
 
-        # Check that type constructors are for constant-sized types
         if is_instance_compat(func, TypeCtorSymbol):
-            if not is_type_constant_size(func.type):
-                state.err(
-                    f"Type {func.type.display_name} is not constant-sized (contains strings)",
-                    node.func,
-                )
+            if not self._check_ctor_type(func, node.func, state):
                 return
 
         node_args = node.args if node.args else []
-
-        # Resolve args: reorder named args, fill in defaults, check types
-        result = self.resolve_args(node, func, node_args, state)
-        if is_instance_compat(result, CompileError):
-            state.errors.append(result)
+        if self._resolve_call(node, func, node_args, state) is None:
             return
 
-        resolved_args = result
+        state.synthesized_types[node] = func.return_type
+        state.contextual_types[node] = func.return_type
+
+    # FIXME I think the usage of resolve in both this func and resolve_args is really loose. please
+    # suggest some better names, please use existing, simple language.
+    def _resolve_call(
+        self,
+        node: Ast,
+        func: CallableSymbol,
+        node_args: list,
+        state: CompileState,
+    ) -> list[AstExpr] | None:
+        """Resolve the arguments *node_args* of a call of *func* (see
+        resolve_args), record them in state.resolved_args, and coerce each
+        argument expression to its parameter's type. Returns the resolved
+        arguments, or None after reporting an error."""
+        resolved_args = self.resolve_args(node, func, node_args, state)
+        if is_instance_compat(resolved_args, CompileError):
+            state.errors.append(resolved_args)
+            return None
         state.resolved_args[node] = resolved_args
 
-        # go handle coercion/casting
         if is_instance_compat(func, CastSymbol):
             node_arg = resolved_args[0]
             output_type = func.to_type
@@ -2034,20 +2051,20 @@ class PickTypesAndResolveFields(Visitor):
             # let us turn off some checks for boundaries later when we do const folding
             # we turn off the checks because the user is asking us to force this!
             state.expr_explicit_casts.append(node_arg)
-        else:
-            for value_expr, arg in zip(resolved_args, func.args):
-                target_type = arg[1]
-                # Skip coercion for FpyValue defaults from builtins or type constructors
-                if not is_instance_compat(value_expr, Ast):
-                    continue
-                # Skip coercion for default values from forward-called functions.
-                # These will be coerced when the function definition is visited.
-                if value_expr not in state.synthesized_types:
-                    continue
-                assert self.coerce_expr_type(value_expr, target_type, state)
+            return resolved_args
 
-        state.synthesized_types[node] = func.return_type
-        state.contextual_types[node] = func.return_type
+        for value_expr, arg in zip(resolved_args, func.args):
+            target_type = arg[1]
+            # Skip coercion for FpyValue defaults from builtins or type constructors
+            if not is_instance_compat(value_expr, Ast):
+                continue
+            # Skip coercion for default values from forward-called functions.
+            # These will be coerced when the function definition is visited.
+            if value_expr not in state.synthesized_types:
+                continue
+            if not self.coerce_expr_type(value_expr, target_type, state):
+                return None
+        return resolved_args
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         if not self.coerce_expr_type(node.lower_bound, LoopVarType, state):

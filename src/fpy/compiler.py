@@ -28,6 +28,7 @@ from fpy.semantics import (
     CreateScopes,
     CheckResolvedSymbolKinds,
     CheckAllUnqualifiedIdentifiersResolved,
+    CheckAnonStructMembers,
     CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
@@ -237,6 +238,8 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CreateScopes(),
         # check that assignment targets are valid
         CheckAssignSyntax(),
+        # check that no anonymous struct names a member twice
+        CheckAnonStructMembers(),
         # register all user-defined functions in the global callable scope
         # (and the builtin library functions in the shared base callable scope)
         DefineFunctions(),

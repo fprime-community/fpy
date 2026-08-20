@@ -56,7 +56,7 @@ class TestSeqRunDetection:
 
         _build_global_scopes.cache_clear()
         load_dictionary.cache_clear()
-        _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
+        _, callable_scope, _, _, _ = _build_global_scopes(default_dictionary)
 
         # Navigate to Ref.seqDisp.RUN_ARGS
         sym = callable_scope["Ref"]["seqDisp"]["RUN_ARGS"]
@@ -74,7 +74,7 @@ class TestSeqRunDetection:
 
         _build_global_scopes.cache_clear()
         load_dictionary.cache_clear()
-        _, callable_scope, _, _ = _build_global_scopes(default_dictionary)
+        _, callable_scope, _, _, _ = _build_global_scopes(default_dictionary)
 
         sym = callable_scope["Ref"]["seqDisp"]["RUN"]
         assert isinstance(sym, CommandSymbol)
@@ -720,7 +720,7 @@ class TestSeqArgsBufferSizeFromDictionary:
             dict_path = _dict_with_seq_args_buffer_size(1024, Path(tmpdir))
             _build_global_scopes.cache_clear()
             load_dictionary.cache_clear()
-            _, _, _, type_defs = _build_global_scopes(dict_path)
+            _, _, _, type_defs, _ = _build_global_scopes(dict_path)
             seq_args = type_defs["Svc.SeqArgs"]
             assert seq_args.members[1].type.length == 1024
             assert seq_args.members[1].type.name == "Array_U8_1024"

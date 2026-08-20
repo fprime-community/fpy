@@ -311,9 +311,9 @@ class FpyType:
         if self.kind == TypeKind.INTERNAL_STRING:
             return "String"
         if self.kind == TypeKind.ANON_STRUCT:
-            return "anonymous struct"
+            return "struct literal"
         if self.kind == TypeKind.ANON_ARRAY:
-            return "anonymous array"
+            return "array literal"
         if self.kind == TypeKind.SIZED:
             return "a serializable, statically-sized value"
         return self.name

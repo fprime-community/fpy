@@ -242,6 +242,7 @@ class AstAnonArray(Ast):
 
 
 AstOp = Union[AstBinaryOp, AstUnaryOp]
+AstAnonExpr = Union[AstAnonStruct, AstAnonArray]
 
 AstReference = Union[AstGetAttr, AstIndexExpr, AstIdent]
 AstExpr = Union[

@@ -27,6 +27,10 @@ For each function definition statement:
 For each sequence metadata statement:
 1. If the number of parameters is greater than 255, raise an error.
 
+# CheckAnonStructMembers
+
+For each anonymous struct expression, if two of its members have the same name, raise an error.
+
 # DefineFunctions
 
 For each function definition statement:
