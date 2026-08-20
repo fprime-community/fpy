@@ -609,10 +609,19 @@ class EmitLlvmExpr(Emitter):
         elif is_instance_compat(func, BuiltinFuncSymbol):
             return self._emit_builtin_call(node_args, func, state)
         elif is_instance_compat(func, TypeCtorSymbol):
-            # A ctor call with all-constant args folds before reaching here.
-            raise BackendError(
-                "LLVM backend can't lower runtime type-constructor calls yet"
-            )
+            # A ctor call with all-constant args folds before reaching here;
+            # what remains builds the aggregate (struct or array) from its
+            # positional args, each already coerced to its member/element
+            # type. A filled-in default arrives as a bare FpyValue.
+            value = ir.Constant(func.type.llvm_type, ir.Undefined)
+            for i, arg in enumerate(node_args):
+                elem = (
+                    arg.llvm_value
+                    if is_instance_compat(arg, FpyValue)
+                    else self.emit(arg, state)
+                )
+                value = self.builder.insert_value(value, elem, i)
+            return value
         elif is_instance_compat(func, CastSymbol):
             # the actual conversion happens already as part of the
             # synthesized -> contextual conversion in emit()
@@ -897,8 +906,11 @@ class AssignAddresses(TopDownVisitor):
         ptrs = state.backend.variable_ptrs
         assert sym not in ptrs, sym
         if sym.is_global:
+            # Unique the name: a variable may share its name with a module-level
+            # symbol (e.g. a host import like "time").
+            module = state.backend.module
             gvar = ir.GlobalVariable(
-                state.backend.module, sym.type.llvm_type, name=sym.name
+                module, sym.type.llvm_type, name=module.get_unique_name(sym.name)
             )
             gvar.linkage = "internal"
             # Zero-initialized; the declaring assignment writes the real value.
@@ -1313,8 +1325,9 @@ class GenerateLlvmModule:
         It lives in the base scope, outside every block, so no storage walk
         reaches it."""
         flags = state.flags_var
+        module = state.backend.module
         g = ir.GlobalVariable(
-            state.backend.module, flags.type.llvm_type, name=flags.name
+            module, flags.type.llvm_type, name=module.get_unique_name(flags.name)
         )
         g.linkage = "internal"
         g.initializer = FpyValue(

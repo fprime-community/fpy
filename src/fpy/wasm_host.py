@@ -19,6 +19,9 @@ HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
 HOST_TLM_FUNC_NAME = "tlm"
 HOST_PRM_FUNC_NAME = "prm"
+HOST_TIME_FUNC_NAME = "time"
+HOST_RSLEEP_FUNC_NAME = "rsleep"
+HOST_ASLEEP_FUNC_NAME = "asleep"
 
 
 def __getattr__(name: str):
@@ -111,6 +114,27 @@ def declare_host_imports(module: ir.Module) -> None:
                 ir.IntType(32),
             ],
         ),
+    )
+
+    # time(time_ptr, time_len) reads the current time: the host writes the
+    # serialized Fw.Time into the buffer, whose length must be exactly the
+    # serialized time size.
+    _declare_host_func(
+        module,
+        HOST_TIME_FUNC_NAME,
+        ir.FunctionType(ir.VoidType(), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
+
+    # rsleep(useconds) suspends the sequence for the given duration, relative
+    # to the current time.
+    _declare_host_func(
+        module, HOST_RSLEEP_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ir.IntType(64)])
+    )
+
+    # asleep(useconds) suspends the sequence until the given absolute time,
+    # expressed in microseconds since the epoch of the host's time base.
+    _declare_host_func(
+        module, HOST_ASLEEP_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ir.IntType(64)])
     )
 
     # prm(prm_id, buf_ptr, buf_len) reads a parameter: the host writes the

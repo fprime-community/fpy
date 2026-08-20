@@ -15,7 +15,13 @@ from fpy.bytecode.directives import (
 )
 from fpy.ir import Ir
 from fpy.symbols import BuiltinFuncSymbol
-from fpy.wasm_host import HOST_EVENT_FUNC_NAME, HOST_EXIT_FUNC_NAME
+from fpy.wasm_host import (
+    HOST_ASLEEP_FUNC_NAME,
+    HOST_EVENT_FUNC_NAME,
+    HOST_EXIT_FUNC_NAME,
+    HOST_RSLEEP_FUNC_NAME,
+    HOST_TIME_FUNC_NAME,
+)
 from fpy.syntax import Ast
 from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
@@ -68,6 +74,68 @@ def generate_abs_signed_int(
     return [IntAbsDirective()]
 
 
+def _emit_micros_u64(builder, seconds, useconds):
+    """Combine a (seconds, useconds) pair of i32 values into one i64
+    microsecond count, the unit the host sleep imports take."""
+    from llvmlite import ir
+
+    i64 = ir.IntType(64)
+    return builder.add(
+        builder.mul(builder.zext(seconds, i64), ir.Constant(i64, 1_000_000)),
+        builder.zext(useconds, i64),
+    )
+
+
+def generate_now_llvm(builder, args):
+    """LLVM/wasm lowering of now(): the host time import writes the serialized
+    Fw.Time into a buffer in linear memory, which is then deserialized into
+    the Fw.Time value."""
+    from llvmlite import ir
+
+    # The load helper lives with the rest of the wire-format emission in the
+    # LLVM backend; import it here so this module stays importable without
+    # llvmlite.
+    from fpy.codegen_llvm import EmitLlvmExpr, create_byte_buffer
+
+    assert not args
+    module = builder.module
+    buf = create_byte_buffer(module, "time_buf", bytearray(TIME.max_size))
+    builder.call(
+        module.globals[HOST_TIME_FUNC_NAME],
+        [
+            builder.bitcast(buf, ir.IntType(8).as_pointer()),
+            ir.Constant(ir.IntType(32), TIME.max_size),
+        ],
+    )
+    return EmitLlvmExpr(builder)._emit_load_big_endian(TIME, buf, 0)
+
+
+def generate_sleep_llvm(builder, args):
+    """LLVM/wasm lowering of sleep(seconds, useconds): the host rsleep import
+    takes the duration as one microsecond count."""
+    [(seconds, _), (useconds, _)] = args
+    builder.call(
+        builder.module.globals[HOST_RSLEEP_FUNC_NAME],
+        [_emit_micros_u64(builder, seconds, useconds)],
+    )
+    return None
+
+
+def generate_sleep_until_llvm(builder, args):
+    """LLVM/wasm lowering of sleep_until(wakeup_time): the host asleep import
+    takes the wake-up time as microseconds since the epoch of the host's time
+    base (the wakeup time's own base and context do not travel)."""
+    [(wakeup, _)] = args
+    member_idx = {m.name: i for i, m in enumerate(TIME.members)}
+    seconds = builder.extract_value(wakeup, member_idx["seconds"])
+    useconds = builder.extract_value(wakeup, member_idx["useconds"])
+    builder.call(
+        builder.module.globals[HOST_ASLEEP_FUNC_NAME],
+        [_emit_micros_u64(builder, seconds, useconds)],
+    )
+    return None
+
+
 MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     "sleep",
     NOTHING,
@@ -80,6 +148,7 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
         ("useconds", U32, FpyValue(U32, 0)),
     ],
     lambda n, c: [WaitRelDirective()],
+    generate_sleep_llvm,
 )
 
 
@@ -243,6 +312,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         NOTHING,
         [("wakeup_time", TIME, None)],
         lambda n, c: [WaitAbsDirective()],
+        generate_sleep_until_llvm,
     ),
     "exit": BuiltinFuncSymbol(
         "exit",
@@ -258,7 +328,9 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         lambda n, c: [FloatLogDirective()],
         generate_log_llvm,
     ),
-    "now": BuiltinFuncSymbol("now", TIME, [], lambda n, c: [PushTimeDirective()]),
+    "now": BuiltinFuncSymbol(
+        "now", TIME, [], lambda n, c: [PushTimeDirective()], generate_now_llvm
+    ),
     "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),
     "randf": BuiltinFuncSymbol("randf", F64, [], generate_randf),
     "set_seed": BuiltinFuncSymbol(

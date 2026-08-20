@@ -158,6 +158,9 @@ def run_seq_wasm(
     failing_opcodes: set[int] = None,
     tlm: dict[str, bytes] = None,
     prms: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
 ) -> int:
     """Compile *seq* to wasm and run it, returning the sequence's error code
     (reported via the exit/panic host imports; 0 when the void entrypoint
@@ -176,6 +179,9 @@ def run_seq_wasm(
         failing_opcodes=failing_opcodes,
         tlm=tlm,
         prms=prms,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
     )
     return code
 
@@ -240,6 +246,9 @@ def _run_seq_wasm(
     cmd_response: int = None,
     tlm: dict[str, bytes] = None,
     prms: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Compile *seq* to wasm, run it through the spacewasm runner harness, and
     return (error code, reported events, dispatched command buffers).
@@ -260,6 +269,9 @@ def _run_seq_wasm(
         cmd_response=cmd_response,
         tlm=tlm,
         prms=prms,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
     )
 
 
@@ -269,6 +281,9 @@ def run_wasm(
     cmd_response: int = None,
     tlm: dict[str, bytes] = None,
     prms: dict[str, bytes] = None,
+    time_base: int = 0,
+    time_context: int = 0,
+    initial_time_us: int = 0,
 ) -> tuple[int, list[tuple[int, str]], list[bytes]]:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return (error code, reported events, dispatched
@@ -288,7 +303,12 @@ def run_wasm(
     request = {
         "seqFile": seq_file,
         "cwd": seq_dir,
-        "time": {"base": 0, "context": 0, "seconds": 0, "useconds": 0},
+        "time": {
+            "base": time_base,
+            "context": time_context,
+            "seconds": initial_time_us // 1_000_000,
+            "useconds": initial_time_us % 1_000_000,
+        },
         "tlm": {
             str(d["ch_name_dict"][chan_name].ch_id): bytes(val).hex()
             for chan_name, val in (tlm or {}).items()
@@ -631,6 +651,9 @@ def assert_run_success(
             failing_opcodes=failing_opcodes,
             tlm=tlm,
             prms=prms,
+            time_base=time_base,
+            time_context=time_context,
+            initial_time_us=initial_time_us,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
@@ -752,6 +775,7 @@ def assert_run_failure(
             ground_binary_dir=ground_binary_dir,
             import_directories=import_directories,
             failing_opcodes=failing_opcodes,
+            initial_time_us=initial_time_us,
         )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")
