@@ -347,14 +347,14 @@ class TestWasmMemberAccess:
             == DOMAIN_ERROR
         )
 
-    def test_anon_struct_member(self):
-        # Member access on an anonymous struct literal emits just the member
-        # expression; a runtime member value keeps it from const-folding.
+    def test_anon_struct_runtime_member(self):
+        # An anonymous struct is a constructor call of its target type; a
+        # runtime member value keeps it from const-folding.
         assert (
             run_seq_wasm(
                 "y: F32 = 4.5\n"
-                "x: F32 = {time: 1.0, value: y}.value\n"
-                "assert x == 4.5\n"
+                "p: Ref.SignalPair = {time: 1.0, value: y}\n"
+                "assert p.value == 4.5\n"
             )
             == NO_ERROR
         )

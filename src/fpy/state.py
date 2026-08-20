@@ -157,9 +157,10 @@ class CompileState:
     None if unsure at compile time.  NOTHING_VALUE for void expressions."""
 
     resolved_args: dict[Ast, list[AstExpr]] = field(default_factory=dict)
-    """Maps function calls, anon structs, and anon arrays to resolved arguments
-    in positional order. Default values are filled in for arguments not provided
-    at the call site (or struct members / array elements with defaults)."""
+    """Maps function calls (and, until DesugarAnonExprs turns them into type
+    constructor calls, anonymous structs and arrays) to resolved arguments in
+    positional order. Default values are filled in for arguments not provided
+    at the call site."""
 
     function_global_uses: dict[AstDef, list[VariableSymbol]] = field(
         default_factory=dict
@@ -514,7 +515,7 @@ def _populate_type_defaults(typ: FpyType) -> None:
         typ.elem_defaults = tuple(array_defaults)
 
 
-def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
+def make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
     """Create a TypeCtorSymbol for a type, or return None if it has no callable ctor."""
     if typ.kind == TypeKind.STRUCT:
         args = [(m.name, m.type, typ.member_defaults[m.name]) for m in typ.members]
@@ -625,7 +626,7 @@ def _build_global_scopes(dictionary: str) -> tuple:
         )
 
     for name, typ in type_name_dict.items():
-        ctor = _make_type_ctor(name, typ)
+        ctor = make_type_ctor(name, typ)
         if ctor is not None:
             callable_name_dict[name] = ctor
 

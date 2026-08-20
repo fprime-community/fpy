@@ -118,8 +118,6 @@ from fpy.bytecode.directives import (
 )
 from fpy.syntax import (
     Ast,
-    AstAnonStruct,
-    AstAnonArray,
     AstAssert,
     AstBinaryOp,
     AstBreak,
@@ -859,21 +857,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         # use the unconverted for this expr for now, because we haven't run conversion
         unconverted_type = state.synthesized_types[node]
 
-        if is_instance_compat(node.parent, AstAnonArray):
-            # Direct index access on anonymous array literal.
-            # The index must be a compile-time constant.
-            idx_value = state.const_expr_values.get(node.item)
-            assert (
-                idx_value is not None
-            ), "Dynamic indexing on anonymous array literals is not supported"
-            idx = idx_value.val
-            assert 0 <= idx < len(node.parent.elements), f"Index {idx} out of bounds"
-            dirs = self.emit(node.parent.elements[idx], state)
-            converted_type = state.contextual_types[node]
-            if unconverted_type != converted_type:
-                dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
-            return dirs
-
         # however, for parent, use converted because conversion has been run
         parent_type = state.contextual_types[node.parent]
 
@@ -960,30 +943,18 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         elif is_instance_compat(sym, PrmDef):
             dirs.append(PushPrmDirective(sym.prm_id))
         elif is_instance_compat(sym, FieldAccess):
-            if is_instance_compat(sym.parent_expr, AstAnonStruct):
-                # Direct member access on anonymous struct literal.
-                # Emit just the accessed member expression (skip the struct build).
-                for name, value_expr in sym.parent_expr.members:
-                    if name == node.attr:
-                        dirs.extend(self.emit(value_expr, state))
-                        break
-                else:
-                    assert False, f"Member {node.attr} not found in anon struct"
-            else:
-                # okay, put parent dirs in first
-                dirs.extend(self.emit(sym.parent_expr, state))
-                assert sym.local_offset is not None
-                # use the converted type of parent
-                parent_type = state.contextual_types[sym.parent_expr]
-                # push the offset to the stack
-                dirs.append(
-                    PushValDirective(
-                        FpyValue(StackSizeType, sym.local_offset).serialize()
-                    )
-                )
-                dirs.append(
-                    GetFieldDirective(parent_type.max_size, unconverted_type.max_size)
-                )
+            # okay, put parent dirs in first
+            dirs.extend(self.emit(sym.parent_expr, state))
+            assert sym.local_offset is not None
+            # use the converted type of parent
+            parent_type = state.contextual_types[sym.parent_expr]
+            # push the offset to the stack
+            dirs.append(
+                PushValDirective(FpyValue(StackSizeType, sym.local_offset).serialize())
+            )
+            dirs.append(
+                GetFieldDirective(parent_type.max_size, unconverted_type.max_size)
+            )
         else:
             assert (
                 False
@@ -1343,32 +1314,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         const_dirs = self.try_emit_expr_as_const(node, state)
         assert const_dirs is not None
         return const_dirs
-
-    def emit_AstAnonStruct(self, node: AstAnonStruct, state: CompileState):
-        # Try to emit as a constant first
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
-        # Emit each resolved member value in target struct order
-        dirs = []
-        resolved_members = state.resolved_args[node]
-        for member_expr in resolved_members:
-            dirs.extend(self._emit_func_arg(member_expr, state))
-        return dirs
-
-    def emit_AstAnonArray(self, node: AstAnonArray, state: CompileState):
-        # Try to emit as a constant first
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
-        # Emit each element value
-        dirs = []
-        resolved_elements = state.resolved_args[node]
-        for elem_expr in resolved_elements:
-            dirs.extend(self._emit_func_arg(elem_expr, state))
-        return dirs
 
     def emit_AstAssert(self, node: AstAssert, state: CompileState):
         dirs = self.emit(node.condition, state)

@@ -32,8 +32,6 @@ from fpy.symbols import (
 )
 from fpy.syntax import (
     Ast,
-    AstAnonArray,
-    AstAnonStruct,
     AstAssert,
     AstAssign,
     AstBinaryOp,
@@ -151,15 +149,9 @@ def create_byte_buffer(
 def is_addressable(expr: AstExpr, state: CompileState) -> bool:
     """True when *expr* denotes a location rather than a computed value, so
     that a pointer to it can be formed: *expr* is a variable, or a
-    member/element access. An access into an anonymous literal is the
-    exception -- that literal is never built, so the access reduces to the
-    accessed member's own expression instead."""
+    member/element access."""
     sym = state.resolved_symbols.get(expr)
-    if is_instance_compat(sym, VariableSymbol):
-        return True
-    return is_instance_compat(sym, FieldAccess) and not is_instance_compat(
-        sym.parent_expr, (AstAnonStruct, AstAnonArray)
-    )
+    return is_instance_compat(sym, (VariableSymbol, FieldAccess))
 
 
 class EmitLlvmExpr(Emitter):
@@ -180,7 +172,7 @@ class EmitLlvmExpr(Emitter):
         if value is not None:
             if not value.type.is_concrete:
                 # Only a bare expression statement leaves a constant at an
-                # abstract type (Integer/Float/InternalString/anon literal):
+                # abstract type (Integer/Float/InternalString):
                 # every other position coerces its expression to a concrete
                 # contextual type. An abstract value has no machine
                 # representation, and a constant is pure (const folding only
@@ -464,32 +456,12 @@ class EmitLlvmExpr(Emitter):
         # A qualified name can't denote a variable (an imported sequence may
         # not declare a top-level variable), so what remains is member access.
         assert is_instance_compat(sym, FieldAccess), sym
-        if is_addressable(node, state):
-            return self.builder.load(self._emit_ptr(node, state), name=node.attr)
-        # Member access on an anonymous struct literal: the struct is never
-        # built; emit just the accessed member's expression.
-        assert is_instance_compat(sym.parent_expr, AstAnonStruct), sym.parent_expr
-        for name, value_expr in sym.parent_expr.members:
-            if name == node.attr:
-                return self.emit(value_expr, state)
-        assert False, f"member {node.attr} not found in anon struct"
+        return self.builder.load(self._emit_ptr(node, state), name=node.attr)
 
     def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
         assert is_instance_compat(sym, FieldAccess), sym
-        if is_addressable(node, state):
-            return self.builder.load(self._emit_ptr(node, state))
-        # Element access on an anonymous array literal: the array is never
-        # built; the index must be a compile-time constant, so emit just that
-        # element's expression.
-        assert is_instance_compat(sym.parent_expr, AstAnonArray), sym.parent_expr
-        idx_value = state.const_expr_values.get(node.item)
-        assert (
-            idx_value is not None
-        ), "Dynamic indexing on anonymous array literals is not supported"
-        idx = idx_value.val
-        assert 0 <= idx < len(sym.parent_expr.elements), f"Index {idx} out of bounds"
-        return self.emit(sym.parent_expr.elements[idx], state)
+        return self.builder.load(self._emit_ptr(node, state))
 
     def _emit_tlm_prm_read(
         self, node: AstExpr, sym: ChDef | PrmDef, state: CompileState
@@ -936,7 +908,7 @@ class AssignAddresses(TopDownVisitor):
         if state.const_expr_values.get(access) is not None:
             return None  # folded to a constant, so no address is taken
         if not is_addressable(access, state):
-            return None  # a qualified name, or a never-built anonymous literal
+            return None  # a qualified name
 
         # _emit_ptr copies its argument to a slot on exactly this condition.
         parent = state.resolved_symbols[access].parent_expr

@@ -1,9 +1,12 @@
 from __future__ import annotations
 import copy
+from typing import Union
 from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
+    AstAnonArray,
+    AstAnonStruct,
     AstAssert,
     AstAssign,
     AstAugAssign,
@@ -26,6 +29,7 @@ from fpy.types import (
     FpyType,
     FpyValue,
     INTEGER,
+    TypeKind,
     TIME_OPS,
     TIME_COMPARISON,
     BOOL,
@@ -34,6 +38,7 @@ from fpy.types import (
 from fpy.state import (
     CompileState,
     ForLoopAnalysis,
+    make_type_ctor,
 )
 from fpy.error import WarningType
 from fpy.symbols import (
@@ -883,3 +888,77 @@ class DesugarTimeOperators(Transformer):
             return self._make_cmp_expr(node, func_name, state)
         else:
             return self._make_func_call(node, func_name, result_type, state)
+
+
+class DesugarAnonExprs(Transformer):
+    """Desugar each anonymous struct/array into a call of the constructor of
+    the type it was coerced to:
+
+        {seconds: 1, useconds: 0}   becomes   Fw.TimeIntervalValue(1, 0)
+        [1, 2]                      becomes   Svc.ComQueueDepth(1, 2)
+
+    with the call's arguments being the resolved arguments PickTypes recorded
+    for the anonymous expr (in member/element order, defaults filled in). An
+    anonymous expr that was not coerced to a struct or array type has no
+    constructor to become, and is an error.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # FIXME use type union for anonstruct/array
+        self.replaced: dict[Ast, AstFuncCall] = {}
+        """each desugared anonymous expr -> the call that replaced it"""
+
+    def run(self, start: Ast, state: CompileState):
+        super().run(start, state)
+        if len(state.errors) != 0:
+            return
+        # FIXME confusing comment. make much more clear and use simple language
+        # A call's resolved args are a list of the call's own, so point any
+        # that name a desugared anonymous expr at its replacement.
+        for call, args in state.resolved_args.items():
+            state.resolved_args[call] = [
+                self.replaced.get(arg, arg) if isinstance(arg, Ast) else arg
+                for arg in args
+            ]
+
+    def visit_AstAnonStruct_AstAnonArray(
+        self, node: Union[AstAnonStruct, AstAnonArray], state: CompileState
+    ) -> AstFuncCall:
+        target = state.contextual_types[node]
+        if target.kind not in (TypeKind.STRUCT, TypeKind.ARRAY):
+            # FIXME is there a more clear and obvious way to check that the
+            # expr was coerced to a type? also let's use a more generic error message, avoid
+            # mentioning anonymous i think
+            if isinstance(node, AstAnonStruct):
+                what, a_kind = "struct", "a struct"
+            else:
+                what, a_kind = "array", "an array"
+            state.err(
+                f"Anonymous {what} is not used where {a_kind} type is expected, "
+                f"so its type cannot be determined",
+                node,
+            )
+            return None
+
+        # FIXME this is wrong, why are we constructing a new symbol here? we should look up a symbol
+        # or there should be some mapping of type to type ctor
+        ctor = make_type_ctor(target.name, target)
+        func = AstIdent(node.meta, target.name)
+        func.id = state.next_node_id
+        state.next_node_id += 1
+        state.resolved_symbols[func] = ctor
+
+        # the resolved args may contain anonymous exprs that were just desugared
+        args = [
+            self.replaced.get(arg, arg) if isinstance(arg, Ast) else arg
+            for arg in state.resolved_args[node]
+        ]
+        call = AstFuncCall(node.meta, func, args)
+        call.id = state.next_node_id
+        state.next_node_id += 1
+        state.synthesized_types[call] = target
+        state.contextual_types[call] = target
+        state.resolved_args[call] = args
+        self.replaced[node] = call
+        return call
