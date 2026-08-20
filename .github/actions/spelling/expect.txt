@@ -120,6 +120,7 @@ Pythonically
 pyversions
 randf
 rb
+rsleep
 rustup
 SADMEP
 sdiv
