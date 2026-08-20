@@ -1313,7 +1313,7 @@ class PickTypesAndResolveFields(Visitor):
         ctor = state.type_ctors[target]
         if not self._check_ctor_type(ctor, node, state):
             return False
-        if self._resolve_call(node, ctor, args, state) is None:
+        if self.bind_and_coerce_args(node, ctor, args, state) is None:
             return False
         state.contextual_types[node] = target
         return True
@@ -1803,11 +1803,11 @@ class PickTypesAndResolveFields(Visitor):
         resolved = self._resolve_time_op(lhs_type, rhs_type, node.op)
         if resolved is not None:
             resolved_lhs, resolved_rhs, common_type, result_type, _, _ = resolved
-            if not self.coerce_expr_type(node.lhs, resolved_lhs, state):
-                return
-            if not self.coerce_expr_type(node.rhs, resolved_rhs, state):
-                return
-                # FIXME prove that this can happen with a test
+            # _resolve_time_op confirmed each operand can coerce to its time
+            # type, and those types have only scalar members, so coercion
+            # cannot fail here
+            assert self.coerce_expr_type(node.lhs, resolved_lhs, state)
+            assert self.coerce_expr_type(node.rhs, resolved_rhs, state)
             state.op_intermediate_types[node] = common_type
             state.synthesized_types[node] = result_type
             state.contextual_types[node] = result_type
@@ -1884,21 +1884,20 @@ class PickTypesAndResolveFields(Visitor):
         state.synthesized_types[node] = anon_type
         state.contextual_types[node] = anon_type
 
-    def resolve_args(
+    def bind_args(
         self,
-        node: AstFuncCall,
+        node: Ast,
         func: CallableSymbol,
         node_args: list,
         state: CompileState,
     ) -> list[AstExpr] | CompileError:
-        """Resolve a function call's arguments.
+        """Bind a call's arguments to *func*'s parameters: positional
+        arguments in order, named arguments by name, and each parameter's
+        default for an argument not given. Checks each bound argument can be
+        coerced to its parameter's type.
 
-        Reorders named arguments to positional order, fills in default values
-        for missing optional arguments, checks for missing required arguments,
-        and validates argument types are compatible.
-
-        Returns assigned_args on success.
-        Returns a CompileError if there's an issue with the arguments.
+        Returns the bound arguments, one per parameter in parameter order, or
+        a CompileError if an argument cannot be bound.
         """
         func_args = func.args
         param_name_to_idx = {a[0]: i for i, a in enumerate(func_args)}
@@ -2002,47 +2001,40 @@ class PickTypesAndResolveFields(Visitor):
         return assigned
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        func = state.resolved_symbols.get(node.func)
-        # FIXME this should be in another pass. maybe could put in an existing one? can you prove this can get hit?
-        if func is None:
-            # if it were a reference to a callable, it would have already been resolved
-            # if it were a symbol to something else, it would have already errored
-            # so it's not even a symbol, just some expr
-            state.err(f"Unknown function", node.func)
-            return
+        # CheckResolvedSymbolKinds rejected any callee that did not resolve to
+        # a callable
+        func = state.resolved_symbols[node.func]
+        assert is_instance_compat(func, CallableSymbol), func
 
         if is_instance_compat(func, TypeCtorSymbol):
             if not self._check_ctor_type(func, node.func, state):
                 return
 
         node_args = node.args if node.args else []
-        if self._resolve_call(node, func, node_args, state) is None:
+        if self.bind_and_coerce_args(node, func, node_args, state) is None:
             return
 
         state.synthesized_types[node] = func.return_type
         state.contextual_types[node] = func.return_type
 
-    # FIXME I think the usage of resolve in both this func and resolve_args is really loose. please
-    # suggest some better names, please use existing, simple language.
-    def _resolve_call(
+    def bind_and_coerce_args(
         self,
         node: Ast,
         func: CallableSymbol,
         node_args: list,
         state: CompileState,
     ) -> list[AstExpr] | None:
-        """Resolve the arguments *node_args* of a call of *func* (see
-        resolve_args), record them in state.resolved_args, and coerce each
-        argument expression to its parameter's type. Returns the resolved
-        arguments, or None after reporting an error."""
-        resolved_args = self.resolve_args(node, func, node_args, state)
-        if is_instance_compat(resolved_args, CompileError):
-            state.errors.append(resolved_args)
+        """Bind a call's arguments to *func*'s parameters (bind_args), record
+        them in state.resolved_args, and coerce each to its parameter's type.
+        Returns the bound arguments, or None after reporting an error."""
+        args = self.bind_args(node, func, node_args, state)
+        if is_instance_compat(args, CompileError):
+            state.errors.append(args)
             return None
-        state.resolved_args[node] = resolved_args
+        state.resolved_args[node] = args
 
         if is_instance_compat(func, CastSymbol):
-            node_arg = resolved_args[0]
+            node_arg = args[0]
             output_type = func.to_type
             # we're going from input_type to output type, and we're going to ignore
             # the coercion rules
@@ -2051,9 +2043,9 @@ class PickTypesAndResolveFields(Visitor):
             # let us turn off some checks for boundaries later when we do const folding
             # we turn off the checks because the user is asking us to force this!
             state.expr_explicit_casts.append(node_arg)
-            return resolved_args
+            return args
 
-        for value_expr, arg in zip(resolved_args, func.args):
+        for value_expr, arg in zip(args, func.args):
             target_type = arg[1]
             # Skip coercion for FpyValue defaults from builtins or type constructors
             if not is_instance_compat(value_expr, Ast):
@@ -2064,7 +2056,7 @@ class PickTypesAndResolveFields(Visitor):
                 continue
             if not self.coerce_expr_type(value_expr, target_type, state):
                 return None
-        return resolved_args
+        return args
 
     def visit_AstRange(self, node: AstRange, state: CompileState):
         if not self.coerce_expr_type(node.lower_bound, LoopVarType, state):

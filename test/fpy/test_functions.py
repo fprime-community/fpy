@@ -944,3 +944,35 @@ assert x == 0
         assert_run_success(
             fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
         )
+
+
+class TestCalleeMustBeCallable:
+    """A call's callee must resolve to a callable. Anything else -- a value
+    or an expression -- is rejected as an unknown callable before type
+    checking, so the type pass never sees an unresolved callee."""
+
+    def test_call_of_call_result(self, fprime_test_api):
+        assert_compile_failure(fprime_test_api, "now()()\n", match="Unknown callable")
+
+    def test_call_of_literal(self, fprime_test_api):
+        assert_compile_failure(fprime_test_api, "(1)()\n", match="Unknown callable")
+
+    def test_call_of_variable(self, fprime_test_api):
+        seq = """
+x: U32 = 1
+x()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable 'x'")
+
+    def test_call_of_array_element(self, fprime_test_api):
+        seq = """
+a: Svc.ComQueueDepth = [1, 2]
+a[0]()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable")
+
+    def test_call_of_member_of_call(self, fprime_test_api):
+        seq = """
+x: U32 = Fw.TimeIntervalValue(1, 0).seconds()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable")

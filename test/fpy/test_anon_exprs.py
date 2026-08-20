@@ -212,6 +212,22 @@ val: Svc.ComQueueDepth = [True, False]
 """
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_anon_array_wrong_element_type_as_func_arg(self, fprime_test_api):
+        """An argument's coercibility is checked by its array type alone when
+        binding arguments; the elements are checked when it is coerced."""
+        seq = """
+def first(a: Svc.ComQueueDepth) -> U32:
+    return a[0]
+x: U32 = first([True, False])
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Expected U32, found bool")
+
+    def test_anon_array_wrong_element_type_as_ctor_arg(self, fprime_test_api):
+        seq = """
+v: Ref.SignalInfo = Ref.SignalInfo(Ref.SignalType.TRIANGLE, [True], [])
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Expected F32, found bool")
+
     def test_anon_array_assigned_to_non_array(self, fprime_test_api):
         """Anonymous array cannot be coerced to a non-array type."""
         seq = """
