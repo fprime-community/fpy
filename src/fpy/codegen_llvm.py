@@ -212,6 +212,11 @@ class EmitLlvmExpr(Emitter):
         rhs = self.emit(node.rhs, state)
         op = node.op
 
+        # I'd like to divide the astbinaryops up into various cases.
+        # and then just have a mapping of case to impl? and then all the op handlers just switch over the case?
+        # ideally we would be forced to handle every case by the "compiler", i guess we
+        # could just have an assert that every case is a key in the map
+
         # -- arithmetic: result is the (numeric) intermediate type ------------
         if op == BinaryStackOp.ADD:
             return b.fadd(lhs, rhs) if is_float else b.add(lhs, rhs)

@@ -272,7 +272,12 @@ def generate_log_event_llvm(builder, args):
 
 
 MACRO_ABS_FLOAT = BuiltinFuncSymbol(
-    "abs", F64, [("value", F64, None)], generate_abs_float, generate_abs_float_llvm
+    "abs",
+    F64,
+    [("value", F64, None)],
+    generate_abs_float,
+    generate_abs_float_llvm,
+    pure=True,
 )
 
 MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
@@ -303,6 +308,7 @@ TIME_MACRO = BuiltinFuncSymbol(
         ("timeContext", U8, FpyValue(U8, 0)),
     ],
     lambda n, c: [],  # placeholder - const eval handles this
+    pure=True,
 )
 
 MACROS: dict[str, BuiltinFuncSymbol] = {

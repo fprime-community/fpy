@@ -504,6 +504,11 @@ class AssignNameGroups(Visitor):
                 if default_value is not None:
                     state.contextual_name_group[default_value] = NameGroup.VALUE
 
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        for stmt in node.stmts:
+            if is_instance_compat(stmt, AstExpr):
+                state.contextual_name_group[stmt] = NameGroup.VALUE
+
     def visit_AstAssign(self, node: AstAssign, state: CompileState):
         if node.type_ann is not None:
             state.contextual_name_group[node.type_ann] = NameGroup.TYPE
@@ -673,9 +678,8 @@ class ResolveQualifiedIdentifiers(TopDownVisitor):
 
 class CheckAllUnqualifiedIdentifiersResolved(Visitor):
     """Verify every AstIdent was resolved by ResolveQualifiedIdentifiers. Catches
-    an identifier without a contextual name group -- e.g. a bare expression statement
-    like `Foo.bar.BAZ`, whose root `Foo` is given no name group and so is never
-    resolved -- which would otherwise KeyError in a later pass."""
+    an identifier without a contextual name group, which would otherwise
+    KeyError in a later pass."""
 
     def visit_AstIdent(self, node: AstIdent, state: CompileState):
         if node not in state.resolved_symbols:
@@ -1009,6 +1013,89 @@ class CollectFunctionGlobalUses(TopDownVisitor):
             for _ident, _type_ann, default in node.parameters:
                 if default is not None:
                     scanner.run(default, state)
+
+
+class ElideUselessStmts(Visitor):
+    """Deletes every expression statement whose evaluation cannot be observed:
+    it reads and writes nothing outside the program's own variables, and
+    cannot fault on either backend.
+
+    Such an expression is built only from constants, variable reads, struct
+    member reads, array element reads with a constant index, comparisons and
+    boolean operators, float arithmetic (`//` and `%` only by a constant that
+    is neither 0 nor -1), and calls of type constructors, casts and pure
+    builtins. Anything else is kept: commands, script function calls,
+    telemetry and parameter reads, impure builtins, integer `+`, `-`, `*` and
+    negation (which fault on I64 overflow), and divisions that can fault.
+    """
+
+    def visit_AstBlock(self, node: AstBlock, state: CompileState):
+        node.stmts = [
+            stmt
+            for stmt in node.stmts
+            if not (is_instance_compat(stmt, AstExpr) and self.is_pure(stmt, state))
+        ]
+
+    def is_pure(self, node: AstExpr | FpyValue, state: CompileState) -> bool:
+        if is_instance_compat(node, FpyValue):
+            return True
+        if state.const_expr_values.get(node) is not None:
+            # folded at compile time, and only pure expressions fold
+            return True
+        if is_instance_compat(node, AstLiteral):
+            return True
+        if isinstance(node, AstIdent):
+            return not is_instance_compat(state.resolved_symbols[node], (ChDef, PrmDef))
+        if isinstance(node, AstGetAttr):
+            if is_instance_compat(state.resolved_symbols[node], (ChDef, PrmDef)):
+                return False
+            return self.is_pure(node.parent, state)
+        if isinstance(node, AstIndexExpr):
+            # a non-constant index may be out of bounds
+            if state.const_expr_values.get(node.item) is None:
+                return False
+            return self.is_pure(node.parent, state) and self.is_pure(node.item, state)
+        if isinstance(node, AstUnaryOp):
+            if (
+                node.op == UnaryStackOp.NEGATE
+                and state.op_intermediate_types[node].is_integer
+            ):
+                # an I64 multiply by -1, which faults on overflow
+                return False
+            return self.is_pure(node.val, state)
+        if isinstance(node, AstBinaryOp):
+            if (
+                node.op
+                in (
+                    BinaryStackOp.ADD,
+                    BinaryStackOp.SUBTRACT,
+                    BinaryStackOp.MULTIPLY,
+                )
+                and state.op_intermediate_types[node].is_integer
+            ):
+                # faults on I64 overflow
+                return False
+            if node.op in (BinaryStackOp.FLOOR_DIVIDE, BinaryStackOp.MODULUS):
+                # a zero divisor faults, and so does I64 min // -1. `/` and
+                # `**` always compute over floats, which never fault
+                divisor = state.const_expr_values.get(node.rhs)
+                if divisor is None or divisor.val in (0, -1):
+                    return False
+            return self.is_pure(node.lhs, state) and self.is_pure(node.rhs, state)
+        if isinstance(node, AstFuncCall):
+            func = state.resolved_symbols[node.func]
+            if is_instance_compat(func, BuiltinFuncSymbol):
+                if not func.pure:
+                    return False
+            elif not is_instance_compat(func, (TypeCtorSymbol, CastSymbol)):
+                return False
+            return all(
+                self.is_pure(
+                    arg.value if isinstance(arg, AstNamedArgument) else arg, state
+                )
+                for arg in node.args or []
+            )
+        assert False, node
 
 
 class _FindScriptCalls(TopDownVisitor):

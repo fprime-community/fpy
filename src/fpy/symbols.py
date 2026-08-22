@@ -47,6 +47,9 @@ class BuiltinFuncSymbol(CallableSymbol):
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
     """indices of args that must be compile-time constants and are NOT pushed
     to the stack; instead their values are passed to generate_fpybc()"""
+    pure: bool = False
+    """whether a call computes its result from its arguments alone: it reads
+    and writes nothing outside the program, and cannot fault"""
 
 
 @dataclass

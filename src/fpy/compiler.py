@@ -40,6 +40,7 @@ from fpy.semantics import (
     CheckUseBeforeDefine,
     CollectFunctionGlobalUses,
     CollectUsedFunctions,
+    ElideUselessStmts,
     ResolveTransitiveGlobalUses,
     CheckGlobalsInitializedBeforeCall,
     CheckSequenceArgs,
@@ -301,6 +302,10 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         DesugarTimeOperators(),
         # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
+        # drop expression statements that can't be observed. After the time
+        # operator desugaring, so a time comparison (which can fault) is a
+        # script function call by now and is kept
+        ElideUselessStmts(),
         # Collect which functions are reachable through calls from the main
         # sequence. Runs after desugaring because desugared time operators
         # call script functions.
