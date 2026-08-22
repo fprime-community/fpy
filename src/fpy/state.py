@@ -36,6 +36,7 @@ from fpy.syntax import (
 )
 from fpy.types import (
     BLOCK_STATE,
+    OpCase,
     BOOL,
     CHECK_STATE,
     CMD_RESPONSE,
@@ -146,6 +147,9 @@ class CompileState:
 
     op_intermediate_types: dict[AstOp, FpyType] = field(default_factory=dict)
     """the intermediate type that all args should be converted to for the given op"""
+
+    op_cases: dict[AstOp, OpCase] = field(default_factory=dict)
+    """the case each op is evaluated by, given its intermediate type"""
 
     expr_explicit_casts: list[AstExpr] = field(default_factory=list)
     """a list of nodes which are explicit casts"""

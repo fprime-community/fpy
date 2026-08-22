@@ -217,11 +217,19 @@ class AstBinaryOp(Ast):
     op: str
     rhs: AstExpr
 
+    @property
+    def operands(self) -> tuple[AstExpr, ...]:
+        return (self.lhs, self.rhs)
+
 
 @dataclass
 class AstUnaryOp(Ast):
     op: str
     val: AstExpr
+
+    @property
+    def operands(self) -> tuple[AstExpr, ...]:
+        return (self.val,)
 
 
 @dataclass

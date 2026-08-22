@@ -13,6 +13,8 @@ from fpy.bytecode.assembler import read_bin_arg_specs, resolve_arg_specs
 from fpy.error import CompileError
 from fpy.macros import TIME_MACRO
 from fpy.types import (
+    pick_binary_op_case,
+    pick_unary_op_case,
     ARBITRARY_PRECISION_TYPES,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
@@ -1832,6 +1834,7 @@ class PickTypesAndResolveFields(Visitor):
         result_type = self.pick_result_type(intermediate_type, node.op)
 
         state.op_intermediate_types[node] = intermediate_type
+        state.op_cases[node] = pick_binary_op_case(node.op, intermediate_type)
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
@@ -1850,6 +1853,7 @@ class PickTypesAndResolveFields(Visitor):
         result_type = self.pick_result_type(intermediate_type, node.op)
 
         state.op_intermediate_types[node] = intermediate_type
+        state.op_cases[node] = pick_unary_op_case(node.op, intermediate_type)
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 

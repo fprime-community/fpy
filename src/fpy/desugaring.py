@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
+from fpy.bytecode.directives import BinaryStackOp, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
@@ -24,6 +24,8 @@ from fpy.syntax import (
     AstWhile,
 )
 from fpy.types import (
+    OpCase,
+    pick_binary_op_case,
     FpyType,
     FpyValue,
     INTEGER,
@@ -58,7 +60,8 @@ class DesugarForLoops(Transformer):
         contextual_type: FpyType | None,
         synthesized_type: FpyType | None,
         contextual_value: FpyValue | None,
-        op_intermediate_type: type[Directive] | None,
+        op_intermediate_type: FpyType | None,
+        op_case: OpCase | None,
         resolved_symbol: Symbol | None,
     ) -> Ast:
         node.id = state.next_node_id
@@ -67,6 +70,7 @@ class DesugarForLoops(Transformer):
         state.synthesized_types[node] = synthesized_type
         state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
+        state.op_cases[node] = op_case
         state.resolved_symbols[node] = resolved_symbol
         return node
 
@@ -83,6 +87,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=LoopVarType,
         )
 
@@ -95,6 +100,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -113,6 +119,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
 
@@ -125,6 +132,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=LoopVarType,
         )
 
@@ -139,6 +147,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -156,6 +165,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
@@ -165,6 +175,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=INTEGER,
             contextual_value=FpyValue(LoopVarType, 1),
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -175,6 +186,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
+            op_case=pick_binary_op_case(BinaryStackOp.ADD, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -191,6 +203,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
 
@@ -203,6 +216,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -218,6 +232,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
@@ -227,6 +242,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
 
@@ -237,6 +253,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
+            op_case=pick_binary_op_case(BinaryStackOp.LESS_THAN, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -261,6 +278,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -749,6 +767,7 @@ class DesugarTimeOperators(Transformer):
         synthesized_type: FpyType | None,
         contextual_value: FpyValue | None,
         op_intermediate_type: FpyType | None = None,
+        op_case: OpCase | None = None,
         resolved_symbol: Symbol | None = None,
     ) -> Ast:
         """Create a new node with proper state setup."""
@@ -758,6 +777,7 @@ class DesugarTimeOperators(Transformer):
         state.synthesized_types[node] = synthesized_type
         state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
+        state.op_cases[node] = op_case
         state.resolved_symbols[node] = resolved_symbol
         return node
 
@@ -868,6 +888,7 @@ class DesugarTimeOperators(Transformer):
             synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=I64,
+            op_case=pick_binary_op_case(new_op, I64),
         )
         self._update_field_access_refs(node, result_node, state)
         return result_node

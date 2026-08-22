@@ -5,7 +5,9 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
+from typing import Callable
 
 from fpy.error import BackendError
 
@@ -46,18 +48,16 @@ from fpy.syntax import (
     AstIf,
     AstIndexExpr,
     AstNodeWithSideEffects,
+    AstOp,
     AstReturn,
-    AstUnaryOp,
     AstWhile,
-    BinaryStackOp,
-    COMPARISON_OPS,
-    UnaryStackOp,
 )
 from fpy.bytecode.directives import FwOpcodeType
 from fpy.semantics import is_cmd_and_response_unhandled, is_type_constant_size
 import fpy.types
 from fpy.types import (
     CMD_RESPONSE,
+    OpCase,
     ChDef,
     FpyType,
     FpyValue,
@@ -195,252 +195,8 @@ class EmitLlvmExpr(Emitter):
             result = self.convert_numeric_type(result, synthesized, contextual)
         return result
 
-    def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
-        # `and`/`or` short-circuit, so they must branch rather than eagerly
-        # evaluate both operands.
-        if node.op in (BinaryStackOp.AND, BinaryStackOp.OR):
-            return self._emit_short_circuit(node, state)
-
-        intermediate_type = state.op_intermediate_types[node]
-        is_float = intermediate_type.is_float
-        is_signed = intermediate_type.is_signed
-        b = self.builder
-
-        # Operands are coerced to the intermediate type during semantics, so the
-        # emitted values are already at that type.
-        lhs = self.emit(node.lhs, state)
-        rhs = self.emit(node.rhs, state)
-        op = node.op
-
-        # -- arithmetic: result is the (numeric) intermediate type ------------
-        if op == BinaryStackOp.ADD:
-            return b.fadd(lhs, rhs) if is_float else b.add(lhs, rhs)
-        if op == BinaryStackOp.SUBTRACT:
-            return b.fsub(lhs, rhs) if is_float else b.sub(lhs, rhs)
-        if op == BinaryStackOp.MULTIPLY:
-            return b.fmul(lhs, rhs) if is_float else b.mul(lhs, rhs)
-        if op == BinaryStackOp.DIVIDE:
-            # `/` always computes over floats (semantics widens to F64).
-            assert is_float, intermediate_type
-            return b.fdiv(lhs, rhs)
-        if op == BinaryStackOp.MODULUS:
-            return self._emit_modulo(lhs, rhs, is_float, is_signed)
-        if op == BinaryStackOp.FLOOR_DIVIDE:
-            return self._emit_floor_divide(lhs, rhs, is_float, is_signed)
-        if op == BinaryStackOp.EXPONENT:
-            # `**` always computes over floats (semantics widens to F64).
-            assert is_float, intermediate_type
-            # assume that the host provides a pow func
-            pow_fn = b.module.declare_intrinsic(
-                "llvm.pow", [intermediate_type.llvm_type]
-            )
-            return b.call(pow_fn, [lhs, rhs])
-
-        assert op in COMPARISON_OPS, op
-        if is_float:
-            # IEEE `!=` is the negation of `==` and is therefore true when
-            # either operand is NaN (une, wasm's f64.ne, Python's !=). Every
-            # other comparison is ordered: false on NaN, like Python's.
-            if op == "!=":
-                return b.fcmp_unordered(op, lhs, rhs)
-            return b.fcmp_ordered(op, lhs, rhs)
-        # Enums and bools lower to integers too, so any integer-typed value
-        # (not just numeric types) compares with icmp; aggregates don't.
-        if isinstance(lhs.type, ir.IntType):
-            return (
-                b.icmp_signed(op, lhs, rhs)
-                if is_signed
-                else b.icmp_unsigned(op, lhs, rhs)
-            )
-        raise BackendError(
-            f"LLVM backend can't compare values of type "
-            f"'{intermediate_type.display_name}' yet"
-        )
-
-    def _emit_floor_divide(
-        self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
-    ) -> ir.Value:
-        """Emit `lhs // rhs`, flooring toward -inf (Python `//`; spec "Floor
-        division semantics").
-
-        Floats floor the quotient directly via llvm.floor (a native f64.floor on
-        wasm). Integer sdiv/udiv truncate toward zero, which differs from floor
-        only when the operands have opposite signs and the division is inexact;
-        in that case we subtract one.
-        """
-        b = self.builder
-        if is_float:
-            # Floats have a real floor: divide, then floor the quotient. The
-            # llvm.floor intrinsic lowers to a native f64.floor on wasm (no
-            # libcall), so e.g. -5.5 / 2.0 = -2.75 floors to -3.0. A zero
-            # divisor needs no guard: float division is IEEE (inf/nan), and
-            # floor passes that through ("an infinite or NaN quotient is
-            # unchanged" per the spec).
-            quotient = b.fdiv(lhs, rhs)
-            floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
-            return b.call(floor_fn, [quotient])
-        # The spec makes an integer zero divisor a DOMAIN_ERROR fault; wasm's
-        # integer div instructions would instead trap uncatchably, so guard
-        # first.
-        self._emit_zero_divisor_check(rhs, is_float=False)
-        if not is_signed:
-            # Unsigned operands are non-negative, so the exact quotient is too;
-            # there's nothing below zero to floor toward, so udiv (which
-            # truncates) already gives the floored result.
-            return b.udiv(lhs, rhs)
-
-        # Signed integers have no floor instruction: sdiv truncates toward zero.
-        # Truncation and floor agree except when the exact quotient is negative
-        # and non-integer -- i.e. the operands have opposite signs (negative
-        # quotient) AND the division leaves a remainder (non-integer). There,
-        # truncation rounds *up* toward zero, so it overshoots the floor by one
-        # and we subtract one to correct it.
-        #
-        #   -7 // 2:  sdiv = -3, srem = -1 -> opposite signs, inexact -> -3-1 = -4
-        #   -6 // 2:  sdiv = -3, srem =  0 -> exact, no adjust          -> -3
-        #    7 // 2:  sdiv =  3, srem =  1 -> same signs, no adjust      ->  3
-        quotient = b.sdiv(lhs, rhs)
-        rem = b.srem(lhs, rhs)
-        zero = ir.Constant(lhs.type, 0)
-        # Non-integer quotient: the remainder is nonzero.
-        inexact = b.icmp_signed("!=", rem, zero)
-        # Negative quotient: lhs and rhs have opposite signs, which in two's
-        # complement is exactly when their xor has the sign bit set (is < 0).
-        opposite_signs = b.icmp_signed("<", b.xor(lhs, rhs), zero)
-        adjust = b.and_(inexact, opposite_signs)
-        return b.select(adjust, b.sub(quotient, ir.Constant(lhs.type, 1)), quotient)
-
-    def _emit_modulo(
-        self, lhs: ir.Value, rhs: ir.Value, is_float: bool, is_signed: bool
-    ) -> ir.Value:
-        """Emit `lhs % rhs` with *floored* semantics (Python `%`; spec "Modulus
-        semantics"): the result takes the sign of the divisor.
-
-        The IR remainder ops (srem/frem) are *truncated* -- the result takes the
-        sign of the dividend -- so we correct it by adding the divisor back when
-        the remainder is nonzero and its sign differs from the divisor's. (frem
-        lowers to an fmod libcall on wasm, hence the imported env.fmod.)
-        """
-        b = self.builder
-        # The spec makes a zero divisor a DOMAIN_ERROR fault for *every*
-        # modulo, including floats (unlike float division, which is IEEE):
-        # wasm's integer rem instructions would trap uncatchably, and the
-        # host fmod would return NaN, so guard first.
-        self._emit_zero_divisor_check(rhs, is_float)
-        if not is_float and not is_signed:
-            # Unsigned operands are non-negative, so floored == truncated.
-            return b.urem(lhs, rhs)
-
-        zero = ir.Constant(lhs.type, 0)
-        if is_float:
-            rem = b.frem(lhs, rhs)
-            nonzero = b.fcmp_ordered("!=", rem, zero)
-            signs_differ = b.xor(
-                b.fcmp_ordered("<", rem, zero), b.fcmp_ordered("<", rhs, zero)
-            )
-            corrected = b.fadd(rem, rhs)
-        else:
-            rem = b.srem(lhs, rhs)
-            nonzero = b.icmp_signed("!=", rem, zero)
-            # rem and rhs have differing signs iff their xor is negative.
-            signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
-            corrected = b.add(rem, rhs)
-        return b.select(b.and_(nonzero, signs_differ), corrected, rem)
-
-    def _emit_zero_divisor_check(self, rhs: ir.Value, is_float: bool) -> None:
-        """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, per the
-        spec's modulus and floor-division semantics. (fcmp `==` treats -0.0
-        as zero, so a -0.0 divisor faults too.)"""
-        b = self.builder
-        zero = ir.Constant(rhs.type, 0)
-        # A hardware float compare of a NaN operand against anything has no
-        # meaningful true/false answer, so every fcmp predicate must pick one
-        # up front, and that's the whole ordered/unordered split: *ordered*
-        # predicates answer false when an operand is NaN, *unordered* ones
-        # answer true. Concretely, with rhs = NaN:
-        #   fcmp_ordered("==", NaN, 0.0)   -> false  (what we want: no fault)
-        #   fcmp_unordered("==", NaN, 0.0) -> true   (would fault on NaN!)
-        # A NaN divisor must not fault here: the spec faults only a *zero*
-        # divisor and defines `lhs % nan` as nan -- which is exactly what
-        # frem/fmod return.
-        # On the int side, signedness doesn't exist for equality: LLVM has a
-        # single `icmp eq` (signed/unsigned variants exist only for order
-        # predicates like slt/ult), so icmp_signed("==") and
-        # icmp_unsigned("==") emit the same instruction and unsigned operands
-        # are fine here.
-        is_zero = (
-            b.fcmp_ordered("==", rhs, zero)
-            if is_float
-            else b.icmp_signed("==", rhs, zero)
-        )
-        self._emit_fault_when(is_zero, DirectiveErrorCode.DOMAIN_ERROR, "div")
-
-    def _emit_fault_when(
-        self, bad: ir.Value, code: DirectiveErrorCode, name: str
-    ) -> None:
-        """Fault with *code* through the host panic import when the i1 *bad*
-        holds, and otherwise continue emission in a fresh basic block (named
-        after *name*)."""
-        b = self.builder
-        fail_block = b.function.append_basic_block(name + "_bad")
-        ok_block = b.function.append_basic_block(name + "_ok")
-        b.cbranch(bad, fail_block, ok_block)
-        b.position_at_end(fail_block)
-        b.call(
-            b.module.globals[HOST_PANIC_FUNC_NAME],
-            [ir.Constant(ERROR_CODE_TYPE, code.value)],
-        )
-        b.unreachable()
-        b.position_at_end(ok_block)
-
-    def _emit_short_circuit(self, node: AstBinaryOp, state: CompileState) -> ir.Value:
-        """Lower ``and``/``or`` with short-circuit evaluation."""
-        b = self.builder
-        bool_type = ir.IntType(1)
-
-        lhs = self.emit(node.lhs, state)
-        lhs_block = b.block  # the block the branch on lhs lives in
-        rhs_block = b.append_basic_block("bool_rhs")
-        end_block = b.append_basic_block("bool_end")
-
-        if node.op == BinaryStackOp.AND:
-            # lhs true -> evaluate rhs; lhs false -> short-circuit to False.
-            b.cbranch(lhs, rhs_block, end_block)
-            short_value = ir.Constant(bool_type, 0)
-        else:
-            # lhs true -> short-circuit to True; lhs false -> evaluate rhs.
-            b.cbranch(lhs, end_block, rhs_block)
-            short_value = ir.Constant(bool_type, 1)
-
-        b.position_at_end(rhs_block)
-        rhs = self.emit(node.rhs, state)
-        rhs_end_block = b.block  # rhs may itself have added blocks
-        b.branch(end_block)
-
-        b.position_at_end(end_block)
-        phi = b.phi(bool_type, name="bool_result")
-        phi.add_incoming(short_value, lhs_block)
-        phi.add_incoming(rhs, rhs_end_block)
-        return phi
-
-    def emit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState) -> ir.Value:
-        intermediate_type = state.op_intermediate_types[node]
-        b = self.builder
-        val = self.emit(node.val, state)
-
-        if node.op == UnaryStackOp.IDENTITY:
-            # `+x` is a no-op.
-            return val
-        if node.op == UnaryStackOp.NOT:
-            # `not x` flips a bool (i1).
-            return b.not_(val)
-
-        # The only remaining unary op is `-x`: float negation, or 0 - x for
-        # integers.
-        assert node.op == UnaryStackOp.NEGATE, node.op
-        if intermediate_type.is_float:
-            return b.fneg(val)
-        return b.neg(val)
+    def emit_AstOp(self, node: AstOp, state: CompileState) -> ir.Value:
+        return LLVM_OP_IMPLS[state.op_cases[node]](self, node, state)
 
     def emit_AstIdent(self, node: AstIdent, state: CompileState) -> ir.Value:
         sym = state.resolved_symbols[node]
@@ -506,8 +262,11 @@ class EmitLlvmExpr(Emitter):
             ok_value = PARAM_VALID.enum_dict["VALID"]
             code = DirectiveErrorCode.PRM_NOT_FOUND
             name = "prm"
-        self._emit_fault_when(
-            b.icmp_unsigned("!=", valid, ir.Constant(i32, ok_value)), code, name
+        _emit_fault_when(
+            self.builder,
+            b.icmp_unsigned("!=", valid, ir.Constant(i32, ok_value)),
+            code,
+            name,
         )
         return self._emit_load_big_endian(state.synthesized_types[node], buf, 0)
 
@@ -560,7 +319,9 @@ class EmitLlvmExpr(Emitter):
         too_low = b.icmp_signed("<", idx, ir.Constant(idx.type, 0))
         too_high = b.icmp_signed(">=", idx, ir.Constant(idx.type, length))
         oob = b.or_(too_low, too_high)
-        self._emit_fault_when(oob, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS, "idx")
+        _emit_fault_when(
+            self.builder, oob, DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS, "idx"
+        )
 
     def emit_AstFuncCall(
         self, node: AstFuncCall, state: CompileState
@@ -764,7 +525,8 @@ class EmitLlvmExpr(Emitter):
             is_false = b.icmp_unsigned(
                 "==", byte, ir.Constant(byte.type, fpy.types.FW_SERIALIZE_FALSE_VALUE)
             )
-            self._emit_fault_when(
+            _emit_fault_when(
+                self.builder,
                 b.not_(b.or_(is_true, is_false)),
                 DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL,
                 "bool",
@@ -832,6 +594,293 @@ class EmitLlvmExpr(Emitter):
 # rewrites a zero-arg `main` that returns i32, renaming it `__original_main`
 # and synthesizing a canonical main(argc, argv) wrapper around it.
 FPY_ENTRY_POINT = "main"
+
+
+OpImpl = Callable[[EmitLlvmExpr, AstOp, CompileState], ir.Value]
+"""Emits an operator expression, given the emitter, the expression and the
+compile state."""
+
+
+def _eager(f: Callable[..., ir.Value]) -> OpImpl:
+    """An op impl that evaluates the operands left to right, then applies
+    ``f(builder, *operand_values)``."""
+
+    def impl(self: EmitLlvmExpr, node: AstOp, state: CompileState) -> ir.Value:
+        values = [self.emit(operand, state) for operand in node.operands]
+        return f(self.builder, *values)
+
+    return impl
+
+
+def _icmp_signed(op: str):
+    return lambda b, lhs, rhs: b.icmp_signed(op, lhs, rhs)
+
+
+def _icmp_unsigned(op: str):
+    return lambda b, lhs, rhs: b.icmp_unsigned(op, lhs, rhs)
+
+
+def _fcmp_ordered(op: str):
+    # An ordered comparison is false when either operand is NaN, like Python's.
+    return lambda b, lhs, rhs: b.fcmp_ordered(op, lhs, rhs)
+
+
+def _emit_short_circuit(
+    self: EmitLlvmExpr,
+    node: AstBinaryOp,
+    state: CompileState,
+    short_circuit_value: bool,
+) -> ir.Value:
+    """Lower ``and``/``or``: evaluate rhs only when lhs isn't already
+    *short_circuit_value* (False for ``and``, True for ``or``)."""
+    b = self.builder
+    bool_type = ir.IntType(1)
+
+    lhs = self.emit(node.lhs, state)
+    lhs_block = b.block  # the block the branch on lhs lives in
+    rhs_block = b.append_basic_block("bool_rhs")
+    end_block = b.append_basic_block("bool_end")
+
+    if short_circuit_value:
+        # lhs true -> short-circuit to True; lhs false -> evaluate rhs.
+        b.cbranch(lhs, end_block, rhs_block)
+    else:
+        # lhs true -> evaluate rhs; lhs false -> short-circuit to False.
+        b.cbranch(lhs, rhs_block, end_block)
+
+    b.position_at_end(rhs_block)
+    rhs = self.emit(node.rhs, state)
+    rhs_end_block = b.block  # rhs may itself have added blocks
+    b.branch(end_block)
+
+    b.position_at_end(end_block)
+    phi = b.phi(bool_type, name="bool_result")
+    phi.add_incoming(ir.Constant(bool_type, int(short_circuit_value)), lhs_block)
+    phi.add_incoming(rhs, rhs_end_block)
+    return phi
+
+
+def _emit_pow(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    # assume that the host provides a pow func
+    pow_fn = b.module.declare_intrinsic("llvm.pow", [lhs.type])
+    return b.call(pow_fn, [lhs, rhs])
+
+
+def _emit_float_floor_divide(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    """Emit float `lhs // rhs`, flooring toward -inf (Python `//`; spec "Floor
+    division semantics").
+
+    Floats have a real floor: divide, then floor the quotient. The llvm.floor
+    intrinsic lowers to a native f64.floor on wasm (no libcall), so e.g.
+    -5.5 / 2.0 = -2.75 floors to -3.0. A zero divisor needs no guard: float
+    division is IEEE (inf/nan), and floor passes that through ("an infinite or
+    NaN quotient is unchanged" per the spec).
+    """
+    quotient = b.fdiv(lhs, rhs)
+    floor_fn = b.module.declare_intrinsic("llvm.floor", [quotient.type])
+    return b.call(floor_fn, [quotient])
+
+
+def _emit_unsigned_floor_divide(
+    b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value
+) -> ir.Value:
+    """Emit unsigned integer `lhs // rhs`. Unsigned operands are non-negative,
+    so the exact quotient is too; there's nothing below zero to floor toward,
+    so udiv (which truncates) already gives the floored result."""
+    _emit_zero_divisor_check(b, rhs, is_float=False)
+    return b.udiv(lhs, rhs)
+
+
+def _emit_signed_floor_divide(
+    b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value
+) -> ir.Value:
+    """Emit signed integer `lhs // rhs`, flooring toward -inf (Python `//`;
+    spec "Floor division semantics").
+
+    Signed integers have no floor instruction: sdiv truncates toward zero.
+    Truncation and floor agree except when the exact quotient is negative and
+    non-integer -- i.e. the operands have opposite signs (negative quotient)
+    AND the division leaves a remainder (non-integer). There, truncation
+    rounds *up* toward zero, so it overshoots the floor by one and we subtract
+    one to correct it.
+
+      -7 // 2:  sdiv = -3, srem = -1 -> opposite signs, inexact -> -3-1 = -4
+      -6 // 2:  sdiv = -3, srem =  0 -> exact, no adjust          -> -3
+       7 // 2:  sdiv =  3, srem =  1 -> same signs, no adjust      ->  3
+    """
+    _emit_zero_divisor_check(b, rhs, is_float=False)
+    quotient = b.sdiv(lhs, rhs)
+    rem = b.srem(lhs, rhs)
+    zero = ir.Constant(lhs.type, 0)
+    # Non-integer quotient: the remainder is nonzero.
+    inexact = b.icmp_signed("!=", rem, zero)
+    # Negative quotient: lhs and rhs have opposite signs, which in two's
+    # complement is exactly when their xor has the sign bit set (is < 0).
+    opposite_signs = b.icmp_signed("<", b.xor(lhs, rhs), zero)
+    adjust = b.and_(inexact, opposite_signs)
+    return b.select(adjust, b.sub(quotient, ir.Constant(lhs.type, 1)), quotient)
+
+
+def _emit_unsigned_modulo(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    """Emit unsigned integer `lhs % rhs`. Unsigned operands are non-negative,
+    so floored == truncated."""
+    _emit_zero_divisor_check(b, rhs, is_float=False)
+    return b.urem(lhs, rhs)
+
+
+def _emit_signed_modulo(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    """Emit signed integer `lhs % rhs` with *floored* semantics (Python `%`;
+    spec "Modulus semantics"): the result takes the sign of the divisor.
+
+    srem is *truncated* -- the result takes the sign of the dividend -- so we
+    correct it by adding the divisor back when the remainder is nonzero and
+    its sign differs from the divisor's.
+    """
+    _emit_zero_divisor_check(b, rhs, is_float=False)
+    zero = ir.Constant(lhs.type, 0)
+    rem = b.srem(lhs, rhs)
+    nonzero = b.icmp_signed("!=", rem, zero)
+    # rem and rhs have differing signs iff their xor is negative.
+    signs_differ = b.icmp_signed("<", b.xor(rem, rhs), zero)
+    return b.select(b.and_(nonzero, signs_differ), b.add(rem, rhs), rem)
+
+
+def _emit_float_modulo(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    """Emit float `lhs % rhs` with *floored* semantics (Python `%`; spec
+    "Modulus semantics"): the result takes the sign of the divisor.
+
+    frem is *truncated* -- the result takes the sign of the dividend -- so we
+    correct it by adding the divisor back when the remainder is nonzero and
+    its sign differs from the divisor's. (frem lowers to an fmod libcall on
+    wasm, hence the imported env.fmod.)
+    """
+    # The spec makes a zero divisor a DOMAIN_ERROR fault for *every* modulo,
+    # including floats (unlike float division, which is IEEE).
+    _emit_zero_divisor_check(b, rhs, is_float=True)
+    zero = ir.Constant(lhs.type, 0)
+    rem = b.frem(lhs, rhs)
+    nonzero = b.fcmp_ordered("!=", rem, zero)
+    signs_differ = b.xor(b.fcmp_ordered("<", rem, zero), b.fcmp_ordered("<", rhs, zero))
+    return b.select(b.and_(nonzero, signs_differ), b.fadd(rem, rhs), rem)
+
+
+def _emit_bytes_equal(
+    self: EmitLlvmExpr, node: AstBinaryOp, state: CompileState
+) -> ir.Value:
+    """Emit ``==`` of two same-typed non-numeric values. Enums and bools lower
+    to integers, so they compare with icmp; aggregates have no lowering yet."""
+    lhs_type = state.contextual_types[node.lhs]
+    rhs_type = state.contextual_types[node.rhs]
+    assert lhs_type == rhs_type, (lhs_type, rhs_type)
+    if not isinstance(lhs_type.llvm_type, ir.IntType):
+        raise BackendError(
+            f"LLVM backend can't compare values of type "
+            f"'{lhs_type.display_name}' yet"
+        )
+    lhs = self.emit(node.lhs, state)
+    rhs = self.emit(node.rhs, state)
+    return self.builder.icmp_signed("==", lhs, rhs)
+
+
+def _emit_bytes_not_equal(
+    self: EmitLlvmExpr, node: AstBinaryOp, state: CompileState
+) -> ir.Value:
+    return self.builder.not_(_emit_bytes_equal(self, node, state))
+
+
+def _emit_zero_divisor_check(b: ir.IRBuilder, rhs: ir.Value, is_float: bool) -> None:
+    """Fault with DOMAIN_ERROR when the divisor *rhs* is zero, per the
+    spec's modulus and floor-division semantics. (fcmp `==` treats -0.0
+    as zero, so a -0.0 divisor faults too.) wasm's integer div/rem
+    instructions would instead trap uncatchably, and the host fmod would
+    return NaN, hence the guard."""
+    zero = ir.Constant(rhs.type, 0)
+    # A hardware float compare of a NaN operand against anything has no
+    # meaningful true/false answer, so every fcmp predicate must pick one
+    # up front, and that's the whole ordered/unordered split: *ordered*
+    # predicates answer false when an operand is NaN, *unordered* ones
+    # answer true. Concretely, with rhs = NaN:
+    #   fcmp_ordered("==", NaN, 0.0)   -> false  (what we want: no fault)
+    #   fcmp_unordered("==", NaN, 0.0) -> true   (would fault on NaN!)
+    # A NaN divisor must not fault here: the spec faults only a *zero*
+    # divisor and defines `lhs % nan` as nan -- which is exactly what
+    # frem/fmod return.
+    # On the int side, signedness doesn't exist for equality: LLVM has a
+    # single `icmp eq` (signed/unsigned variants exist only for order
+    # predicates like slt/ult), so icmp_signed("==") and
+    # icmp_unsigned("==") emit the same instruction and unsigned operands
+    # are fine here.
+    is_zero = (
+        b.fcmp_ordered("==", rhs, zero) if is_float else b.icmp_signed("==", rhs, zero)
+    )
+    _emit_fault_when(b, is_zero, DirectiveErrorCode.DOMAIN_ERROR, "div")
+
+
+def _emit_fault_when(
+    b: ir.IRBuilder, bad: ir.Value, code: DirectiveErrorCode, name: str
+) -> None:
+    """Fault with *code* through the host panic import when the i1 *bad*
+    holds, and otherwise continue emission in a fresh basic block (named
+    after *name*)."""
+    fail_block = b.function.append_basic_block(name + "_bad")
+    ok_block = b.function.append_basic_block(name + "_ok")
+    b.cbranch(bad, fail_block, ok_block)
+    b.position_at_end(fail_block)
+    b.call(
+        b.module.globals[HOST_PANIC_FUNC_NAME],
+        [ir.Constant(ERROR_CODE_TYPE, code.value)],
+    )
+    b.unreachable()
+    b.position_at_end(ok_block)
+
+
+LLVM_OP_IMPLS: dict[OpCase, OpImpl] = {
+    OpCase.NOT: _eager(ir.IRBuilder.not_),
+    OpCase.AND: partial(_emit_short_circuit, short_circuit_value=False),
+    OpCase.OR: partial(_emit_short_circuit, short_circuit_value=True),
+    # `+x` is a no-op.
+    OpCase.IDENTITY: _eager(lambda b, val: val),
+    OpCase.NEGATE_INT: _eager(ir.IRBuilder.neg),
+    OpCase.NEGATE_FLOAT: _eager(ir.IRBuilder.fneg),
+    OpCase.ADD_INT: _eager(ir.IRBuilder.add),
+    OpCase.ADD_FLOAT: _eager(ir.IRBuilder.fadd),
+    OpCase.SUBTRACT_INT: _eager(ir.IRBuilder.sub),
+    OpCase.SUBTRACT_FLOAT: _eager(ir.IRBuilder.fsub),
+    OpCase.MULTIPLY_INT: _eager(ir.IRBuilder.mul),
+    OpCase.MULTIPLY_FLOAT: _eager(ir.IRBuilder.fmul),
+    OpCase.DIVIDE_FLOAT: _eager(ir.IRBuilder.fdiv),
+    OpCase.EXPONENT_FLOAT: _eager(_emit_pow),
+    OpCase.MODULUS_SINT: _eager(_emit_signed_modulo),
+    OpCase.MODULUS_UINT: _eager(_emit_unsigned_modulo),
+    OpCase.MODULUS_FLOAT: _eager(_emit_float_modulo),
+    OpCase.FLOOR_DIVIDE_SINT: _eager(_emit_signed_floor_divide),
+    OpCase.FLOOR_DIVIDE_UINT: _eager(_emit_unsigned_floor_divide),
+    OpCase.FLOOR_DIVIDE_FLOAT: _eager(_emit_float_floor_divide),
+    OpCase.LESS_THAN_SINT: _eager(_icmp_signed("<")),
+    OpCase.LESS_THAN_UINT: _eager(_icmp_unsigned("<")),
+    OpCase.LESS_THAN_FLOAT: _eager(_fcmp_ordered("<")),
+    OpCase.GREATER_THAN_SINT: _eager(_icmp_signed(">")),
+    OpCase.GREATER_THAN_UINT: _eager(_icmp_unsigned(">")),
+    OpCase.GREATER_THAN_FLOAT: _eager(_fcmp_ordered(">")),
+    OpCase.LESS_THAN_OR_EQUAL_SINT: _eager(_icmp_signed("<=")),
+    OpCase.LESS_THAN_OR_EQUAL_UINT: _eager(_icmp_unsigned("<=")),
+    OpCase.LESS_THAN_OR_EQUAL_FLOAT: _eager(_fcmp_ordered("<=")),
+    OpCase.GREATER_THAN_OR_EQUAL_SINT: _eager(_icmp_signed(">=")),
+    OpCase.GREATER_THAN_OR_EQUAL_UINT: _eager(_icmp_unsigned(">=")),
+    OpCase.GREATER_THAN_OR_EQUAL_FLOAT: _eager(_fcmp_ordered(">=")),
+    # LLVM has a single `icmp eq`; signedness only exists for order predicates.
+    OpCase.EQUAL_INT: _eager(_icmp_signed("==")),
+    OpCase.EQUAL_FLOAT: _eager(_fcmp_ordered("==")),
+    OpCase.EQUAL_BYTES: _emit_bytes_equal,
+    OpCase.NOT_EQUAL_INT: _eager(_icmp_signed("!=")),
+    # IEEE `!=` is the negation of `==` and is therefore true when either
+    # operand is NaN (une, wasm's f64.ne, Python's !=).
+    OpCase.NOT_EQUAL_FLOAT: _eager(
+        lambda b, lhs, rhs: b.fcmp_unordered("!=", lhs, rhs)
+    ),
+    OpCase.NOT_EQUAL_BYTES: _emit_bytes_not_equal,
+}
+assert set(LLVM_OP_IMPLS) == set(OpCase), set(OpCase) ^ set(LLVM_OP_IMPLS)
 
 
 class AssignAddresses(TopDownVisitor):

@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
+from typing import Callable
+
 from fpy.state import BackendState, CompileState
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
@@ -18,6 +20,7 @@ from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.bytecode.directives import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.semantics import is_cmd_and_response_unhandled
 from fpy.types import (
+    OpCase,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     UNSIGNED_INTEGER_TYPES,
@@ -58,11 +61,8 @@ from fpy.visitors import (
 )
 
 from fpy.bytecode.directives import (
-    BINARY_STACK_OPS,
-    UNARY_STACK_OPS,
     AllocateDirective,
     ArrayIndexType,
-    BinaryStackOp,
     CallDirective,
     ConstCmdDirective,
     DiscardDirective,
@@ -95,7 +95,6 @@ from fpy.bytecode.directives import (
     LoadRelDirective,
     LoadAbsDirective,
     MemCompareDirective,
-    NoOpDirective,
     IntegerTruncate64To32Directive,
     ReturnDirective,
     SignedGreaterThanOrEqualDirective,
@@ -113,8 +112,30 @@ from fpy.bytecode.directives import (
     StoreAbsDirective,
     PushPrmDirective,
     PushTlmValDirective,
-    UnaryStackOp,
     UnsignedIntToFloatDirective,
+    FloatAddDirective,
+    IntSubtractDirective,
+    FloatSubtractDirective,
+    FloatExponentDirective,
+    SignedModuloDirective,
+    UnsignedModuloDirective,
+    FloatModuloDirective,
+    SignedIntDivideDirective,
+    UnsignedIntDivideDirective,
+    UnsignedLessThanDirective,
+    FloatLessThanDirective,
+    SignedGreaterThanDirective,
+    UnsignedGreaterThanDirective,
+    FloatGreaterThanDirective,
+    SignedLessThanOrEqualDirective,
+    UnsignedLessThanOrEqualDirective,
+    FloatLessThanOrEqualDirective,
+    UnsignedGreaterThanOrEqualDirective,
+    FloatGreaterThanOrEqualDirective,
+    IntEqualDirective,
+    FloatEqualDirective,
+    IntNotEqualDirective,
+    FloatNotEqualDirective,
 )
 from fpy.syntax import (
     Ast,
@@ -129,13 +150,13 @@ from fpy.syntax import (
     AstIndexExpr,
     AstLiteral,
     AstNodeWithSideEffects,
+    AstOp,
     AstReturn,
     AstBlock,
     AstBlock,
     AstIf,
     AstAssign,
     AstFuncCall,
-    AstUnaryOp,
     AstIdent,
     AstWhile,
 )
@@ -966,111 +987,16 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
         return dirs
 
-    def emit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
+    def emit_AstOp(self, node: AstOp, state: CompileState):
         const_dirs = self.try_emit_expr_as_const(node, state)
         if const_dirs is not None:
             return const_dirs
 
-        if node.op in (BinaryStackOp.AND, BinaryStackOp.OR):
-            dirs = self.generate_short_circuit_boolean(node, state)
-        else:
-            # push lhs and rhs to stack
-            dirs = self.emit(node.lhs, state)
-            dirs.extend(self.emit(node.rhs, state))
-
-            intermediate_type = state.op_intermediate_types[node]
-
-            if (
-                node.op == BinaryStackOp.EQUAL or node.op == BinaryStackOp.NOT_EQUAL
-            ) and intermediate_type not in SPECIFIC_NUMERIC_TYPES:
-                lhs_type = state.contextual_types[node.lhs]
-                rhs_type = state.contextual_types[node.rhs]
-                assert lhs_type == rhs_type, (lhs_type, rhs_type)
-                dirs.append(MemCompareDirective(lhs_type.max_size))
-                if node.op == BinaryStackOp.NOT_EQUAL:
-                    dirs.append(NotDirective())
-            elif node.op == BinaryStackOp.FLOOR_DIVIDE and intermediate_type == F64:
-                # float floor division: divide, then floor toward -inf
-                dirs.append(FloatDivideDirective())
-                dirs.append(FloatFloorDirective())
-            else:
-
-                dir = BINARY_STACK_OPS[node.op][intermediate_type]
-                if dir != NoOpDirective:
-                    # don't include no op
-                    dirs.append(dir())
-
-            # The VM operates on 64-bit values, so after the op we have a 64-bit result.
-            # Convert from the 64-bit intermediate type to the synthesized result type.
-            synthesized_type = state.synthesized_types[node]
-            if (
-                intermediate_type in SPECIFIC_NUMERIC_TYPES
-                and synthesized_type in SPECIFIC_NUMERIC_TYPES
-            ):
-                dirs.extend(
-                    self.convert_numeric_type(intermediate_type, synthesized_type)
-                )
-
-        # and convert the result of the op into the desired result of this expr
-        unconverted_type = state.synthesized_types[node]
-        converted_type = state.contextual_types[node]
-        if unconverted_type != converted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
-
-        return dirs
-
-    def generate_short_circuit_boolean(
-        self, node: AstBinaryOp, state: CompileState
-    ) -> list[Directive | Ir]:
-        dirs: list[Directive | Ir] = []
-        end_label = IrLabel(node, "bool_end")
-
-        if node.op == BinaryStackOp.AND:
-            short_label = IrLabel(node, "and_short")
-            dirs.extend(self.emit(node.lhs, state))
-            # jump to short circuit when lhs is false
-            dirs.append(IrIf(short_label))
-            dirs.extend(self.emit(node.rhs, state))
-            dirs.append(IrGoto(end_label))
-            dirs.append(short_label)
-            dirs.append(PushValDirective(FpyValue(BOOL, False).serialize()))
-        else:
-            rhs_label = IrLabel(node, "or_rhs")
-            dirs.extend(self.emit(node.lhs, state))
-            # only evaluate rhs if lhs is false
-            dirs.append(IrIf(rhs_label))
-            dirs.append(PushValDirective(FpyValue(BOOL, True).serialize()))
-            dirs.append(IrGoto(end_label))
-            dirs.append(rhs_label)
-            dirs.extend(self.emit(node.rhs, state))
-
-        dirs.append(end_label)
-        return dirs
-
-    def emit_AstUnaryOp(self, node: AstUnaryOp, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
-        # push val to stack
-        dirs = self.emit(node.val, state)
-
-        # generate the actual op itself
-        # which dir should we use?
-        intermediate_type = state.op_intermediate_types[node]
-        dir = UNARY_STACK_OPS[node.op][intermediate_type]
-
-        if node.op == UnaryStackOp.NEGATE:
-            # in this case, we also need to push -1
-            if dir == FloatMultiplyDirective:
-                dirs.append(PushValDirective(FpyValue(F64, -1).serialize()))
-            elif dir == IntMultiplyDirective:
-                dirs.append(PushValDirective(FpyValue(I64, -1).serialize()))
-
-        dirs.append(dir())
+        dirs = FPYBC_OP_IMPLS[state.op_cases[node]](self, node, state)
 
         # The VM operates on 64-bit values, so after the op we have a 64-bit result.
         # Convert from the 64-bit intermediate type to the synthesized result type.
+        intermediate_type = state.op_intermediate_types[node]
         synthesized_type = state.synthesized_types[node]
         if (
             intermediate_type in SPECIFIC_NUMERIC_TYPES
@@ -1079,10 +1005,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             dirs.extend(self.convert_numeric_type(intermediate_type, synthesized_type))
 
         # and convert the result of the op into the desired result of this expr
-        unconverted_type = state.synthesized_types[node]
         converted_type = state.contextual_types[node]
-        if unconverted_type != converted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
+        if synthesized_type != converted_type:
+            dirs.extend(self.convert_numeric_type(synthesized_type, converted_type))
 
         return dirs
 
@@ -1335,6 +1260,131 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dirs.append(end_label)
 
         return dirs
+
+
+OpImpl = Callable[[GenerateFunctionBody, AstOp, CompileState], list[Directive | Ir]]
+"""Emits an operator expression's operands and the operation on them, given
+the emitter, the expression and the compile state."""
+
+
+def _eager(*directives: Callable[[], Directive]) -> OpImpl:
+    """An op impl that pushes the operands left to right, then runs each of
+    *directives* on them."""
+
+    def impl(self: GenerateFunctionBody, node: AstOp, state: CompileState):
+        dirs: list[Directive | Ir] = []
+        for operand in node.operands:
+            dirs.extend(self.emit(operand, state))
+        dirs.extend(make() for make in directives)
+        return dirs
+
+    return impl
+
+
+def _push(value: FpyValue) -> Callable[[], Directive]:
+    return lambda: PushValDirective(value.serialize())
+
+
+def _emit_and(
+    self: GenerateFunctionBody, node: AstBinaryOp, state: CompileState
+) -> list[Directive | Ir]:
+    """Emit ``and``: evaluate rhs only when lhs is true."""
+    short_label = IrLabel(node, "and_short")
+    end_label = IrLabel(node, "bool_end")
+    dirs = self.emit(node.lhs, state)
+    # jump to short circuit when lhs is false
+    dirs.append(IrIf(short_label))
+    dirs.extend(self.emit(node.rhs, state))
+    dirs.append(IrGoto(end_label))
+    dirs.append(short_label)
+    dirs.append(PushValDirective(FpyValue(BOOL, False).serialize()))
+    dirs.append(end_label)
+    return dirs
+
+
+def _emit_or(
+    self: GenerateFunctionBody, node: AstBinaryOp, state: CompileState
+) -> list[Directive | Ir]:
+    """Emit ``or``: evaluate rhs only when lhs is false."""
+    rhs_label = IrLabel(node, "or_rhs")
+    end_label = IrLabel(node, "bool_end")
+    dirs = self.emit(node.lhs, state)
+    # only evaluate rhs if lhs is false
+    dirs.append(IrIf(rhs_label))
+    dirs.append(PushValDirective(FpyValue(BOOL, True).serialize()))
+    dirs.append(IrGoto(end_label))
+    dirs.append(rhs_label)
+    dirs.extend(self.emit(node.rhs, state))
+    dirs.append(end_label)
+    return dirs
+
+
+def _emit_bytes_equal(
+    self: GenerateFunctionBody, node: AstBinaryOp, state: CompileState
+) -> list[Directive | Ir]:
+    """Emit ``==`` of two same-typed non-numeric values by comparing their
+    serialized bytes."""
+    lhs_type = state.contextual_types[node.lhs]
+    rhs_type = state.contextual_types[node.rhs]
+    assert lhs_type == rhs_type, (lhs_type, rhs_type)
+    dirs = self.emit(node.lhs, state)
+    dirs.extend(self.emit(node.rhs, state))
+    dirs.append(MemCompareDirective(lhs_type.max_size))
+    return dirs
+
+
+def _emit_bytes_not_equal(
+    self: GenerateFunctionBody, node: AstBinaryOp, state: CompileState
+) -> list[Directive | Ir]:
+    dirs = _emit_bytes_equal(self, node, state)
+    dirs.append(NotDirective())
+    return dirs
+
+
+FPYBC_OP_IMPLS: dict[OpCase, OpImpl] = {
+    OpCase.NOT: _eager(NotDirective),
+    OpCase.AND: _emit_and,
+    OpCase.OR: _emit_or,
+    # `+x` is a no-op.
+    OpCase.IDENTITY: _eager(),
+    # the VM negates by multiplying by -1
+    OpCase.NEGATE_INT: _eager(_push(FpyValue(I64, -1)), IntMultiplyDirective),
+    OpCase.NEGATE_FLOAT: _eager(_push(FpyValue(F64, -1)), FloatMultiplyDirective),
+    OpCase.ADD_INT: _eager(IntAddDirective),
+    OpCase.ADD_FLOAT: _eager(FloatAddDirective),
+    OpCase.SUBTRACT_INT: _eager(IntSubtractDirective),
+    OpCase.SUBTRACT_FLOAT: _eager(FloatSubtractDirective),
+    OpCase.MULTIPLY_INT: _eager(IntMultiplyDirective),
+    OpCase.MULTIPLY_FLOAT: _eager(FloatMultiplyDirective),
+    OpCase.DIVIDE_FLOAT: _eager(FloatDivideDirective),
+    OpCase.EXPONENT_FLOAT: _eager(FloatExponentDirective),
+    OpCase.MODULUS_SINT: _eager(SignedModuloDirective),
+    OpCase.MODULUS_UINT: _eager(UnsignedModuloDirective),
+    OpCase.MODULUS_FLOAT: _eager(FloatModuloDirective),
+    OpCase.FLOOR_DIVIDE_SINT: _eager(SignedIntDivideDirective),
+    OpCase.FLOOR_DIVIDE_UINT: _eager(UnsignedIntDivideDirective),
+    # float floor division: divide, then floor toward -inf
+    OpCase.FLOOR_DIVIDE_FLOAT: _eager(FloatDivideDirective, FloatFloorDirective),
+    OpCase.LESS_THAN_SINT: _eager(SignedLessThanDirective),
+    OpCase.LESS_THAN_UINT: _eager(UnsignedLessThanDirective),
+    OpCase.LESS_THAN_FLOAT: _eager(FloatLessThanDirective),
+    OpCase.GREATER_THAN_SINT: _eager(SignedGreaterThanDirective),
+    OpCase.GREATER_THAN_UINT: _eager(UnsignedGreaterThanDirective),
+    OpCase.GREATER_THAN_FLOAT: _eager(FloatGreaterThanDirective),
+    OpCase.LESS_THAN_OR_EQUAL_SINT: _eager(SignedLessThanOrEqualDirective),
+    OpCase.LESS_THAN_OR_EQUAL_UINT: _eager(UnsignedLessThanOrEqualDirective),
+    OpCase.LESS_THAN_OR_EQUAL_FLOAT: _eager(FloatLessThanOrEqualDirective),
+    OpCase.GREATER_THAN_OR_EQUAL_SINT: _eager(SignedGreaterThanOrEqualDirective),
+    OpCase.GREATER_THAN_OR_EQUAL_UINT: _eager(UnsignedGreaterThanOrEqualDirective),
+    OpCase.GREATER_THAN_OR_EQUAL_FLOAT: _eager(FloatGreaterThanOrEqualDirective),
+    OpCase.EQUAL_INT: _eager(IntEqualDirective),
+    OpCase.EQUAL_FLOAT: _eager(FloatEqualDirective),
+    OpCase.EQUAL_BYTES: _emit_bytes_equal,
+    OpCase.NOT_EQUAL_INT: _eager(IntNotEqualDirective),
+    OpCase.NOT_EQUAL_FLOAT: _eager(FloatNotEqualDirective),
+    OpCase.NOT_EQUAL_BYTES: _emit_bytes_not_equal,
+}
+assert set(FPYBC_OP_IMPLS) == set(OpCase), set(OpCase) ^ set(FPYBC_OP_IMPLS)
 
 
 class GenerateSequence(EmitterWithNodeInfo):
