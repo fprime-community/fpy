@@ -108,8 +108,8 @@ dev = [
 ]
 harness = [
     "cmake==3.26.0",
-    "fprime-fpp==3.3.0a15",
-    "fprime-tools==4.3.0a5",
+    "fprime-fpp==3.3.0",
+    "fprime-tools==4.3.0",
     "ninja==1.11.1.4",
 ]
 

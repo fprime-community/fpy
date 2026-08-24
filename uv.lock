@@ -281,14 +281,14 @@ wheels = [
 
 [[package]]
 name = "fprime-fpp"
-version = "3.3.0a15"
+version = "3.3.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/b4/a5586a2c53d57b6c31ab482fd4c8cf6f5b45e2cad7bcd77dc4cfec9cc2c1/fprime_fpp-3.3.0a15-py3-none-any.whl", hash = "sha256:ab5d99f49959f8931492ed498aa62779334e7797441ff30c62cfb44a7c9512fa", size = 28775600, upload-time = "2026-08-05T17:54:32.73Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/b4/d9c292231c47c69311f64e9be0fcbf61f03dd0475f728c43dac6bbd92b86/fprime_fpp-3.3.0a15-py3-none-macosx_14_0_arm64.whl", hash = "sha256:b0a28cbb5adb53ab19303edbe127244a243effd707516215756d8e46992e471f", size = 45214376, upload-time = "2026-08-05T17:54:37.998Z" },
-    { url = "https://files.pythonhosted.org/packages/c4/88/0454290fc5a82d375f7d5ba8f306bd5a20ab60a3ac3219ae8fc59ec91ad1/fprime_fpp-3.3.0a15-py3-none-macosx_15_0_x86_64.whl", hash = "sha256:2f793d3472fc8cc3c68d10f9b17eca7f6066d8eede95a1637d9d63009ca8ea0e", size = 44740167, upload-time = "2026-08-05T17:54:28.467Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/7f/e0d409188f7f2cc3a88dbffe9952aecdc223851d2241cd837719089d349f/fprime_fpp-3.3.0a15-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:7544d7832b15df47982de940152c5849e3d331c682371e27d82e77bd07383c69", size = 44751375, upload-time = "2026-08-05T17:54:32.011Z" },
-    { url = "https://files.pythonhosted.org/packages/4c/cc/7f783daf6144d2d42c1162af399d369b8718007c7de99c4164efd32a3095/fprime_fpp-3.3.0a15-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:09d702373201d6f67bb0f85505d4e1cd6504a56a74189fa58d34b52fecb5442b", size = 44759160, upload-time = "2026-08-05T17:54:25.528Z" },
+    { url = "https://files.pythonhosted.org/packages/74/60/6d37e9bed292553a67ec46f6664836dc293ef5ffb39550e414113ab519c5/fprime_fpp-3.3.0-py3-none-any.whl", hash = "sha256:615e76e05b8bdf1b5db2cbba34e8cc73f6a3067d14db3816a59194d046bfb660", size = 28847492, upload-time = "2026-08-19T17:01:00.855Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/bd/b00365c012349253e5df544e5df74c986cb137d306845237d34cdffe837a/fprime_fpp-3.3.0-py3-none-macosx_14_0_arm64.whl", hash = "sha256:36e3c75d257665592b28eb582a4cc9bf50a4d00621c129a2ceb8f31f9522e255", size = 45310063, upload-time = "2026-08-19T17:01:05.764Z" },
+    { url = "https://files.pythonhosted.org/packages/96/f2/f279060badf709d698d9a075aaa949efbd2fe751d4dcd4a25ef8c7108cab/fprime_fpp-3.3.0-py3-none-macosx_15_0_x86_64.whl", hash = "sha256:465dc6948b78f15ee737caa00d5d728f04dbbb0857284c143a552c2d4eb546f1", size = 44867607, upload-time = "2026-08-19T17:01:03.027Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/1b/af2aad9e3a2000faa9428e8d8e46a571ac2e7c091fcc092484e1b58baa19/fprime_fpp-3.3.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:54ca7fad89a4adab1fb26bd69b38ea52a558213df0a3246e4edaa62edd1a74d3", size = 44858067, upload-time = "2026-08-19T17:00:56.357Z" },
+    { url = "https://files.pythonhosted.org/packages/92/4f/c8d82dd761131568794bb5a1a103b8332000cec66b3d8d233f57d4fdd027/fprime_fpp-3.3.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:b8a766eb44812dc231ce737350daacc354098b7cb8d29638a71940b74cdaec31", size = 44867011, upload-time = "2026-08-19T17:01:00.498Z" },
 ]
 
 [[package]]
@@ -335,22 +335,22 @@ provides-extras = ["wasm"]
 dev = [
     { name = "black", specifier = ">=26.5.1" },
     { name = "cmake", specifier = "==3.26.0" },
-    { name = "fprime-fpp", specifier = "==3.3.0a15" },
+    { name = "fprime-fpp", specifier = "==3.3.0" },
     { name = "fprime-fpy", extras = ["wasm"] },
-    { name = "fprime-tools", specifier = "==4.3.0a5" },
+    { name = "fprime-tools", specifier = "==4.3.0" },
     { name = "ninja", specifier = "==1.11.1.4" },
     { name = "pre-commit", specifier = ">=4.6.0" },
 ]
 harness = [
     { name = "cmake", specifier = "==3.26.0" },
-    { name = "fprime-fpp", specifier = "==3.3.0a15" },
-    { name = "fprime-tools", specifier = "==4.3.0a5" },
+    { name = "fprime-fpp", specifier = "==3.3.0" },
+    { name = "fprime-tools", specifier = "==4.3.0" },
     { name = "ninja", specifier = "==1.11.1.4" },
 ]
 
 [[package]]
 name = "fprime-tools"
-version = "4.3.0a5"
+version = "4.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cookiecutter" },
@@ -361,9 +361,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/bc/8cc28625e057c756165036c8b634c9ba96e72cd3cb9deb3ba6f086edb038/fprime_tools-4.3.0a5.tar.gz", hash = "sha256:58592bbafa31be24a3fb70fe115069fbc5fed1ddc5a36cef8ffc7e8bbbe8549c", size = 134673, upload-time = "2026-06-18T22:41:35.927Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/7b/aa6f01db64f85b6187f242782d54acabe0f3e985385921fd5c48e302b73b/fprime_tools-4.3.0.tar.gz", hash = "sha256:f38662a639689ee21d80caf164c9441bc057bb887a3480122595470b6fd95a01", size = 149495, upload-time = "2026-08-19T23:16:49.986Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/d7/d2365de636ccb0f996cd41d8194be6473310d88b4d9330c0c909bacc2a11/fprime_tools-4.3.0a5-py3-none-any.whl", hash = "sha256:b01739ca739a27e7824afe5252ddc083b3efb482a480025e0fa3234bd56a6afd", size = 143964, upload-time = "2026-06-18T22:41:34.539Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/b5/4cb4f51c4cdb105dbb22ef239b52c6cb37081b71efa33ba487ebe9a277e1/fprime_tools-4.3.0-py3-none-any.whl", hash = "sha256:2be1d7c78927a288b94be8081c15d6893085d23bc4f2d275b51d6a81ac6df2b6", size = 154329, upload-time = "2026-08-19T23:16:48.579Z" },
 ]
 
 [[package]]

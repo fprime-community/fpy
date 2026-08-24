@@ -767,19 +767,41 @@ def _emit_float_modulo(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Valu
 def _emit_bytes_equal(
     self: EmitLlvmExpr, node: AstBinaryOp, state: CompileState
 ) -> ir.Value:
-    """Emit ``==`` of two same-typed non-numeric values. Enums and bools lower
-    to integers, so they compare with icmp; aggregates have no lowering yet."""
+    """Emit ``==`` of two same-typed non-numeric values. The spec ("Equality
+    semantics") defines this as comparing the serialized bytes; here the same
+    answer is computed leaf by leaf, without serializing."""
     lhs_type = state.contextual_types[node.lhs]
     rhs_type = state.contextual_types[node.rhs]
     assert lhs_type == rhs_type, (lhs_type, rhs_type)
-    if not isinstance(lhs_type.llvm_type, ir.IntType):
-        raise BackendError(
-            f"LLVM backend can't compare values of type "
-            f"'{lhs_type.display_name}' yet"
-        )
     lhs = self.emit(node.lhs, state)
     rhs = self.emit(node.rhs, state)
-    return self.builder.icmp_signed("==", lhs, rhs)
+    return _emit_value_equal(self.builder, lhs, rhs)
+
+
+def _emit_value_equal(b: ir.IRBuilder, lhs: ir.Value, rhs: ir.Value) -> ir.Value:
+    """Emit ``==`` of two LLVM values of the same type with serialized-bytes
+    semantics: integers (including lowered enums and bools) compare with icmp,
+    floats compare by bit pattern rather than fcmp (so 0.0 != -0.0 and a NaN
+    equals a bit-identical NaN, exactly as their serialized bytes compare),
+    and aggregates compare leaf by leaf."""
+    llvm_type = lhs.type
+    assert llvm_type == rhs.type, (llvm_type, rhs.type)
+    if isinstance(llvm_type, ir.IntType):
+        return b.icmp_signed("==", lhs, rhs)
+    if isinstance(llvm_type, (ir.FloatType, ir.DoubleType)):
+        bits = ir.IntType(32 if isinstance(llvm_type, ir.FloatType) else 64)
+        return b.icmp_signed("==", b.bitcast(lhs, bits), b.bitcast(rhs, bits))
+    if isinstance(llvm_type, ir.LiteralStructType):
+        count = len(llvm_type.elements)
+    else:
+        assert isinstance(llvm_type, ir.ArrayType), llvm_type
+        count = llvm_type.count
+    assert count > 0, llvm_type
+    result = None
+    for i in range(count):
+        eq = _emit_value_equal(b, b.extract_value(lhs, i), b.extract_value(rhs, i))
+        result = eq if result is None else b.and_(result, eq)
+    return result
 
 
 def _emit_bytes_not_equal(

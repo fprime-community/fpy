@@ -18,21 +18,19 @@
 #define WASMSEQUENCERCONFIG_HPP
 
 #include <Fw/FPrimeBasicTypes.hpp>
+#include "config/FwSizeTypeAliasAc.h"
+#include "config/WasmSequencerSpacewasmConfig.h"
 
 namespace Svc {
 namespace WasmSequencerConfig {
+constexpr FwSizeType SPACEWASM_PAGE_SIZE = WASM_SEQ_SPACEWASM_PAGE_SIZE;
+constexpr FwSizeType SPACEWASM_MAX_PAGES = WASM_SEQ_SPACEWASM_MAX_PAGES;
 
-/// Backing for the process-wide spacewasm global page allocator. These two
-/// constants MUST match the values baked into the `spacewasm_c_api` crate's
-/// `config.rs` (`GLOBAL_ALLOCATOR_PAGE_SIZE` / `GLOBAL_ALLOCATOR_MAX_PAGES`).
-/// The crate requests fixed-size pages of exactly SPACEWASM_PAGE_SIZE and never
-/// holds more than SPACEWASM_MAX_PAGES at once; the component serves them from a
-/// static pool. This memory is used only for the Wasm store and bytecode, NOT
-/// for guest linear-memory pages (see GUEST_MEMORY_SIZE).
-constexpr FwSizeType SPACEWASM_PAGE_SIZE = 8192;
-constexpr FwSizeType SPACEWASM_MAX_PAGES = 4;
+/// Maximum number of WasmSequencer instances that may register a global
+/// allocator slot process-wide
+constexpr FwSizeType MAX_SEQUENCERS = WASM_SEQ_MAX_SEQUENCERS;
 
-/// Total static pool backing the interpreter heap: 16 * 8192 = 128 KiB.
+/// Total static pool backing the interpreter heap: 4 * 8192 = 32 KiB.
 constexpr FwSizeType DYNAMIC_MEMORY_SIZE = SPACEWASM_PAGE_SIZE * SPACEWASM_MAX_PAGES;
 
 /// Size in bytes of the guest operand stack allocated per store
@@ -58,6 +56,24 @@ constexpr U8 MAX_GUEST_MODULES = 8;
 /// Data will be copied out of the Wasm guest into WasmSequencer memory to
 /// invoke the serial output port
 constexpr U32 MAX_SERIAL_PORT_SIZE = 256;
+
+/// Buffer size to allocate for streaming a Wasm module from the filesystem to the decoder/validator
+constexpr FwSizeType LOAD_READ_CHUNK_SIZE = 512;
+
+enum class SerialInQueueFullBehavior {
+    DROP_OLDEST,  //!< Oldest message will be de-queued and dropped to make space for the new message. Keep dropping
+                  //!< messages until enough space is made
+    DROP_NEWEST,  //!< Drop the latest message if it cannot fit in the remaining queue space
+    ASSERT,       //!< Trigger an assertion if the queue fills and cannot process another message
+};
+
+constexpr SerialInQueueFullBehavior SERIAL_IN_QUEUE_FULL_BEHAVIOR = SerialInQueueFullBehavior::DROP_OLDEST;
+
+/// Size of each serialIn port in bytes
+constexpr FwSizeType SERIAL_IN_QUEUE_SIZE = 256;
+
+/// Maximum number of concurrent `WAIT` commands each WasmSequencer can service
+constexpr FwSizeType MAX_CONCURRENT_WAIT_COMMANDS = 8;
 
 }  // namespace WasmSequencerConfig
 }  // namespace Svc

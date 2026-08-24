@@ -7,7 +7,7 @@
 
 namespace Svc {
 
-using WasmState = WasmSequencer_SequencerStateMachine_State;
+using WasmState = WasmSequencer_InterpreterStateMachine_State;
 
 WasmSequencerTester::WasmSequencerTester()
     : WasmSequencerTesterComponentBase("WasmSequencerTester"), m_sequencer("WasmSequencer") {
@@ -58,9 +58,9 @@ harness::HarnessResult WasmSequencerTester::run(const harness::HarnessRequest& r
     }
 
     WasmSequencer& seq = this->m_sequencer;
-    this->m_result.state = static_cast<I32>(seq.sequencer_getState());
-    this->m_result.sequencesSucceeded = seq.m_tlmSequencesSucceeded;
-    this->m_result.statementsDispatched = seq.m_tlmCommandsDispatched;
+    this->m_result.state = static_cast<I32>(seq.interpreter_getState());
+    this->m_result.sequencesSucceeded = seq.m_tlm.sequencesSucceeded;
+    this->m_result.statementsDispatched = seq.m_tlm.commandsDispatched;
 
     this->m_request = nullptr;
     return this->m_result;
@@ -108,8 +108,8 @@ void WasmSequencerTester::pump() {
                 // the run is over.
                 return;
             }
-            WasmState state = seq.sequencer_getState();
-            if (state == WasmState::RUNNING_AWAITING_RESPONSE && seq.m_hasPendingTimer) {
+            WasmState state = seq.interpreter_getState();
+            if (state == WasmState::RUNNING_AWAITING_RESPONSE_SLEEPING && seq.m_hasPendingTimer) {
                 // The sequence is sleeping. Jump the clock to the wake-up
                 // time instead of waiting, then let the sequencer check its
                 // timers. On a time base mismatch the clock is left alone;
@@ -128,7 +128,7 @@ void WasmSequencerTester::pump() {
         }
 
         (void)seq.doDispatch();
-        WasmState state = seq.sequencer_getState();
+        WasmState state = seq.interpreter_getState();
         this->m_result.reachedRunning = this->m_result.reachedRunning || state == WasmState::RUNNING_SPINNING;
     }
     this->m_result.error = "dispatch cap hit; the sequence appears to loop forever";
@@ -199,12 +199,17 @@ void WasmSequencerTester::logIn_handler(FwIndexType portNum,
                                         Fw::Time& timeTag,
                                         const Fw::LogSeverity& severity,
                                         Fw::LogBuffer& args) {
-    if (id == WasmSequencer::EVENTID_PROGRAMEXITED || id == WasmSequencer::EVENTID_PANICOCCURRED) {
+    if (id == WasmSequencer::EVENTID_SEQUENCEEXITED || id == WasmSequencer::EVENTID_SEQUENCEPANIC) {
         // The code the guest passed to the exit or panic host function. Only
-        // a nonzero code raises these events (exit(0) finishes cleanly).
+        // a nonzero code raises these events (exit(0) finishes cleanly). The
+        // code follows the module index and execution phase.
         args.resetDeser();
+        WasmSequencer_ModuleIdx index = 0;
+        WasmSequencer_SequencePhase phase;
         I32 exitCode = 0;
-        if (args.deserializeTo(exitCode) == Fw::SerializeStatus::FW_SERIALIZE_OK) {
+        if (args.deserializeTo(index) == Fw::SerializeStatus::FW_SERIALIZE_OK &&
+            args.deserializeTo(phase) == Fw::SerializeStatus::FW_SERIALIZE_OK &&
+            args.deserializeTo(exitCode) == Fw::SerializeStatus::FW_SERIALIZE_OK) {
             this->m_result.exited = true;
             this->m_result.exitCode = exitCode;
         }
