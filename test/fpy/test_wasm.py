@@ -42,8 +42,10 @@ from fpy.test_helpers import (
     run_seq_wasm,
     run_seq_wasm_with_cmds,
     run_seq_wasm_with_events,
+    run_seq_wasm_with_serial,
     run_wasm,
 )
+import fpy.types
 from fpy.types import (
     BOOL,
     F32,
@@ -582,6 +584,131 @@ class TestWasmLog:
         code, events = run_seq_wasm_with_events('log("bye")\nexit(9)\n')
         assert code == 9
         assert events == [(5, "bye")]
+
+
+class TestWasmWriteToPort:
+    """write_to_port(port, value) lowers to the host
+    `serial_send(port, ptr, len)` call, with the value serialized into linear
+    memory in fprime wire format. The runner harness reports each send back as
+    a (port index, bytes) pair."""
+
+    def test_runtime_int(self):
+        # The value is a variable read, so it serializes at runtime.
+        code, serial = run_seq_wasm_with_serial(
+            "value: U32 = 42\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">I", 42))]
+
+    def test_constant_expression(self):
+        # A constant value serializes at compile time, into the buffer's
+        # initializer.
+        code, serial = run_seq_wasm_with_serial(
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, U32(100 + 200))\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">I", 300))]
+
+    def test_constant_string(self):
+        # A string travels with its FwSizeStoreType (U16) length prefix.
+        code, serial = run_seq_wasm_with_serial(
+            'write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, "hello world")\n'
+        )
+        assert code == NO_ERROR
+        assert serial == [(1, struct.pack(">H", 11) + b"hello world")]
+
+    def test_empty_constant_string(self):
+        code, serial = run_seq_wasm_with_serial(
+            'write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "")\n'
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">H", 0))]
+
+    def test_runtime_bool(self):
+        code, serial = run_seq_wasm_with_serial(
+            "v: bool = True\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, bytes([fpy.types.FW_SERIALIZE_TRUE_VALUE]))]
+
+    def test_runtime_signed_int(self):
+        code, serial = run_seq_wasm_with_serial(
+            "v: I16 = -5\n" "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">h", -5))]
+
+    def test_runtime_float(self):
+        code, serial = run_seq_wasm_with_serial(
+            "v: F64 = 0.5\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">d", 0.5))]
+
+    def test_runtime_struct(self):
+        code, serial = run_seq_wasm_with_serial(
+            "v: Ref.SignalPair = Ref.SignalPair(time=1.0, value=2.0)\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(2, struct.pack(">ff", 1.0, 2.0))]
+
+    def test_runtime_array(self):
+        code, serial = run_seq_wasm_with_serial(
+            "v: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 4.0)\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(3, struct.pack(">ffff", 1.0, 2.0, 3.0, 4.0))]
+
+    def test_runtime_enum(self):
+        # An enum serializes at its dictionary rep type (Ref.Choice is I32).
+        d = load_dictionary(default_dictionary)
+        expected = FpyValue(d["type_defs"]["Ref.Choice"], "RED").serialize()
+        code, serial = run_seq_wasm_with_serial(
+            "v: Ref.Choice = Ref.Choice.RED\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, expected)]
+
+    def test_multiple_writes_in_call_order(self):
+        code, serial = run_seq_wasm_with_serial(
+            "value: U32 = 42\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n"
+            'write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, "hi")\n'
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [
+            (0, struct.pack(">I", 42)),
+            (1, struct.pack(">H", 2) + b"hi"),
+            (0, struct.pack(">I", 42)),
+        ]
+
+    def test_write_before_exit_still_reported(self):
+        # The serial_send host call must happen before the sequence terminates.
+        code, serial = run_seq_wasm_with_serial(
+            "value: U32 = 7\n"
+            "write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)\n"
+            "exit(9)\n"
+        )
+        assert code == 9
+        assert serial == [(0, struct.pack(">I", 7))]
+
+    def test_write_in_loop(self):
+        # The same call site's buffer is rewritten each iteration.
+        code, serial = run_seq_wasm_with_serial(
+            "i: U64 = 0\n"
+            "while i < 3:\n"
+            "    write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, i)\n"
+            "    i = i + 1\n"
+        )
+        assert code == NO_ERROR
+        assert serial == [(0, struct.pack(">Q", i)) for i in range(3)]
 
 
 class TestWasmBareExpressionStatements:
@@ -1508,7 +1635,7 @@ class TestWasmBigEndianSerialization:
 
     @pytest.mark.parametrize("value", _big_endian_cases())
     def test_round_trip_matches_serialize(self, value):
-        code, _, _ = run_wasm(llvm_module_to_wasm(self._build_module(value)))
+        code, _, _, _ = run_wasm(llvm_module_to_wasm(self._build_module(value)))
         assert code != 1, f"stored bytes diverged from serialize() for {value}"
         assert code != 2, f"load->store did not round-trip for {value}"
         assert code == NO_ERROR
@@ -1535,5 +1662,5 @@ class TestWasmBigEndianSerialization:
         emitter._emit_load_big_endian(BOOL, buf, 0)
         builder.ret_void()
 
-        code, _, _ = run_wasm(llvm_module_to_wasm(module))
+        code, _, _, _ = run_wasm(llvm_module_to_wasm(module))
         assert code == DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value

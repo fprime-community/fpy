@@ -170,7 +170,7 @@ def run_seq_wasm(
     harness built by conftest. *tlm* and *prms* are the telemetry values and
     parameters the simulated spacecraft has, keyed by qualified name, as
     serialized bytes."""
-    code, _, _ = _run_seq_wasm(
+    code, _, _, _ = _run_seq_wasm(
         seq,
         ground_binary_dir,
         import_directories=import_directories,
@@ -196,7 +196,7 @@ def run_seq_wasm_with_events(
     """Like run_seq_wasm, but also returns the events the sequence reported
     through the event host import (the log() builtin) as (severity, message)
     pairs, in call order."""
-    code, events, _ = _run_seq_wasm(
+    code, events, _, _ = _run_seq_wasm(
         seq,
         ground_binary_dir,
         import_directories=import_directories,
@@ -222,7 +222,7 @@ def run_seq_wasm_with_cmds(
     FwOpcodeType + arguments), in call order. Every command completes with
     *cmd_response* (an Fw.CmdResponse value, default OK) unless its opcode is
     in *failing_opcodes*, which makes it complete with EXECUTION_ERROR."""
-    code, _, cmds = _run_seq_wasm(
+    code, _, cmds, _ = _run_seq_wasm(
         seq,
         ground_binary_dir,
         import_directories=import_directories,
@@ -234,6 +234,26 @@ def run_seq_wasm_with_cmds(
         prms=prms,
     )
     return code, cmds
+
+
+def run_seq_wasm_with_serial(
+    seq: str,
+    ground_binary_dir: str = None,
+    import_directories: list[str] | None = None,
+    expected_warnings=None,
+    main_file_dir: str | None = None,
+) -> tuple[int, list[tuple[int, bytes]]]:
+    """Like run_seq_wasm, but also returns what the sequence wrote through the
+    serial_send host import as (port index, serialized bytes) pairs, in call
+    order."""
+    code, _, _, serial = _run_seq_wasm(
+        seq,
+        ground_binary_dir,
+        import_directories=import_directories,
+        expected_warnings=expected_warnings,
+        main_file_dir=main_file_dir,
+    )
+    return code, serial
 
 
 def _run_seq_wasm(
@@ -249,9 +269,10 @@ def _run_seq_wasm(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-) -> tuple[int, list[tuple[int, str]], list[bytes]]:
+) -> tuple[int, list[tuple[int, str]], list[bytes], list[tuple[int, bytes]]]:
     """Compile *seq* to wasm, run it through the spacewasm runner harness, and
-    return (error code, reported events, dispatched command buffers).
+    return (error code, reported events, dispatched command buffers, serial
+    writes).
 
     The commands that fail are *failing_opcodes* plus the RUN commands that
     always fail when called from within a running sequence on the same
@@ -284,10 +305,10 @@ def run_wasm(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
-) -> tuple[int, list[tuple[int, str]], list[bytes]]:
+) -> tuple[int, list[tuple[int, str]], list[bytes], list[tuple[int, bytes]]]:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return (error code, reported events, dispatched
-    command buffers).
+    command buffers, serial writes as (port index, bytes) pairs).
 
     The commands that fail are *failing_opcodes* plus the RUN commands that
     always fail when called from within a running sequence on the same
@@ -333,13 +354,14 @@ def run_wasm(
     # rest are the sequencer's own reporting.
     events = [(e["severity"], e["text"]) for e in result["events"] if e.get("guest")]
     cmds = [bytes.fromhex(c) for c in result["cmds"]]
+    serial = [(s["port"], bytes.fromhex(s["data"])) for s in result["serial"]]
 
     if result["cmdResponse"] == CMD_RESPONSE_OK:
-        return 0, events, cmds
+        return 0, events, cmds, serial
     if "exitCode" in result:
         # The code the sequence passed to the exit or panic host import,
         # reported through the SequenceExitedWithError event.
-        return result["exitCode"], events, cmds
+        return result["exitCode"], events, cmds, serial
     raise HarnessError(
         "wasm sequence failed without an exit code (interpreter trap): "
         + "; ".join(e["text"] for e in result["events"])

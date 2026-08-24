@@ -32,18 +32,22 @@ def _generate_llvm_unsupported(builder, args):
 
 @dataclass
 class BuiltinFuncSymbol(CallableSymbol):
-    generate_fpybc: Callable[[AstFuncCall, dict[int, FpyValue]], list[Directive]]
-    """fpybc backend: builds bytecode directives given the calling node and a
-    dict mapping const_arg_indices to their compile-time values. Non-const args
-    are already pushed on the stack by the caller."""
+    generate_fpybc: Callable[
+        [AstFuncCall, dict[int, FpyValue], list[FpyType]], list[Directive]
+    ]
+    """fpybc backend: builds bytecode directives given the calling node, a
+    dict mapping const_arg_indices to their compile-time values, and the
+    contextual (coerced) type of each argument in positional order. Non-const
+    args are already pushed on the stack by the caller."""
     generate_llvm: Callable = _generate_llvm_unsupported
     """llvm/wasm backend: builds the call's LLVM IR. Called as
     generate_llvm(builder, args), where args is a list of (ir.Value or None,
-    FpyValue or None) pairs -- each argument's emitted value alongside its
-    compile-time constant value (or None if it isn't constant). Args in
-    const_arg_indices are never emitted and arrive as (None, value). Returns the
-    result ir.Value (or None for a NOTHING-typed builtin). Defaults to raising
-    'not lowered yet'."""
+    FpyValue or None, FpyType) triples -- each argument's emitted value,
+    its compile-time constant value (or None if it isn't constant), and its
+    contextual (coerced) type. Args in const_arg_indices, and args whose type
+    has no machine representation (a string), are never emitted and arrive as
+    (None, value, type). Returns the result ir.Value (or None for a
+    NOTHING-typed builtin). Defaults to raising 'not lowered yet'."""
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
     """indices of args that must be compile-time constants and are NOT pushed
     to the stack; instead their values are passed to generate_fpybc()"""

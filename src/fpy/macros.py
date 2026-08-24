@@ -20,6 +20,7 @@ from fpy.wasm_host import (
     HOST_EVENT_FUNC_NAME,
     HOST_EXIT_FUNC_NAME,
     HOST_RSLEEP_FUNC_NAME,
+    HOST_SERIAL_SEND_FUNC_NAME,
     HOST_TIME_FUNC_NAME,
 )
 from fpy.syntax import Ast
@@ -63,13 +64,13 @@ from fpy.bytecode.directives import (
 
 
 def generate_abs_float(
-    node: Ast, const_args: dict[int, FpyValue]
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
 ) -> list[Directive | Ir]:
     return [FloatAbsDirective()]
 
 
 def generate_abs_signed_int(
-    node: Ast, const_args: dict[int, FpyValue]
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
 ) -> list[Directive | Ir]:
     return [IntAbsDirective()]
 
@@ -113,7 +114,7 @@ def generate_now_llvm(builder, args):
 def generate_sleep_llvm(builder, args):
     """LLVM/wasm lowering of sleep(seconds, useconds): the host rsleep import
     takes the duration as one microsecond count."""
-    [(seconds, _), (useconds, _)] = args
+    [(seconds, _, _), (useconds, _, _)] = args
     builder.call(
         builder.module.globals[HOST_RSLEEP_FUNC_NAME],
         [_emit_micros_u64(builder, seconds, useconds)],
@@ -125,7 +126,7 @@ def generate_sleep_until_llvm(builder, args):
     """LLVM/wasm lowering of sleep_until(wakeup_time): the host asleep import
     takes the wake-up time as microseconds since the epoch of the host's time
     base (the wakeup time's own base and context do not travel)."""
-    [(wakeup, _)] = args
+    [(wakeup, _, _)] = args
     member_idx = {m.name: i for i, m in enumerate(TIME.members)}
     seconds = builder.extract_value(wakeup, member_idx["seconds"])
     useconds = builder.extract_value(wakeup, member_idx["useconds"])
@@ -147,13 +148,13 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
         ),
         ("useconds", U32, FpyValue(U32, 0)),
     ],
-    lambda n, c: [WaitRelDirective()],
+    lambda n, c, t: [WaitRelDirective()],
     generate_sleep_llvm,
 )
 
 
 def generate_sleep_float(
-    node: Ast, const_args: dict[int, FpyValue]
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
 ) -> list[Directive | Ir]:
     # convert F64 to seconds and microseconds
     dirs = [
@@ -193,7 +194,7 @@ MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
 
 
 def generate_log_signed_int(
-    node: Ast, const_args: dict[int, FpyValue]
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
 ) -> list[Directive | Ir]:
     return [
         # convert int to float
@@ -207,7 +208,7 @@ def generate_exit_llvm(builder, args):
     ends the whole sequence from any call depth (code 0 is a normal exit,
     nonzero an error).
     """
-    [(code, _const)] = args
+    [(code, _const, _)] = args
     builder.call(builder.module.globals[HOST_EXIT_FUNC_NAME], [code])
     builder.unreachable()
     builder.position_at_end(builder.function.append_basic_block("after_exit"))
@@ -215,7 +216,7 @@ def generate_exit_llvm(builder, args):
 
 
 def generate_abs_float_llvm(builder, args):
-    [(value, _)] = args
+    [(value, _, _)] = args
     fn = builder.module.declare_intrinsic("llvm.fabs", [value.type])
     return builder.call(fn, [value])
 
@@ -223,7 +224,7 @@ def generate_abs_float_llvm(builder, args):
 def generate_abs_signed_int_llvm(builder, args):
     from llvmlite import ir
 
-    [(value, _)] = args
+    [(value, _, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.abs",
         [value.type, ir.IntType(1)],
@@ -235,7 +236,7 @@ def generate_abs_signed_int_llvm(builder, args):
 def generate_log_llvm(builder, args):
     from llvmlite import ir
 
-    [(value, _)] = args
+    [(value, _, _)] = args
     fn = builder.module.declare_intrinsic(
         "llvm.log",
         [value.type],
@@ -250,7 +251,7 @@ def generate_log_event_llvm(builder, args):
     event(severity, ptr, len)."""
     from llvmlite import ir
 
-    [(_, message), (_, severity)] = args
+    [(_, message, _), (_, severity, _)] = args
     data = message.val.encode("utf-8")
     module = builder.module
     msg_type = ir.ArrayType(ir.IntType(8), len(data))
@@ -284,7 +285,9 @@ MACRO_ABS_SIGNED_INT = BuiltinFuncSymbol(
 )
 
 
-def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive | Ir]:
+def generate_randf(
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
+) -> list[Directive | Ir]:
     return [
         PushRandDirective(),
         IntegerZeroExtend32To64Directive(),
@@ -292,6 +295,67 @@ def generate_randf(node: Ast, const_args: dict[int, FpyValue]) -> list[Directive
         PushValDirective(FpyValue(F64, 2**32).serialize()),
         FloatDivideDirective(),
     ]
+
+
+def generate_write_to_port(
+    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
+) -> list[Directive | Ir]:
+    # The value is already on the stack; pop it out the serial port. It is
+    # coerced to a concrete sized type, so max_size is the exact size to pop.
+    # The port is a const dictionary SerialPortIndex enum; .val is the
+    # constant name, resolve to its int index.
+    port_val = const_args[0]
+    assert isinstance(port_val.val, str), port_val
+    return [
+        PopSerializableDirective(
+            portIndex=port_val.type.enum_dict[port_val.val],
+            size=arg_types[1].max_size,
+        )
+    ]
+
+
+def generate_write_to_port_llvm(builder, args):
+    """LLVM/wasm lowering of write_to_port(port, value): serialize the value
+    into a buffer in linear memory in fprime wire format and call the host
+    serial_send(port, ptr, len) import."""
+    from llvmlite import ir
+
+    # The store helper lives with the rest of the wire-format emission in the
+    # LLVM backend; import it here so this module stays importable without
+    # llvmlite.
+    from fpy.codegen_llvm import EmitLlvmExpr, create_byte_buffer
+
+    [(_, port_val, _), (value, const_val, value_type)] = args
+    assert isinstance(port_val.val, str), port_val
+    # The value is coerced to a concrete sized type, so max_size is the exact
+    # serialized size.
+    size = value_type.max_size
+    module = builder.module
+    if const_val is not None:
+        # A constant serializes at compile time, straight into the buffer's
+        # initializer. This is also the only way a string value travels: a
+        # runtime string can't exist.
+        data = const_val.serialize()
+        assert len(data) == size, (const_val, size)
+        buf = create_byte_buffer(module, "serial_buf", bytearray(data))
+        buf.global_constant = True
+    else:
+        buf = create_byte_buffer(module, "serial_buf", bytearray(size))
+        written = EmitLlvmExpr(builder)._emit_store_big_endian(
+            value, value_type, buf, 0
+        )
+        assert written == size, (value_type, written)
+
+    i32 = ir.IntType(32)
+    builder.call(
+        module.globals[HOST_SERIAL_SEND_FUNC_NAME],
+        [
+            ir.Constant(i32, port_val.type.enum_dict[port_val.val]),
+            builder.bitcast(buf, ir.IntType(8).as_pointer()),
+            ir.Constant(i32, size),
+        ],
+    )
+    return None
 
 
 TIME_MACRO = BuiltinFuncSymbol(
@@ -302,7 +366,7 @@ TIME_MACRO = BuiltinFuncSymbol(
         ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
         ("timeContext", U8, FpyValue(U8, 0)),
     ],
-    lambda n, c: [],  # placeholder - const eval handles this
+    lambda n, c, t: [],  # placeholder - const eval handles this
 )
 
 MACROS: dict[str, BuiltinFuncSymbol] = {
@@ -311,30 +375,30 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         "sleep_until",
         NOTHING,
         [("wakeup_time", TIME, None)],
-        lambda n, c: [WaitAbsDirective()],
+        lambda n, c, t: [WaitAbsDirective()],
         generate_sleep_until_llvm,
     ),
     "exit": BuiltinFuncSymbol(
         "exit",
         NOTHING,
         [("exit_code", ErrorCodeType, None)],
-        lambda n, c: [ExitDirective()],
+        lambda n, c, t: [ExitDirective()],
         generate_llvm=generate_exit_llvm,
     ),
     "ln": BuiltinFuncSymbol(
         "ln",
         F64,
         [("operand", F64, None)],
-        lambda n, c: [FloatLogDirective()],
+        lambda n, c, t: [FloatLogDirective()],
         generate_log_llvm,
     ),
     "now": BuiltinFuncSymbol(
-        "now", TIME, [], lambda n, c: [PushTimeDirective()], generate_now_llvm
+        "now", TIME, [], lambda n, c, t: [PushTimeDirective()], generate_now_llvm
     ),
-    "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c: [PushRandDirective()]),
+    "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c, t: [PushRandDirective()]),
     "randf": BuiltinFuncSymbol("randf", F64, [], generate_randf),
     "set_seed": BuiltinFuncSymbol(
-        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c: [SetSeedDirective()]
+        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c, t: [SetSeedDirective()]
     ),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
@@ -349,7 +413,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             ("message", INTERNAL_STRING, None),
             ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
         ],
-        lambda n, c: [
+        lambda n, c, t: [
             PushValDirective(c[1].serialize()),
             PushValDirective(c[0].val.encode("utf-8")),
             PushValDirective(
@@ -360,7 +424,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         generate_log_event_llvm,
         const_arg_indices=frozenset({0, 1}),
     ),
-    # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED; codegen.py emits the directive.
+    # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED
     "write_to_port": BuiltinFuncSymbol(
         "write_to_port",
         NOTHING,
@@ -368,7 +432,8 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
             ("port", SerialPortIndex, None),
             ("value", SIZED, None),
         ],
-        lambda n, c: [],  # Placeholder; codegen.py emits the directive
+        generate_write_to_port,
+        generate_write_to_port_llvm,
         const_arg_indices=frozenset({0}),  # port must be compile-time constant
     ),
 }

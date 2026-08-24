@@ -22,6 +22,7 @@ HOST_PRM_FUNC_NAME = "prm"
 HOST_TIME_FUNC_NAME = "time"
 HOST_RSLEEP_FUNC_NAME = "rsleep"
 HOST_ASLEEP_FUNC_NAME = "asleep"
+HOST_SERIAL_SEND_FUNC_NAME = "serial_send"
 
 
 def __getattr__(name: str):
@@ -135,6 +136,17 @@ def declare_host_imports(module: ir.Module) -> None:
     # expressed in microseconds since the epoch of the host's time base.
     _declare_host_func(
         module, HOST_ASLEEP_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ir.IntType(64)])
+    )
+
+    # serial_send(port, buf_ptr, buf_len) sends the buffer contents out the
+    # host's serial output port with the given index.
+    _declare_host_func(
+        module,
+        HOST_SERIAL_SEND_FUNC_NAME,
+        ir.FunctionType(
+            ir.VoidType(),
+            [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
+        ),
     )
 
     # prm(prm_id, buf_ptr, buf_len) reads a parameter: the host writes the

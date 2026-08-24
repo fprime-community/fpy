@@ -374,28 +374,35 @@ class EmitLlvmExpr(Emitter):
     def _emit_builtin_call(
         self, node_args: list, func: BuiltinFuncSymbol, state: CompileState
     ) -> ir.Value | None:
-        # Pass each argument as (emitted ir.Value, its constant FpyValue or None
-        # if it isn't a compile-time constant). The builtin's generate_llvm picks
-        # whichever it needs. Args the builtin requires to be compile-time
-        # constants are not emitted at all -- they may have no machine
-        # representation (e.g. log's InternalString message) -- so they arrive
-        # as (None, value).
-        args: list[tuple[ir.Value | None, FpyValue | None]] = []
+        # Pass each argument as (emitted ir.Value, its constant FpyValue or
+        # None if it isn't a compile-time constant, its contextual type). The
+        # builtin's generate_llvm picks whichever it needs. Args the builtin
+        # requires to be compile-time constants, and args whose type has no
+        # machine representation (a string), are not emitted at all -- they
+        # arrive as (None, value, type).
+        args: list[tuple[ir.Value | None, FpyValue | None, FpyType]] = []
         for i, arg in enumerate(node_args):
             const_val = (
                 arg
                 if is_instance_compat(arg, FpyValue)
                 else state.const_expr_values.get(arg)
             )
-            if i in func.const_arg_indices:
+            arg_type = (
+                arg.type
+                if is_instance_compat(arg, FpyValue)
+                else state.contextual_types[arg]
+            )
+            if i in func.const_arg_indices or arg_type.is_string:
+                # A string arg is necessarily constant: a runtime string can't
+                # exist (semantics rejects it).
                 assert (
                     const_val is not None
-                ), f"const arg {i} of {func.name} should have been validated by semantics"
-                args.append((None, const_val))
+                ), f"arg {i} of {func.name} should have been validated by semantics"
+                args.append((None, const_val, arg_type))
             elif is_instance_compat(arg, FpyValue):  # a filled-in default argument
-                args.append((arg.llvm_value, const_val))
+                args.append((arg.llvm_value, const_val, arg_type))
             else:
-                args.append((self.emit(arg, state), const_val))
+                args.append((self.emit(arg, state), const_val, arg_type))
         return func.generate_llvm(self.builder, args)
 
     def _emit_command_dispatch(
