@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import sys
 import traceback
-from typing import Any
+from typing import Any, NoReturn
 
 from lark import LarkError, Token, UnexpectedToken
 from lark.indenter import DedentError
@@ -107,6 +107,10 @@ def format_diagnostic(msg: str, node, stack_trace: str = "", color=Colors.red) -
         return f"{stack_trace_optional}{Colors.cyan(file_name_str)}: {Colors.bold(color(msg))}"
 
     meta = node if isinstance(node, Token) else node.meta
+
+    # line can be None for the end-of-input token: there is no source to point at
+    if meta.line is None:
+        return f"{stack_trace_optional}{Colors.cyan(file_name_str)}: {Colors.bold(color(msg))}"
 
     source_start_line = meta.line - 1 - COMPILER_ERROR_CONTEXT_LINE_COUNT
     source_start_line = max(0, source_start_line)
@@ -271,12 +275,11 @@ class CompileWarning:
     __repr__ = __str__
 
 
-def handle_lark_error(err):
-    import sys
-
+def handle_lark_error(err) -> NoReturn:
+    """Turn a lark parse error into a CompileError and raise it."""
     assert isinstance(err, LarkError), err
     if isinstance(err, UnexpectedToken):
-        print(str(CompileError("Invalid syntax", err.token)), file=sys.stderr)
-    elif isinstance(err, DedentError):
-        print(str(CompileError(err.args[0])), file=sys.stderr)
-    exit(1)
+        raise CompileError("Invalid syntax", err.token)
+    if isinstance(err, DedentError):
+        raise CompileError(err.args[0])
+    raise CompileError(str(err))

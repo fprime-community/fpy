@@ -236,7 +236,6 @@ def test_too_many_directives_with_custom_limit():
         fpy.error.file_name = "<test>"
         state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
-        assert body is not None
 
         # Should fail because we exceed the custom limit
         with pytest.raises(fpy.error.BackendError) as exc_info:
@@ -273,7 +272,6 @@ def test_within_custom_limit_succeeds():
         fpy.error.file_name = "<test>"
         state = get_base_compile_state(dict_path)
         body = text_to_ast(seq)
-        assert body is not None
 
         # Should succeed
         state = analyze_ast(body, state)
@@ -546,7 +544,6 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
 
     state = get_base_compile_state(DEFAULT_DICTIONARY)
     body = text_to_ast(seq)
-    assert body is not None
 
     state = analyze_ast(body, state)
     analysis_to_fpybc_directives(state)
@@ -565,7 +562,6 @@ def _compile(dict_path: str, seq: str):
     fpy.error.input_lines = seq.splitlines()
     state = get_base_compile_state(dict_path)
     body = text_to_ast(seq)
-    assert body is not None
     state = analyze_ast(body, state)
     return analysis_to_fpybc_directives(state)
 

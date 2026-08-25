@@ -74,8 +74,7 @@ class ValidationError(Exception):
 USE_WASM = False
 
 
-# FIXME function is confusingly named
-def _seq_dir_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
+def _catch_all_seq_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
     """A catch-all seq map rooting every called sequence's source in *seq_dir*."""
     if seq_dir is None:
         return None
@@ -100,7 +99,7 @@ def compile_seq(
 
     state = get_base_compile_state(
         default_dictionary,
-        _seq_dir_maps(seq_dir),
+        _catch_all_seq_maps(seq_dir),
         ignored_warnings=ignored_warnings,
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
@@ -138,7 +137,7 @@ def compile_seq_wasm(
 
     state = get_base_compile_state(
         default_dictionary,
-        _seq_dir_maps(seq_dir),
+        _catch_all_seq_maps(seq_dir),
         ignored_warnings=ignored_warnings,
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
@@ -750,7 +749,7 @@ def assert_compile_failure(
                 expected_warnings=expected_warnings,
                 main_file_dir=main_file_dir,
             )
-    except (SystemExit, CompilationFailed) as e:
+    except CompilationFailed as e:
         if match is not None:
             import re
 

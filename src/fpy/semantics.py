@@ -14,7 +14,6 @@ from fpy.types import (
     pick_binary_op_case,
     pick_unary_op_case,
     ARBITRARY_PRECISION_TYPES,
-    PRIMITIVE_TYPE_MAP,
     SIGNED_INTEGER_TYPES,
     SPECIFIC_NUMERIC_TYPES,
     TIME_OPS,
@@ -1151,28 +1150,6 @@ class ResolveSequenceDependencies(TopDownVisitor):
     file I/O.
     """
 
-    # FIXME this is a weird method, it does several things at once, and is only used
-    # in one place. I think you can just inline it
-    def _get_bin_name(self, node: AstFuncCall, state: CompileState) -> str | None:
-        """Return the onboard binary path for a seq-run-with-args call, or None.
-
-        Reports a compile error if the file name argument is not a string literal.
-        """
-        func = state.resolved_symbols.get(node.func)
-        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
-            return None
-        if not node.args or len(node.args) < 1:
-            # Missing args will be caught by build_resolved_call_args (too few arguments)
-            return None
-        file_name_arg = node.args[0]
-        if not is_instance_compat(file_name_arg, AstString):
-            state.err(
-                "Sequence file name must be a string literal",
-                file_name_arg,
-            )
-            return None
-        return file_name_arg.value
-
     def _target_source(self, bin_name: str, state: CompileState) -> Path | None:
         """Return the target's .fpy source file, or None if no seq map finds one.
 
@@ -1191,30 +1168,30 @@ class ResolveSequenceDependencies(TopDownVisitor):
                 return source
         return None
 
-    def _type_name(self, expr) -> str | None:
-        """Return the dotted name of a type annotation expression, or None if
-        it is not a plain qualified name."""
-        parts = []
+    def _resolve_type_name(self, expr: AstExpr, state: CompileState) -> FpyType | None:
+        """Resolve a type annotation expression in the base scope's type name
+        group. Returns None if the expression does not resolve to a type."""
+        attrs: list[AstGetAttr] = []
         while is_instance_compat(expr, AstGetAttr):
-            parts.append(expr.attr)
+            attrs.append(expr)
             expr = expr.parent
         if not is_instance_compat(expr, AstIdent):
             return None
-        parts.append(expr.name)
-        return ".".join(reversed(parts))
+        sym = state.base_scope.lookup(NameGroup.TYPE, expr.name)
+        for getattr_node in reversed(attrs):
+            if not is_instance_compat(sym, ModuleSymbol):
+                return None
+            sym = sym.get(getattr_node.attr)
+        if not is_instance_compat(sym, FpyType):
+            return None
+        return sym
 
     def _read_target_arg_specs(
         self, source: Path, node: AstFuncCall, state: CompileState
     ) -> list[tuple[str, FpyType]] | None:
         """Parse the target's source and resolve its declared argument
         specification. On failure, reports a compile error on the call's
-        file name argument and returns None.
-
-        Only the target's sequence statement is read; its imports are not
-        followed, and its parameter type names are resolved against this
-        compilation's dictionary. The target is fully checked when it is
-        compiled itself.
-        """
+        file name argument and returns None."""
         from fpy.compiler import text_to_ast
 
         try:
@@ -1235,14 +1212,6 @@ class ResolveSequenceDependencies(TopDownVisitor):
                     node.args[0],
                 )
                 return None
-            if body is None:
-                # FIXME this should be impossible. i'd like to also fix that syntax errors
-                # call exit(1), they should raise an exception
-                state.err(
-                    f"Failed to parse sequence source file '{source}'",
-                    node.args[0],
-                )
-                return None
             target_state = CompileState()
             CheckSequenceMetadataDefinedAtTop().run(body, target_state)
             if target_state.errors:
@@ -1260,14 +1229,7 @@ class ResolveSequenceDependencies(TopDownVisitor):
 
         arg_specs = []
         for arg_name, arg_type_name in metadata.parameters:
-            # FIXME can we perform type name resolution like we do in the actual resolvenames pass?
-            # how hard would this be? if we defined a common func to do it would that be clean?
-            type_name = self._type_name(arg_type_name)
-            arg_type = (
-                None
-                if type_name is None
-                else PRIMITIVE_TYPE_MAP.get(type_name, state.type_defs.get(type_name))
-            )
+            arg_type = self._resolve_type_name(arg_type_name, state)
             if arg_type is None:
                 state.err(
                     f"Failed to resolve argument types from {source}: "
@@ -1279,9 +1241,20 @@ class ResolveSequenceDependencies(TopDownVisitor):
         return arg_specs
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        bin_name = self._get_bin_name(node, state)
-        if bin_name is None:
+        func = state.resolved_symbols.get(node.func)
+        if not is_instance_compat(func, CommandSymbol) or not func.is_seq_run_with_args:
             return
+        if not node.args:
+            # Missing args will be caught by build_resolved_call_args (too few arguments)
+            return
+        file_name_arg = node.args[0]
+        if not is_instance_compat(file_name_arg, AstString):
+            state.err(
+                "Sequence file name must be a string literal",
+                file_name_arg,
+            )
+            return
+        bin_name = file_name_arg.value
 
         target_arg_specs = state.called_seq_arg_specs.get(bin_name)
         if target_arg_specs is None:
@@ -1305,7 +1278,6 @@ class ResolveSequenceDependencies(TopDownVisitor):
 
         # Build an extended CommandSymbol that includes the target sequence's
         # parameters so that standard arg resolution works in PickTypes.
-        func = state.resolved_symbols.get(node.func)
         extra_args = [(name, t, None) for name, t in target_arg_specs]
         extended_func = dc_replace(func, args=func.args + extra_args)
         state.resolved_symbols[node.func] = extended_func

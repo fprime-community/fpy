@@ -176,7 +176,10 @@ def _build_root_block(program: AstBlock, state: CompileState):
     )
 
 
-def text_to_ast(text: str):
+def text_to_ast(text: str) -> AstBlock:
+    """Lex, parse and transform fpy source into an AST block.
+
+    Raises CompileError on failure."""
     from lark.exceptions import VisitError
 
     fpy.error.input_text = text
@@ -185,7 +188,6 @@ def text_to_ast(text: str):
         tree = _parse_fpy(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
-        return None
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:

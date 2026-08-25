@@ -24,7 +24,7 @@ from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
 from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
-    _seq_dir_maps,
+    _catch_all_seq_maps,
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
@@ -44,9 +44,8 @@ def _write_child(
     """
     (directory / Path(bin_name).with_suffix(".fpy")).write_text(seq_text)
     fpy.error.file_name = "<test-child>"
-    state = get_base_compile_state(default_dictionary, _seq_dir_maps(seq_dir))
+    state = get_base_compile_state(default_dictionary, _catch_all_seq_maps(seq_dir))
     body = text_to_ast(seq_text)
-    assert body is not None, "Failed to parse child sequence"
     state = analyze_ast(body, state)
     directives, arg_types = analysis_to_fpybc_directives(state)
     arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
@@ -314,7 +313,6 @@ class TestSeqMapResolution:
         fpy.error.file_name = "<test>"
         state = get_base_compile_state(default_dictionary, seq_maps)
         body = text_to_ast(parent_seq)
-        assert body is not None
         return analyze_ast(body, state)
 
     def test_wasm_path_resolves_to_fpy_source(self):
@@ -326,7 +324,7 @@ class TestSeqMapResolution:
             parent_seq = (
                 'Ref.seqDisp.RUN_ARGS("child.wasm", Svc.BlockState.BLOCK, 42)\n'
             )
-            state = self._analyze(parent_seq, _seq_dir_maps(tmpdir))
+            state = self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
             assert [name for name, _ in state.called_seq_arg_specs["child.wasm"]] == [
                 "x"
             ]
@@ -353,7 +351,9 @@ class TestSeqMapResolution:
             parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
             # dir_a's child takes one arg, dir_b's takes none: the call
             # compiles only if dir_a's source is the one resolved
-            self._analyze(parent_seq, _seq_dir_maps(dir_a) + _seq_dir_maps(dir_b))
+            self._analyze(
+                parent_seq, _catch_all_seq_maps(dir_a) + _catch_all_seq_maps(dir_b)
+            )
 
     def test_mapping_without_file_falls_through(self):
         """A mapping whose candidate does not exist falls through to the next."""
@@ -363,7 +363,18 @@ class TestSeqMapResolution:
         ):
             (Path(dir_b) / "child.fpy").write_text("sequence(x: U32)\nassert x == 42\n")
             parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
-            self._analyze(parent_seq, _seq_dir_maps(dir_a) + _seq_dir_maps(dir_b))
+            self._analyze(
+                parent_seq, _catch_all_seq_maps(dir_a) + _catch_all_seq_maps(dir_b)
+            )
+
+    def test_syntax_error_reported_on_call(self):
+        """A syntax error in the child's source is reported on the parent's
+        call."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "child.fpy").write_text("sequence(x: U32\n")
+            parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
+            with pytest.raises(fpy.error.CompileError, match="Failed to parse"):
+                self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
     def test_unknown_type_reported_on_call(self):
         """An unknown parameter type in the child's source is reported on the
@@ -374,7 +385,7 @@ class TestSeqMapResolution:
             )
             parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
             with pytest.raises(fpy.error.CompileError, match="unknown type"):
-                self._analyze(parent_seq, _seq_dir_maps(tmpdir))
+                self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
     def test_metadata_not_at_top_reported_on_call(self):
         """A child sequence statement that is not the first statement is
@@ -385,7 +396,7 @@ class TestSeqMapResolution:
             )
             parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
             with pytest.raises(fpy.error.CompileError, match="first statement"):
-                self._analyze(parent_seq, _seq_dir_maps(tmpdir))
+                self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
     def test_child_imports_not_followed(self):
         """Only the child's sequence statement is read: its imports are not
@@ -395,7 +406,7 @@ class TestSeqMapResolution:
                 "sequence(x: U32)\nimport does.not.exist\nassert x == 42\n"
             )
             parent_seq = 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 42)\n'
-            self._analyze(parent_seq, _seq_dir_maps(tmpdir))
+            self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
     def test_two_calls_to_same_child(self):
         """Two call sites naming the same child must both resolve its args."""
@@ -405,7 +416,7 @@ class TestSeqMapResolution:
                 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 1)\n'
                 'Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 2)\n'
             )
-            self._analyze(parent_seq, _seq_dir_maps(tmpdir))
+            self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
 
 class TestSeqCallingNested:
@@ -846,7 +857,6 @@ class TestSeqArgsBufferSizeFromDictionary:
             child_seq = f"sequence({params})\nCdhCore.cmdDisp.CMD_NO_OP()\n"
             state = get_base_compile_state(dict_path)
             body = text_to_ast(child_seq)
-            assert body is not None
             state = analyze_ast(body, state)
             # should compile without error (fits in the 1024-byte buffer)
             analysis_to_fpybc_directives(state)
@@ -869,9 +879,8 @@ class TestSeqArgsBufferSizeFromDictionary:
             parent_seq = (
                 f'Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK, {args})\n'
             )
-            state = get_base_compile_state(dict_path, _seq_dir_maps(tmpdir))
+            state = get_base_compile_state(dict_path, _catch_all_seq_maps(tmpdir))
             body = text_to_ast(parent_seq)
-            assert body is not None
             with pytest.raises(fpy.error.CompileError) as exc_info:
                 state = analyze_ast(body, state)
                 analysis_to_fpybc_directives(state)
