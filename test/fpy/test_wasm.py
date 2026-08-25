@@ -75,7 +75,7 @@ DOMAIN_ERROR = DirectiveErrorCode.DOMAIN_ERROR.value
 
 def _seq_to_llvm_module(seq: str):
     """Lower *seq* to an llvmlite ir.Module (pre-codegen, target-independent)."""
-    state = get_base_compile_state(default_dictionary, None)
+    state = get_base_compile_state(default_dictionary)
     body = text_to_ast(seq)
     state = analyze_ast(body, state)
     return GenerateLlvmModule().emit(state.root_block, state)

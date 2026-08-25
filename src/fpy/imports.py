@@ -254,18 +254,8 @@ class ConstructAst:
         before returning."""
         from fpy.compiler import text_to_ast
 
-        old_file, old_text, old_lines = (
-            fpy.error.file_name,
-            fpy.error.input_text,
-            fpy.error.input_lines,
-        )
-        fpy.error.file_name = file_path
-        try:
+        with fpy.error.diagnostic_context(file_path):
             parsed = text_to_ast(text)
-        finally:
-            fpy.error.file_name = old_file
-            fpy.error.input_text = old_text
-            fpy.error.input_lines = old_lines
 
         if parsed is None:
             state.err(f"Failed to parse imported sequence file '{file_path}'", None)

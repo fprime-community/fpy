@@ -22,9 +22,9 @@ Design decisions encoded here (per SPEC.md's Imports section):
     directory's sequences reference one another relatively and work
     unmodified wherever the library is mounted, while consumers name the
     library absolutely from anywhere.  The import directories are DISTINCT
-    from `ground_binary_dir`, which roots runtime sequence-binary (.bin)
-    paths -- imports are a compile-time-only source inlining and never
-    survive into the emitted bytecode.
+    from the seq maps (`--seq-map`), which locate the sources of separately
+    compiled called sequences -- imports are a compile-time-only source
+    inlining and never survive into the emitted bytecode.
   * The import directories are an ORDERED list: the first identifier of an
     absolute import path is resolved in each of them in order until it
     succeeds.  A name present in several import directories resolves in the

@@ -28,9 +28,7 @@ from fpy.compiler import (
     analyze_ast,
     text_to_ast,
     analysis_to_fpybc_directives,
-    ast_to_dependencies,
 )
-from fpy.dictionary import load_dictionary
 from fpy.state import get_base_compile_state
 from fpy.error import parse_warning_set
 
@@ -63,6 +61,37 @@ def get_backend_version_str() -> str | None:
     except fpy.error.BackendError:
         return None
     return backend_version_str()
+
+
+def parse_seq_maps(specs: list[str]) -> list[tuple[str, str]]:
+    """Parse repeated --seq-map values ('BIN_PREFIX=FPY_PREFIX') into ordered
+    (bin_prefix, fpy_prefix) pairs. Raises ValueError on a value with no '='."""
+    maps = []
+    for spec in specs:
+        if "=" not in spec:
+            raise ValueError(
+                f"Invalid --seq-map value {spec!r} (expected BIN_PREFIX=FPY_PREFIX)"
+            )
+        bin_prefix, fpy_prefix = spec.split("=", 1)
+        maps.append((bin_prefix, fpy_prefix))
+    return maps
+
+
+def _add_seq_map_argument(arg_parser: argparse.ArgumentParser):
+    arg_parser.add_argument(
+        "--seq-map",
+        action="append",
+        default=[],
+        metavar="BIN_PREFIX=FPY_PREFIX",
+        dest="seq_map",
+        help=(
+            "Map a called sequence's onboard binary path to its .fpy source "
+            "(repeatable): a path starting with BIN_PREFIX has that prefix "
+            "replaced with FPY_PREFIX and its extension replaced with .fpy; "
+            "the first mapping that yields an existing file wins. An empty "
+            "BIN_PREFIX matches every path."
+        ),
+    )
 
 
 def compile_main(args: list[str] = None):
@@ -107,14 +136,7 @@ def compile_main(args: list[str] = None):
         default=False,
         help="Pass this to print out compiler debugging information",
     )
-    arg_parser.add_argument(
-        "-g",
-        "--ground-binary-dir",
-        type=Path,
-        required=False,
-        default=None,
-        help="Local directory to resolve Fpy binary file paths. Needed for sequence argument type checking when calling sequences (default: input file directory)",
-    )
+    _add_seq_map_argument(arg_parser)
     arg_parser.add_argument(
         "-i",
         "--imports",
@@ -152,6 +174,7 @@ def compile_main(args: list[str] = None):
     try:
         ignored_warnings = parse_warning_set(parsed_args.ignore)
         error_warnings = parse_warning_set(parsed_args.error)
+        seq_maps = parse_seq_maps(parsed_args.seq_map)
     except ValueError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
@@ -169,10 +192,6 @@ def compile_main(args: list[str] = None):
         sys.exit(1)
     fpy.error.file_name = str(parsed_args.input)
 
-    ground_binary_dir = parsed_args.ground_binary_dir
-    if ground_binary_dir is None:
-        ground_binary_dir = parsed_args.input.parent
-
     # The import directories are the -i/--imports directories, in order; the
     # input file's own directory anchors its relative imports but is not
     # among them. Exact duplicate directories are dropped: a repeated -i
@@ -185,7 +204,7 @@ def compile_main(args: list[str] = None):
     try:
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
-            str(ground_binary_dir.resolve()),
+            seq_maps,
             ignored_warnings=ignored_warnings,
             error_warnings=error_warnings,
             import_directories=import_directories,
@@ -432,14 +451,7 @@ def cmd_main(args: list[str] = None):
         required=True,
         help="The FPrime dictionary .json file",
     )
-    arg_parser.add_argument(
-        "-g",
-        "--ground-binary-dir",
-        type=Path,
-        required=False,
-        default=None,
-        help="Local directory to resolve .bin file paths for sequence calls",
-    )
+    _add_seq_map_argument(arg_parser)
     arg_parser.add_argument(
         "--zmq-addr",
         type=str,
@@ -457,6 +469,12 @@ def cmd_main(args: list[str] = None):
         parsed_args = arg_parser.parse_args(args)
     else:
         parsed_args = arg_parser.parse_args()
+
+    try:
+        seq_maps = parse_seq_maps(parsed_args.seq_map)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
 
     source = parsed_args.source
     if not source.endswith("\n"):
@@ -476,14 +494,10 @@ def cmd_main(args: list[str] = None):
         print(e, file=sys.stderr)
         sys.exit(1)
 
-    ground_binary_dir = parsed_args.ground_binary_dir
-    if ground_binary_dir is None:
-        ground_binary_dir = Path(".")
-
     try:
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
-            str(ground_binary_dir.resolve()),
+            seq_maps,
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
@@ -548,88 +562,3 @@ def cmd_main(args: list[str] = None):
         except Exception as e:
             print(f"Failed to send command: {e}", file=sys.stderr)
             sys.exit(1)
-
-
-def depend_main(args: list[str] = None):
-    arg_parser = argparse.ArgumentParser(
-        description=f"Fpy dependency tool {get_version_str()}"
-    )
-    arg_parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {get_version_str()}"
-    )
-    arg_parser.add_argument("input", type=Path, help="The input .fpy file")
-    arg_parser.add_argument(
-        "-d",
-        "--dictionary",
-        type=Path,
-        required=True,
-        help="The FPrime dictionary .json file",
-    )
-    arg_parser.add_argument(
-        "-g",
-        "--ground-binary-dir",
-        type=Path,
-        required=False,
-        default=None,
-        help="Local directory to resolve .bin file paths for sequence calls (default: input file directory)",
-    )
-    arg_parser.add_argument(
-        "-i",
-        "--imports",
-        type=Path,
-        action="append",
-        default=[],
-        metavar="DIR",
-        dest="imports",
-        help="Directory to search when resolving absolute `import` statements (repeatable)",
-    )
-    if args is not None:
-        parsed_args = arg_parser.parse_args(args)
-    else:
-        parsed_args = arg_parser.parse_args()
-
-    if not parsed_args.input.exists():
-        print(f"Input file {parsed_args.input} does not exist", file=sys.stderr)
-        sys.exit(1)
-    fpy.error.file_name = str(parsed_args.input)
-
-    ground_binary_dir = parsed_args.ground_binary_dir
-    if ground_binary_dir is None:
-        ground_binary_dir = parsed_args.input.parent
-
-    import_directories = list(
-        dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
-    )
-
-    try:
-        state = get_base_compile_state(
-            str(parsed_args.dictionary.resolve()),
-            str(ground_binary_dir.resolve()),
-            import_directories=import_directories,
-            main_file_dir=str(parsed_args.input.parent.resolve()),
-            main_file_path=str(parsed_args.input.resolve()),
-        )
-    except fpy.error.DictionaryError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        body = text_to_ast(parsed_args.input.read_text(encoding="utf-8"))
-    except RecursionError:
-        print("Recursion limit exceeded in parsing", file=sys.stderr)
-        sys.exit(1)
-    except fpy.error.CompileError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        result = ast_to_dependencies(body, state)
-    except RecursionError:
-        print("Recursion limit exceeded in compiling", file=sys.stderr)
-        sys.exit(1)
-    except fpy.error.CompileError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
-
-    for dep in result:
-        print(dep)

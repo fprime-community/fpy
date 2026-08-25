@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from pathlib import Path
 import tempfile
 import fpy.error
@@ -73,9 +74,17 @@ class ValidationError(Exception):
 USE_WASM = False
 
 
+# FIXME function is confusingly named
+def _seq_dir_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
+    """A catch-all seq map rooting every called sequence's source in *seq_dir*."""
+    if seq_dir is None:
+        return None
+    return [("", os.path.join(str(seq_dir), ""))]
+
+
 def compile_seq(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     ignored_warnings=None,
     error_warnings=None,
     expected_warnings=None,
@@ -91,7 +100,7 @@ def compile_seq(
 
     state = get_base_compile_state(
         default_dictionary,
-        ground_binary_dir,
+        _seq_dir_maps(seq_dir),
         ignored_warnings=ignored_warnings,
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
@@ -114,7 +123,7 @@ def compile_seq(
 
 def compile_seq_wasm(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
@@ -129,7 +138,7 @@ def compile_seq_wasm(
 
     state = get_base_compile_state(
         default_dictionary,
-        ground_binary_dir,
+        _seq_dir_maps(seq_dir),
         ignored_warnings=ignored_warnings,
         error_warnings=_default_error_warnings(
             error_warnings, ignored_warnings, expected_warnings
@@ -151,7 +160,7 @@ def compile_seq_wasm(
 
 def run_seq_wasm(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
@@ -172,7 +181,7 @@ def run_seq_wasm(
     serialized bytes."""
     code, _, _, _ = _run_seq_wasm(
         seq,
-        ground_binary_dir,
+        seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -188,7 +197,7 @@ def run_seq_wasm(
 
 def run_seq_wasm_with_events(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
@@ -198,7 +207,7 @@ def run_seq_wasm_with_events(
     pairs, in call order."""
     code, events, _, _ = _run_seq_wasm(
         seq,
-        ground_binary_dir,
+        seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -208,7 +217,7 @@ def run_seq_wasm_with_events(
 
 def run_seq_wasm_with_cmds(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
@@ -224,7 +233,7 @@ def run_seq_wasm_with_cmds(
     in *failing_opcodes*, which makes it complete with EXECUTION_ERROR."""
     code, _, cmds, _ = _run_seq_wasm(
         seq,
-        ground_binary_dir,
+        seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -238,7 +247,7 @@ def run_seq_wasm_with_cmds(
 
 def run_seq_wasm_with_serial(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
@@ -248,7 +257,7 @@ def run_seq_wasm_with_serial(
     order."""
     code, _, _, serial = _run_seq_wasm(
         seq,
-        ground_binary_dir,
+        seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -258,7 +267,7 @@ def run_seq_wasm_with_serial(
 
 def _run_seq_wasm(
     seq: str,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
     main_file_dir: str | None = None,
@@ -279,7 +288,7 @@ def _run_seq_wasm(
     sequencer instance -- the same set the bytecode reference model uses."""
     wasm = compile_seq_wasm(
         seq,
-        ground_binary_dir,
+        seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -488,7 +497,7 @@ def run_seq(
     args: bytes = None,
     seq_run_opcodes: set[int] = None,
     arg_name_types: list[tuple[str, FpyType]] = None,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     prms: dict[str, bytes] = None,
 ):
     """Run a list of directives.
@@ -535,15 +544,14 @@ def run_seq(
     # named by its short relative name: the RUN command's file path argument
     # is a command string, which F Prime silently caps at
     # FW_CMD_STRING_MAX_SIZE (40) characters. When the test provides a
-    # ground_binary_dir, that directory doubles as the working directory so
-    # child sequence files resolve against it, like they did against the
-    # model's cwd.
-    seq_dir, seq_file = _write_seq_for_harness(
-        directives, arg_name_types, directory=ground_binary_dir
+    # seq_dir, that directory doubles as the working directory so the child
+    # sequences' compiled .bin files resolve against it at run time.
+    harness_cwd, seq_file = _write_seq_for_harness(
+        directives, arg_name_types, directory=seq_dir
     )
     request = {
         "seqFile": seq_file,
-        "cwd": seq_dir,
+        "cwd": harness_cwd,
         "time": {
             "base": time_base,
             "context": time_context,
@@ -643,7 +651,7 @@ def assert_run_success(
     timeout_s: int = 4,
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     seq_run_opcodes: set[int] = None,
     import_directories: list[str] | None = None,
     expected_warnings=None,
@@ -654,7 +662,7 @@ def assert_run_success(
         if fprime_test_api is not None:
             wasm = compile_seq_wasm(
                 seq,
-                ground_binary_dir=ground_binary_dir,
+                seq_dir=seq_dir,
                 import_directories=import_directories,
                 expected_warnings=expected_warnings,
                 main_file_dir=main_file_dir,
@@ -666,7 +674,7 @@ def assert_run_success(
             return
         code = run_seq_wasm(
             seq,
-            ground_binary_dir=ground_binary_dir,
+            seq_dir=seq_dir,
             import_directories=import_directories,
             expected_warnings=expected_warnings,
             main_file_dir=main_file_dir,
@@ -682,7 +690,7 @@ def assert_run_success(
         return
     _, directives, arg_name_types = compile_seq(
         seq,
-        ground_binary_dir=ground_binary_dir,
+        seq_dir=seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
@@ -690,7 +698,7 @@ def assert_run_success(
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
-    if seq_run_opcodes is None and ground_binary_dir is not None:
+    if seq_run_opcodes is None and seq_dir is not None:
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
     run_seq(
@@ -705,7 +713,7 @@ def assert_run_success(
         args=args_bytes,
         arg_name_types=arg_name_types,
         seq_run_opcodes=seq_run_opcodes,
-        ground_binary_dir=ground_binary_dir,
+        seq_dir=seq_dir,
         prms=prms,
     )
 
@@ -714,7 +722,7 @@ def assert_compile_failure(
     fprime_test_api,
     seq: str,
     match: str = None,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     import_directories: list[str] | None = None,
     ignored_warnings=None,
     error_warnings=None,
@@ -725,7 +733,7 @@ def assert_compile_failure(
         if USE_WASM:
             compile_seq_wasm(
                 seq,
-                ground_binary_dir=ground_binary_dir,
+                seq_dir=seq_dir,
                 import_directories=import_directories,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
@@ -735,7 +743,7 @@ def assert_compile_failure(
         else:
             compile_seq(
                 seq,
-                ground_binary_dir=ground_binary_dir,
+                seq_dir=seq_dir,
                 import_directories=import_directories,
                 ignored_warnings=ignored_warnings,
                 error_warnings=error_warnings,
@@ -761,7 +769,7 @@ def assert_run_failure(
     initial_time_us: int = 0,
     failing_opcodes: set[int] = None,
     args: list[FpyValue] = None,
-    ground_binary_dir: str = None,
+    seq_dir: str = None,
     seq_run_opcodes: set[int] = None,
     import_directories: list[str] | None = None,
 ):
@@ -778,7 +786,7 @@ def assert_run_failure(
             # OpCodeError event, mirroring the bytecode GDS failure path.
             wasm = compile_seq_wasm(
                 seq,
-                ground_binary_dir=ground_binary_dir,
+                seq_dir=seq_dir,
                 import_directories=import_directories,
             )
             wasm_path = _write_wasm_to_tmpfile(wasm)
@@ -794,7 +802,7 @@ def assert_run_failure(
         # through the exit/fault host imports.
         code = run_seq_wasm(
             seq,
-            ground_binary_dir=ground_binary_dir,
+            seq_dir=seq_dir,
             import_directories=import_directories,
             failing_opcodes=failing_opcodes,
             initial_time_us=initial_time_us,
@@ -811,12 +819,12 @@ def assert_run_failure(
         return
 
     _, directives, arg_name_types = compile_seq(
-        seq, ground_binary_dir=ground_binary_dir, import_directories=import_directories
+        seq, seq_dir=seq_dir, import_directories=import_directories
     )
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
-    if seq_run_opcodes is None and ground_binary_dir is not None:
+    if seq_run_opcodes is None and seq_dir is not None:
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
 
@@ -849,7 +857,7 @@ def assert_run_failure(
             args=args_bytes,
             arg_name_types=arg_name_types,
             seq_run_opcodes=seq_run_opcodes,
-            ground_binary_dir=ground_binary_dir,
+            seq_dir=seq_dir,
         )
     except ValidationError as e:
         if not validation_error:

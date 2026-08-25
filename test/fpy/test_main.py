@@ -26,21 +26,20 @@ def test_human_readable_size(size, expected):
     assert fpy_main.human_readable_size(size) == expected
 
 
-def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
-    """--ground-binary-dir is resolved and passed to get_base_compile_state."""
+def test_compile_main_seq_maps(monkeypatch, tmp_path, capsys):
+    """Repeated --seq-map values are parsed in order and passed to
+    get_base_compile_state."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
     dict_path = tmp_path / "dict.json"
     dict_path.write_text("{}")
-    bin_dir = tmp_path / "binaries"
-    bin_dir.mkdir()
 
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
-    captured_kwargs = {}
+    captured = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
-        captured_kwargs["ground_binary_dir"] = ground_binary_dir
+    def fake_get_base_compile_state(dictionary, seq_maps=None, **kwargs):
+        captured["seq_maps"] = seq_maps
         return fake_compile_state()
 
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
@@ -61,53 +60,36 @@ def test_compile_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
             str(input_path),
             "--dictionary",
             str(dict_path),
-            "--ground-binary-dir",
-            str(bin_dir),
+            "--seq-map",
+            "a=b",
+            "--seq-map",
+            "c=d",
         ]
     )
 
-    assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
+    assert captured["seq_maps"] == [("a", "b"), ("c", "d")]
 
 
-def test_compile_main_ground_binary_dir_defaults_to_input_parent(
-    monkeypatch, tmp_path, capsys
-):
-    """When --ground-binary-dir is not passed, it defaults to the input file's parent."""
+def test_compile_main_invalid_seq_map(monkeypatch, tmp_path, capsys):
+    """A --seq-map value with no '=' is reported to stderr and exits 1."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("content")
     dict_path = tmp_path / "dict.json"
     dict_path.write_text("{}")
 
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.compile_main(
+            [
+                str(input_path),
+                "--dictionary",
+                str(dict_path),
+                "--seq-map",
+                "nomapping",
+            ]
+        )
 
-    captured_kwargs = {}
-
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
-        captured_kwargs["ground_binary_dir"] = ground_binary_dir
-        return fake_compile_state()
-
-    monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
-    monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
-    monkeypatch.setattr(
-        fpy_main,
-        "analysis_to_fpybc_directives",
-        lambda state: (["directive"], []),
-    )
-    monkeypatch.setattr(
-        fpy_main,
-        "serialize_directives",
-        lambda directives, arg_specs, **kwargs: (b"\x01", 0x1),
-    )
-
-    fpy_main.compile_main(
-        [
-            str(input_path),
-            "--dictionary",
-            str(dict_path),
-        ]
-    )
-
-    assert captured_kwargs["ground_binary_dir"] == str(input_path.parent.resolve())
+    assert exc.value.code == 1
+    assert "Invalid --seq-map value" in capsys.readouterr().err
 
 
 def _run_compile_capturing_kwargs(monkeypatch, argv):
@@ -117,7 +99,7 @@ def _run_compile_capturing_kwargs(monkeypatch, argv):
 
     captured_kwargs = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
+    def fake_get_base_compile_state(dictionary, seq_maps=None, **kwargs):
         captured_kwargs.update(kwargs)
         return fake_compile_state()
 
@@ -247,7 +229,7 @@ def test_compile_main_fpyasm_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -294,7 +276,7 @@ def test_compile_main_wat_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -328,7 +310,7 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: fake_compile_state(),
+        lambda dictionary, seq_maps=None, **kwargs: fake_compile_state(),
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -427,7 +409,7 @@ def test_cmd_main_compiles_and_sends(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -466,7 +448,7 @@ def test_cmd_main_compile_error(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -495,7 +477,7 @@ def test_cmd_main_non_const_arg(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
     monkeypatch.setattr(
@@ -523,7 +505,7 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -552,14 +534,15 @@ def test_cmd_main_send_failure(monkeypatch, capsys):
     assert "Failed to send command" in capsys.readouterr().err
 
 
-def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
-    """--ground-binary-dir is resolved and passed to get_base_compile_state."""
+def test_cmd_main_seq_maps(monkeypatch, tmp_path, capsys):
+    """Repeated --seq-map values are parsed in order and passed to
+    get_base_compile_state."""
     monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
 
-    captured_kwargs = {}
+    captured = {}
 
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
-        captured_kwargs["ground_binary_dir"] = ground_binary_dir
+    def fake_get_base_compile_state(dictionary, seq_maps=None, **kwargs):
+        captured["seq_maps"] = seq_maps
         return "STATE"
 
     monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
@@ -571,20 +554,19 @@ def test_cmd_main_ground_binary_dir(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(fpy_main, "send_command_zmq", lambda *a: None)
 
-    bin_dir = tmp_path / "bins"
-    bin_dir.mkdir()
-
     fpy_main.cmd_main(
         [
             'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
             "-d",
             "dict.json",
-            "-g",
-            str(bin_dir),
+            "--seq-map",
+            "a=b",
+            "--seq-map",
+            "c=d",
         ]
     )
 
-    assert captured_kwargs["ground_binary_dir"] == str(bin_dir.resolve())
+    assert captured["seq_maps"] == [("a", "b"), ("c", "d")]
 
 
 def test_cmd_main_zmq_addr(monkeypatch, capsys):
@@ -593,7 +575,7 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     monkeypatch.setattr(
         fpy_main,
         "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
     monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
 
@@ -620,110 +602,6 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
     )
 
     assert sent["addr"] == "tcp://192.168.1.1:50050"
-
-
-# ---------------------------------------------------------------------------
-# depend_main tests
-# ---------------------------------------------------------------------------
-
-
-def test_depend_main_missing_input(tmp_path, capsys):
-    missing = tmp_path / "missing.fpy"
-    dict_path = tmp_path / "dict.json"
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.depend_main([str(missing), "--dictionary", str(dict_path)])
-    assert exc.value.code == 1
-    assert "does not exist" in capsys.readouterr().err
-
-
-def test_depend_main_ground_binary_dir_resolved(monkeypatch, tmp_path):
-    """-g is resolved to an absolute path before being passed to get_base_compile_state."""
-    fpy_path = tmp_path / "seq.fpy"
-    fpy_path.write_text("content")
-    bin_dir = tmp_path / "bins"
-    bin_dir.mkdir()
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
-
-    captured = {}
-
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
-        captured["ground_binary_dir"] = ground_binary_dir
-        return "STATE"
-
-    monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
-    monkeypatch.setattr(fpy_main, "ast_to_dependencies", lambda _body, _state: [])
-
-    fpy_main.depend_main([str(fpy_path), "-d", "dict.json", "-g", str(bin_dir)])
-
-    assert captured["ground_binary_dir"] == str(bin_dir.resolve())
-
-
-def test_depend_main_default_ground_binary_dir(monkeypatch, tmp_path):
-    """When -g is omitted, ground_binary_dir defaults to the input file's parent."""
-    fpy_path = tmp_path / "seq.fpy"
-    fpy_path.write_text("content")
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
-
-    captured = {}
-
-    def fake_get_base_compile_state(dictionary, ground_binary_dir=None, **kwargs):
-        captured["ground_binary_dir"] = ground_binary_dir
-        return "STATE"
-
-    monkeypatch.setattr(fpy_main, "get_base_compile_state", fake_get_base_compile_state)
-    monkeypatch.setattr(fpy_main, "ast_to_dependencies", lambda _body, _state: [])
-
-    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
-
-    assert captured["ground_binary_dir"] == str(tmp_path.resolve())
-
-
-def test_depend_main_compile_error_exits(monkeypatch, tmp_path, capsys):
-    """A compile error raised by ast_to_dependencies is printed to stderr and exits 1."""
-    fpy_path = tmp_path / "seq.fpy"
-    fpy_path.write_text("content")
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
-    monkeypatch.setattr(
-        fpy_main,
-        "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
-    )
-
-    def raise_compile_error(_body, _state):
-        raise fpy_error.CompileError("bad syntax", None)
-
-    monkeypatch.setattr(fpy_main, "ast_to_dependencies", raise_compile_error)
-
-    with pytest.raises(SystemExit) as exc:
-        fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
-
-    assert exc.value.code == 1
-    assert "bad syntax" in capsys.readouterr().err
-
-
-def test_depend_main_outputs_deps(monkeypatch, tmp_path, capsys):
-    """Each dependency path is printed to stdout on its own line."""
-    fpy_path = tmp_path / "seq.fpy"
-    fpy_path.write_text("content")
-
-    monkeypatch.setattr(fpy_main, "text_to_ast", lambda _text: "AST")
-    monkeypatch.setattr(
-        fpy_main,
-        "get_base_compile_state",
-        lambda dictionary, ground_binary_dir=None, **kwargs: "STATE",
-    )
-    monkeypatch.setattr(
-        fpy_main,
-        "ast_to_dependencies",
-        lambda _body, _state: ["/tmp/a.bin", "/tmp/b.bin"],
-    )
-
-    fpy_main.depend_main([str(fpy_path), "-d", "dict.json"])
-
-    assert capsys.readouterr().out == "/tmp/a.bin\n/tmp/b.bin\n"
 
 
 def test_build_command_packet():

@@ -45,7 +45,6 @@ from fpy.semantics import (
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
-    CollectSequenceDependencies,
     PickTypesAndResolveFields,
     ResolveQualifiedIdentifiers,
     ResolveSequenceDependencies,
@@ -223,12 +222,9 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     # children. All later passes run on state.root_block.
     _build_root_block(body, state)
 
-    pre_semantic_desugaring_passes = [
+    passes: list[Visitor] = [
         DesugarCheckStatements(),
         DesugarAugmentedAssignments(),
-    ]
-
-    semantics_passes: list[Visitor] = [
         # sequence() metadata, if present, must be the first statement of
         # each sequence block
         CheckSequenceMetadataDefinedAtTop(),
@@ -273,7 +269,8 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # ...so we can check globals are initialized before any function that
         # reads them (directly or transitively) is called
         CheckGlobalsInitializedBeforeCall(),
-        # discover sequence-run dependencies (.bin files) before type checking
+        # discover sequence-run dependencies (the targets' .fpy sources)
+        # before type checking
         ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveFields(),
@@ -293,31 +290,18 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
         CheckSequenceArgs(),
-    ]
-    desugaring_passes: list[Visitor] = [
+        # now that semantic analysis is done, we can desugar things.
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
         # Desugar time operators before for loops (time ops may be in loop conditions)
         DesugarTimeOperators(),
-        # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
         # Collect which functions are reachable through calls from the main
         # sequence. Runs after desugaring because desugared time operators
         # call script functions.
         CollectUsedFunctions(),
     ]
-
-    for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(state.root_block, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    for compile_pass in semantics_passes:
-        compile_pass.run(state.root_block, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    for compile_pass in desugaring_passes:
+    for compile_pass in passes:
         compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
@@ -403,50 +387,3 @@ def analysis_to_wat(
 
     module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm_text(module), seq_arg_types
-
-
-def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
-    """Return the list of .bin paths that a sequence source file depends on.
-
-    Runs only the passes needed to resolve command symbols — does not attempt
-    to read the binary files, so this works before any binaries are compiled.
-
-    Raises CompileError on failure.
-    """
-    # Load imported sequences first so sequence-run dependencies inside them are
-    # discovered too.
-    ConstructAst().run(body, state)
-    if state.errors:
-        raise state.errors[0]
-
-    # Wrap the program in the library root block (sets state.root_block and
-    # state.main_block).
-    _build_root_block(body, state)
-
-    discovery_passes: list[Visitor] = [
-        CheckSequenceMetadataDefinedAtTop(),
-        DesugarCheckStatements(),
-        DesugarAugmentedAssignments(),
-        AssignIds(),
-        CreateScopes(),
-        DefineFunctions(),
-        DefineVariables(),
-        BindImports(),
-        AssignNameGroups(),
-        ResolveQualifiedIdentifiers(),
-    ]
-    for compile_pass in discovery_passes:
-        compile_pass.run(state.root_block, state)
-        if state.errors:
-            raise state.errors[0]
-
-    discover = CollectSequenceDependencies()
-    discover.run(state.root_block, state)
-    if state.errors:
-        raise state.errors[0]
-
-    if state.ground_binary_dir is not None:
-        return [
-            str(Path(state.ground_binary_dir) / name) for name in discover.bin_names
-        ]
-    return discover.bin_names

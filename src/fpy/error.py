@@ -1,4 +1,5 @@
 # compiler debug flag
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 import sys
@@ -60,6 +61,23 @@ debug = False
 input_text = None
 # assigned in text_to_ast
 input_lines = None
+
+
+@contextmanager
+def diagnostic_context(new_file_name: str):
+    """Point the diagnostics at another file for the duration of the block, so
+    that errors in it point into that file rather than into the current one.
+    Restores the previous context (file_name, input_text, input_lines) on exit.
+
+    The block is expected to set input_text/input_lines itself (text_to_ast
+    does this)."""
+    global file_name, input_text, input_lines
+    old = (file_name, input_text, input_lines)
+    file_name = new_file_name
+    try:
+        yield
+    finally:
+        file_name, input_text, input_lines = old
 
 
 # the number of lines to show around a compiler error

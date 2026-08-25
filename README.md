@@ -502,9 +502,7 @@ $ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123,
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 
-In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
-
-**Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
+In both cases, the compiler checks the call against the argument names and types declared in the called sequence's `.fpy` source. It locates the source through the `--seq-map BIN_PREFIX=FPY_PREFIX` argument (repeatable). A binary path starting with `BIN_PREFIX` has that prefix replaced with `FPY_PREFIX` and its extension replaced with `.fpy`. The first mapping that yields an existing file wins. For example, `--seq-map seqs/=build/seq-src/` resolves `seqs/example.bin` to `build/seq-src/example.fpy`. An empty `BIN_PREFIX` matches every path. If no mapping yields an existing `.fpy` file, or the provided arguments are incompatible with the declared ones, the sequence will fail to compile. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
@@ -708,16 +706,13 @@ You can run all hooks against the whole repo at any time with `uv run pre-commit
 The compiler. Flags worth knowing:
 
 * `--emit {fpybin,fpyasm,llvm-ir,wasm,wat}`: output format. Defaults to `fpybin` (binary fpy bytecode); `fpyasm` emits human-readable bytecode assembly, and `llvm-ir`/`wasm`/`wat` emit the LLVM/WebAssembly backend outputs.
+* `--seq-map BIN_PREFIX=FPY_PREFIX`: maps a called sequence's onboard binary path to its `.fpy` source (repeatable). See [Sequence arguments](#sequence-arguments).
 * `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
 * `--debug`: print a stack trace of where each compile error is generated.
 
 ### `fprime-fpy-cmd`
 
-Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead.
-
-### `fprime-fpy-depend`
-
-Prints the sequence dependencies (referenced `.bin` files) of an `.fpy` source file, one per line. Useful for build systems.
+Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead. A `RUN_ARGS` line that passes sequence arguments needs `--seq-map` to locate the called sequence's `.fpy` source.
 
 ### `fprime-fpy-asm`
 
