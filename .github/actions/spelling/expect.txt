@@ -3,6 +3,7 @@ addoption
 alloca
 asmprinters
 astassign
+AType
 autouse
 BBBBBHI
 binop
@@ -96,9 +97,12 @@ nassert
 nbackend
 nexit
 nif
+nimport
 nlib
+nomapping
 nontrapping
 noreturn
+nsequence
 nsize
 oob
 oor
