@@ -169,6 +169,7 @@ def run_seq_wasm(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    args: bytes = None,
 ) -> int:
     """Compile *seq* to wasm and run it, returning the sequence's error code
     (reported via the exit/panic host imports; 0 when the void entrypoint
@@ -190,6 +191,7 @@ def run_seq_wasm(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
+        args=args,
     )
     return code
 
@@ -277,6 +279,7 @@ def _run_seq_wasm(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    args: bytes = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes], list[tuple[int, bytes]]]:
     """Compile *seq* to wasm, run it through the spacewasm runner harness, and
     return (error code, reported events, dispatched command buffers, serial
@@ -301,6 +304,8 @@ def _run_seq_wasm(
         time_base=time_base,
         time_context=time_context,
         initial_time_us=initial_time_us,
+        args=args,
+        seq_dir=seq_dir,
     )
 
 
@@ -313,6 +318,8 @@ def run_wasm(
     time_base: int = 0,
     time_context: int = 0,
     initial_time_us: int = 0,
+    args: bytes = None,
+    seq_dir: str = None,
 ) -> tuple[int, list[tuple[int, str]], list[bytes], list[tuple[int, bytes]]]:
     """Run an already-linked wasm module on a real Svc::WasmSequencer through
     the wasm harness and return (error code, reported events, dispatched
@@ -322,16 +329,19 @@ def run_wasm(
     always fail when called from within a running sequence on the same
     sequencer instance. *tlm* and *prms* are the telemetry values and
     parameters the simulated spacecraft has, keyed by qualified name, as
-    serialized bytes."""
+    serialized bytes. *args* are the sequence's argument bytes. When *seq_dir*
+    is given, it doubles as the harness's working directory (so called child
+    sequences' compiled files resolve against it) and seq-run commands are
+    intercepted to actually run the named child."""
     from fpy.harness import wasm_harness
 
     d = load_dictionary(default_dictionary)
     always_failing = {d["cmd_name_dict"]["Ref.cmdSeq0.RUN"].opcode}
 
-    seq_dir, seq_file = _write_wasm_for_harness(wasm)
+    harness_cwd, seq_file = _write_wasm_for_harness(wasm, directory=seq_dir)
     request = {
         "seqFile": seq_file,
-        "cwd": seq_dir,
+        "cwd": harness_cwd,
         "time": {
             "base": time_base,
             "context": time_context,
@@ -350,6 +360,11 @@ def run_wasm(
     }
     if cmd_response is not None:
         request["cmdResponse"] = cmd_response
+    if args is not None:
+        request["args"] = args.hex()
+    if seq_dir is not None:
+        request["seqRunOpcodes"] = [d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode]
+        request["seqArgsBufferSize"] = _seq_args_buffer_len(d)
 
     result = wasm_harness().run(request)
 
@@ -389,17 +404,20 @@ def _write_wasm_to_tmpfile(wasm: bytes) -> str:
     return wasm_file.name
 
 
-def _write_wasm_for_harness(wasm: bytes) -> tuple[str, str]:
-    """Write a compiled wasm module to <scratch>/m0.wasm and return
-    (directory, file name); like sequence files, the module travels to the
-    sequencer as a short relative name because the RUN command's file path
-    argument is capped at FW_CMD_STRING_MAX_SIZE characters."""
+def _write_wasm_for_harness(wasm: bytes, directory: str = None) -> tuple[str, str]:
+    """Write a compiled wasm module to <directory>/m0.wasm (a per-session
+    scratch directory by default) and return (directory, file name); like
+    sequence files, the module travels to the sequencer as a short relative
+    name because the RUN command's file path argument is capped at
+    FW_CMD_STRING_MAX_SIZE characters."""
     global _seq_scratch_dir
-    if _seq_scratch_dir is None:
-        _seq_scratch_dir = tempfile.TemporaryDirectory(prefix="fpy-harness-")
+    if directory is None:
+        if _seq_scratch_dir is None:
+            _seq_scratch_dir = tempfile.TemporaryDirectory(prefix="fpy-harness-")
+        directory = _seq_scratch_dir.name
     name = "m0.wasm"
-    Path(_seq_scratch_dir.name, name).write_bytes(wasm)
-    return _seq_scratch_dir.name, name
+    Path(directory, name).write_bytes(wasm)
+    return directory, name
 
 
 def _write_seq_to_tmpfile(
@@ -671,6 +689,9 @@ def assert_run_success(
                 "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
             )
             return
+        args_bytes = None
+        if args is not None:
+            args_bytes = b"".join(v.serialize() for v in args)
         code = run_seq_wasm(
             seq,
             seq_dir=seq_dir,
@@ -683,6 +704,7 @@ def assert_run_success(
             time_base=time_base,
             time_context=time_context,
             initial_time_us=initial_time_us,
+            args=args_bytes,
         )
         if code != DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError(f"wasm sequence returned error code {code}")
@@ -798,13 +820,19 @@ def assert_run_failure(
             return
         # The wasm backend has no separate validation step or VM-internal
         # faults: a failed sequence is one that reports a nonzero code
-        # through the exit/fault host imports.
+        # through the exit/fault host imports. A validation failure (bad
+        # sequence arguments) surfaces the same way, as the INVALID_ARG
+        # fault the module's own argument check reports.
+        args_bytes = None
+        if args is not None:
+            args_bytes = b"".join(v.serialize() for v in args)
         code = run_seq_wasm(
             seq,
             seq_dir=seq_dir,
             import_directories=import_directories,
             failing_opcodes=failing_opcodes,
             initial_time_us=initial_time_us,
+            args=args_bytes,
         )
         if code == DirectiveErrorCode.NO_ERROR.value:
             raise RuntimeError("wasm sequence succeeded")

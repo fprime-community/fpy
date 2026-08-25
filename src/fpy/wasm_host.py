@@ -15,6 +15,7 @@ HOST_MODULE_NAME = "fprime_v1"
 
 HOST_EXIT_FUNC_NAME = "exit"
 HOST_PANIC_FUNC_NAME = "panic"
+HOST_ARGS_FUNC_NAME = "args"
 HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
 HOST_TLM_FUNC_NAME = "tlm"
@@ -76,6 +77,15 @@ def declare_host_imports(module: ir.Module) -> None:
         module, HOST_PANIC_FUNC_NAME, ir.FunctionType(ir.VoidType(), [error_code_type])
     )
     panic_fn.attributes.add("noreturn")
+
+    # args(buf_ptr, buf_len) reads the sequence's argument bytes: the host
+    # writes them into the buffer and returns how many bytes it wrote. The
+    # host fails the sequence when the argument bytes don't fit in the buffer.
+    _declare_host_func(
+        module,
+        HOST_ARGS_FUNC_NAME,
+        ir.FunctionType(ir.IntType(32), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
 
     # event(severity, msg_ptr, msg_len) emits a log message.
     _declare_host_func(

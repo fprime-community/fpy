@@ -63,6 +63,7 @@ from fpy.types import (
     FpyValue,
     PARAM_VALID,
     PrmDef,
+    SEQ_ARGS,
     TIME,
     TLM_VALID,
     TypeKind,
@@ -71,6 +72,7 @@ from fpy.types import (
 from fpy.visitors import STOP_DESCENT, Emitter, TopDownVisitor, Visitor
 from fpy.wasm_host import (
     ERROR_CODE_TYPE,
+    HOST_ARGS_FUNC_NAME,
     HOST_CMD_FUNC_NAME,
     HOST_EXIT_FUNC_NAME,
     HOST_PANIC_FUNC_NAME,
@@ -329,11 +331,6 @@ class EmitLlvmExpr(Emitter):
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         if is_instance_compat(func, CommandSymbol):
-            if func.is_seq_run_with_args:
-                raise BackendError(
-                    "LLVM backend can't lower sequence-run commands with "
-                    "arguments yet"
-                )
             command = state.backend.cmd_buffers[node]
             values = [
                 self.emit(arg, state) for _offset, arg, _type in command.runtime_args
@@ -489,9 +486,7 @@ class EmitLlvmExpr(Emitter):
         self, fpy_type: FpyType, base_ptr: ir.Value, offset: int
     ) -> ir.Value:
         """Load a value of *fpy_type* from byte *offset* inside the [N x i8]
-        buffer at *base_ptr*, the inverse of _emit_store_big_endian: the bytes
-        are fprime wire format (big-endian, tightly packed, aggregates member
-        by member). If the bytes cannot be deserialized to the fpy_type,
+        buffer at *base_ptr*. If the bytes cannot be deserialized to the fpy_type,
         raise an error. Returns the value at fpy_type's LLVM type."""
         b = self.builder
         i32 = ir.IntType(32)
@@ -944,9 +939,7 @@ class AssignAddresses(TopDownVisitor):
 
     def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
         func = state.resolved_symbols.get(node.func)
-        # A sequence-run command with arguments has no buffer layout yet;
-        # lowering the call is what reports that.
-        if is_instance_compat(func, CommandSymbol) and not func.is_seq_run_with_args:
+        if is_instance_compat(func, CommandSymbol):
             self._create_command_buffer(node, func, state)
 
     def _create_variable_slot(self, sym: VariableSymbol, state: CompileState) -> None:
@@ -1013,21 +1006,47 @@ class AssignAddresses(TopDownVisitor):
         """Lay out the buffer *node* dispatches: the opcode, then each argument
         in order. An argument known at compile time is serialized straight into
         the buffer at its actual size -- a string packs to its real length, not
-        its declared capacity. Every other gets a zeroed max_size slot."""
+        its declared capacity. Every other gets a zeroed max_size slot.
+
+        A sequence-run command's buffer carries its varargs inside the
+        Svc.SeqArgs struct the dictionary declares in their place: the packed
+        size of the argument data, the argument values, and zero padding up to
+        the struct's buffer capacity."""
         contents = bytearray(FpyValue(FwOpcodeType, func.cmd.opcode).serialize())
         runtime_args = []  # (byte offset of the arg's slot, arg expr, arg type)
-        for arg in node.args if node.args is not None else []:
+        node_args = node.args if node.args is not None else []
+
+        def append_arg(arg):
             const_val = (
                 arg
                 if is_instance_compat(arg, FpyValue)
                 else state.const_expr_values.get(arg)
             )
             if const_val is not None:
-                contents += const_val.serialize()
+                contents.extend(const_val.serialize())
             else:
                 arg_type = state.contextual_types[arg]
                 runtime_args.append((len(contents), arg, arg_type))
-                contents += bytes(arg_type.max_size)
+                contents.extend(bytes(arg_type.max_size))
+
+        if func.is_seq_run_with_args:
+            # ResolveSequenceDependencies extended func.args with the called
+            # sequence's parameters; the command's own (fixed) args come first.
+            bin_name = node_args[0].value
+            seq_dep = state.called_seq_arg_specs[bin_name]
+            n_fixed = len(func.args) - len(seq_dep)
+            for arg in node_args[:n_fixed]:
+                append_arg(arg)
+            # SeqArgs.$size is always known at compile time: a sequence
+            # argument can't be a string, so each packs at its max_size.
+            vararg_data_size = sum(t.max_size for _, t in seq_dep)
+            contents += FpyValue(SEQ_ARGS.members[0].type, vararg_data_size).serialize()
+            for arg in node_args[n_fixed:]:
+                append_arg(arg)
+            contents += bytes(SEQ_ARGS.members[1].type.length - vararg_data_size)
+        else:
+            for arg in node_args:
+                append_arg(arg)
 
         buf = create_byte_buffer(state.backend.module, "cmd_buf", contents)
         buf.global_constant = not runtime_args
@@ -1308,10 +1327,6 @@ class GenerateLlvmModule:
         assert (
             root_block is state.root_block
         ), "module generator must be run on the root block"
-        if state.this_seq_arg_specs:
-            # A parameter's value comes from whoever runs the sequence, and the
-            # host interface has no way to deliver one.
-            raise BackendError("LLVM backend can't lower sequences with parameters yet")
         module = ir.Module(name="seq")
         module.triple = LLVM_TRIPLE
         declare_host_imports(module)
@@ -1353,6 +1368,8 @@ class GenerateLlvmModule:
         for var, arg in zip(params, fn.args):
             arg.name = var.name
             builder.store(arg, state.backend.variable_ptrs[var])
+        if body is state.main_block and state.this_seq_arg_specs:
+            self._emit_seq_args_prologue(builder, state)
         EmitLlvmStmt(builder).emit(body, state)
         if not builder.block.is_terminated:
             if isinstance(fn.function_type.return_type, ir.VoidType):
@@ -1363,6 +1380,39 @@ class GenerateLlvmModule:
                 # CheckFunctionReturns proved every path returns, so this
                 # point is unreachable -- but the block needs a terminator.
                 builder.unreachable()
+
+    def _emit_seq_args_prologue(
+        self, builder: ir.IRBuilder, state: CompileState
+    ) -> None:
+        """Read the sequence's arguments before its first statement: ask the
+        host for the argument bytes, then unpack them into the parameter
+        variables. The runner must provide exactly the declared total --
+        anything else faults with INVALID_ARG, mirroring the flight
+        sequencer's load-time argument check."""
+        i32 = ir.IntType(32)
+        specs = state.this_seq_arg_specs
+        total = sum(arg_type.max_size for _name, arg_type in specs)
+        buf = create_byte_buffer(state.backend.module, "seq_args", bytearray(total))
+        got = builder.call(
+            builder.module.globals[HOST_ARGS_FUNC_NAME],
+            [
+                builder.bitcast(buf, ir.IntType(8).as_pointer()),
+                ir.Constant(i32, total),
+            ],
+        )
+        _emit_fault_when(
+            builder,
+            builder.icmp_signed("!=", got, ir.Constant(i32, total)),
+            DirectiveErrorCode.INVALID_ARG,
+            "args",
+        )
+        expr = EmitLlvmExpr(builder)
+        variables = state.main_scope.group(NameGroup.VALUE)
+        offset = 0
+        for name, arg_type in specs:
+            value = expr._emit_load_big_endian(arg_type, buf, offset)
+            builder.store(value, state.backend.variable_ptrs[variables[name]])
+            offset += arg_type.max_size
 
     def _param_vars(self, node: AstDef, state: CompileState) -> list[VariableSymbol]:
         """The parameter variables of *node*'s body scope, in signature order."""

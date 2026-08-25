@@ -33,7 +33,6 @@ from fpy.wasm_host import (
 )
 from fpy.compiler import analyze_ast, text_to_ast
 from fpy.dictionary import load_dictionary
-from fpy.error import BackendError
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
@@ -731,12 +730,23 @@ class TestWasmBareExpressionStatements:
 
 
 class TestWasmSequenceParameters:
-    def test_sequence_with_parameters_is_rejected(self):
-        # The host interface has no way to deliver a parameter's value, so the
-        # parameter would silently read as zero. Refuse the sequence instead.
-        seq = "sequence(x: U32)\nassert x == 1\n"
-        with pytest.raises(BackendError, match="sequences with parameters"):
-            _seq_to_llvm_module(seq)
+    """Sequence parameters arrive through the args host import: the module
+    asks for the argument bytes before its first statement and unpacks them
+    into the parameter variables."""
+
+    def test_parameters_unpack_from_args(self):
+        seq = "sequence(x: U32, y: U8)\nif x == 258 and y == 7:\n    exit(3)\nexit(9)\n"
+        args = FpyValue(U32, 258).serialize() + FpyValue(U8, 7).serialize()
+        assert run_seq_wasm(seq, args=args) == 3
+
+    def test_missing_args_fault(self):
+        seq = "sequence(x: U32)\n"
+        assert run_seq_wasm(seq) == DirectiveErrorCode.INVALID_ARG.value
+
+    def test_wrong_size_args_fault(self):
+        seq = "sequence(x: U32)\n"
+        args = FpyValue(U8, 1).serialize()
+        assert run_seq_wasm(seq, args=args) == DirectiveErrorCode.INVALID_ARG.value
 
 
 class TestWasmIf:

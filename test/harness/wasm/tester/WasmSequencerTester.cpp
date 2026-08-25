@@ -158,13 +158,66 @@ void WasmSequencerTester::comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& d
     this->m_result.cmds.emplace_back(cmd, cmd + cmdSize);
 
     Fw::CmdResponse response(static_cast<Fw::CmdResponse::T>(request.cmdResponse));
-    if (request.failOpcodes.count(opcode) > 0) {
+    if (request.seqRunOpcodes.count(opcode) > 0) {
+        const U8* args = cmd + sizeof(FwOpcodeType);
+        FwSizeType argsSize = cmdSize - sizeof(FwOpcodeType);
+        response = this->runChildSequence(args, argsSize);
+    } else if (request.failOpcodes.count(opcode) > 0) {
         response = Fw::CmdResponse::EXECUTION_ERROR;
     }
 
     // Answer right away, echoing the context back as the command sequence
     // value.
     this->cmdResponseSend_out(0, opcode, context, response);
+}
+
+Fw::CmdResponse WasmSequencerTester::runChildSequence(const U8* args, FwSizeType argsSize) {
+    const harness::HarnessRequest& request = *this->m_request;
+
+    // Parse (fileName, blockState, seqArgs) following the dictionary layout
+    // the compiler serialized: the SeqArgs buffer length comes from the
+    // request because the dictionary's length can differ from this build's.
+    Fw::ExternalSerializeBuffer buffer(const_cast<U8*>(args), argsSize);
+    Fw::SerializeStatus status = buffer.setBuffLen(argsSize);
+    FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
+
+    Fw::CmdStringArg fileName;
+    Svc::BlockState blockState;
+    FwSizeType childArgsSize = 0;
+    if (buffer.deserializeTo(fileName) != Fw::SerializeStatus::FW_SERIALIZE_OK ||
+        buffer.deserializeTo(blockState) != Fw::SerializeStatus::FW_SERIALIZE_OK ||
+        buffer.deserializeTo(childArgsSize) != Fw::SerializeStatus::FW_SERIALIZE_OK) {
+        this->m_result.error = "could not parse the arguments of a seq-run command";
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    // FIXME why is childargssize greater than and not !=?
+    if (buffer.getBuffLeft() != request.seqArgsBufferSize || childArgsSize > request.seqArgsBufferSize) {
+        this->m_result.error = "seq-run command arguments do not match the dictionary's SeqArgs layout";
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    const U8* childArgs = buffer.getBuffAddr() + (argsSize - buffer.getBuffLeft());
+
+    harness::HarnessRequest childRequest = request;
+    childRequest.seqFile = fileName.toChar();
+    childRequest.hasArgs = true;
+    childRequest.args.assign(childArgs, childArgs + childArgsSize);
+    // The child starts at the parent's current clock; the parent's clock does
+    // not move while the child runs.
+    childRequest.timeBase = static_cast<U16>(this->m_now.getTimeBase());
+    childRequest.timeContext = this->m_now.getContext();
+    childRequest.seconds = this->m_now.getSeconds();
+    childRequest.useconds = this->m_now.getUSeconds();
+
+    WasmSequencerTester child;
+    harness::HarnessResult childResult = child.run(childRequest);
+    if (!childResult.error.empty()) {
+        this->m_result.error = "child sequence " + childRequest.seqFile + ": " + childResult.error;
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    if (childResult.gotCmdResponse && childResult.cmdResponse == Fw::CmdResponse::OK) {
+        return Fw::CmdResponse::OK;
+    }
+    return Fw::CmdResponse::EXECUTION_ERROR;
 }
 
 void WasmSequencerTester::cmdResponseIn_handler(FwIndexType portNum,

@@ -18,9 +18,15 @@ from pathlib import Path
 import pytest
 
 import fpy.error
+import fpy.test_helpers
 from fpy.bytecode.assembler import serialize_directives
 from fpy.bytecode.directives import DirectiveErrorCode
-from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
+from fpy.compiler import (
+    text_to_ast,
+    analyze_ast,
+    analysis_to_fpybc_directives,
+    analysis_to_wasm,
+)
 from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.dictionary import load_dictionary
 from fpy.test_helpers import (
@@ -47,6 +53,13 @@ def _write_child(
     state = get_base_compile_state(default_dictionary, _catch_all_seq_maps(seq_dir))
     body = text_to_ast(seq_text)
     state = analyze_ast(body, state)
+    if fpy.test_helpers.USE_WASM:
+        # FIXME it's a .wasm file, not .bin
+        # The child runs on a Svc::WasmSequencer, which loads the .bin as a
+        # wasm module.
+        wasm, arg_types = analysis_to_wasm(state)
+        (directory / bin_name).write_bytes(wasm)
+        return None, arg_types
     directives, arg_types = analysis_to_fpybc_directives(state)
     arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
     data, _ = serialize_directives(directives, arg_specs=arg_specs)

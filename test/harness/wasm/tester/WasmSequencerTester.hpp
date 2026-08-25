@@ -39,6 +39,9 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // Dispatches queued messages until the sequencer answers the RUN
     // command, jumping the clock forward whenever the sequencer sleeps.
     void pump();
+    // Runs the child module a dispatched seq-run command names on a fresh
+    // tester, returning the response the command completes with.
+    Fw::CmdResponse runChildSequence(const U8* args, FwSizeType argsSize);
 
     void comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& data, U32 context) override;
     void cmdResponseIn_handler(FwIndexType portNum,
