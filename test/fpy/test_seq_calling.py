@@ -42,9 +42,10 @@ from fpy.test_helpers import (
 def _write_child(
     seq_text: str, directory: Path, bin_name: str = "child.bin", seq_dir: str = None
 ):
-    """Write the child's .fpy source and compiled .bin into *directory*: the
-    .fpy is what the parent's compile reads for the argument specification;
-    the .bin is what the harness loads at run time.
+    """Write the child's .fpy source and compiled sequence into *directory*:
+    the .fpy is what the parent's compile reads for the argument
+    specification; the file named *bin_name* is what the harness loads at
+    run time.
 
     Returns (directives, arg_types) for the compiled child.
     """
@@ -54,9 +55,8 @@ def _write_child(
     body = text_to_ast(seq_text)
     state = analyze_ast(body, state)
     if fpy.test_helpers.USE_WASM:
-        # FIXME it's a .wasm file, not .bin
-        # The child runs on a Svc::WasmSequencer, which loads the .bin as a
-        # wasm module.
+        # The child runs on a Svc::WasmSequencer, which loads the file named
+        # *bin_name* as a wasm module regardless of its suffix.
         wasm, arg_types = analysis_to_wasm(state)
         (directory / bin_name).write_bytes(wasm)
         return None, arg_types

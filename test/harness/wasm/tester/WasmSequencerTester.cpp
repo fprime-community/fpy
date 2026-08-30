@@ -190,7 +190,9 @@ Fw::CmdResponse WasmSequencerTester::runChildSequence(const U8* args, FwSizeType
         this->m_result.error = "could not parse the arguments of a seq-run command";
         return Fw::CmdResponse::EXECUTION_ERROR;
     }
-    // FIXME why is childargssize greater than and not !=?
+    // The size field counts only the used bytes of the fixed-capacity SeqArgs
+    // buffer, so any value up to the capacity is valid; a larger value would
+    // point past the end of the buffer.
     if (buffer.getBuffLeft() != request.seqArgsBufferSize || childArgsSize > request.seqArgsBufferSize) {
         this->m_result.error = "seq-run command arguments do not match the dictionary's SeqArgs layout";
         return Fw::CmdResponse::EXECUTION_ERROR;
