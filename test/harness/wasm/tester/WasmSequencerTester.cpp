@@ -14,6 +14,24 @@ WasmSequencerTester::WasmSequencerTester()
     this->init(0);
     this->m_sequencer.init(QUEUE_DEPTH, 0);
     this->connectPorts();
+
+    // configure() allocates the sequencer's backing pools and creates the
+    // initial store; it must run after port wiring because creating the
+    // store emits an event. Everything not set here keeps the Config
+    // default. guestMemorySize is raised so real compiled sequences (whose
+    // linear memory is at least one 64 KiB wasm page) can load; two pages
+    // fit every sequence the test suite builds. serialOutMax and the
+    // serialIn queues must be nonzero or the sequencer disables serial
+    // writes and drops inbound frames.
+    WasmSequencer::Config config;
+    config.guestMemorySize = 128 * 1024;
+    config.serialOutMax = 256;
+    for (FwIndexType i = 0; i < WasmSequencer::NUM_SERIALIN_INPUT_PORTS; i++) {
+        config.serialIn[i].size = 256;
+        config.serialIn[i].fullBehavior = WasmSequencer::SerialInQueueFullBehavior::DROP_OLDEST;
+    }
+    this->m_sequencer.configure(config, this->m_allocator);
+
     this->m_sequencer.loadParameters();
 }
 

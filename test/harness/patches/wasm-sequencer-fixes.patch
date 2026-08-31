@@ -1,8 +1,8 @@
 diff --git a/Svc/WasmSequencer/WasmSequencer.hpp b/Svc/WasmSequencer/WasmSequencer.hpp
-index 609c3eb..c47f9bc 100644
+index 7006f49f..1eada14b 100644
 --- a/Svc/WasmSequencer/WasmSequencer.hpp
 +++ b/Svc/WasmSequencer/WasmSequencer.hpp
-@@ -985,6 +985,9 @@ class WasmSequencer final : public WasmSequencerComponentBase {
+@@ -1162,6 +1162,9 @@ class WasmSequencer final : public WasmSequencerComponentBase {
      //! Set up the fprime host interface
      void hostFprimeV1(spacewasm_host_t*);
  
@@ -13,25 +13,28 @@ index 609c3eb..c47f9bc 100644
      spacewasm_hostcall_result_t wasmExit(struct spacewasm_caller_t* caller,
                                           const struct spacewasm_value_t* params,
 diff --git a/Svc/WasmSequencer/WasmSequencerEvents.fppi b/Svc/WasmSequencer/WasmSequencerEvents.fppi
-index 10d5628..d49e141 100644
+index 8e7981ba..32584667 100644
 --- a/Svc/WasmSequencer/WasmSequencerEvents.fppi
 +++ b/Svc/WasmSequencer/WasmSequencerEvents.fppi
-@@ -137,13 +137,6 @@ event SerialPortSendFailed(host_function: HostFunction, status: I32) \
-   severity warning high \
-   format "Host function {} failed to send on serial port: serialize status {}"
+@@ -163,16 +163,6 @@ event SerialInFrameTooLarge(portIndex: U32, $size: U32, maxSize: U32) \
+     severity warning high \
+     format "Serial input port {} dropped oversized frame of {} bytes (queue max {})"
  
 -@ The guest requested an event at a severity that is not permitted for guest
 -@ programs (an out-of-range id, or FATAL/COMMAND which are reserved for the
 -@ host). The guest message is preserved and reported here at WARNING_HI.
--event HostFunctionInvalidSeverity(raw: I32, msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) \
--  severity warning high \
--  format "Guest event at invalid/forbidden severity '{}': {}"
+-event HostFunctionInvalidSeverity(
+-    raw: I32
+-    msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE
+-) \
+-    severity warning high \
+-    format "Guest event at invalid/forbidden severity '{}': {}"
 -
  @ A sequence is starting after the main entrypoint was invoked
  event SequenceStarting(index: ModuleIdx) \
-   severity activity high \
-@@ -235,15 +228,17 @@ event InvalidModuleEntrypoint(moduleIdx: ModuleIdx, status: Status) \
-   format "Module at index {} does not have a valid 'main' entrypoint: {}"
+     severity activity high \
+@@ -281,15 +271,21 @@ event InvalidModuleEntrypoint(moduleIdx: ModuleIdx, status: Status) \
+     format "Module at index {} does not have a valid 'main' entrypoint: {}"
  
  # ----------------------------------------------------------------------
 -# Guest-emitted events (fprime.event host function). One event per guest-
@@ -47,19 +50,23 @@ index 10d5628..d49e141 100644
  # ----------------------------------------------------------------------
  
 +@ A FATAL event emitted by the guest program
-+event LogFatal(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) severity fatal format "{}"
++event LogFatal(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) \
++    severity fatal \
++    format "{}"
 +
 +@ A COMMAND event emitted by the guest program
-+event LogCommand(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) severity command format "{}"
++event LogCommand(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) \
++    severity command \
++    format "{}"
 +
  @ A WARNING_HI event emitted by the guest program
- event LogWarningHi(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) severity warning high format "{}"
- 
+ event LogWarningHi(msg: string size Wasm.GUEST_EVENT_MESSAGE_SIZE) \
+     severity warning high \
 diff --git a/Svc/WasmSequencer/WasmSequencerHelpers.cpp b/Svc/WasmSequencer/WasmSequencerHelpers.cpp
-index 4a265b3..a91511f 100644
+index 1fe89cb2..4c643772 100644
 --- a/Svc/WasmSequencer/WasmSequencerHelpers.cpp
 +++ b/Svc/WasmSequencer/WasmSequencerHelpers.cpp
-@@ -105,10 +105,11 @@ void WasmSequencer ::createStore() {
+@@ -156,10 +156,11 @@ void WasmSequencer ::createStore() {
      this->takeAllocatorLock();
  
      spacewasm_host_t host;
@@ -71,9 +78,9 @@ index 4a265b3..a91511f 100644
 +    this->hostEnv(&host);
  
      spacewasm_compiler_options_t options;
-     options.allow_memory_grow = false;
+     options.allow_memory_grow = true;  // implemented in a restricted way (see guestRealloc)
 diff --git a/Svc/WasmSequencer/WasmSequencerHost.cpp b/Svc/WasmSequencer/WasmSequencerHost.cpp
-index fd23420..d0082b9 100644
+index 26d9223e..f4d9ba1a 100644
 --- a/Svc/WasmSequencer/WasmSequencerHost.cpp
 +++ b/Svc/WasmSequencer/WasmSequencerHost.cpp
 @@ -4,6 +4,7 @@
@@ -84,9 +91,9 @@ index fd23420..d0082b9 100644
  #include <limits>
  
  #include "Fw/Types/Assert.hpp"
-@@ -19,6 +20,52 @@
- 
- namespace Svc {
+@@ -36,6 +37,52 @@ static spacewasm_hostcall_result_t hostFunctionTrampoline(struct spacewasm_calle
+     return (static_cast<WasmSequencer*>(userdata)->*Handler)(caller, params, n_params, out_result);
+ }
  
 +void WasmSequencer ::hostEnv(spacewasm_host_t* host) {
 +    // The float library calls LLVM materializes for guest float arithmetic
@@ -135,43 +142,43 @@ index fd23420..d0082b9 100644
 +}
 +
  void WasmSequencer ::hostFprimeV1(spacewasm_host_t* host) {
- #define HOST_FN(member_fn)                                                                                         \
-     [](struct spacewasm_caller_t* caller, void* userdata, const struct spacewasm_value_t* params, size_t n_params, \
+     spacewasm_status_t status;
+     U32 module_idx;
 diff --git a/Svc/WasmSequencer/WasmSequencerInterpreter.cpp b/Svc/WasmSequencer/WasmSequencerInterpreter.cpp
-index 6cf7579..9abf317 100644
+index 4be05e70..72221553 100644
 --- a/Svc/WasmSequencer/WasmSequencerInterpreter.cpp
 +++ b/Svc/WasmSequencer/WasmSequencerInterpreter.cpp
-@@ -318,14 +318,16 @@ void WasmSequencer ::Svc_WasmSequencer_InterpreterStateMachine_action_dispatchPe
-                     Svc::WasmSequencer_Status(static_cast<WasmSequencer_Status::T>(status)));
-                 this->interpreter_sendSignal_hostResponseFailure();
-             } else {
--                // Emit the event at the guest-requested severity. FATAL and
--                // COMMAND are forbidden for guest programs (FATAL would let
--                // untrusted code trigger the FatalHandler; COMMAND is reserved
--                // for the command dispatcher). A forbidden or out-of-range
--                // severity is reported via HostFunctionInvalidSeverity, carrying
--                // the raw id and the guest message, and the guest continues.
-+                // Emit the event at the guest-requested severity. An
-+                // out-of-range severity emits nothing and the guest continues.
-                 const I32 rawSeverity = static_cast<I32>(this->m_pendingHostFunction.u.event.rawSeverity);
-                 switch (static_cast<Fw::LogSeverity::T>(rawSeverity)) {
-+                    case Fw::LogSeverity::FATAL:
-+                        this->log_FATAL_LogFatal(msg);
-+                        break;
-+                    case Fw::LogSeverity::COMMAND:
-+                        this->log_COMMAND_LogCommand(msg);
-+                        break;
-                     case Fw::LogSeverity::WARNING_HI:
-                         this->log_WARNING_HI_LogWarningHi(msg);
-                         break;
-@@ -341,10 +343,7 @@ void WasmSequencer ::Svc_WasmSequencer_InterpreterStateMachine_action_dispatchPe
-                     case Fw::LogSeverity::DIAGNOSTIC:
-                         this->log_DIAGNOSTIC_LogDiagnostic(msg);
-                         break;
--                    case Fw::LogSeverity::FATAL:
--                    case Fw::LogSeverity::COMMAND:
-                     default:
--                        this->log_WARNING_HI_HostFunctionInvalidSeverity(rawSeverity, msg);
-                         break;
-                 }
+@@ -363,14 +363,16 @@ void WasmSequencer ::dispatchEvent() {
+     }
+     stringStorage[this->m_pendingHostFunction.u.event.msgLen] = 0;
+ 
+-    // Emit the event at the guest-requested severity. FATAL and
+-    // COMMAND are forbidden for guest programs (FATAL would let
+-    // untrusted code trigger the FatalHandler; COMMAND is reserved
+-    // for the command dispatcher). A forbidden or out-of-range
+-    // severity is reported via HostFunctionInvalidSeverity, carrying
+-    // the raw id and the guest message, and the guest continues.
++    // Emit the event at the guest-requested severity. An
++    // out-of-range severity emits nothing and the guest continues.
+     const I32 rawSeverity = static_cast<I32>(this->m_pendingHostFunction.u.event.rawSeverity);
+     switch (static_cast<Fw::LogSeverity::T>(rawSeverity)) {
++        case Fw::LogSeverity::FATAL:
++            this->log_FATAL_LogFatal(msg);
++            break;
++        case Fw::LogSeverity::COMMAND:
++            this->log_COMMAND_LogCommand(msg);
++            break;
+         case Fw::LogSeverity::WARNING_HI:
+             this->log_WARNING_HI_LogWarningHi(msg);
+             break;
+@@ -386,10 +388,7 @@ void WasmSequencer ::dispatchEvent() {
+         case Fw::LogSeverity::DIAGNOSTIC:
+             this->log_DIAGNOSTIC_LogDiagnostic(msg);
+             break;
+-        case Fw::LogSeverity::FATAL:
+-        case Fw::LogSeverity::COMMAND:
+         default:
+-            this->log_WARNING_HI_HostFunctionInvalidSeverity(rawSeverity, msg);
+             break;
+     }
  

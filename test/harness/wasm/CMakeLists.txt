@@ -22,7 +22,6 @@ add_compile_definitions(FW_DIRECT_PORT_CALLS=0)
 include("${FPRIME_FRAMEWORK_PATH}/cmake/FPrime.cmake")
 include("${FPRIME_FRAMEWORK_PATH}/cmake/FPrime-Code.cmake")
 
-add_fprime_subdirectory("${CMAKE_CURRENT_LIST_DIR}/config")
 add_fprime_subdirectory("${CMAKE_CURRENT_LIST_DIR}/tester")
 
 register_fprime_deployment(
