@@ -716,10 +716,9 @@ You can run all hooks against the whole repo at any time with `uv run pre-commit
 
 ### `fprime-fpyc`
 
-The compiler. Flags worth knowing:
+Some useful compiler flags are:
 
 * `--emit {fpybin,fpyasm,llvm-ir,wasm,wat}`: output format. Defaults to `fpybin` (binary fpy bytecode); `fpyasm` emits human-readable bytecode assembly, and `llvm-ir`/`wasm`/`wat` emit the LLVM/WebAssembly backend outputs.
-* `--seq-map BIN_PREFIX=FPY_PREFIX`: maps a called sequence's onboard binary path to its `.fpy` source (repeatable). See [Sequence arguments](#sequence-arguments).
 * `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
 * `--debug`: print a stack trace of where each compile error is generated.
 
