@@ -30,6 +30,7 @@ from fpy.compiler import (
     analysis_to_fpybc_directives,
 )
 from fpy.state import get_base_compile_state
+from fpy.types import DEFAULT_TIME_BASE
 from fpy.error import parse_warning_set
 
 
@@ -75,6 +76,21 @@ def parse_seq_maps(specs: list[str]) -> list[tuple[str, str]]:
         bin_prefix, fpy_prefix = spec.split("=", 1)
         maps.append((bin_prefix, fpy_prefix))
     return maps
+
+
+def _add_time_base_argument(arg_parser: argparse.ArgumentParser):
+    arg_parser.add_argument(
+        "--time-base",
+        type=str,
+        default=DEFAULT_TIME_BASE,
+        metavar="CONSTANT",
+        dest="time_base",
+        help=(
+            "TimeBase enum constant used as the default timeBase of time() "
+            f"and of the Fw.TimeValue constructor (default: {DEFAULT_TIME_BASE}). "
+            "Must be a constant of the dictionary's TimeBase enum."
+        ),
+    )
 
 
 def _add_seq_map_argument(arg_parser: argparse.ArgumentParser):
@@ -137,6 +153,7 @@ def compile_main(args: list[str] = None):
         help="Pass this to print out compiler debugging information",
     )
     _add_seq_map_argument(arg_parser)
+    _add_time_base_argument(arg_parser)
     arg_parser.add_argument(
         "-i",
         "--imports",
@@ -210,6 +227,7 @@ def compile_main(args: list[str] = None):
             import_directories=import_directories,
             main_file_dir=str(parsed_args.input.parent.resolve()),
             main_file_path=str(parsed_args.input.resolve()),
+            default_time_base=parsed_args.time_base,
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)
@@ -452,6 +470,7 @@ def cmd_main(args: list[str] = None):
         help="The FPrime dictionary .json file",
     )
     _add_seq_map_argument(arg_parser)
+    _add_time_base_argument(arg_parser)
     arg_parser.add_argument(
         "--zmq-addr",
         type=str,
@@ -498,6 +517,7 @@ def cmd_main(args: list[str] = None):
         state = get_base_compile_state(
             str(parsed_args.dictionary.resolve()),
             seq_maps,
+            default_time_base=parsed_args.time_base,
         )
     except fpy.error.DictionaryError as e:
         print(e, file=sys.stderr)

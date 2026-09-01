@@ -201,7 +201,7 @@ array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 struct_var: Fw.TimeInterval = {seconds: 0, useconds: 1000}
 ```
 
-If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one. The default `timeBase` of an `Fw.TimeValue` is overridden to `TimeBase.TB_WORKSTATION_TIME`. You can configure this by passing the `--time-base` flag.
 
 Trailing commas are allowed in these expressions.
 
@@ -520,7 +520,7 @@ log("checkTimers called!")
 
 log("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
-sleep_until({timeBase: TimeBase.TB_NONE, timeContext: 1, seconds: 1234567890, useconds: 0})
+sleep_until({seconds: 1234567890, useconds: 0})
 log("much later")
 ```
 
@@ -533,8 +533,8 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize timeBase and timeContext (defaults are TimeBase.TB_NONE and 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
+# Customize timeBase and timeContext (defaults are TimeBase.TB_WORKSTATION_TIME and 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_SC_TIME, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.

@@ -32,6 +32,10 @@ DEFAULT_MAX_DIRECTIVE_SIZE = 2048
 DEFAULT_MAX_SEQ_ARG_COUNT = 16
 DEFAULT_MAX_STACK_SIZE = 65535
 
+# The TimeBase constant used as the default timeBase of time() and of the
+# Fw.TimeValue constructor - may be overridden via get_base_compile_state.
+DEFAULT_TIME_BASE = "TB_WORKSTATION_TIME"
+
 # Keep old names as aliases for backward compatibility
 MAX_DIRECTIVES_COUNT = DEFAULT_MAX_DIRECTIVES_COUNT
 MAX_DIRECTIVE_SIZE = DEFAULT_MAX_DIRECTIVE_SIZE

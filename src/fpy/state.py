@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import fpy.types
 from fpy.dictionary import json_default_to_fpy_value, load_dictionary
 from fpy.error import CompileError, CompileWarning, DictionaryError, WarningType
-from fpy.macros import MACROS
+from fpy.macros import MACROS, TIME_MACRO
 from fpy.symbols import (
     CallableSymbol,
     CastSymbol,
@@ -46,6 +46,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_SEQ_ARG_COUNT,
     DEFAULT_MAX_STACK_SIZE,
+    DEFAULT_TIME_BASE,
     FLAGS_TYPE,
     I64,
     LOG_SEVERITY,
@@ -540,11 +541,13 @@ def _make_type_ctor(name: str, typ: FpyType) -> TypeCtorSymbol | None:
 
 
 @lru_cache(maxsize=4)
-def _build_global_scopes(dictionary: str) -> tuple:
+def _build_global_scopes(
+    dictionary: str, default_time_base: str = DEFAULT_TIME_BASE
+) -> tuple:
     """
     Build and cache the 3 global scopes, type_name_dict and type_ctors for a
-    dictionary. Returns tuple of (type_scope, callable_scope, values_scope,
-    type_name_dict, type_ctors).
+    (dictionary, default time base) pair. Returns tuple of (type_scope,
+    callable_scope, values_scope, type_name_dict, type_ctors).
     """
     d = load_dictionary(dictionary)
     cmd_name_dict = d["cmd_name_dict"]
@@ -558,6 +561,12 @@ def _build_global_scopes(dictionary: str) -> tuple:
 
     # Validate required dictionary types
     _update_time_base_from_dict(dict_type_name_dict)
+    if default_time_base not in TIME_BASE.enum_dict:
+        raise DictionaryError(
+            "TimeBase",
+            f"The default time base {default_time_base!r} is not one of its "
+            f"constants: {', '.join(TIME_BASE.enum_dict)}.",
+        )
     _update_time_context_type_from_dict(dict_type_name_dict)
     _validate_and_replace_type(dict_type_name_dict, "Fw.TimeValue", TIME)
     _validate_and_replace_type(
@@ -609,6 +618,11 @@ def _build_global_scopes(dictionary: str) -> tuple:
     # Populate per-member/per-element defaults on types before building ctors
     for typ in type_name_dict.values():
         _populate_type_defaults(typ)
+
+    # The default time base supersedes the dictionary's timeBase default for
+    # the Fw.TimeValue ctor (struct literals coerce through the ctor, so they
+    # inherit it too).
+    TIME.member_defaults["timeBase"] = FpyValue(TIME_BASE, default_time_base)
 
     # Build callable dict: commands, numeric casts, type constructors, macros
     callable_name_dict: dict[str, CallableSymbol] = {}
@@ -675,11 +689,18 @@ def get_base_compile_state(
     import_directories: list[str] | None = None,
     main_file_dir: str | None = None,
     main_file_path: str | None = None,
+    default_time_base: str | None = None,
 ) -> CompileState:
     """return the initial state of the compiler, based on the given dict path"""
+    if default_time_base is None:
+        default_time_base = DEFAULT_TIME_BASE
     type_scope, callable_scope, values_scope, type_defs, type_ctors = (
-        _build_global_scopes(dictionary)
+        _build_global_scopes(dictionary, default_time_base)
     )
+    # time() is a module-level symbol shared by every cached scope set, so its
+    # timeBase default is reapplied on every call: a _build_global_scopes cache
+    # hit must still reflect this compile's default time base.
+    TIME_MACRO.args[1] = ("timeBase", TIME_BASE, FpyValue(TIME_BASE, default_time_base))
     constants = load_dictionary(dictionary)["constants"]
 
     def _const_int(key: str, default: int | None) -> int | None:

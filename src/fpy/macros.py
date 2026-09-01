@@ -363,6 +363,8 @@ TIME_MACRO = BuiltinFuncSymbol(
     TIME,
     [
         ("timestamp", INTERNAL_STRING, None),
+        # placeholder; get_base_compile_state installs the configured
+        # default time base
         ("timeBase", TIME_BASE, FpyValue(TIME_BASE, "TB_NONE")),
         ("timeContext", U8, FpyValue(U8, 0)),
     ],

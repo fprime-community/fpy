@@ -549,6 +549,54 @@ t: Fw.Time = Fw.Time(TimeBase.TB_SC_TIME, 0, 100, 0)
     analysis_to_fpybc_directives(state)
 
 
+def test_default_time_base():
+    """The default time base is the timeBase default of the Fw.TimeValue ctor
+    and of time()."""
+    _clear_caches()
+    from fpy.macros import TIME_MACRO
+    from fpy.types import TIME
+
+    state = get_base_compile_state(DEFAULT_DICTIONARY)
+
+    assert state.type_ctors[TIME].args[0][2].val == "TB_WORKSTATION_TIME"
+    assert TIME_MACRO.args[1][2].val == "TB_WORKSTATION_TIME"
+
+
+def test_default_time_base_override():
+    """default_time_base overrides the timeBase default, and a subsequent
+    compile with a different choice is not affected by the cached scopes."""
+    _clear_caches()
+    from fpy.macros import TIME_MACRO
+    from fpy.types import TIME
+
+    state = get_base_compile_state(DEFAULT_DICTIONARY, default_time_base="TB_SC_TIME")
+    assert state.type_ctors[TIME].args[0][2].val == "TB_SC_TIME"
+    assert TIME_MACRO.args[1][2].val == "TB_SC_TIME"
+
+    state = get_base_compile_state(DEFAULT_DICTIONARY)
+    assert state.type_ctors[TIME].args[0][2].val == "TB_WORKSTATION_TIME"
+    assert TIME_MACRO.args[1][2].val == "TB_WORKSTATION_TIME"
+
+    # This hits the cache from the first call; time()'s default must follow.
+    state = get_base_compile_state(DEFAULT_DICTIONARY, default_time_base="TB_SC_TIME")
+    assert state.type_ctors[TIME].args[0][2].val == "TB_SC_TIME"
+    assert TIME_MACRO.args[1][2].val == "TB_SC_TIME"
+
+    _clear_caches()
+
+
+def test_default_time_base_not_in_dictionary_raises_error():
+    """A default time base that is not a constant of the dictionary's TimeBase
+    enum raises an error."""
+    _clear_caches()
+    from fpy.error import DictionaryError
+
+    with pytest.raises(DictionaryError, match="not one of its constants"):
+        get_base_compile_state(DEFAULT_DICTIONARY, default_time_base="TB_BOGUS")
+
+    _clear_caches()
+
+
 # ============================================================================
 # FpySequencer limit checks: MAX_SEQUENCE_ARG_COUNT, MAX_STACK_SIZE,
 # MAX_DIRECTIVE_SIZE, FW_COM_BUFFER_MAX_SIZE, FW_CMD_ARG_BUFFER_MAX_SIZE

@@ -201,6 +201,33 @@ def test_compile_main_no_includes_means_no_import_directories(monkeypatch, tmp_p
     assert captured_kwargs["main_file_dir"] == str(input_path.parent.resolve())
 
 
+def test_compile_main_time_base(monkeypatch, tmp_path):
+    """--time-base is forwarded as default_time_base; without the flag the
+    default is TB_WORKSTATION_TIME."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("content")
+    dict_path = tmp_path / "dict.json"
+    dict_path.write_text("{}")
+
+    captured_kwargs = _run_compile_capturing_kwargs(
+        monkeypatch,
+        [str(input_path), "--dictionary", str(dict_path)],
+    )
+    assert captured_kwargs["default_time_base"] == "TB_WORKSTATION_TIME"
+
+    captured_kwargs = _run_compile_capturing_kwargs(
+        monkeypatch,
+        [
+            str(input_path),
+            "--dictionary",
+            str(dict_path),
+            "--time-base",
+            "TB_SC_TIME",
+        ],
+    )
+    assert captured_kwargs["default_time_base"] == "TB_SC_TIME"
+
+
 def test_compile_main_missing_input(tmp_path, capsys):
     missing = tmp_path / "missing.fpy"
     dict_path = tmp_path / "dict.json"

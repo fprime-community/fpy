@@ -1181,11 +1181,22 @@ t: Fw.Time = time("2000-01-01T00:00:00")
         assert_compile_failure(fprime_test_api, seq)
 
     def test_time_function_default_time_base(self, fprime_test_api):
-        """time() defaults to timeBase=0 and timeContext=0."""
+        """time() defaults to timeBase=TB_WORKSTATION_TIME and timeContext=0."""
         seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
-assert t.timeBase == TimeBase.TB_NONE
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
 assert t.timeContext == 0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_ctor_default_time_base(self, fprime_test_api):
+        """Fw.TimeValue's timeBase defaults to TB_WORKSTATION_TIME, including
+        through a struct literal that omits it."""
+        seq = """
+t: Fw.Time = Fw.TimeValue()
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
+u: Fw.Time = {timeContext: 1, seconds: 5, useconds: 0}
+assert u.timeBase == TimeBase.TB_WORKSTATION_TIME
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -1202,7 +1213,7 @@ assert t.timeContext == 0
         """time() accepts custom timeContext parameter."""
         seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", timeContext=5)
-assert t.timeBase == TimeBase.TB_NONE
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
 assert t.timeContext == 5
 """
         assert_run_success(fprime_test_api, seq)
