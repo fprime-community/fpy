@@ -1,3 +1,5 @@
+import pytest
+
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.types import BOOL, F32, FpyValue, U32
 from fpy.test_helpers import (
@@ -118,6 +120,24 @@ x: U32 = CdhCore.cmdDisp.CommandsDispatched
 
         assert_run_failure(
             fprime_test_api, seq, error_code=DirectiveErrorCode.TLM_CHAN_NOT_FOUND
+        )
+
+    @pytest.mark.wasm_only(
+        "DESERIALIZE_ERROR_INVALID_BOOL is an LLVM-backend extension of the "
+        "error codes; the VM pushes the raw byte without validating it"
+    )
+    def test_tlm_invalid_bool_byte_faults(self, fprime_test_api):
+        # The spacecraft hands back a bool serialized as neither truth byte;
+        # deserializing it must fault rather than invent a value.
+        seq = """
+assert Ref.cmdSeq0.BreakpointInUse
+"""
+
+        assert_run_failure(
+            fprime_test_api,
+            seq,
+            error_code=DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL,
+            tlm={"Ref.cmdSeq0.BreakpointInUse": b"\x42"},
         )
 
     def test_string_tlm_read_rejected(self, fprime_test_api):

@@ -673,11 +673,24 @@ Each dot you add goes up a directory level before beginning the search:
 from ...parent.dir.helper_lib import add_two
 ```
 
+## Writing to arbitrary ports
+Fpy has a powerful feature which allows it to write arbitrary data to an array of ports on the sequencer.
+```py
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
+```
+This will come out of the sequencer's `serialOut` port on the port with index `EXAMPLE_PORT_0`. The `Svc.Fpy.SerialPortIndex` enum is configurable, so you can change the names and numbers of the ports to correspond to actual functions.
+
+Because there is no type checking on the value you pass in to the ports, it is recommended that you wrap the port in a function:
+```py
+def fdir_error_count(count: U32):
+    write_to_port(Svc.Fpy.SerialPortIndex.FDIR_0, count)
+```
+
+... and then import this function wherever you need it.
+
 ## Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
-
-## fprime-fpy-cmd
-
 
 # Developer's Guide
 
@@ -729,19 +742,19 @@ Use `pytest` to run the test suite:
 pytest
 ```
 
-Each sequence test generates and runs both Fpy bytecode and WASM. The binaries run 
+Some tests compile and run sequences. Those tests will generate both Fpy bytecode and WASM bytecode. The resulting binaries are run on a harness wrapping the appropriate sequencer component (`Svc/FpySequencer` for Fpy bytecode, and `Svc/WasmSequencer` for WASM bytecode).
 
- Each backend runs through its own small C++ harness program (`test/harness`), built from the `test/fprime` and `test/fprime-wasm` submodules respectively. Requirements:
+To run these tests, the following steps are required:
 
 * The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
 * The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
 * A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-Each harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the builds); the first run is slower because it builds the fprime framework. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
+Each harness is built automatically when the first test that needs it runs. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
 
 ### `--backend`
 
-`--backend fpybc` or `--backend wasm` restricts the run to one backend (the default is `both`), e.g. while debugging one backend or on a machine without the other's toolchain:
+`--backend fpybc` or `--backend wasm` restricts the run to one backend (the default is `both`):
 
 ```sh
 pytest --backend fpybc
@@ -749,10 +762,9 @@ pytest --backend fpybc
 
 A few behaviors are deliberately backend-specific; those tests carry the `fpybc_only`/`wasm_only` markers (and skip when their backend is not selected). Tests whose expected values differ by backend run once per selected backend via the `single_backend` fixture. Tests marked `@pytest.mark.wasm` exercise the LLVM/wasm toolchain itself and run except under `--backend fpybc`.
 
-# FIXME I'd like to remove the use-gds feature
 ### `--use-gds`
 
-By default, tests run against a local `Svc::FpySequencer` through the harness. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
+Passing `--use-gds` runs sequences against a live F Prime GDS deployment, see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
 
 ### Running on a test F Prime deployment
 

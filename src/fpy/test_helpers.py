@@ -963,6 +963,7 @@ def assert_run_failure(
     seq_dir: str = None,
     seq_run_opcodes: set[int] = None,
     import_directories: list[str] | None = None,
+    tlm: dict[str, bytes] = None,
 ):
     assert not (
         error_code is not None and validation_error
@@ -989,6 +990,7 @@ def assert_run_failure(
                     args_bytes=args_bytes,
                     seq_dir=seq_dir,
                     seq_run_opcodes=seq_run_opcodes,
+                    tlm=tlm,
                 )
             else:
                 _run_failure_wasm(
@@ -999,6 +1001,7 @@ def assert_run_failure(
                     failing_opcodes=failing_opcodes,
                     args_bytes=args_bytes,
                     seq_dir=seq_dir,
+                    tlm=tlm,
                 )
 
 
@@ -1013,6 +1016,7 @@ def _run_failure_fpybc(
     args_bytes,
     seq_dir,
     seq_run_opcodes,
+    tlm,
 ):
     """One backend's leg of assert_run_failure: fpybc codegen, then a run on
     the FpySequencer that must fail as specified."""
@@ -1046,6 +1050,7 @@ def _run_failure_fpybc(
         run_seq(
             fprime_test_api,
             directives,
+            tlm=tlm,
             initial_time_us=initial_time_us,
             failing_opcodes=failing_opcodes,
             args=args_bytes,
@@ -1087,6 +1092,7 @@ def _run_failure_wasm(
     failing_opcodes,
     args_bytes,
     seq_dir,
+    tlm,
 ):
     """One backend's leg of assert_run_failure: LLVM codegen, then a run on
     the WasmSequencer that must fail as specified.
@@ -1113,6 +1119,7 @@ def _run_failure_wasm(
     code, _, _, _ = run_wasm(
         wasm,
         failing_opcodes=failing_opcodes,
+        tlm=tlm,
         initial_time_us=initial_time_us,
         args=args_bytes,
         seq_dir=seq_dir,

@@ -1,6 +1,10 @@
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_failure,
+    assert_run_success,
+)
 from fpy.error import WarningType
 
 
@@ -88,6 +92,21 @@ def test(arg: U8):
 val: U8 = 123
 test(val)
 assert val == 123
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_function_named_main_or_cmd(self, fprime_test_api):
+        """ "main" and "cmd" are taken in the wasm module by the entrypoint
+        and the host imports; script functions with those names must stay
+        distinct from them, and a call must reach the script function."""
+        seq = """
+def main() -> U32:
+    return 1
+
+def cmd() -> U32:
+    return 2
+
+assert main() + cmd() == 3
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -293,6 +312,21 @@ def noop():
 val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_call_embedded_in_bare_expression(self, fprime_test_api):
+        """A bare expression statement whose top-level node isn't itself
+        side-effecting (an == comparison) still embeds a call that is; the
+        statement must be lowered rather than dropped (regression: the wasm
+        backend used to drop it). The exit inside f only reports its code if
+        the call actually runs."""
+        seq = """
+def f() -> U32:
+    exit(7)
+    return 0
+
+f() == 0
+"""
+        assert_run_failure(fprime_test_api, seq, 7)
 
 
 class TestScoping:

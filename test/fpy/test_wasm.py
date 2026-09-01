@@ -1,9 +1,13 @@
-"""End-to-end tests for the LLVM/wasm backend.
+"""Tests of the LLVM/wasm backend that the dual-backend assert_* helpers
+cannot express. Runtime behavior shared with the bytecode backend lives in
+the dual-backend suites (which compile and run every sequence through both
+backends); what stays here is:
 
-These compile a sequence all the way to a runnable wasm module, run it through
-the NASA spacewasm interpreter, and assert on the sequence's error code (what
-the exit/fault host imports report, or 0 when the void entrypoint falls off
-its end without failing).
+* lowering and codegen properties read off the LLVM module or the emitted
+  wasm itself (function lowering, target CPU features, host imports); and
+* the exact bytes the module hands its host imports -- events, dispatched
+  command buffers, and serial writes -- which the runner harness reports
+  back and the dual-backend helpers discard.
 
 Runtime behavior is exercised through variables: an all-literal expression
 folds at compile time, so tests that want the wasm to actually compute
@@ -38,7 +42,6 @@ from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
     compile_seq_wasm,
     default_dictionary,
-    run_seq_wasm,
     run_seq_wasm_with_cmds,
     run_seq_wasm_with_events,
     run_seq_wasm_with_serial,
@@ -67,9 +70,6 @@ pytestmark = pytest.mark.wasm
 
 
 NO_ERROR = DirectiveErrorCode.NO_ERROR.value
-EXIT_WITH_ERROR = DirectiveErrorCode.EXIT_WITH_ERROR.value
-ARRAY_OOB = DirectiveErrorCode.ARRAY_OUT_OF_BOUNDS.value
-DOMAIN_ERROR = DirectiveErrorCode.DOMAIN_ERROR.value
 
 
 def _seq_to_llvm_module(seq: str):
@@ -94,459 +94,68 @@ def _emit_wasm_asm(seq: str, cpu: str) -> str:
     return target.create_target_machine(cpu=cpu).emit_assembly(parsed)
 
 
-class TestWasmAssert:
-    def test_passing_assert_succeeds(self):
-        assert run_seq_wasm("assert 1 == 1\n") == NO_ERROR
+class TestWasmLowering:
+    """Properties of the lowered LLVM module and the emitted wasm assembly."""
 
-    def test_empty_sequence_succeeds(self):
-        assert run_seq_wasm("") == NO_ERROR
-
-    @pytest.mark.parametrize(
-        "exit_code, expected",
-        [
-            (None, EXIT_WITH_ERROR),  # no code written -> default
-            (42, 42),  # written code returned verbatim
-            (123, 123),
-        ],
-    )
-    def test_failing_assert_returns_written_code(self, exit_code, expected):
-        # A false assert returns its exit code. The condition is constant-false
-        # so the failure branch is taken.
-        suffix = "" if exit_code is None else f", {exit_code}"
-        assert run_seq_wasm(f"assert 1 == 2{suffix}\n") == expected
-
-
-class TestWasmExit:
-    """exit() lowers to the host `exit` call rather than a `ret`, so it ends
-    the whole sequence from any call depth, returning its code verbatim (code 0
-    is a normal exit, nonzero a fault)."""
-
-    @pytest.mark.parametrize("code", [0, 5, 7, 42, 123])
-    def test_exit_returns_code(self, code):
-        assert run_seq_wasm(f"exit({code})\n") == code
-
-    def test_exit_with_runtime_code(self):
-        # The exit code comes from a variable (read at runtime), not a literal.
-        # exit()'s parameter is I32, and fpy doesn't implicitly mix signedness,
-        # so a runtime code must be a signed int.
-        assert run_seq_wasm("code: I32 = 9\nexit(code)\n") == 9
-
-    def test_exit_ends_sequence_early(self):
-        # The exit happens before the (would-fail) asserts, so the sequence ends
-        # with exit's code and never reaches them.
-        assert run_seq_wasm("exit(0)\nassert 1 == 2\n") == NO_ERROR
-        assert run_seq_wasm("exit(0)\nassert False\n") == NO_ERROR
-        assert run_seq_wasm("exit(9)\nassert 1 == 1\n") == 9
-
-
-class TestWasmVariables:
-    """Variables give us genuine *runtime* computation: reading a variable is not
-    const-foldable, so these exercise the load/store/convert/arithmetic emitters
-    rather than just constant folding."""
-
-    def test_read_variable(self):
-        assert run_seq_wasm("x: U32 = 5\nassert x == 5\n") == NO_ERROR
-        assert run_seq_wasm("x: U32 = 5\nassert x == 6\n") == EXIT_WITH_ERROR
-
-    def test_runtime_arithmetic(self):
-        # x is a variable, so x + 1 is computed at runtime (not folded).
-        assert run_seq_wasm("x: U64 = 5\ny: U64 = x + 1\nassert y == 6\n") == NO_ERROR
-
-    def test_reassignment(self):
-        assert run_seq_wasm("x: U64 = 5\nx = x + 10\nassert x == 15\n") == NO_ERROR
-
-    def test_unsigned_widening(self):
-        # U32 var read in a U64 context -> zero-extend.
-        assert run_seq_wasm("x: U32 = 5\ny: U64 = x + 1\nassert y == 6\n") == NO_ERROR
-
-    def test_signed_widening(self):
-        # I32 var read in a wider context -> sign-extend.
-        assert (
-            run_seq_wasm("x: I32 = 0 - 5\ny: I64 = x + 1\nassert y == 0 - 4\n")
-            == NO_ERROR
+    def test_unused_function_is_not_lowered(self):
+        # Only used functions are lowered: an uncalled def contributes no LLVM
+        # function to the module, so the only defined function is the entry
+        # point (the rest are host-import declarations).
+        module = _seq_to_llvm_module(
+            "def unused() -> U32:\n    return 1\nassert 1 == 1\n"
         )
+        defined = [f.name for f in module.functions if not f.is_declaration]
+        assert defined == [FPY_ENTRY_POINT]
 
-    def test_float_variable(self):
-        assert (
-            run_seq_wasm("a: F64 = 2.5\nb: F64 = a + 1.5\nassert b == 4.0\n")
-            == NO_ERROR
-        )
-
-    def test_bool_variable(self):
-        assert run_seq_wasm("ok: bool = True\nassert ok\n") == NO_ERROR
-        assert run_seq_wasm("ok: bool = False\nassert ok\n") == EXIT_WITH_ERROR
-
-    def test_enum_variable(self):
-        assert (
-            run_seq_wasm(
-                "c: Ref.DpDemo.ColorEnum = Ref.DpDemo.ColorEnum.RED\nassert True\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_struct_variable(self):
-        # Aggregate alloca + store of a struct constant.
-        assert (
-            run_seq_wasm("p: Ref.SignalPair = Ref.SignalPair(3, 4)\nassert True\n")
-            == NO_ERROR
-        )
-
-    def test_array_variable(self):
-        assert (
-            run_seq_wasm("a: Ref.DpDemo.U32Array = [1, 2, 3]\nassert True\n")
-            == NO_ERROR
-        )
-
-    def test_aggregate_copy(self):
-        # Reading an aggregate variable (load of a struct) and storing it.
-        assert (
-            run_seq_wasm(
-                "p: Ref.SignalPair = Ref.SignalPair(3, 4)\n"
-                "q: Ref.SignalPair = p\nassert True\n"
-            )
-            == NO_ERROR
-        )
-
-
-class TestWasmMemberAccess:
-    """Struct member and array element access, on both sides of an assignment,
-    including runtime (non-constant) indices and their bounds checks."""
-
-    def test_read_struct_member(self):
-        assert (
-            run_seq_wasm(
-                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
-                "assert p.time == 3.0\nassert p.value == 4.0\n"
-            )
-            == NO_ERROR
-        )
-        assert (
-            run_seq_wasm(
-                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
-                "assert p.value == 5.0\n"
-            )
-            == EXIT_WITH_ERROR
-        )
-
-    def test_write_struct_member(self):
-        # An in-place store: the sibling member must keep its value.
-        assert (
-            run_seq_wasm(
-                "p: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
-                "p.value = 9.5\n"
-                "assert p.value == 9.5\nassert p.time == 3.0\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_read_array_element_const_index(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(7, 8)\n"
-                "assert a[0] == 7\nassert a[1] == 8\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_read_array_element_runtime_index(self):
-        # An I8 index also exercises the sext to ArrayIndexType (I64).
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = 1\n"
-                "assert a[i] == 123\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_write_array_element_runtime_index(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = 1\n"
-                "a[i] = 111\n"
-                "assert a[1] == 111\nassert a[0] == 456\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_read_runtime_index_out_of_bounds(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = 2\n"
-                "x: U32 = a[i]\n"
-            )
-            == ARRAY_OOB
-        )
-
-    def test_read_runtime_index_negative(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = -1\n"
-                "x: U32 = a[i]\n"
-            )
-            == ARRAY_OOB
-        )
-
-    def test_write_runtime_index_out_of_bounds(self):
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = 2\n"
-                "a[i] = 111\n"
-            )
-            == ARRAY_OOB
-        )
-
-    def test_nested_chain_runtime_index(self):
-        # a[i].member on an array of structs: a GEP chain with a runtime index
-        # in the middle, read and written in place.
-        pairs = (
-            "pairs: Ref.SignalPairSet = Ref.SignalPairSet("
-            "Ref.SignalPair(1.0, 2.0), Ref.SignalPair(3.0, 4.0), "
-            "Ref.SignalPair(5.0, 6.0), Ref.SignalPair(7.0, 8.0))\n"
-        )
-        assert (
-            run_seq_wasm(
-                pairs + "i: I64 = 1\n"
-                "assert pairs[i].time == 3.0\n"
-                "pairs[i].value = 99.0\n"
-                "assert pairs[1].value == 99.0\n"
-                "assert pairs[1].time == 3.0\n"
-                "assert pairs[0].value == 2.0\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_runtime_index_into_const_array(self):
-        # The parent is a constant expression, not a variable, so it has no
-        # storage; it gets copied to a temporary stack slot to be indexed.
-        assert (
-            run_seq_wasm(
-                "i: I8 = 1\n"
-                "x: U32 = Svc.ComQueueDepth(10, 20)[i]\n"
-                "assert x == 20\n"
-            )
-            == NO_ERROR
-        )
-
-    def test_assign_rhs_evaluated_before_lhs_bounds_check(self):
-        # In `a[i] = rhs` the rhs is evaluated before the lhs index is
-        # bounds-checked, matching the VM's evaluation order: the rhs's zero
-        # divisor faults with DOMAIN_ERROR before the out-of-bounds store
-        # could fault with ARRAY_OOB. (The VM-side twin lives in
-        # test_types_and_constructors.py under the same name.)
-        assert (
-            run_seq_wasm(
-                "a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-                "i: I8 = 2\n"
-                "z: U32 = 0\n"
-                "a[i] = U32(456 // z)\n"
-            )
-            == DOMAIN_ERROR
-        )
-
-    def test_anon_struct_runtime_member(self):
-        # An anonymous struct is a constructor call of its target type; a
-        # runtime member value keeps it from const-folding.
-        assert (
-            run_seq_wasm(
-                "y: F32 = 4.5\n"
-                "p: Ref.SignalPair = {time: 1.0, value: y}\n"
-                "assert p.value == 4.5\n"
-            )
-            == NO_ERROR
-        )
-
-
-class TestWasmArithmetic:
-    """Runtime arithmetic, comparison, and boolean ops. Each uses a variable so
-    the expression isn't constant-folded and actually exercises the emitter."""
-
-    def test_add(self):
-        assert run_seq_wasm("x: U64 = 5\nassert x + 1 == 6\n") == NO_ERROR
-
-    def test_subtract(self):
-        assert run_seq_wasm("x: I64 = 10\nassert x - 3 == 7\n") == NO_ERROR
-
-    def test_multiply(self):
-        assert run_seq_wasm("x: U64 = 6\nassert x * 7 == 42\n") == NO_ERROR
-
-    def test_divide_is_float(self):
-        # `/` always computes over floats, even for integer operands.
-        assert run_seq_wasm("x: F64 = 7.0\nassert x / 2.0 == 3.5\n") == NO_ERROR
-
-    def test_modulus_unsigned(self):
-        assert run_seq_wasm("x: U64 = 17\nassert x % 5 == 2\n") == NO_ERROR
-
-    def test_modulus_signed(self):
-        # Modulo is floored (Python `%` / the VM): the result takes the sign of
-        # the divisor, not the dividend. So -17 % 5 == 3 (not -2, which is what
-        # truncated srem alone would give).
-        assert run_seq_wasm("x: I64 = 0 - 17\nassert x % 5 == 3\n") == NO_ERROR
-        # Negative divisor: 17 % -5 == -3 (sign of the divisor).
-        assert run_seq_wasm("x: I64 = 17\nassert x % (0 - 5) == (0 - 3)\n") == NO_ERROR
-
-    def test_modulus_float(self):
-        assert run_seq_wasm("x: F64 = 5.5\nassert x % 2.0 == 1.5\n") == NO_ERROR
-        # Floored, like the integer case: -5.5 % 2.0 == 0.5 (sign of divisor).
-        assert run_seq_wasm("x: F64 = 0.0 - 5.5\nassert x % 2.0 == 0.5\n") == NO_ERROR
-
-    def test_floor_divide_unsigned(self):
-        assert run_seq_wasm("x: U64 = 17\nassert x // 5 == 3\n") == NO_ERROR
-
-    def test_floor_divide_signed(self):
-        # // floors toward -inf (Python `//`): -7 // 2 == -4, and a negative
-        # divisor likewise takes the floor (7 // -2 == -4).
-        assert run_seq_wasm("x: I64 = 0 - 7\nassert x // 2 == (0 - 4)\n") == NO_ERROR
-        assert run_seq_wasm("x: I64 = 7\nassert x // (0 - 2) == (0 - 4)\n") == NO_ERROR
-
-    def test_floor_divide_float(self):
-        assert run_seq_wasm("x: F64 = 7.5\nassert x // 2.0 == 3.0\n") == NO_ERROR
-        # Floored, not truncated: -5.5 // 2.0 == -3.0.
-        assert (
-            run_seq_wasm("x: F64 = 0.0 - 5.5\nassert x // 2.0 == (0.0 - 3.0)\n")
-            == NO_ERROR
-        )
-
-    def test_floor_divide_by_zero_faults(self):
-        # A zero divisor is DOMAIN_ERROR in the VM; the wasm i64.div_s/div_u
-        # would trap uncatchably instead, so the backend guards and faults.
-        # (The divisor is a variable so nothing folds at compile time.)
-        assert run_seq_wasm("z: U64 = 0\nx: U64 = 17 // z\n") == DOMAIN_ERROR
-        assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 // z\n") == DOMAIN_ERROR
-
-    def test_modulus_by_zero_faults(self):
-        # Like division -- and unlike float `/` -- a zero divisor in `%` is
-        # DOMAIN_ERROR even for floats (the VM checks it; libm fmod would
-        # quietly return NaN).
-        assert run_seq_wasm("z: U64 = 0\nx: U64 = 17 % z\n") == DOMAIN_ERROR
-        assert run_seq_wasm("z: I64 = 0\nx: I64 = 17 % z\n") == DOMAIN_ERROR
-        assert run_seq_wasm("z: F64 = 0.0\nx: F64 = 5.5 % z\n") == DOMAIN_ERROR
-
-    def test_float_divide_by_zero_is_ieee(self):
-        # Float `/` (and thus float `//`) by zero is IEEE inf, not a fault,
-        # matching the VM.
-        assert run_seq_wasm("z: F64 = 0.0\nassert 1.0 / z > 1.0e308\n") == NO_ERROR
-        assert run_seq_wasm("z: F64 = 0.0\nassert 1.0 // z > 1.0e308\n") == NO_ERROR
-
-    def test_greater_than_unsigned(self):
-        assert run_seq_wasm("x: U64 = 5\nassert x > 3\n") == NO_ERROR
-        assert run_seq_wasm("x: U64 = 5\nassert x > 9\n") == EXIT_WITH_ERROR
-
-    def test_greater_than_or_equal(self):
-        assert run_seq_wasm("x: U64 = 5\nassert x >= 5\n") == NO_ERROR
-
-    def test_less_than_signed(self):
-        # A signed-negative value is < 0; an unsigned comparison would get this
-        # wrong, so this pins the signed icmp path.
-        assert run_seq_wasm("x: I64 = 0 - 1\nassert x < 0\n") == NO_ERROR
-
-    def test_less_than_or_equal(self):
-        assert run_seq_wasm("x: U64 = 5\nassert x <= 5\n") == NO_ERROR
-
-    def test_float_comparison(self):
-        assert run_seq_wasm("x: F64 = 2.5\nassert x > 1.0\n") == NO_ERROR
-
-    def test_and_short_circuits(self):
-        # rhs (x > 10) is false, so the whole `and` is false.
-        seq = "x: U64 = 5\nok: bool = (x == 5) and (x > 10)\nassert ok == False\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-        assert run_seq_wasm("x: U64 = 5\nassert (x == 5) and (x > 0)\n") == NO_ERROR
-
-    def test_or_short_circuits(self):
-        # lhs is true, so `or` is true without evaluating the (false) rhs.
-        assert run_seq_wasm("x: U64 = 5\nassert (x == 5) or (x == 99)\n") == NO_ERROR
-        seq = "x: U64 = 5\nok: bool = (x == 1) or (x == 2)\nassert ok == False\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-
-class TestWasmUnaryOps:
-    """Runtime unary ops (`-x`, `not x`, `+x`). Each uses a variable so the
-    expression isn't constant-folded and actually exercises the emitter."""
-
-    def test_negate_int(self):
-        assert run_seq_wasm("x: I64 = 5\nassert -x == (0 - 5)\n") == NO_ERROR
-
-    def test_negate_float(self):
-        assert run_seq_wasm("x: F64 = 2.5\nassert -x == (0.0 - 2.5)\n") == NO_ERROR
-
-    def test_double_negate(self):
-        assert run_seq_wasm("x: I64 = 5\nassert -(-x) == 5\n") == NO_ERROR
-
-    def test_not_true(self):
-        assert run_seq_wasm("x: bool = True\nassert (not x) == False\n") == NO_ERROR
-
-    def test_not_false(self):
-        assert run_seq_wasm("x: bool = False\nassert not x\n") == NO_ERROR
-
-    def test_identity(self):
-        assert run_seq_wasm("x: I64 = 7\nassert +x == 7\n") == NO_ERROR
-
-
-class TestWasmAbsFloor:
-    """iabs/fabs lower to llvm.abs/llvm.fabs and float `//` to llvm.floor.
-    These pin the SPEC edge cases: fabs only clears the sign bit, and flooring
-    preserves the sign of a zero quotient. The sign of a zero is observed
-    through division (1.0 / -0.0 == -inf)."""
-
-    def test_iabs_basic(self):
-        assert run_seq_wasm("x: I64 = 0 - 5\nassert iabs(x) == 5\n") == NO_ERROR
-
-    def test_iabs_int_min_wraps(self):
-        # Known divergence: SPEC says iabs(I64 min) raises ARITHMETIC_OVERFLOW,
-        # but the wasm backend implements no arithmetic traps yet and llvm.abs
-        # with is_int_min_poison=0 wraps. This pins the current behavior so a
-        # future trap implementation consciously flips it.
-        seq = "x: I64 = I64(-2**63)\nassert iabs(x) == x\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_fabs_negative_zero(self):
-        seq = "neg: F64 = -0.0\nassert 1.0 / neg < 0.0\nassert 1.0 / fabs(neg) > 0.0\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_fabs_inf_nan(self):
+    def test_unused_mutually_recursive_functions_are_not_lowered(self):
+        # Two functions that only call each other, with nothing reachable from
+        # the main sequence calling either, are not used -- even though call
+        # sites for both exist (inside each other's bodies).
         seq = (
-            "zero: F64 = 0.0\n"
-            "inf: F64 = 1.0 / zero\n"
-            "nan: F64 = zero / zero\n"
-            "assert fabs(0.0 - inf) == inf\n"
-            "assert fabs(nan) != fabs(nan)\n"
+            "def a() -> U64:\n"
+            "    return b()\n"
+            "def b() -> U64:\n"
+            "    return a()\n"
+            "assert 1 == 1\n"
         )
-        assert run_seq_wasm(seq) == NO_ERROR
+        module = _seq_to_llvm_module(seq)
+        defined = [f.name for f in module.functions if not f.is_declaration]
+        assert defined == [FPY_ENTRY_POINT]
 
-    def test_floor_divide_preserves_zero_sign(self):
-        seq = "neg: F64 = -0.0\nq: F64 = neg // 1.0\nassert 1.0 / q < 0.0\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_floor_divide_inf_nan_passthrough(self):
-        seq = (
-            "zero: F64 = 0.0\n"
-            "inf: F64 = 1.0 / zero\n"
-            "nan: F64 = zero / zero\n"
-            "assert inf // 1.0 == inf\n"
-            "q: F64 = nan // 1.0\n"
-            "assert q != q\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
+    def test_stays_mvp_no_trunc_sat(self):
+        """Out-of-range float->int casts lower to llvm.fptosi.sat /
+        llvm.fptoui.sat, and the saturating intrinsic must not pull in the
+        post-MVP saturating op: the MVP target lowers it to a guarded trunc
+        (no trunc_sat), whereas the default 'generic' CPU would use trunc_sat.
+        Guards against the backend dropping cpu=LLVM_CPU or LLVM changing its
+        feature defaults."""
+        seq = "x: F64 = 1e20\ny: I32 = I32(x)\nassert y == 0\n"
+        assert "i32.trunc_sat_f64_s" not in _emit_wasm_asm(seq, cpu=LLVM_CPU)
+        assert "i32.trunc_sat_f64_s" in _emit_wasm_asm(seq, cpu="generic")
 
 
-class TestWasmExponent:
-    """`**` always computes over floats and lowers to the llvm.pow intrinsic,
-    which the wasm target leaves as an imported `env.pow` host call. run_seq_wasm
-    provides that import, so the emitted call is exercised end-to-end."""
+class TestWasmHostImports:
+    """Document the host-call contract: which imports the linked module asks
+    for. An import-section entry encodes as <len>module <len>name <kind>, so a
+    function import is exactly that byte run in the binary."""
 
-    def test_exponent(self):
-        assert run_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n") == NO_ERROR
-
-    def test_exponent_emits_pow_import(self):
-        # Document the host-call contract: the linked module imports env.pow.
-        # An import-section entry encodes as <len>module <len>name <kind>, so a
-        # function import of env.pow is exactly this byte run.
+    def test_pow_emits_env_pow_import(self):
+        # `**` lowers to the llvm.pow intrinsic, which the wasm target leaves
+        # as an imported env.pow host call.
         wasm = compile_seq_wasm("x: F64 = 2.0\nassert x ** 3.0 == 8.0\n")
         assert b"\x03env\x03pow\x00" in wasm
+
+    def test_cmd_emits_fprime_cmd_import(self):
+        wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
+        assert b"\x09fprime_v1\x03cmd\x00" in wasm
+
+    def test_tlm_emits_fprime_tlm_import(self):
+        wasm = compile_seq_wasm("x: U32 = CdhCore.cmdDisp.CommandsDispatched\n")
+        assert b"\x09fprime_v1\x03tlm\x00" in wasm
+
+    def test_prm_emits_fprime_prm_import(self):
+        wasm = compile_seq_wasm("c: Ref.Choice = Ref.typeDemo.CHOICE_PRM\n")
+        assert b"\x09fprime_v1\x03prm\x00" in wasm
 
 
 class TestWasmLog:
@@ -710,470 +319,6 @@ class TestWasmWriteToPort:
         assert serial == [(0, struct.pack(">Q", i)) for i in range(3)]
 
 
-class TestWasmBareExpressionStatements:
-    """A bare expression statement must be lowered for its side effects, even
-    when its top-level node type doesn't advertise any."""
-
-    def test_constant_bare_expr_is_noop(self):
-        # A constant expression statement is pure -- it folds away and the
-        # sequence runs cleanly to the end.
-        assert run_seq_wasm("10.0 ** 1000\nassert 1 == 1\n") == NO_ERROR
-
-    def test_embedded_call_is_lowered_not_dropped(self):
-        # `f() == 0` is an AstBinaryOp -- not a side-effecting node type -- but
-        # it embeds a call that is. Lowering it must reach the call rather than
-        # silently dropping the statement; before the fix the statement was
-        # dropped and the module compiled to a (wrong) no-op. The exit inside
-        # f only reports its code if the call actually runs.
-        seq = "def f() -> U32:\n    exit(7)\n    return 0\nf() == 0\n"
-        assert run_seq_wasm(seq) == 7
-
-
-class TestWasmSequenceParameters:
-    """Sequence parameters arrive through the args host import: the module
-    asks for the argument bytes before its first statement and unpacks them
-    into the parameter variables."""
-
-    def test_parameters_unpack_from_args(self):
-        seq = "sequence(x: U32, y: U8)\nif x == 258 and y == 7:\n    exit(3)\nexit(9)\n"
-        args = FpyValue(U32, 258).serialize() + FpyValue(U8, 7).serialize()
-        assert run_seq_wasm(seq, args=args) == 3
-
-    def test_missing_args_fault(self):
-        seq = "sequence(x: U32)\n"
-        assert run_seq_wasm(seq) == DirectiveErrorCode.INVALID_ARG.value
-
-    def test_wrong_size_args_fault(self):
-        seq = "sequence(x: U32)\n"
-        args = FpyValue(U8, 1).serialize()
-        assert run_seq_wasm(seq, args=args) == DirectiveErrorCode.INVALID_ARG.value
-
-
-class TestWasmIf:
-    """if / elif / else over runtime conditions (variable reads aren't folded)."""
-
-    def test_if_taken(self):
-        assert run_seq_wasm("x: U32 = 7\nif x == 7:\n    exit(5)\n") == 5
-
-    def test_if_not_taken_falls_through(self):
-        # Condition false, body skipped; sequence falls off the end -> success.
-        assert run_seq_wasm("x: U32 = 7\nif x == 1:\n    exit(5)\n") == NO_ERROR
-
-    def test_if_else(self):
-        seq = "x: U32 = 3\nif x == 1:\n    exit(11)\nelse:\n    exit(33)\n"
-        assert run_seq_wasm(seq) == 33
-
-    def test_if_elif_else_chain(self):
-        template = (
-            "x: U32 = {v}\n"
-            "if x == 1:\n    exit(11)\n"
-            "elif x == 2:\n    exit(22)\n"
-            "else:\n    exit(33)\n"
-        )
-        assert run_seq_wasm(template.format(v=1)) == 11
-        assert run_seq_wasm(template.format(v=2)) == 22
-        assert run_seq_wasm(template.format(v=9)) == 33
-
-    def test_assignment_inside_if_visible_after(self):
-        # The variable's slot is allocated in the entry block (frame-scoped), so
-        # a store inside the taken branch is visible to a later read.
-        seq = "y: U64 = 0\nif True:\n    y = 5\nassert y == 5\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_assert_inside_if_body(self):
-        assert (
-            run_seq_wasm("x: U32 = 7\nif x == 7:\n    assert False\n")
-            == EXIT_WITH_ERROR
-        )
-
-    def test_variable_declared_in_if_block(self):
-        # A var declared in a top-level if block is block-scoped (a local, not a
-        # global) and must still get storage (regression: it used to be dropped).
-        assert run_seq_wasm("if True:\n    a: U32 = 5\n    assert a == 5\n") == NO_ERROR
-
-    def test_same_name_in_separate_blocks_are_distinct(self):
-        # Fpy is block-scoped: each block's `a` is a distinct variable, so they
-        # must not collide.
-        seq = (
-            "if True:\n    a: U32 = 1\n    assert a == 1\n"
-            "if True:\n    a: U32 = 2\n    assert a == 2\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-
-class TestWasmFunctions:
-    """Script-defined functions: each used def lowers to an LLVM function of
-    its own, called like any other."""
-
-    def test_void_function_call(self):
-        seq = "def f():\n    exit(7)\nf()\n"
-        assert run_seq_wasm(seq) == 7
-
-    def test_return_value(self):
-        seq = "def three() -> U32:\n    return 3\nx: U32 = three()\nassert x == 3\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_multiple_args(self):
-        seq = (
-            "def weighted(a: U32, b: U32, w: U32) -> U64:\n"
-            "    return a * w + b\n"
-            "assert weighted(3, 4, 10) == 34\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_params_are_by_value(self):
-        # Mutating a parameter must not touch the caller's variable.
-        seq = (
-            "def clobber(x: U32):\n"
-            "    x = 99\n"
-            "y: U32 = 5\n"
-            "clobber(y)\n"
-            "assert y == 5\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_recursion(self):
-        seq = (
-            "def fib(a: U64) -> U64:\n"
-            "    if a < 2:\n"
-            "        return 1\n"
-            "    return fib(a - 1) + fib(a - 2)\n"
-            "assert fib(10) == 89\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_mutual_recursion(self):
-        seq = (
-            "def is_even(n: U64) -> bool:\n"
-            "    if n == 0:\n"
-            "        return True\n"
-            "    return is_odd(n - 1)\n"
-            "def is_odd(n: U64) -> bool:\n"
-            "    if n == 0:\n"
-            "        return False\n"
-            "    return is_even(n - 1)\n"
-            "assert is_even(10)\n"
-            "assert is_odd(7)\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_global_read_and_written_from_function(self):
-        # Globals are module globals, so a function reaches the same slot the
-        # entry function does.
-        seq = (
-            "counter: U64 = 0\n"
-            "def bump():\n"
-            "    counter += 1\n"
-            "def read() -> U64:\n"
-            "    return counter\n"
-            "bump()\n"
-            "bump()\n"
-            "assert counter == 2\n"
-            "assert read() == 2\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_command_inside_function(self):
-        seq = "def ping():\n" "    CdhCore.cmdDisp.CMD_NO_OP()\n" "ping()\n" "ping()\n"
-        code, cmds = run_seq_wasm_with_cmds(seq)
-        assert code == NO_ERROR
-        d = load_dictionary(default_dictionary)
-        opcode = struct.pack(
-            ">I", d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode
-        )
-        assert cmds == [opcode, opcode]
-
-    def test_function_named_like_host_import_or_entry(self):
-        # "exit", "cmd" and "main" are taken in the LLVM module by the host
-        # imports and the entrypoint; script functions with those names must be
-        # uniqued away from them, and a call must reach the script function.
-        seq = (
-            "def main() -> U32:\n"
-            "    return 1\n"
-            "def cmd() -> U32:\n"
-            "    return 2\n"
-            "assert main() + cmd() == 3\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_struct_param_and_return(self):
-        # Aggregates pass and return by value: the callee mutates its copy and
-        # returns it, and the caller's variable is unaffected.
-        seq = (
-            "def with_value(p: Ref.SignalPair, v: F32) -> Ref.SignalPair:\n"
-            "    p.value = v\n"
-            "    return p\n"
-            "orig: Ref.SignalPair = Ref.SignalPair(3.0, 4.0)\n"
-            "q: Ref.SignalPair = with_value(orig, 9.5)\n"
-            "assert q.time == 3.0\n"
-            "assert q.value == 9.5\n"
-            "assert orig.value == 4.0\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_time_comparison_runs_at_runtime(self):
-        # Time comparisons desugar to calls into the builtin script-function
-        # library (time_cmp_assert_comparable), and a script-function call is
-        # never folded -- so this exercises the library at runtime.
-        seq = (
-            "t1: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 100, 0)\n"
-            "t2: Fw.Time = Fw.Time(TimeBase.TB_NONE, 0, 200, 0)\n"
-            "assert t1 < t2\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_unused_function_is_not_lowered(self):
-        # Only used functions are lowered: an uncalled def contributes no LLVM
-        # function to the module, so the only defined function is the entry
-        # point (the rest are host-import declarations).
-        module = _seq_to_llvm_module(
-            "def unused() -> U32:\n    return 1\nassert 1 == 1\n"
-        )
-        defined = [f.name for f in module.functions if not f.is_declaration]
-        assert defined == [FPY_ENTRY_POINT]
-
-    def test_unused_mutually_recursive_functions_are_not_lowered(self):
-        # Two functions that only call each other, with nothing reachable from
-        # the main sequence calling either, are not used -- even though call
-        # sites for both exist (inside each other's bodies).
-        seq = (
-            "def a() -> U64:\n"
-            "    return b()\n"
-            "def b() -> U64:\n"
-            "    return a()\n"
-            "assert 1 == 1\n"
-        )
-        module = _seq_to_llvm_module(seq)
-        defined = [f.name for f in module.functions if not f.is_declaration]
-        assert defined == [FPY_ENTRY_POINT]
-
-    def test_return_ends_execution_mid_function(self):
-        # Statements after a taken return must not run.
-        seq = (
-            "def f() -> U32:\n"
-            "    if True:\n"
-            "        return 1\n"
-            "    exit(9)\n"
-            "    return 0\n"
-            "assert f() == 1\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_array_element_runtime_index_in_function(self):
-        # A local array indexed by a parameter: element read and in-place
-        # write through a runtime GEP, all on the function's own storage.
-        seq = (
-            "def second(i: I8) -> U32:\n"
-            "    a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-            "    a[i] = U32(a[i] + 1)\n"
-            "    return a[i]\n"
-            "assert second(1) == 124\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_out_of_bounds_in_function_faults_sequence(self):
-        # The bounds check inside a function faults the whole sequence.
-        seq = (
-            "def get(i: I8) -> U32:\n"
-            "    a: Svc.ComQueueDepth = Svc.ComQueueDepth(456, 123)\n"
-            "    return a[i]\n"
-            "get(2)\n"
-        )
-        assert run_seq_wasm(seq) == ARRAY_OOB
-
-    def test_temp_slot_in_function(self):
-        # Indexing a constant aggregate inside a function: the parent has no
-        # storage of its own, so it is copied to a temporary stack slot in the
-        # function's frame to be indexed.
-        seq = (
-            "def pick(i: I8) -> U32:\n"
-            "    return Svc.ComQueueDepth(10, 20)[i]\n"
-            "assert pick(0) == 10\n"
-            "assert pick(1) == 20\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_recursive_call_in_command_arg_does_not_clobber_buffer(self):
-        # A command's buffer is one module global per call site. The third
-        # argument's expression recursively dispatches this same call site, so
-        # the arguments must all be evaluated before any is stored into the
-        # buffer -- or the inner activation would overwrite the slots the
-        # outer one had already filled.
-        seq = (
-            "def f(depth: U64) -> U64:\n"
-            "    if depth == 0:\n"
-            "        return 0\n"
-            "    Ref.sendBuffComp.SB_GEN_FATAL(U32(depth), U32(depth), U32(f(depth - 1)))\n"
-            "    return depth\n"
-            "f(2)\n"
-        )
-        code, cmds = run_seq_wasm_with_cmds(seq)
-        assert code == NO_ERROR
-        d = load_dictionary(default_dictionary)
-        opcode = struct.pack(
-            ">I", d["cmd_name_dict"]["Ref.sendBuffComp.SB_GEN_FATAL"].opcode
-        )
-        # The inner activation dispatches first, then the outer one -- with
-        # its own arguments, not the inner one's.
-        assert cmds == [
-            opcode + struct.pack(">III", 1, 1, 0),
-            opcode + struct.pack(">III", 2, 2, 1),
-        ]
-
-
-class TestWasmWhile:
-    """while loops, break/continue, and their interaction with functions.
-    for loops desugar to while loops before codegen, so they land here too."""
-
-    def test_while_countdown(self):
-        seq = "n: U64 = 5\nwhile n > 0:\n    n -= 1\nassert n == 0\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_while_condition_false_skips_body(self):
-        seq = "n: U64 = 0\nwhile n > 0:\n    exit(9)\nassert n == 0\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_break(self):
-        seq = (
-            "n: U64 = 0\n"
-            "while True:\n"
-            "    n += 1\n"
-            "    if n == 7:\n"
-            "        break\n"
-            "assert n == 7\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_continue(self):
-        # Count only even i: continue skips the increment of `evens`.
-        seq = (
-            "i: U64 = 0\n"
-            "evens: U64 = 0\n"
-            "while i < 10:\n"
-            "    i += 1\n"
-            "    if i % 2 == 1:\n"
-            "        continue\n"
-            "    evens += 1\n"
-            "assert evens == 5\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_for_loop(self):
-        seq = "total: I64 = 0\nfor i in 1..4:\n    total += i\nassert total == 6\n"
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_continue_in_for_still_increments(self):
-        # continue in a desugared for loop must jump to the increment, not the
-        # condition, or the loop would never advance.
-        seq = (
-            "total: I64 = 0\n"
-            "for i in 0..10:\n"
-            "    if i % 2 == 1:\n"
-            "        continue\n"
-            "    total += 1\n"
-            "assert total == 5\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_return_from_loop_inside_function(self):
-        seq = (
-            "def first_ge(threshold: U64) -> U64:\n"
-            "    i: U64 = 0\n"
-            "    while True:\n"
-            "        if i >= threshold:\n"
-            "            return i\n"
-            "        i += 1\n"
-            "    return 0\n"
-            "assert first_ge(42) == 42\n"
-        )
-        assert run_seq_wasm(seq) == NO_ERROR
-
-
-class TestWasmCast:
-    """Explicit numeric casts -- e.g. I32(x). Unlike implicit coercion, a cast
-    skips the semantic range check, so it's how a sequence narrows a float to an
-    int (or an int to a smaller int). The cast itself emits no instructions: the
-    operand's contextual type becomes the target type, so the conversion rides
-    on the operand's normal lowering. The operand is a variable here, so the
-    conversion happens at runtime rather than folding at compile time."""
-
-    def test_float_to_int_truncates_toward_zero(self):
-        # 5.9 -> 5: float->int truncates toward zero (wasm trunc / C / the VM).
-        assert (
-            run_seq_wasm("x: F64 = 5.9\ny: I32 = I32(x)\nassert y == 5\n") == NO_ERROR
-        )
-
-    def test_negative_float_to_int_truncates_toward_zero(self):
-        # -5.9 -> -5 (toward zero), not -6 (toward -inf).
-        assert (
-            run_seq_wasm("x: F64 = -5.9\ny: I32 = I32(x)\nassert y == -5\n") == NO_ERROR
-        )
-
-    def test_int_to_float(self):
-        assert (
-            run_seq_wasm("x: I32 = 7\ny: F64 = F64(x)\nassert y == 7.0\n") == NO_ERROR
-        )
-
-    def test_int_narrowing_wraps(self):
-        # Narrowing an int truncates the high bits: 300 & 0xff == 44.
-        assert run_seq_wasm("x: I32 = 300\ny: U8 = U8(x)\nassert y == 44\n") == NO_ERROR
-
-
-class TestWasmFloatToIntSaturates:
-    """Out-of-range float->int casts saturate, matching Rust's `as`: a value
-    above/below the target type's range clamps to its max/min, and NaN maps to
-    0. (The bytecode VM instead *wraps* mod 2^n, so the backends differ on
-    out-of-range inputs -- the cross-backend cast tests in
-    test_types_and_constructors switch on the backend.)
-
-    The backend lowers this with llvm.fptosi.sat / llvm.fptoui.sat. Under the
-    WASM 1.0 MVP target there is no saturating trunc_sat op (that's the post-MVP
-    nontrapping-fptoint feature), so the intrinsic lowers to a guarded trunc
-    with explicit clamping -- which still does NOT trap."""
-
-    @pytest.mark.parametrize(
-        "seq",
-        [
-            "x: F64 = 1e20\nassert U8(x) == 255\n",  # above U8 max -> 255
-            "x: F64 = -5.0\nassert U8(x) == 0\n",  # below U8 min -> 0
-            "x: F64 = 1000.0\nassert I8(x) == 127\n",  # above I8 max -> 127
-            "x: F64 = -1000.0\nassert I8(x) == -128\n",  # below I8 min -> -128
-            "x: F64 = 1e20\nassert I32(x) == 2147483647\n",  # I32 max
-            "x: F64 = -1e20\nassert I32(x) == -2147483648\n",  # I32 min
-        ],
-    )
-    def test_out_of_range_saturates(self, seq):
-        assert run_seq_wasm(seq) == NO_ERROR
-
-    def test_nan_to_int_is_zero(self):
-        # 0.0 / 0.0 is NaN; a NaN float->int cast saturates to 0.
-        assert (
-            run_seq_wasm("x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n")
-            == NO_ERROR
-        )
-
-    def test_infinity_to_int_saturates(self):
-        # +inf clamps to the target max rather than trapping or crashing.
-        assert (
-            run_seq_wasm("x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == 2147483647\n")
-            == NO_ERROR
-        )
-
-    def test_out_of_range_does_not_trap(self):
-        # Runs to completion (returns a code) rather than trapping; a wasm trap
-        # would surface as a RuntimeError (runner fault) out of run_seq_wasm.
-        assert run_seq_wasm("x: F64 = 1e20\ny: I32 = I32(x)\nassert True\n") == NO_ERROR
-
-    def test_stays_mvp_no_trunc_sat(self):
-        """The saturating intrinsic must not pull in the post-MVP saturating op:
-        the MVP target lowers it to a guarded trunc (no trunc_sat), whereas the
-        default 'generic' CPU would use trunc_sat. Guards against the backend
-        dropping cpu=LLVM_CPU or LLVM changing its feature defaults."""
-        seq = "x: F64 = 1e20\ny: I32 = I32(x)\nassert y == 0\n"
-        assert "i32.trunc_sat_f64_s" not in _emit_wasm_asm(seq, cpu=LLVM_CPU)
-        assert "i32.trunc_sat_f64_s" in _emit_wasm_asm(seq, cpu="generic")
-
-
 class TestWasmCommands:
     """Command calls lower to the host `cmd(buf ptr, buf len)` call, where the
     buffer holds the big-endian serialized FwOpcodeType followed by the
@@ -1186,13 +331,6 @@ class TestWasmCommands:
     def _opcode(self, name: str) -> bytes:
         d = load_dictionary(default_dictionary)
         return struct.pack(">I", d["cmd_name_dict"][name].opcode)
-
-    def test_cmd_emits_fprime_cmd_import(self):
-        # Document the host-call contract: the linked module imports
-        # fprime_v1.cmd. An import-section entry encodes as
-        # <len>module <len>name <kind>, so this byte run is exactly that entry.
-        wasm = compile_seq_wasm("CdhCore.cmdDisp.CMD_NO_OP()\n")
-        assert b"\x09fprime_v1\x03cmd\x00" in wasm
 
     def test_const_no_arg_command(self):
         code, cmds = run_seq_wasm_with_cmds("CdhCore.cmdDisp.CMD_NO_OP()\n")
@@ -1305,14 +443,11 @@ class TestWasmCommands:
             self._opcode("CdhCore.cmdDisp.CMD_NO_OP"),
         ]
 
-    def test_captured_response_compares_ok(self):
-        code, _ = run_seq_wasm_with_cmds(
-            "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
-            "assert ret == Fw.CmdResponse.OK\n"
-        )
-        assert code == NO_ERROR
-
     def test_captured_response_carries_host_value(self):
+        # The captured Fw.CmdResponse is the value the host reported, not a
+        # canned OK. Only the wasm runner harness can inject a non-OK
+        # response for a command that still "succeeds" from the script's
+        # point of view (the capture takes responsibility for it).
         code, _ = run_seq_wasm_with_cmds(
             "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
             "assert ret == Fw.CmdResponse.BUSY\n",
@@ -1320,55 +455,29 @@ class TestWasmCommands:
         )
         assert code == NO_ERROR
 
-    def test_captured_failing_response_does_not_auto_exit(self):
-        # Capturing the response takes responsibility for it: a failing
-        # command must not end the sequence even with assert_cmd_success set.
-        code, _ = run_seq_wasm_with_cmds(
-            "ret: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
-            "assert ret == Fw.CmdResponse.EXECUTION_ERROR\n",
-            cmd_response=4,  # EXECUTION_ERROR
+    def test_recursive_call_in_command_arg_does_not_clobber_buffer(self):
+        # A command's buffer is one module global per call site. The third
+        # argument's expression recursively dispatches this same call site, so
+        # the arguments must all be evaluated before any is stored into the
+        # buffer -- or the inner activation would overwrite the slots the
+        # outer one had already filled.
+        seq = (
+            "def f(depth: U64) -> U64:\n"
+            "    if depth == 0:\n"
+            "        return 0\n"
+            "    Ref.sendBuffComp.SB_GEN_FATAL(U32(depth), U32(depth), U32(f(depth - 1)))\n"
+            "    return depth\n"
+            "f(2)\n"
         )
+        code, cmds = run_seq_wasm_with_cmds(seq)
         assert code == NO_ERROR
-
-    def test_bare_failing_command_exits_cmd_fail(self):
-        code, cmds = run_seq_wasm_with_cmds(
-            "CdhCore.cmdDisp.CMD_NO_OP()\nassert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
-        )
-        assert code == DirectiveErrorCode.CMD_FAIL.value
-        # The command was dispatched; the sequence ended on its response.
-        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")]
-
-    def test_bare_failing_command_via_fail_opcodes(self):
-        d = load_dictionary(default_dictionary)
-        code, _ = run_seq_wasm_with_cmds(
-            "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            failing_opcodes={d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_NO_OP"].opcode},
-        )
-        assert code == DirectiveErrorCode.CMD_FAIL.value
-
-    def test_assert_cmd_success_flag_disables_check(self):
-        # With the flag cleared, failing bare commands don't end the sequence;
-        # both commands are still dispatched.
-        code, cmds = run_seq_wasm_with_cmds(
-            "flags.assert_cmd_success = False\n"
-            "CdhCore.cmdDisp.CMD_NO_OP()\n"
-            "CdhCore.cmdDisp.CMD_NO_OP()\n",
-            cmd_response=4,  # EXECUTION_ERROR
-        )
-        assert code == NO_ERROR
-        assert cmds == [self._opcode("CdhCore.cmdDisp.CMD_NO_OP")] * 2
-
-    def test_bare_command_inside_if_block(self):
-        # The response check applies to bare commands in nested blocks too.
-        code, _ = run_seq_wasm_with_cmds(
-            "x: U8 = 1\n"
-            "if x == 1:\n"
-            "    CdhCore.cmdDisp.CMD_NO_OP()\n"
-            "assert False\n",
-            cmd_response=4,  # EXECUTION_ERROR
-        )
-        assert code == DirectiveErrorCode.CMD_FAIL.value
+        opcode = self._opcode("Ref.sendBuffComp.SB_GEN_FATAL")
+        # The inner activation dispatches first, then the outer one -- with
+        # its own arguments, not the inner one's.
+        assert cmds == [
+            opcode + struct.pack(">III", 1, 1, 0),
+            opcode + struct.pack(">III", 2, 2, 1),
+        ]
 
 
 def _big_endian_cases():
@@ -1440,128 +549,6 @@ def _big_endian_cases():
         pytest.param(many("TWO", "RED"), id="array-of-enums"),
         pytest.param(slurry_val, id="struct-nested-arrays"),
     ]
-
-
-class TestWasmTelemetryAndParameters:
-    """Telemetry-channel and parameter reads lower to the host
-    `tlm(chan id, time ptr, time len, value ptr, value len)` and
-    `prm(prm id, buf ptr, buf len)` calls: the host serializes the value into
-    the read's buffer in linear memory, the sequence checks the returned
-    validity (faulting with TLM_CHAN_NOT_FOUND / PRM_NOT_FOUND like the
-    bytecode directives), and deserializes the value from the buffer."""
-
-    def test_tlm_emits_fprime_tlm_import(self):
-        # Document the host-call contract: the linked module imports
-        # fprime_v1.tlm. An import-section entry encodes as
-        # <len>module <len>name <kind>, so this byte run is exactly that entry.
-        wasm = compile_seq_wasm("x: U32 = CdhCore.cmdDisp.CommandsDispatched\n")
-        assert b"\x09fprime_v1\x03tlm\x00" in wasm
-
-    def test_prm_emits_fprime_prm_import(self):
-        wasm = compile_seq_wasm("c: Ref.Choice = Ref.typeDemo.CHOICE_PRM\n")
-        assert b"\x09fprime_v1\x03prm\x00" in wasm
-
-    def test_tlm_u32_read(self):
-        code = run_seq_wasm(
-            "assert CdhCore.cmdDisp.CommandsDispatched == 7\n",
-            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 7).serialize()},
-        )
-        assert code == NO_ERROR
-
-    def test_tlm_f32_read(self):
-        # A float channel pins the byte-swap-then-bitcast load path.
-        code = run_seq_wasm(
-            "assert Ref.typeDemo.Float1Ch == 1.5\n",
-            tlm={"Ref.typeDemo.Float1Ch": FpyValue(F32, 1.5).serialize()},
-        )
-        assert code == NO_ERROR
-
-    def test_tlm_bool_read(self):
-        code = run_seq_wasm(
-            "assert Ref.cmdSeq0.BreakpointInUse\n",
-            tlm={"Ref.cmdSeq0.BreakpointInUse": FpyValue(BOOL, True).serialize()},
-        )
-        assert code == NO_ERROR
-
-    def test_tlm_invalid_bool_byte_faults(self):
-        # The spacecraft hands back a bool serialized as neither truth byte;
-        # deserializing it must fault rather than invent a value.
-        code = run_seq_wasm(
-            "assert Ref.cmdSeq0.BreakpointInUse\n",
-            tlm={"Ref.cmdSeq0.BreakpointInUse": b"\x42"},
-        )
-        assert code == DirectiveErrorCode.DESERIALIZE_ERROR_INVALID_BOOL.value
-
-    def test_tlm_struct_member_read(self):
-        d = load_dictionary(default_dictionary)
-        pair = FpyValue(
-            d["type_defs"]["Ref.ChoicePair"],
-            {"firstChoice": "BLUE", "secondChoice": "RED"},
-        )
-        code = run_seq_wasm(
-            "assert Ref.typeDemo.ChoicePairCh.secondChoice == Ref.Choice.RED\n",
-            tlm={"Ref.typeDemo.ChoicePairCh": pair.serialize()},
-        )
-        assert code == NO_ERROR
-
-    def test_tlm_read_twice_sees_each_value(self):
-        # Each mention of a channel is its own host read; both reads see the
-        # (same) injected value.
-        code = run_seq_wasm(
-            "x: U32 = CdhCore.cmdDisp.CommandsDispatched\n"
-            "y: U32 = CdhCore.cmdDisp.CommandsDispatched\n"
-            "assert x == y\n",
-            tlm={"CdhCore.cmdDisp.CommandsDispatched": FpyValue(U32, 3).serialize()},
-        )
-        assert code == NO_ERROR
-
-    def test_tlm_as_command_argument(self):
-        # A telemetry read feeding a command argument: the value read from
-        # the tlm buffer must land re-serialized in the command buffer.
-        code, cmds = run_seq_wasm_with_cmds(
-            "var1: I32 = -2\n"
-            "CdhCore.cmdDisp.CMD_TEST_CMD_1(var1, Ref.typeDemo.Float1Ch, 8)\n",
-            tlm={"Ref.typeDemo.Float1Ch": FpyValue(F32, 1.5).serialize()},
-        )
-        assert code == NO_ERROR
-        d = load_dictionary(default_dictionary)
-        expected = struct.pack(
-            ">I", d["cmd_name_dict"]["CdhCore.cmdDisp.CMD_TEST_CMD_1"].opcode
-        )
-        expected += struct.pack(">ifB", -2, 1.5, 8)
-        assert cmds == [expected]
-
-    def test_tlm_chan_not_found_faults(self):
-        code = run_seq_wasm("x: U32 = CdhCore.cmdDisp.CommandsDispatched\n")
-        assert code == DirectiveErrorCode.TLM_CHAN_NOT_FOUND.value
-
-    def test_prm_enum_read(self):
-        d = load_dictionary(default_dictionary)
-        code = run_seq_wasm(
-            "assert Ref.typeDemo.CHOICE_PRM == Ref.Choice.TWO\n",
-            prms={
-                "Ref.typeDemo.CHOICE_PRM": FpyValue(
-                    d["type_defs"]["Ref.Choice"], "TWO"
-                ).serialize()
-            },
-        )
-        assert code == NO_ERROR
-
-    def test_prm_array_element_read(self):
-        d = load_dictionary(default_dictionary)
-        code = run_seq_wasm(
-            "assert Ref.typeDemo.CHOICES_PRM[1] == Ref.Choice.BLUE\n",
-            prms={
-                "Ref.typeDemo.CHOICES_PRM": FpyValue(
-                    d["type_defs"]["Ref.ManyChoices"], ["ONE", "BLUE"]
-                ).serialize()
-            },
-        )
-        assert code == NO_ERROR
-
-    def test_prm_not_found_faults(self):
-        code = run_seq_wasm("c: Ref.Choice = Ref.typeDemo.CHOICE_PRM\n")
-        assert code == DirectiveErrorCode.PRM_NOT_FOUND.value
 
 
 class TestWasmBigEndianSerialization:

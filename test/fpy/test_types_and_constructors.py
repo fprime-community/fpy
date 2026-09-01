@@ -383,6 +383,27 @@ assert pairs[1].time == 3.0
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_get_variable_idx_of_ctor_result(self, fprime_test_api):
+        """A runtime index into a constant expression: the parent is not a
+        variable, so it has no storage of its own and must still be
+        indexable."""
+        seq = """
+idx: I8 = 1
+x: U32 = Svc.ComQueueDepth(10, 20)[idx]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_get_variable_idx_of_ctor_result_in_function(self, fprime_test_api):
+        seq = """
+def pick(idx: I8) -> U32:
+    return Svc.ComQueueDepth(10, 20)[idx]
+
+assert pick(0) == 10
+assert pick(1) == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 
@@ -888,6 +909,19 @@ class TestOutOfRangeFloatCasts:
             single_backend, saturated=-2147483648, wrapped=-1410065408
         )
         seq = f"x: F64 = -1e10\nassert I32(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_nan_to_int_is_zero(self, fprime_test_api):
+        # 0.0 / 0.0 is NaN; both backends saturate a NaN float->int
+        # conversion to 0 (at 64 bits on the VM, so no wrap can change it).
+        seq = "x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_infinity_to_int(self, fprime_test_api, single_backend):
+        # +inf is out of range like 1e20: wasm clamps to I32 max; the VM
+        # saturates to I64 max and wrap-truncates to -1.
+        expected = _oor_float_to_int(single_backend, saturated=2147483647, wrapped=-1)
+        seq = f"x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
 

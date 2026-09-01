@@ -556,6 +556,20 @@ val: I64 = iabs(I64(-2**63))
 
         assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.ARITHMETIC_OVERFLOW)
 
+    @pytest.mark.wasm_only("the VM raises ARITHMETIC_OVERFLOW instead")
+    def test_abs_i64_int_min_wraps(self, fprime_test_api):
+        """Known divergence: SPEC says iabs(I64 min) raises
+        ARITHMETIC_OVERFLOW (which the VM does), but the wasm backend
+        implements no arithmetic traps yet and llvm.abs with
+        is_int_min_poison=0 wraps. This pins the current behavior so a
+        future trap implementation consciously flips it."""
+        seq = """
+x: I64 = I64(-2**63)
+assert iabs(x) == x
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
     def test_abs_u64(self, fprime_test_api):
         seq = """
 # fails, iabs takes signed
@@ -691,4 +705,72 @@ assert (0.0 - inf) // 1.0 == 0.0 - inf
 q: F64 = nan // 1.0
 assert q != q
 """
+        assert_run_success(fprime_test_api, seq)
+
+
+class TestZeroDivisor:
+    """Zero-divisor behavior: integer // and % report DOMAIN_ERROR, while
+    float / (and thus float //) is IEEE and yields inf. Float % diverges by
+    backend: the VM computes fmod (NaN, matching Rust and C#) while the wasm
+    backend reports DOMAIN_ERROR like the integer case. Each divisor is a
+    variable so nothing folds at compile time."""
+
+    def test_unsigned_floor_div_by_zero_faults(self, fprime_test_api):
+        seq = """
+z: U64 = 0
+x: U64 = 17 // z
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_signed_floor_div_by_zero_faults(self, fprime_test_api):
+        seq = """
+z: I64 = 0
+x: I64 = 17 // z
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_unsigned_mod_by_zero_faults(self, fprime_test_api):
+        seq = """
+z: U64 = 0
+x: U64 = 17 % z
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_signed_mod_by_zero_faults(self, fprime_test_api):
+        seq = """
+z: I64 = 0
+x: I64 = 17 % z
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    @pytest.mark.fpybc_only("the wasm backend reports DOMAIN_ERROR instead")
+    def test_float_mod_by_zero_is_nan(self, fprime_test_api):
+        seq = """
+z: F64 = 0.0
+x: F64 = 5.5 % z
+assert x != x
+"""
+
+        assert_run_success(fprime_test_api, seq)
+
+    @pytest.mark.wasm_only("the VM computes fmod, which yields NaN, instead")
+    def test_float_mod_by_zero_faults(self, fprime_test_api):
+        seq = """
+z: F64 = 0.0
+x: F64 = 5.5 % z
+"""
+
+        assert_run_failure(fprime_test_api, seq, DirectiveErrorCode.DOMAIN_ERROR)
+
+    def test_float_divide_by_zero_is_ieee(self, fprime_test_api):
+        seq = """
+z: F64 = 0.0
+assert 1.0 / z > 1.0e308
+assert 1.0 // z > 1.0e308
+"""
+
         assert_run_success(fprime_test_api, seq)

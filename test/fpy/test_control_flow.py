@@ -23,6 +23,16 @@ exit(123)
 """
         assert_run_failure(fprime_test_api, seq, 123)
 
+    def test_exit_with_runtime_code(self, fprime_test_api):
+        # The exit code comes from a variable (read at runtime), not a
+        # literal. exit()'s parameter is I32, and fpy doesn't implicitly mix
+        # signedness, so a runtime code must be a signed int.
+        seq = """
+code: I32 = 9
+exit(code)
+"""
+        assert_run_failure(fprime_test_api, seq, 9)
+
 
 class TestIf:
 
