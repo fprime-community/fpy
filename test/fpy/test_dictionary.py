@@ -3348,15 +3348,25 @@ class TestTypeAliasesFromDict:
         )
 
     def test_size_store_type_default_then_updated(self):
-        from fpy.bytecode.directives import update_configurable_types_from_dict
+        from fpy.bytecode.directives import (
+            Directive,
+            PushValDirective,
+            update_configurable_types_from_dict,
+        )
         from fpy.types import FwSizeStoreType
 
         string_type = FpyType(TypeKind.STRING, "String_10", max_length=10)
+        # A directive's argument byte count is also an FwSizeStoreType.
+        push_val = PushValDirective(b"\x01\x02\x03")
+        push_val_opcode = FpyValue(U8, push_val.opcode.value).serialize()
 
         # Default string length prefix is U16.
         assert FwSizeStoreType.kind == TypeKind.U16
         assert FpyValue(string_type, "hi").serialize() == (
             FpyValue(U16, 2).serialize() + b"hi"
+        )
+        assert push_val.serialize() == (
+            push_val_opcode + FpyValue(U16, 3).serialize() + b"\x01\x02\x03"
         )
 
         update_configurable_types_from_dict({"FwSizeStoreType": U8})
@@ -3364,6 +3374,10 @@ class TestTypeAliasesFromDict:
         assert FpyValue(string_type, "hi").serialize() == (
             FpyValue(U8, 2).serialize() + b"hi"
         )
+        assert push_val.serialize() == (
+            push_val_opcode + FpyValue(U8, 3).serialize() + b"\x01\x02\x03"
+        )
+        assert Directive.deserialize(push_val.serialize(), 0) == (5, push_val)
 
     def test_custom_dictionary_redefines_types_end_to_end(self):
         """A custom dictionary that redefines the Fw* aliases is picked up by the

@@ -11,7 +11,6 @@ from fpy.types import (
     TypeKind,
     FwSizeStoreType,
     U8,
-    U16,
     U32,
     U64,
     I8,
@@ -259,7 +258,7 @@ class Directive:
     def serialize(self) -> bytes:
         arg_bytes = self.serialize_args()
         output = FpyValue(U8, self.opcode.value).serialize()
-        output += FpyValue(U16, len(arg_bytes)).serialize()
+        output += FpyValue(FwSizeStoreType, len(arg_bytes)).serialize()
         output += arg_bytes
         return output
 
@@ -293,11 +292,12 @@ class Directive:
 
     @classmethod
     def deserialize(cls, data: bytes, offset: int) -> tuple[int, Directive] | None:
-        if len(data) - offset < 3:
+        header_size = U8.max_size + FwSizeStoreType.max_size
+        if len(data) - offset < header_size:
             return None
         opcode = struct.unpack_from(">B", data, offset)[0]
-        arg_size = struct.unpack_from(">H", data, offset + 1)[0]
-        offset += 3
+        arg_size = FpyValue.deserialize(FwSizeStoreType, data, offset + 1)[0].val
+        offset += header_size
         if len(data) - offset < arg_size:
             return None
         args = data[offset : (offset + arg_size)]
