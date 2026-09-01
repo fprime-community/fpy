@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import tempfile
 import fpy.error
@@ -68,10 +69,18 @@ class ValidationError(Exception):
     pass
 
 
-# Flipped to True by conftest's pytest_configure when --wasm is passed, routing
-# the assert_* helpers through the LLVM/wasm backend (run on the real
-# Svc::WasmSequencer through the wasm harness) instead of the bytecode VM.
-USE_WASM = False
+# The two runtime backends: the fpy bytecode VM (run on a real
+# Svc::FpySequencer through the fpy harness) and the LLVM/wasm backend (run
+# on a real Svc::WasmSequencer through the wasm harness).
+FPYBC = "fpybc"
+WASM = "wasm"
+ALL_BACKENDS = (FPYBC, WASM)
+
+# The backends the assert_* helpers drive: each sequence is analyzed once,
+# then compiled and run through every backend listed here. conftest narrows
+# this per run (--backend) and per test (the fpybc_only/wasm_only markers and
+# the single_backend fixture).
+active_backends: tuple[str, ...] = ALL_BACKENDS
 
 
 def _catch_all_seq_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
@@ -81,7 +90,7 @@ def _catch_all_seq_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
     return [("", os.path.join(str(seq_dir), ""))]
 
 
-def compile_seq(
+def analyze_seq(
     seq: str,
     seq_dir: str = None,
     ignored_warnings=None,
@@ -90,11 +99,13 @@ def compile_seq(
     import_directories: list[str] | None = None,
     main_file_dir: str | None = None,
     main_file_path: str | None = None,
-) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
-    """Compile a sequence string and return (state, directives, arg_types).
+) -> CompileState:
+    """Run the shared front end (parse and semantic analysis) on a sequence
+    string and return the analyzed CompileState, ready for any backend's
+    codegen.
 
-    By default every warning is a hard error; pass *expected_warnings* to allow
-    (and still collect) specific ones."""
+    By default every warning is a hard error; pass *expected_warnings* to
+    allow (and still collect) specific ones."""
     fpy.error.file_name = "<test>"
 
     state = get_base_compile_state(
@@ -111,11 +122,69 @@ def compile_seq(
 
     try:
         body = text_to_ast(seq)
-        state = analyze_ast(body, state)
-        directives, arg_types = analysis_to_fpybc_directives(state)
+        return analyze_ast(body, state)
     except (fpy.error.CompileError, fpy.error.BackendError) as e:
         raise CompilationFailed(f"Compilation failed:\n{e}")
 
+
+def _fpybc_codegen(
+    state: CompileState,
+) -> tuple[list[Directive], list[tuple[str, FpyType]]]:
+    """Run fpybc codegen on an analyzed state, returning (directives,
+    arg_types)."""
+    try:
+        return analysis_to_fpybc_directives(state)
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
+
+def _wasm_codegen(state: CompileState) -> bytes:
+    """Run LLVM codegen on an analyzed state, returning a runnable wasm
+    binary."""
+    try:
+        wasm, _ = analysis_to_wasm(state)
+        return wasm
+    except (fpy.error.CompileError, fpy.error.BackendError) as e:
+        raise CompilationFailed(f"Compilation failed:\n{e}")
+
+
+@contextmanager
+def _backend_context(backend: str):
+    """Label any exception escaping the block with the backend it came from,
+    so a dual-backend helper failure names the failing backend."""
+    try:
+        yield
+    except Exception as e:
+        e.add_note(f"[{backend} backend]")
+        raise
+
+
+def compile_seq(
+    seq: str,
+    seq_dir: str = None,
+    ignored_warnings=None,
+    error_warnings=None,
+    expected_warnings=None,
+    import_directories: list[str] | None = None,
+    main_file_dir: str | None = None,
+    main_file_path: str | None = None,
+) -> tuple[CompileState, list[Directive], list[tuple[str, FpyType]]]:
+    """Compile a sequence string through the fpybc backend and return
+    (state, directives, arg_types).
+
+    By default every warning is a hard error; pass *expected_warnings* to allow
+    (and still collect) specific ones."""
+    state = analyze_seq(
+        seq,
+        seq_dir=seq_dir,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        expected_warnings=expected_warnings,
+        import_directories=import_directories,
+        main_file_dir=main_file_dir,
+        main_file_path=main_file_path,
+    )
+    directives, arg_types = _fpybc_codegen(state)
     _assert_expected_emitted(state, expected_warnings)
     return state, directives, arg_types
 
@@ -133,28 +202,67 @@ def compile_seq_wasm(
 
     By default every warning is a hard error; pass *expected_warnings* to allow
     (and still collect) specific ones."""
-    fpy.error.file_name = "<test>"
-
-    state = get_base_compile_state(
-        default_dictionary,
-        _catch_all_seq_maps(seq_dir),
+    state = analyze_seq(
+        seq,
+        seq_dir=seq_dir,
         ignored_warnings=ignored_warnings,
-        error_warnings=_default_error_warnings(
-            error_warnings, ignored_warnings, expected_warnings
-        ),
+        error_warnings=error_warnings,
+        expected_warnings=expected_warnings,
         import_directories=import_directories,
         main_file_dir=main_file_dir,
     )
-
-    try:
-        body = text_to_ast(seq)
-        state = analyze_ast(body, state)
-        wasm, _ = analysis_to_wasm(state)
-    except (fpy.error.CompileError, fpy.error.BackendError) as e:
-        raise CompilationFailed(f"Compilation failed:\n{e}")
-
+    wasm = _wasm_codegen(state)
     _assert_expected_emitted(state, expected_warnings)
     return wasm
+
+
+# Child sequences written for run-time seq calling, keyed by absolute path:
+# each entry holds every backend's compiled artifact. A parent names its child
+# by one file path in the RUN command, and each sequencer loads that file in
+# its own format, so before each backend's run the helpers rewrite every
+# registered child under the run's seq_dir in that backend's format.
+_child_artifacts: dict[Path, dict[str, bytes]] = {}
+
+
+def write_child_seq(
+    seq_text: str, directory: Path, bin_name: str = "child.bin", seq_dir: str = None
+) -> None:
+    """Write a child sequence's .fpy source and compiled artifact named
+    *bin_name* into *directory*, for a parent to call via a seq-run command:
+    the .fpy is what the parent's compile reads for the argument
+    specification; the compiled file is what the sequencer loads at run time.
+
+    The child is analyzed once and compiled through every backend; the
+    assert_* helpers rewrite the compiled file in the right format before
+    each backend's run. *seq_dir* roots the child's own seq maps, for
+    children that call further sequences."""
+    directory = Path(directory).resolve()
+    (directory / Path(bin_name).with_suffix(".fpy")).write_text(seq_text)
+    fpy.error.file_name = "<test-child>"
+    state = get_base_compile_state(default_dictionary, _catch_all_seq_maps(seq_dir))
+    body = text_to_ast(seq_text)
+    state = analyze_ast(body, state)
+
+    directives, arg_types = analysis_to_fpybc_directives(state)
+    arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
+    data, _ = serialize_directives(directives, arg_specs=arg_specs)
+    wasm, _ = analysis_to_wasm(state)
+
+    path = directory / bin_name
+    _child_artifacts[path] = {FPYBC: data, WASM: wasm}
+    path.write_bytes(data)
+
+
+def _materialize_children(seq_dir: str | None, backend: str) -> None:
+    """Rewrite every registered child sequence file under *seq_dir* in
+    *backend*'s format, so the run about to happen loads children the
+    sequencer can execute."""
+    if seq_dir is None:
+        return
+    root = Path(seq_dir).resolve()
+    for path, artifacts in _child_artifacts.items():
+        if root in path.parents and path.parent.exists():
+            path.write_bytes(artifacts[backend])
 
 
 def run_seq_wasm(
@@ -176,7 +284,7 @@ def run_seq_wasm(
     falls off its end without failing).
 
     Runs the compiled module on a real Svc::WasmSequencer through the wasm
-    harness built by conftest. *tlm* and *prms* are the telemetry values and
+    harness, built on first use. *tlm* and *prms* are the telemetry values and
     parameters the simulated spacecraft has, keyed by qualified name, as
     serialized bytes."""
     code, _, _, _ = _run_seq_wasm(
@@ -644,18 +752,18 @@ def assert_compile_success(
     import_directories: list[str] | None = None,
     expected_warnings=None,
 ):
-    if USE_WASM:
-        compile_seq_wasm(
-            seq,
-            import_directories=import_directories,
-            expected_warnings=expected_warnings,
-        )
-        return
-    compile_seq(
+    state = analyze_seq(
         seq,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
     )
+    for backend in active_backends:
+        with _backend_context(backend):
+            if backend == FPYBC:
+                _fpybc_codegen(state)
+            else:
+                _wasm_codegen(state)
+    _assert_expected_emitted(state, expected_warnings)
 
 
 def assert_run_success(
@@ -675,53 +783,73 @@ def assert_run_success(
     main_file_dir: str | None = None,
     prms: dict[str, bytes] = None,
 ):
-    if USE_WASM:
-        if fprime_test_api is not None:
-            wasm = compile_seq_wasm(
-                seq,
-                seq_dir=seq_dir,
-                import_directories=import_directories,
-                expected_warnings=expected_warnings,
-                main_file_dir=main_file_dir,
-            )
-            wasm_path = _write_wasm_to_tmpfile(wasm)
-            fprime_test_api.send_and_assert_command(
-                "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
-            )
-            return
-        args_bytes = None
-        if args is not None:
-            args_bytes = b"".join(v.serialize() for v in args)
-        code = run_seq_wasm(
-            seq,
-            seq_dir=seq_dir,
-            import_directories=import_directories,
-            expected_warnings=expected_warnings,
-            main_file_dir=main_file_dir,
-            failing_opcodes=failing_opcodes,
-            tlm=tlm,
-            prms=prms,
-            time_base=time_base,
-            time_context=time_context,
-            initial_time_us=initial_time_us,
-            args=args_bytes,
-        )
-        if code != DirectiveErrorCode.NO_ERROR.value:
-            raise RuntimeError(f"wasm sequence returned error code {code}")
-        return
-    _, directives, arg_name_types = compile_seq(
+    state = analyze_seq(
         seq,
         seq_dir=seq_dir,
         import_directories=import_directories,
         expected_warnings=expected_warnings,
         main_file_dir=main_file_dir,
     )
+    _assert_expected_emitted(state, expected_warnings)
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
+
+    for backend in active_backends:
+        with _backend_context(backend):
+            if backend == FPYBC:
+                _run_success_fpybc(
+                    fprime_test_api,
+                    state,
+                    tlm=tlm,
+                    time_base=time_base,
+                    time_context=time_context,
+                    initial_time_us=initial_time_us,
+                    timeout_s=timeout_s,
+                    failing_opcodes=failing_opcodes,
+                    args_bytes=args_bytes,
+                    seq_dir=seq_dir,
+                    seq_run_opcodes=seq_run_opcodes,
+                    prms=prms,
+                )
+            else:
+                _run_success_wasm(
+                    fprime_test_api,
+                    state,
+                    tlm=tlm,
+                    time_base=time_base,
+                    time_context=time_context,
+                    initial_time_us=initial_time_us,
+                    timeout_s=timeout_s,
+                    failing_opcodes=failing_opcodes,
+                    args_bytes=args_bytes,
+                    seq_dir=seq_dir,
+                    prms=prms,
+                )
+
+
+def _run_success_fpybc(
+    fprime_test_api,
+    state: CompileState,
+    *,
+    tlm,
+    time_base,
+    time_context,
+    initial_time_us,
+    timeout_s,
+    failing_opcodes,
+    args_bytes,
+    seq_dir,
+    seq_run_opcodes,
+    prms,
+):
+    """One backend's leg of assert_run_success: fpybc codegen, then a run on
+    the FpySequencer (harness or GDS) that must succeed."""
+    directives, arg_name_types = _fpybc_codegen(state)
     if seq_run_opcodes is None and seq_dir is not None:
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
+    _materialize_children(seq_dir, FPYBC)
     run_seq(
         fprime_test_api,
         directives,
@@ -739,6 +867,45 @@ def assert_run_success(
     )
 
 
+def _run_success_wasm(
+    fprime_test_api,
+    state: CompileState,
+    *,
+    tlm,
+    time_base,
+    time_context,
+    initial_time_us,
+    timeout_s,
+    failing_opcodes,
+    args_bytes,
+    seq_dir,
+    prms,
+):
+    """One backend's leg of assert_run_success: LLVM codegen, then a run on
+    the WasmSequencer (harness or GDS) that must succeed."""
+    wasm = _wasm_codegen(state)
+    if fprime_test_api is not None:
+        wasm_path = _write_wasm_to_tmpfile(wasm)
+        fprime_test_api.send_and_assert_command(
+            "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
+        )
+        return
+    _materialize_children(seq_dir, WASM)
+    code, _, _, _ = run_wasm(
+        wasm,
+        failing_opcodes=failing_opcodes,
+        tlm=tlm,
+        prms=prms,
+        time_base=time_base,
+        time_context=time_context,
+        initial_time_us=initial_time_us,
+        args=args_bytes,
+        seq_dir=seq_dir,
+    )
+    if code != DirectiveErrorCode.NO_ERROR.value:
+        raise RuntimeError(f"wasm sequence returned error code {code}")
+
+
 def assert_compile_failure(
     fprime_test_api,
     seq: str,
@@ -750,36 +917,39 @@ def assert_compile_failure(
     expected_warnings=None,
     main_file_dir: str | None = None,
 ):
-    try:
-        if USE_WASM:
-            compile_seq_wasm(
-                seq,
-                seq_dir=seq_dir,
-                import_directories=import_directories,
-                ignored_warnings=ignored_warnings,
-                error_warnings=error_warnings,
-                expected_warnings=expected_warnings,
-                main_file_dir=main_file_dir,
-            )
-        else:
-            compile_seq(
-                seq,
-                seq_dir=seq_dir,
-                import_directories=import_directories,
-                ignored_warnings=ignored_warnings,
-                error_warnings=error_warnings,
-                expected_warnings=expected_warnings,
-                main_file_dir=main_file_dir,
-            )
-    except CompilationFailed as e:
-        if match is not None:
-            import re
+    import re
 
+    def check_match(e: CompilationFailed):
+        if match is not None:
             assert re.search(match, str(e)), f"Expected match {match!r} in {e!r}"
+
+    try:
+        state = analyze_seq(
+            seq,
+            seq_dir=seq_dir,
+            import_directories=import_directories,
+            ignored_warnings=ignored_warnings,
+            error_warnings=error_warnings,
+            expected_warnings=expected_warnings,
+            main_file_dir=main_file_dir,
+        )
+    except CompilationFailed as e:
+        check_match(e)
         return
 
-    # no error was generated
-    raise RuntimeError("compile_seq succeeded")
+    # Analysis passed, so the failure must come from codegen -- on every
+    # active backend.
+    for backend in active_backends:
+        with _backend_context(backend):
+            try:
+                if backend == FPYBC:
+                    _fpybc_codegen(state)
+                else:
+                    _wasm_codegen(state)
+            except CompilationFailed as e:
+                check_match(e)
+            else:
+                raise RuntimeError("compilation succeeded")
 
 
 def assert_run_failure(
@@ -801,56 +971,52 @@ def assert_run_failure(
         error_code is not None or validation_error
     ), "Must specify either error_code or validation_error"
 
-    if USE_WASM:
-        if fprime_test_api is not None:
-            # GDS mode: send the wasm module and assert that it fails via
-            # OpCodeError event, mirroring the bytecode GDS failure path.
-            wasm = compile_seq_wasm(
-                seq,
-                seq_dir=seq_dir,
-                import_directories=import_directories,
-            )
-            wasm_path = _write_wasm_to_tmpfile(wasm)
-            fprime_test_api.send_and_assert_event(
-                "Ref.wasmSeq.RUN",
-                [wasm_path, "BLOCK"],
-                events="CdhCore.cmdDisp.OpCodeError",
-                timeout=4,
-            )
-            return
-        # The wasm backend has no separate validation step or VM-internal
-        # faults: a failed sequence is one that reports a nonzero code
-        # through the exit/fault host imports. A validation failure (bad
-        # sequence arguments) surfaces the same way, as the INVALID_ARG
-        # fault the module's own argument check reports.
-        args_bytes = None
-        if args is not None:
-            args_bytes = b"".join(v.serialize() for v in args)
-        code = run_seq_wasm(
-            seq,
-            seq_dir=seq_dir,
-            import_directories=import_directories,
-            failing_opcodes=failing_opcodes,
-            initial_time_us=initial_time_us,
-            args=args_bytes,
-        )
-        if code == DirectiveErrorCode.NO_ERROR.value:
-            raise RuntimeError("wasm sequence succeeded")
-        if error_code is not None:
-            if (
-                isinstance(error_code, DirectiveErrorCode) and code != error_code.value
-            ) or (isinstance(error_code, int) and code != error_code):
-                raise RuntimeError(
-                    f"wasm sequence returned {code}, expected {error_code}"
-                )
-        return
-
-    _, directives, arg_name_types = compile_seq(
-        seq, seq_dir=seq_dir, import_directories=import_directories
-    )
+    state = analyze_seq(seq, seq_dir=seq_dir, import_directories=import_directories)
     args_bytes = None
     if args is not None:
         args_bytes = b"".join(v.serialize() for v in args)
+
+    for backend in active_backends:
+        with _backend_context(backend):
+            if backend == FPYBC:
+                _run_failure_fpybc(
+                    fprime_test_api,
+                    state,
+                    error_code=error_code,
+                    validation_error=validation_error,
+                    initial_time_us=initial_time_us,
+                    failing_opcodes=failing_opcodes,
+                    args_bytes=args_bytes,
+                    seq_dir=seq_dir,
+                    seq_run_opcodes=seq_run_opcodes,
+                )
+            else:
+                _run_failure_wasm(
+                    fprime_test_api,
+                    state,
+                    error_code=error_code,
+                    initial_time_us=initial_time_us,
+                    failing_opcodes=failing_opcodes,
+                    args_bytes=args_bytes,
+                    seq_dir=seq_dir,
+                )
+
+
+def _run_failure_fpybc(
+    fprime_test_api,
+    state: CompileState,
+    *,
+    error_code,
+    validation_error,
+    initial_time_us,
+    failing_opcodes,
+    args_bytes,
+    seq_dir,
+    seq_run_opcodes,
+):
+    """One backend's leg of assert_run_failure: fpybc codegen, then a run on
+    the FpySequencer that must fail as specified."""
+    directives, arg_name_types = _fpybc_codegen(state)
     if seq_run_opcodes is None and seq_dir is not None:
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
@@ -875,6 +1041,7 @@ def assert_run_failure(
             )
         return
 
+    _materialize_children(seq_dir, FPYBC)
     try:
         run_seq(
             fprime_test_api,
@@ -909,3 +1076,51 @@ def assert_run_failure(
         return
 
     raise RuntimeError("run_seq succeeded")
+
+
+def _run_failure_wasm(
+    fprime_test_api,
+    state: CompileState,
+    *,
+    error_code,
+    initial_time_us,
+    failing_opcodes,
+    args_bytes,
+    seq_dir,
+):
+    """One backend's leg of assert_run_failure: LLVM codegen, then a run on
+    the WasmSequencer that must fail as specified.
+
+    The wasm backend has no separate validation step or VM-internal faults: a
+    failed sequence is one that reports a nonzero code through the exit/fault
+    host imports. A validation failure (bad sequence arguments) surfaces the
+    same way, as the INVALID_ARG fault the module's own argument check
+    reports."""
+    wasm = _wasm_codegen(state)
+    if fprime_test_api is not None:
+        # GDS mode: send the wasm module and assert that it fails via
+        # OpCodeError event, mirroring the bytecode GDS failure path.
+        wasm_path = _write_wasm_to_tmpfile(wasm)
+        fprime_test_api.send_and_assert_event(
+            "Ref.wasmSeq.RUN",
+            [wasm_path, "BLOCK"],
+            events="CdhCore.cmdDisp.OpCodeError",
+            timeout=4,
+        )
+        return
+
+    _materialize_children(seq_dir, WASM)
+    code, _, _, _ = run_wasm(
+        wasm,
+        failing_opcodes=failing_opcodes,
+        initial_time_us=initial_time_us,
+        args=args_bytes,
+        seq_dir=seq_dir,
+    )
+    if code == DirectiveErrorCode.NO_ERROR.value:
+        raise RuntimeError("wasm sequence succeeded")
+    if error_code is not None:
+        if (
+            isinstance(error_code, DirectiveErrorCode) and code != error_code.value
+        ) or (isinstance(error_code, int) and code != error_code):
+            raise RuntimeError(f"wasm sequence returned {code}, expected {error_code}")

@@ -9,13 +9,13 @@ from fpy.test_helpers import (
 )
 
 
-def _oor_float_to_int(saturated, wrapped):
-    """Expected result of an *out-of-range* float->int cast, which differs by
-    backend: the LLVM/wasm backend saturates at the target width (Rust `as`
-    semantics -- clamp to the target type's min/max), while the bytecode VM
-    saturates at 64 bits and then wrap-truncates to the target width. Reads
-    test_helpers.USE_WASM at call time (conftest sets it from the --wasm flag)."""
-    return saturated if test_helpers.USE_WASM else wrapped
+def _oor_float_to_int(backend, saturated, wrapped):
+    """Expected result of an *out-of-range* float->int cast on *backend*,
+    which differs by backend: the LLVM/wasm backend saturates at the target
+    width (Rust `as` semantics -- clamp to the target type's min/max), while
+    the bytecode VM saturates at 64 bits and then wrap-truncates to the
+    target width."""
+    return saturated if backend == test_helpers.WASM else wrapped
 
 
 class TestEnums:
@@ -843,47 +843,50 @@ class TestOutOfRangeFloatCasts:
 
     Both backends saturate the float->int conversion at 64 bits (NaN -> 0,
     out-of-range clamps to I64/U64 min/max). For narrower targets they then
-    deliberately differ, so each expected value switches on the active
-    backend via _oor_float_to_int:
+    deliberately differ, so each test runs once per backend (the
+    single_backend fixture) with that backend's expected value from
+    _oor_float_to_int:
       * LLVM/wasm: saturates at the *target* width (Rust `as` semantics).
       * bytecode VM: saturates at 64 bits, then wrap-truncates the bit
         pattern to the target width."""
 
-    def test_unsigned_overflow(self, fprime_test_api):
+    def test_unsigned_overflow(self, fprime_test_api, single_backend):
         # 1e20 is above U64 max: both saturate to U64 max; the VM's truncation
         # of all-ones to 8 bits coincides with the wasm clamp.
-        expected = _oor_float_to_int(saturated=255, wrapped=255)
+        expected = _oor_float_to_int(single_backend, saturated=255, wrapped=255)
         seq = f"x: F64 = 1e20\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_unsigned_negative(self, fprime_test_api):
+    def test_unsigned_negative(self, fprime_test_api, single_backend):
         # -5.0 is negative: the unsigned conversion clamps to 0 on both.
-        expected = _oor_float_to_int(saturated=0, wrapped=0)
+        expected = _oor_float_to_int(single_backend, saturated=0, wrapped=0)
         seq = f"x: F64 = -5.0\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_overflow(self, fprime_test_api):
+    def test_signed_overflow(self, fprime_test_api, single_backend):
         # 1000.0 is above I8 max. wasm -> 127 (clamp); VM -> -24 (1000 & 0xff).
-        expected = _oor_float_to_int(saturated=127, wrapped=-24)
+        expected = _oor_float_to_int(single_backend, saturated=127, wrapped=-24)
         seq = f"x: F64 = 1000.0\nassert I8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_underflow(self, fprime_test_api):
+    def test_signed_underflow(self, fprime_test_api, single_backend):
         # -1000.0 is below I8 min. wasm -> -128 (clamp); VM -> 24 (-1000 & 0xff).
-        expected = _oor_float_to_int(saturated=-128, wrapped=24)
+        expected = _oor_float_to_int(single_backend, saturated=-128, wrapped=24)
         seq = f"x: F64 = -1000.0\nassert I8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_32bit_overflow(self, fprime_test_api):
+    def test_signed_32bit_overflow(self, fprime_test_api, single_backend):
         # 1e20 is above I64 max. wasm -> I32 max; VM -> I64 max (0x7FFF...FFFF)
         # wrap-truncated to 32 bits: 0xFFFFFFFF == -1.
-        expected = _oor_float_to_int(saturated=2147483647, wrapped=-1)
+        expected = _oor_float_to_int(single_backend, saturated=2147483647, wrapped=-1)
         seq = f"x: F64 = 1e20\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_32bit_underflow(self, fprime_test_api):
+    def test_signed_32bit_underflow(self, fprime_test_api, single_backend):
         # -1e10 is below I32 min. wasm -> I32 min; VM -> -1e10 mod 2^32 (signed).
-        expected = _oor_float_to_int(saturated=-2147483648, wrapped=-1410065408)
+        expected = _oor_float_to_int(
+            single_backend, saturated=-2147483648, wrapped=-1410065408
+        )
         seq = f"x: F64 = -1e10\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 

@@ -60,9 +60,9 @@ from fpy.types import (
     U64,
 )
 
-# Every test in this module drives the LLVM/wasm backend end-to-end. The wasm
-# marker makes conftest build the spacewasm runner on demand, so these always
-# run on the wasm backend even when --wasm isn't passed.
+# Every test in this module drives the LLVM/wasm backend end-to-end, through
+# its own helpers rather than the dual-backend assert_* ones. The wasm marker
+# skips them under --backend fpybc.
 pytestmark = pytest.mark.wasm
 
 

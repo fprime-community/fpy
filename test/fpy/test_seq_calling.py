@@ -1,14 +1,14 @@
 """Tests for sequence calling with arguments (issue #39).
 
-These tests write a child sequence's .fpy source and compiled .bin into a temp
-directory, then compile+run a parent sequence that calls the child via
-Ref.seqDisp.RUN_ARGS. The parent's compile resolves the child's argument
-specification from the .fpy source through the seq maps; the harness loads
-the .bin at run time.
+These tests write a child sequence's .fpy source and compiled file into a temp
+directory (fpy.test_helpers.write_child_seq), then compile+run a parent
+sequence that calls the child via Ref.seqDisp.RUN_ARGS. The parent's compile
+resolves the child's argument specification from the .fpy source through the
+seq maps; each backend's run loads the compiled file in its own format.
 
 All tests accept the ``fprime_test_api`` fixture so they can optionally run
 against a live GDS deployment (``--use-gds``).  When the fixture is ``None``
-(the default) the Python sequencer model is used instead.
+(the default) the harnesses are used instead.
 """
 
 import json
@@ -18,14 +18,11 @@ from pathlib import Path
 import pytest
 
 import fpy.error
-import fpy.test_helpers
-from fpy.bytecode.assembler import serialize_directives
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.compiler import (
     text_to_ast,
     analyze_ast,
     analysis_to_fpybc_directives,
-    analysis_to_wasm,
 )
 from fpy.state import _build_global_scopes, get_base_compile_state
 from fpy.dictionary import load_dictionary
@@ -36,35 +33,8 @@ from fpy.test_helpers import (
     assert_run_success,
     compile_seq,
     default_dictionary,
+    write_child_seq as _write_child,
 )
-
-
-def _write_child(
-    seq_text: str, directory: Path, bin_name: str = "child.bin", seq_dir: str = None
-):
-    """Write the child's .fpy source and compiled sequence into *directory*:
-    the .fpy is what the parent's compile reads for the argument
-    specification; the file named *bin_name* is what the harness loads at
-    run time.
-
-    Returns (directives, arg_types) for the compiled child.
-    """
-    (directory / Path(bin_name).with_suffix(".fpy")).write_text(seq_text)
-    fpy.error.file_name = "<test-child>"
-    state = get_base_compile_state(default_dictionary, _catch_all_seq_maps(seq_dir))
-    body = text_to_ast(seq_text)
-    state = analyze_ast(body, state)
-    if fpy.test_helpers.USE_WASM:
-        # The child runs on a Svc::WasmSequencer, which loads the file named
-        # *bin_name* as a wasm module regardless of its suffix.
-        wasm, arg_types = analysis_to_wasm(state)
-        (directory / bin_name).write_bytes(wasm)
-        return None, arg_types
-    directives, arg_types = analysis_to_fpybc_directives(state)
-    arg_specs = [(name, t.name, t.max_size) for name, t in arg_types]
-    data, _ = serialize_directives(directives, arg_specs=arg_specs)
-    (directory / bin_name).write_bytes(data)
-    return directives, arg_types
 
 
 class TestSeqRunDetection:

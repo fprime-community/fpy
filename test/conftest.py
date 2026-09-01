@@ -1,5 +1,6 @@
 import pytest
 import fpy.harness
+import fpy.test_helpers as test_helpers
 
 
 def pytest_addoption(parser):
@@ -8,51 +9,48 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="Run sequences against a live F Prime GDS instead of the "
-        "harness running a local Svc::FpySequencer",
+        "harnesses running a local sequencer",
     )
     parser.addoption(
-        "--wasm",
-        action="store_true",
-        default=False,
-        help="Compile and run sequences through the LLVM/wasm backend "
-        "(NASA spacewasm) instead of the fpy bytecode VM",
+        "--backend",
+        choices=("both", test_helpers.FPYBC, test_helpers.WASM),
+        default="both",
+        help="Which backends the sequence tests drive (default: both). Each "
+        "sequence is analyzed once, then compiled and run through every "
+        "selected backend: fpybc on a Svc::FpySequencer, wasm (the LLVM "
+        "backend) on a Svc::WasmSequencer.",
     )
 
 
-_wasm_harness_built = False
-
-
-def _build_wasm_harness_once():
-    """Build the wasm harness once per session, exiting with an actionable
-    message on setup gaps (submodule missing, tools missing)."""
-    global _wasm_harness_built
-    if _wasm_harness_built:
-        return
-    try:
-        fpy.harness.build_wasm_harness()
-    except fpy.harness.HarnessError as e:
-        pytest.exit(str(e), returncode=1)
-    _wasm_harness_built = True
+def _selected_backends(config) -> tuple[str, ...]:
+    choice = config.getoption("--backend")
+    if choice == "both":
+        return test_helpers.ALL_BACKENDS
+    return (choice,)
 
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "wasm: end-to-end LLVM/wasm tests; always run on the wasm backend, "
-        "even without --wasm (requires the fprime-wasm submodule and Rust)",
+        "wasm: tests of the LLVM/wasm backend itself (IR shape, host "
+        "imports); they run its toolchain directly and are skipped only by "
+        "--backend fpybc",
+    )
+    config.addinivalue_line(
+        "markers",
+        "fpybc_only(reason): drive the assert_* helpers on the fpybc backend "
+        "only, for behavior the wasm backend does not (or deliberately will "
+        "not) share",
+    )
+    config.addinivalue_line(
+        "markers",
+        "wasm_only(reason): drive the assert_* helpers on the wasm backend only",
     )
 
-    # Flip the test helpers over to the LLVM/wasm backend for the whole run.
-    import fpy.test_helpers as test_helpers
-
-    test_helpers.USE_WASM = config.getoption("--wasm")
-    if test_helpers.USE_WASM and not config.getoption("--use-gds"):
-        _build_wasm_harness_once()
-
-    # The FpySequencer harness builds itself lazily, on the first test that
-    # runs a sequence through it (fpy.harness.fpy_harness), so runs that
-    # never touch it -- compiler unit tests, --collect-only -- skip the
-    # build entirely.
+    # Both harnesses build themselves lazily, on the first test that runs a
+    # sequence through them (fpy.harness.fpy_harness / wasm_harness), so runs
+    # that never touch one -- compiler unit tests, --collect-only, --backend
+    # fpybc -- skip its build entirely.
 
 
 def pytest_unconfigure(config):
@@ -60,11 +58,35 @@ def pytest_unconfigure(config):
 
 
 @pytest.fixture(autouse=True)
-def _ensure_wasm_harness(request):
-    # wasm-marked tests always run on the wasm backend, regardless of --wasm,
-    # so make sure the wasm harness is built before any of them run.
-    if "wasm" in request.keywords:
-        _build_wasm_harness_once()
+def _narrow_backends(request):
+    """Points test_helpers.active_backends at the backends this test drives:
+    the run's --backend selection, narrowed by the fpybc_only/wasm_only
+    markers. Skips the test when nothing is left."""
+    backends = list(_selected_backends(request.config))
+    if request.node.get_closest_marker("fpybc_only"):
+        backends = [b for b in backends if b == test_helpers.FPYBC]
+    if request.node.get_closest_marker("wasm_only") or ("wasm" in request.keywords):
+        backends = [b for b in backends if b == test_helpers.WASM]
+    if not backends:
+        pytest.skip("none of this test's backends are selected (--backend)")
+    saved = test_helpers.active_backends
+    test_helpers.active_backends = tuple(backends)
+    yield
+    test_helpers.active_backends = saved
+
+
+@pytest.fixture(params=test_helpers.ALL_BACKENDS)
+def single_backend(request, _narrow_backends):
+    """Runs the test once per backend, with the assert_* helpers narrowed to
+    just that backend; the fixture's value names it. For tests whose expected
+    results differ by backend."""
+    backend = request.param
+    if backend not in test_helpers.active_backends:
+        pytest.skip(f"the {backend} backend is not selected")
+    saved = test_helpers.active_backends
+    test_helpers.active_backends = (backend,)
+    yield backend
+    test_helpers.active_backends = saved
 
 
 # When --use-gds is NOT passed (the default), override fprime_test_api with None

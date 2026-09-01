@@ -2,7 +2,6 @@ import pytest
 
 from fpy.types import U32
 
-import fpy.test_helpers as test_helpers
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -547,11 +546,10 @@ assert iabs(I64(-2**63 + 1)) == 2**63 - 1
 
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only("the wasm backend does not trap on overflow; it wraps")
     def test_abs_i64_int_min_overflows(self, fprime_test_api):
         """abs(I64 min) is not representable in I64, so the sequence ends
         with ARITHMETIC_OVERFLOW rather than wrapping."""
-        if test_helpers.USE_WASM:
-            pytest.skip("wasm backend does not implement arithmetic traps yet")
         seq = """
 val: I64 = iabs(I64(-2**63))
 """

@@ -729,30 +729,25 @@ Use `pytest` to run the test suite:
 pytest
 ```
 
-Tests compile sequences and run them on the real flight `Svc::FpySequencer`, through a small C++ harness program (`test/harness`) built from the `test/fprime` submodule. Requirements:
+Each sequence test generates and runs both Fpy bytecode and WASM. The binaries run 
 
-* The fprime submodule must be checked out: `git submodule update --init test/fprime`
-* The harness build tools (cmake, ninja, fprime-util, fpp). `uv sync` installs them as part of the dev environment.
+ Each backend runs through its own small C++ harness program (`test/harness`), built from the `test/fprime` and `test/fprime-wasm` submodules respectively. Requirements:
 
-The harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the build); the first run is slower because it builds the fprime framework.
+* The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
+* The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
+* A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-### `--wasm`
+Each harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the builds); the first run is slower because it builds the fprime framework. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
 
-By default, tests compile sequences to fpy bytecode and run them on the real `Svc::FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and run on the real `Svc::WasmSequencer` (which embeds the spacewasm interpreter), through a second harness built from the `test/fprime-wasm` submodule.
+### `--backend`
+
+`--backend fpybc` or `--backend wasm` restricts the run to one backend (the default is `both`), e.g. while debugging one backend or on a machine without the other's toolchain:
 
 ```sh
-pytest --wasm
+pytest --backend fpybc
 ```
 
-Requirements for the wasm backend:
-
-* The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
-* The fprime-wasm submodule must be checked out: `git submodule update --init test/fprime-wasm`
-* A Rust toolchain (the sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
-
-The wasm harness is built automatically at the start of the test session, with a small local patch applied to the submodule first (see `test/harness/patches/README.md`).
-
-Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
+A few behaviors are deliberately backend-specific; those tests carry the `fpybc_only`/`wasm_only` markers (and skip when their backend is not selected). Tests whose expected values differ by backend run once per selected backend via the `single_backend` fixture. Tests marked `@pytest.mark.wasm` exercise the LLVM/wasm toolchain itself and run except under `--backend fpybc`.
 
 # FIXME I'd like to remove the use-gds feature
 ### `--use-gds`
