@@ -502,7 +502,7 @@ $ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123,
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 
-In both cases, the compiler checks the call against the argument names and types declared in the called sequence's `.fpy` source. It locates the source through the `--seq-map BIN_PREFIX=FPY_PREFIX` argument (repeatable). A binary path starting with `BIN_PREFIX` has that prefix replaced with `FPY_PREFIX` and its extension replaced with `.fpy`. The first mapping that yields an existing file wins. For example, `--seq-map seqs/=build/seq-src/` resolves `seqs/example.bin` to `build/seq-src/example.fpy`. An empty `BIN_PREFIX` matches every path. If no mapping yields an existing `.fpy` file, or the provided arguments are incompatible with the declared ones, the sequence will fail to compile. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
+The compiler checks the provided argument names and types against those declared in the sequence file you're calling. To do this, it must find a corresponding `.fpy` file for the `.bin` file you passed to the `RUN_ARGS` command. The `--seq-map BIN_PREFIX=FPY_PREFIX` argument controls how it searches for the `.fpy` file. For each `--seq-map` arg passed to the CLI, if the `.bin` path has a prefix matching `BIN_PREFIX`, it replaces that prefix with `FPY_PREFIX` and the suffix with `.fpy`, and if the file exists, it checks that file for the sequence argument types and names. An empty `BIN_PREFIX` matches every path.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
