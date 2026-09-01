@@ -11,6 +11,7 @@ bitcast
 bitwidth
 Breslav
 calcsize
+calle
 capsys
 cbranch
 Ccsds
@@ -32,6 +33,7 @@ emittable
 ev
 fcmp
 fd
+fdir
 feq
 FFLOOR
 fge
@@ -45,7 +47,6 @@ fpow
 fpp
 fppi
 fprime
-fptoint
 fptosi
 fptoui
 fptrunc
@@ -80,7 +81,6 @@ itrunc
 kinda
 lalr
 libcall
-libm
 llo
 LOGACTIVITYHI
 LOGACTIVITYLO
@@ -96,17 +96,13 @@ mx
 nassert
 nbackend
 nexit
-nif
 nimport
-nlib
 nomapping
-nontrapping
 noreturn
 nsequence
 nsize
 oob
 oor
-PANICOCCURRED
 passthrough
 pb
 pemdas
@@ -115,7 +111,6 @@ postlex
 postlexer
 prm
 PRNG
-PROGRAMEXITED
 ptrs
 px
 py
@@ -131,6 +126,7 @@ sdiv
 SEQUENCEEXITED
 SEQUENCEEXITEDWITHERROR
 SEQUENCEPANIC
+SERIALIN
 sge
 sgt
 siext
@@ -149,7 +145,6 @@ tcp
 td
 timebase
 tlm
-tumbar
 udiv
 uge
 uitofp
@@ -165,12 +160,10 @@ unistd
 urem
 usec
 useconds
-valtype
 vararg
 verflow
 vh
 vw
-WASMSEQUENCERCONFIG
 WASMSEQUENCERTESTER
 wikipedia
 workaround
