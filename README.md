@@ -724,7 +724,7 @@ Some useful compiler flags are:
 
 ### `fprime-fpy-cmd`
 
-Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead. A `RUN_ARGS` line that passes sequence arguments needs `--seq-map` to locate the called sequence's `.fpy` source.
+Compiles a single line of Fpy source (one command with constant arguments) and emits it, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. The `--emit` flag selects how: `zmq` (uplink to a running GDS over ZMQ, the default; address set by `--zmq-addr`), `tcp` (uplink to the GDS TCP server; address set by `--tcp-addr host:port`), or `stdout` (write the binary command packet to stdout).
 
 ### `fprime-fpy-asm`
 
