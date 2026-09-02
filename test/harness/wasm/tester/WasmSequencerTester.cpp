@@ -130,12 +130,18 @@ void WasmSequencerTester::pump() {
             if (state == WasmState::RUNNING_AWAITING_RESPONSE_SLEEPING && seq.m_hasPendingTimer) {
                 // The sequence is sleeping. Jump the clock to the wake-up
                 // time instead of waiting, then let the sequencer check its
-                // timers. On a time base mismatch the clock is left alone;
-                // the sequencer fails the sequence itself when it compares
-                // the times.
+                // timers. A wake-up time that has already come (a
+                // zero-duration sleep) resumes on the next checkTimers call,
+                // one CHECK_TIMERS_PERIOD_USEC later. On a time base mismatch
+                // the clock is left alone; the sequencer fails the sequence
+                // itself when it compares the times.
                 const Fw::Time& wakeup = seq.m_pendingTimer;
-                if (wakeup.getTimeBase() == this->m_now.getTimeBase() && this->m_now < wakeup) {
-                    this->m_now = wakeup;
+                if (wakeup.getTimeBase() == this->m_now.getTimeBase()) {
+                    if (this->m_now < wakeup) {
+                        this->m_now = wakeup;
+                    } else {
+                        this->m_now.add(0, CHECK_TIMERS_PERIOD_USEC);
+                    }
                 }
                 this->schedSend_out(0, 0);
                 continue;

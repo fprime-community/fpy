@@ -404,7 +404,7 @@ class DesugarCheckStatements(Transformer):
     Default values:
         - timeout: no timeout (runs indefinitely until condition persists)
         - persist: 0 second interval (condition must be true once)
-        - period: 1 second interval (check condition every second)
+        - period: 0 second interval (check condition on every checkTimers call)
 
     Gets desugared into (roughly):
         # timeout deadline computed once, at entry, from the relative interval:
@@ -533,7 +533,7 @@ class DesugarCheckStatements(Transformer):
 
         # Handle default values:
         # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
-        # - period: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - period: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
         # - timeout: if not specified, use a dummy value (but we skip timeout check logic)
 
         persist_expr = (
@@ -548,7 +548,7 @@ class DesugarCheckStatements(Transformer):
             copy.deepcopy(node.period)
             if node.period is not None
             else self.call_parts(
-                ["Fw", "TimeIntervalValue"], self.number(1), self.number(0)
+                ["Fw", "TimeIntervalValue"], self.number(0), self.number(0)
             )
         )
 

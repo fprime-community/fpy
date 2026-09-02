@@ -307,7 +307,7 @@ class AstCheck(Ast):
     condition: AstExpr
     timeout: Union[AstExpr, None]  # The timeout interval, or None if `never`/absent
     persist: Union[AstExpr, None]  # Default: 0 second interval
-    period: Union[AstExpr, None]  # Default: 1 second interval
+    period: Union[AstExpr, None]  # Default: 0 second interval
     body: Union["AstBlock", None]  # None for body-less check
     timeout_body: Union["AstBlock", None] = None
     timeout_never: bool = False  # True if the timeout clause is `never`

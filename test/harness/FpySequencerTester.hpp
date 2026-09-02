@@ -35,6 +35,9 @@ class FpySequencerTester : public FpySequencerTesterComponentBase {
     // real time because the clock jumps instead of waiting.
     static constexpr U32 MAX_DISPATCHES = 1000 * 1000;
     static constexpr FwSizeType QUEUE_DEPTH = 32;
+    // Simulated period of the checkTimers port: how far the clock advances
+    // when the sequencer sleeps until a time that has already come.
+    static constexpr U32 CHECK_TIMERS_PERIOD_USEC = 100 * 1000;
 
     void connectPorts();
     // Sends the RUN (or RUN_ARGS) command that starts the sequence.

@@ -132,12 +132,31 @@ assert timeout_body_ran
 class TestCheckClauses:
 
     def test_check_only_timeout_specified(self, fprime_test_api):
-        """Test check with only timeout specified (uses default persist=0 and period=1s)."""
+        """Test check with only timeout specified (uses default persist=0 and period=0)."""
         seq = """
 check True timeout Fw.TimeIntervalValue(1, 0):
     exit(0)
 timeout:
     assert False, 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_check_default_period_is_zero(self, fprime_test_api):
+        """Test that a check without a period clause re-checks on the next checkTimers call, not after 1 second."""
+        seq = """
+calls: I64 = 0
+
+def second_call() -> bool:
+    calls = calls + 1
+    return calls >= 2
+
+start: Fw.Time = now()
+check second_call() timeout Fw.TimeIntervalValue(5, 0):
+    pass
+timeout:
+    assert False, 1
+elapsed: Fw.TimeIntervalValue = time_sub(now(), start)
+assert elapsed.seconds == 0
 """
         assert_run_success(fprime_test_api, seq)
 

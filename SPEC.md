@@ -650,7 +650,7 @@ If `persist` or `freq` is provided, and they cannot be coerced to [`Fw.TimeInter
 At execution:
 1. `persist` and `freq` are evaluated and stored. If `timeout` is not `never`, it is evaluated as a relative interval and the timeout deadline is stored as that interval added to the current time.
 2. If `persist` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
-3. If `freq` is not provided, its stored value is a one-second `Fw.TimeIntervalValue`.
+3. If `freq` is not provided, its stored value is a zero-duration `Fw.TimeIntervalValue`.
 4. If `timeout` is not `never` and the current time is [greater](todo) than the stored timeout deadline, the check times out.
 5. Evaluate `condition`.
 6. If `condition` has evaluated to `True` for duration greater than or equal to `persist`'s stored value, execute `body`, then continue execution after the check statement.

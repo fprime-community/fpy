@@ -33,6 +33,9 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // INSTRUCTION_FUEL (default 1000) wasm instructions.
     static constexpr U32 MAX_DISPATCHES = 1000 * 1000;
     static constexpr FwSizeType QUEUE_DEPTH = 32;
+    // Simulated period of the checkTimers port: how far the clock advances
+    // when the sequencer sleeps until a time that has already come.
+    static constexpr U32 CHECK_TIMERS_PERIOD_USEC = 100 * 1000;
 
     void connectPorts();
     // Sends the RUN command that loads and runs the module.

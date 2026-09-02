@@ -315,7 +315,7 @@ check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never period {seconds: 1}:
     log("more than 30 commands!")
 ```
 
-If you don't specify a value for `period`, the default period is 1 second.
+If you don't specify a value for `period`, the default period is 0 seconds, so the condition is checked on every checkTimers call.
 
 The `timeout`, `persist` and `period` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
