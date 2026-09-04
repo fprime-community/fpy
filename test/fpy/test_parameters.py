@@ -1,3 +1,4 @@
+import pytest
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.types import F32, FpyValue
 from fpy.test_helpers import (
@@ -90,6 +91,7 @@ x: U32 = Ref.typeDemo.NonExistentParam
 
         assert_compile_failure(fprime_test_api, seq)
 
+    @pytest.mark.harness_only("a live deployment keeps every parameter it was given")
     def test_prm_not_found(self, fprime_test_api):
         # The spacecraft's parameter database has no value for the parameter,
         # so the read fails the sequence.

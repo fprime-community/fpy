@@ -7,7 +7,7 @@ Otherwise, the parent scope of scope S is the scope at one indentation level low
 
 If the scope is part of a function definition, it is a function scope.
 
-The enclosing scope of E is the nearest parent scope of E.
+The enclosing scope of node E is the nearest parent scope of E.
 
 # CheckSequenceMetadataDefinedAtTop
 

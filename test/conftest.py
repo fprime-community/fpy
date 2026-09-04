@@ -46,6 +46,11 @@ def pytest_configure(config):
         "markers",
         "wasm_only(reason): drive the assert_* helpers on the wasm backend only",
     )
+    config.addinivalue_line(
+        "markers",
+        "harness_only(reason): skip under --use-gds, for behavior that depends "
+        "on state only the harnesses can stage",
+    )
 
     # Both harnesses build themselves lazily, on the first test that runs a
     # sequence through them (fpy.harness.fpy_harness / wasm_harness), so runs
@@ -67,6 +72,15 @@ def _narrow_backends(request):
         backends = [b for b in backends if b == test_helpers.FPYBC]
     if request.node.get_closest_marker("wasm_only") or ("wasm" in request.keywords):
         backends = [b for b in backends if b == test_helpers.WASM]
+    if request.config.getoption("--use-gds"):
+        harness_only = request.node.get_closest_marker("harness_only")
+        if harness_only:
+            pytest.skip(harness_only.args[0])
+        # A live deployment drives only the backends whose sequencer it has.
+        commands = request.getfixturevalue(
+            "fprime_test_api"
+        ).pipeline.dictionaries.command_name
+        backends = [b for b in backends if test_helpers.GDS_RUN_CMD[b] in commands]
     if not backends:
         pytest.skip("none of this test's backends are selected (--backend)")
     saved = test_helpers.active_backends
@@ -98,3 +112,15 @@ def fprime_test_api_override(request):
     if request.config.getoption("--use-gds"):
         return request.getfixturevalue("fprime_test_api_session")
     return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _gds_leave_clean(request):
+    """Under --use-gds, points the deployment's sequencers back at their
+    default base directory once the session's runs are done."""
+    if not request.config.getoption("--use-gds"):
+        yield
+        return
+    api = request.getfixturevalue("fprime_test_api_session")
+    yield
+    test_helpers._gds_set_base_dir(api, "")

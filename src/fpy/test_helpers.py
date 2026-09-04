@@ -1,8 +1,11 @@
 from __future__ import annotations
+import functools
+import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
 import tempfile
+import pytest
 import fpy.error
 from fpy.harness import HarnessError, fpy_harness
 from fpy.bytecode.directives import (
@@ -75,6 +78,10 @@ class ValidationError(Exception):
 FPYBC = "fpybc"
 WASM = "wasm"
 ALL_BACKENDS = (FPYBC, WASM)
+
+# The command that runs a backend's compiled sequence on a live deployment
+# (--use-gds), keyed by backend.
+GDS_RUN_CMD = {FPYBC: "Ref.seqDisp.RUN", WASM: "Ref.wasmSeq.RUN"}
 
 # The backends the assert_* helpers drive: each sequence is analyzed once,
 # then compiled and run through every backend listed here. conftest narrows
@@ -528,22 +535,101 @@ def _write_wasm_for_harness(wasm: bytes, directory: str = None) -> tuple[str, st
     return directory, name
 
 
-def _write_seq_to_tmpfile(
-    directives: list[Directive], arg_types: list[tuple[str, FpyType]] = None
-) -> str:
-    """Serialize directives to a temp .bin file and return its path."""
-    arg_specs = [(name, t.name, t.max_size) for name, t in (arg_types or [])]
-    seq_file = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-    Path(seq_file.name).write_bytes(
-        serialize_directives(directives, arg_specs=arg_specs)[0]
+# --use-gds: the SEQ_BASE_DIR the deployment's sequencers currently have,
+# None while unknown (a previous session may have left one set).
+_gds_base_dir: str | None = None
+
+# --use-gds: extra seconds a run may take on a live deployment, whose
+# sequencers and command handlers advance on their rate groups' ticks rather
+# than as fast as the harness drives them.
+GDS_TIMEOUT_SLACK_S = 6
+
+
+def _gds_set_base_dir(api, directory: str) -> None:
+    """Points every sequencer on the live deployment at *directory*, which
+    sequence file paths then resolve against."""
+    global _gds_base_dir
+    if directory == _gds_base_dir:
+        return
+    for cmd in api.pipeline.dictionaries.command_name:
+        if cmd.endswith(".SEQ_BASE_DIR_PRM_SET"):
+            api.send_and_assert_command(cmd, [directory])
+    _gds_base_dir = directory
+
+
+@functools.lru_cache
+def _gds_prm_templates(dictionary_path: str) -> dict:
+    """The deployment's parameters by qualified name; the GDS pipeline loads
+    no parameter dictionary of its own."""
+    from fprime_gds.common.loaders.prm_json_loader import PrmJsonLoader
+
+    return PrmJsonLoader(dictionary_path).construct_dicts(None)[1]
+
+
+def _gds_set_prm(api, name: str, value) -> None:
+    """Gives parameter *name* the python value *value* on the live
+    deployment: set on its component, then saved to the parameter database
+    the sequencers read from. Structs and arrays travel as JSON, everything
+    else as its string."""
+    arg = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+    api.send_and_assert_command(f"{name}_PRM_SET", [arg])
+    api.send_and_assert_command(f"{name}_PRM_SAVE")
+
+
+def _gds_run(
+    api,
+    directives: list[Directive],
+    arg_name_types: list[tuple[str, FpyType]],
+    *,
+    tlm,
+    prms,
+    seq_dir,
+    args,
+    timeout_s,
+    fail: bool,
+) -> None:
+    """Runs a compiled fpybc sequence on the live deployment (--use-gds) and
+    asserts that its RUN command completes, or with *fail* that it completes
+    with an error.
+
+    The sequencers' SEQ_BASE_DIR parameter plays the harness's working
+    directory: the sequence file, and with *seq_dir* the child sequences it
+    calls, load relative to it. Parameters are set through their PRM_SET
+    and PRM_SAVE commands before the run and restored to their dictionary
+    defaults after it. Telemetry cannot be injected into a live deployment,
+    so a run that needs it is skipped."""
+    if tlm:
+        pytest.skip("telemetry values cannot be injected into a live deployment")
+    directory, seq_file = _write_seq_for_harness(
+        directives, arg_name_types, directory=seq_dir
     )
-    return seq_file.name
+    _gds_set_base_dir(api, directory)
+    cmd, cmd_args = GDS_RUN_CMD[FPYBC], [seq_file, "BLOCK"]
+    if args:
+        cmd, cmd_args = "Ref.seqDisp.RUN_ARGS", [*cmd_args, _build_seq_args_json(args)]
+    templates = _gds_prm_templates(api.pipeline.dictionaries.dictionary_path)
+    prms = prms or {}
+    for name, data in prms.items():
+        value = templates[name].get_type_obj()()
+        value.deserialize(data, 0)
+        _gds_set_prm(api, name, value.val)
+    timeout_s += GDS_TIMEOUT_SLACK_S
+    try:
+        if fail:
+            api.send_and_assert_event(
+                cmd, cmd_args, events="CdhCore.cmdDisp.OpCodeError", timeout=timeout_s
+            )
+        else:
+            api.send_and_assert_command(cmd, cmd_args, timeout=timeout_s)
+    finally:
+        for name in prms:
+            default = templates[name].prm_default_val
+            if default is not None:
+                _gds_set_prm(api, name, default)
 
 
 def _build_seq_args_json(args: bytes) -> str:
     """Build a JSON string for the Svc.SeqArgs struct expected by RUN_ARGS."""
-    import json
-
     buf = list(args) + [0] * (255 - len(args))
     return json.dumps({"size": len(args), "buffer": buf})
 
@@ -642,16 +728,17 @@ def run_seq(
         tlm = {}
 
     if fprime_test_api is not None:
-        seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
-        if args:
-            seq_args = _build_seq_args_json(args)
-            fprime_test_api.send_and_assert_command(
-                "Ref.seqDisp.RUN_ARGS", [seq_path, "BLOCK", seq_args], timeout=timeout_s
-            )
-        else:
-            fprime_test_api.send_and_assert_command(
-                "Ref.seqDisp.RUN", [seq_path, "BLOCK"], timeout=timeout_s
-            )
+        _gds_run(
+            fprime_test_api,
+            directives,
+            arg_name_types,
+            tlm=tlm,
+            prms=prms,
+            seq_dir=seq_dir,
+            args=args,
+            timeout_s=timeout_s,
+            fail=False,
+        )
         return
 
     d = load_dictionary(default_dictionary)
@@ -887,7 +974,7 @@ def _run_success_wasm(
     if fprime_test_api is not None:
         wasm_path = _write_wasm_to_tmpfile(wasm)
         fprime_test_api.send_and_assert_command(
-            "Ref.wasmSeq.RUN", [wasm_path, "BLOCK"], timeout=timeout_s
+            GDS_RUN_CMD[WASM], [wasm_path, "BLOCK"], timeout=timeout_s
         )
         return
     _materialize_children(seq_dir, WASM)
@@ -1025,27 +1112,21 @@ def _run_failure_fpybc(
         d = load_dictionary(default_dictionary)
         seq_run_opcodes = {d["cmd_name_dict"]["Ref.seqDisp.RUN_ARGS"].opcode}
 
+    _materialize_children(seq_dir, FPYBC)
     if fprime_test_api is not None:
-        # GDS mode: send the sequence and assert that it fails via OpCodeError event
-        seq_path = _write_seq_to_tmpfile(directives, arg_name_types)
-        if args_bytes:
-            seq_args = _build_seq_args_json(args_bytes)
-            fprime_test_api.send_and_assert_event(
-                "Ref.seqDisp.RUN_ARGS",
-                [seq_path, "BLOCK", seq_args],
-                events="CdhCore.cmdDisp.OpCodeError",
-                timeout=4,
-            )
-        else:
-            fprime_test_api.send_and_assert_event(
-                "Ref.seqDisp.RUN",
-                [seq_path, "BLOCK"],
-                events="CdhCore.cmdDisp.OpCodeError",
-                timeout=4,
-            )
+        _gds_run(
+            fprime_test_api,
+            directives,
+            arg_name_types,
+            tlm=tlm,
+            prms=None,
+            seq_dir=seq_dir,
+            args=args_bytes,
+            timeout_s=4,
+            fail=True,
+        )
         return
 
-    _materialize_children(seq_dir, FPYBC)
     try:
         run_seq(
             fprime_test_api,
@@ -1108,7 +1189,7 @@ def _run_failure_wasm(
         # OpCodeError event, mirroring the bytecode GDS failure path.
         wasm_path = _write_wasm_to_tmpfile(wasm)
         fprime_test_api.send_and_assert_event(
-            "Ref.wasmSeq.RUN",
+            GDS_RUN_CMD[WASM],
             [wasm_path, "BLOCK"],
             events="CdhCore.cmdDisp.OpCodeError",
             timeout=4,

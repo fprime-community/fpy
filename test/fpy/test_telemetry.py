@@ -111,6 +111,7 @@ x: U32 = CdhCore.cmdDisp.NonExistentChannel
 
         assert_compile_failure(fprime_test_api, seq)
 
+    @pytest.mark.harness_only("a live deployment has a value for this channel")
     def test_tlm_chan_not_found(self, fprime_test_api):
         # The spacecraft has no value for the channel, so the read fails the
         # sequence.
