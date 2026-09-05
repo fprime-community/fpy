@@ -473,6 +473,44 @@ exit(1)
 
         assert_run_success(fprime_test_api, seq)
 
+    def test_const_fold_struct_eq_negative_zero_member(self, fprime_test_api):
+        """Folded aggregate equality compares serialized bytes like the
+        runtime does, so a 0.0 member and a -0.0 member are not equal."""
+        seq = """
+if Ref.SignalPair(1.0, 0.0) == Ref.SignalPair(1.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_struct_neq_negative_zero_member(self, fprime_test_api):
+        seq = """
+if Ref.SignalPair(1.0, 0.0) != Ref.SignalPair(1.0, -0.0):
+    exit(0)
+exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_array_eq_agrees_with_runtime(self, fprime_test_api):
+        """The folded and the runtime answers to the same comparison agree."""
+        seq = """
+a: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 0.0)
+b: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, -0.0)
+if a == b:
+    exit(2)
+if Ref.SignalSet(1.0, 2.0, 3.0, 0.0) == Ref.SignalSet(1.0, 2.0, 3.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_numeric_negative_zero_is_equal(self, fprime_test_api):
+        """Numbers, including aggregate members read out, still compare
+        numerically: 0.0 == -0.0."""
+        seq = """
+assert 0.0 == -0.0
+assert Ref.SignalPair(1.0, 0.0).value == Ref.SignalPair(1.0, -0.0).value
+"""
+        assert_run_success(fprime_test_api, seq)
+
     def test_runtime_array_equality(self, fprime_test_api):
         """Array equality with runtime (non-const) operands."""
         seq = """

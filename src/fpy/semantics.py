@@ -2672,6 +2672,18 @@ class CalculateConstExprValues(Visitor):
 
         state.const_expr_values[node] = expr_value
 
+    @staticmethod
+    def _const_equal(lhs: FpyValue, rhs: FpyValue) -> bool:
+        """== of two constants. Numbers compare by value; a non-numeric operand
+        (struct, array, enum, time) compares by serialized bytes, which is
+        what the runtime compares (spec "Equality semantics"), so that folding
+        cannot change a comparison's answer: 0.0 and -0.0 are equal as
+        numbers but not as struct members."""
+        if lhs.type.is_numerical:
+            return lhs.val == rhs.val
+        assert lhs.type == rhs.type, (lhs.type, rhs.type)
+        return lhs.serialize() == rhs.serialize()
+
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
         lhs_value: FpyValue = state.const_expr_values.get(node.lhs)
@@ -2689,6 +2701,8 @@ class CalculateConstExprValues(Visitor):
             return
 
         # Both sides are constants, evaluate the operation if the operator is supported
+        lhs_const = lhs_value
+        rhs_const = rhs_value
         # get the actual pythonic value from the fpy type
         lhs_value = lhs_value.val
         rhs_value = rhs_value.val
@@ -2736,9 +2750,9 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value <= rhs_value
             # Equality Checking
             elif node.op == BinaryStackOp.EQUAL:
-                folded_value = lhs_value == rhs_value
+                folded_value = self._const_equal(lhs_const, rhs_const)
             elif node.op == BinaryStackOp.NOT_EQUAL:
-                folded_value = lhs_value != rhs_value
+                folded_value = not self._const_equal(lhs_const, rhs_const)
             else:
                 # missing an operation
                 assert False, node.op
