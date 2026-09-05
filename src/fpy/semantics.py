@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
 import itertools
+import math
 from pathlib import Path
 import struct
 from typing import Union
@@ -2356,7 +2357,10 @@ class CalculateConstExprValues(Visitor):
                 rounded_value = CalculateConstExprValues._round_float_to_type(
                     coerced_value, to_type
                 )
-                if rounded_value is None:
+                # a value too large for the type either fails to pack or, past
+                # the double range, silently becomes infinite; there is no
+                # literal for an infinite value, so both are out of range
+                if rounded_value is None or not math.isfinite(rounded_value):
                     state.err(
                         f"{raw_val} is out of range for type {to_type.display_name}",
                         node,

@@ -571,6 +571,31 @@ x()
         assert_compile_failure(fprime_test_api, seq)
 
 
+class TestNonFiniteFloatConstants:
+    """A constant float that does not fit its finite float type is a compile
+    error, never a silent infinity."""
+
+    def test_f64_literal_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f32_literal_overflow(self, fprime_test_api):
+        seq = "x: F32 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F32")
+
+    def test_f64_folded_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e308 * 10.0\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_folded_overflow_of_typed_operands(self, fprime_test_api):
+        seq = "x: F64 = F64(1e308) * F64(10.0)\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_max_is_in_range(self, fprime_test_api):
+        seq = "x: F64 = 1.7976931348623157e308\nassert x > 1e308\n"
+        assert_run_success(fprime_test_api, seq)
+
+
 class TestStringTypes:
 
     def test_string_eq(self, fprime_test_api):
