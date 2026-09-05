@@ -1741,10 +1741,11 @@ class PickTypesAndResolveFields(Visitor):
         if op in BOOLEAN_OPERATORS:
             return BOOL
 
-        # for == and !=, non-numeric same-type comparisons are valid
+        # for == and !=, non-numeric same-type comparisons are valid, as long
+        # as the operands have a value at all
         if op in (BinaryStackOp.EQUAL, BinaryStackOp.NOT_EQUAL):
             if len(arg_types) == 2 and arg_types[0] == arg_types[1]:
-                if not arg_types[0].is_numerical:
+                if not arg_types[0].is_numerical and arg_types[0] != NOTHING:
                     # non-numeric equality (struct, array, enum, time)
                     return arg_types[0]
 
