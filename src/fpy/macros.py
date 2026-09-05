@@ -369,6 +369,9 @@ TIME_MACRO = BuiltinFuncSymbol(
         ("timeContext", U8, FpyValue(U8, 0)),
     ],
     lambda n, c, t: [],  # placeholder - const eval handles this
+    # every argument must be a compile-time constant: time() is always
+    # evaluated at compile time and has no runtime lowering
+    const_arg_indices=frozenset({0, 1, 2}),
 )
 
 MACROS: dict[str, BuiltinFuncSymbol] = {
