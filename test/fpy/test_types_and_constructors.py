@@ -404,6 +404,28 @@ assert pick(1) == 20
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_get_variable_idx_of_folded_element_of_ctor_result(self, fprime_test_api):
+        """A runtime index into a constant-indexed element of a constant
+        expression: the constant prefix folds, and the runtime index must
+        still find storage to index into."""
+        seq = """
+j: I64 = 1
+c: Ref.Choice = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.TWO), \\
+    Ref.ManyChoices(Ref.Choice.RED, Ref.Choice.BLUE))[0][j]
+assert c == Ref.Choice.TWO
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_get_variable_idx_of_folded_member_of_ctor_result(self, fprime_test_api):
+        seq = """
+j: I64 = 1
+x: F32 = Ref.SignalInfo(Ref.SignalType.SINE, \\
+    Ref.SignalSet(1.0, 2.0, 3.0, 4.0), Ref.SignalPairSet()).history[j]
+assert x == 2.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 

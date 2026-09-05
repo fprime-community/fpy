@@ -156,6 +156,14 @@ def is_addressable(expr: AstExpr, state: CompileState) -> bool:
     return is_instance_compat(sym, (VariableSymbol, FieldAccess))
 
 
+def denotes_location(expr: AstExpr, state: CompileState) -> bool:
+    """True when a pointer to *expr* is formed from its own location: it is
+    addressable and has not folded to a constant. A folded access (a constant
+    element of a constant constructor call) is emitted as its constant, so an
+    access into it copies that constant to a temp slot instead."""
+    return is_addressable(expr, state) and state.const_expr_values.get(expr) is None
+
+
 class EmitLlvmExpr(Emitter):
     """Lowers a single Fpy arithmetic/comparison expression into LLVM IR.
 
@@ -276,7 +284,7 @@ class EmitLlvmExpr(Emitter):
         """Emit a pointer to *expr*'s value, without loading it."""
         b = self.builder
         i32 = ir.IntType(32)
-        if not is_addressable(expr, state):
+        if not denotes_location(expr, state):
             return self._emit_to_temp_slot(expr, state)
         sym = state.resolved_symbols[expr]
         if is_instance_compat(sym, VariableSymbol):
@@ -983,7 +991,7 @@ class AssignAddresses(TopDownVisitor):
 
         # _emit_ptr copies its argument to a slot on exactly this condition.
         parent = state.resolved_symbols[access].parent_expr
-        if is_addressable(parent, state):
+        if denotes_location(parent, state):
             return None
         if parent in state.backend.temp_slots:
             # The AST can share one expression between two places (a default
