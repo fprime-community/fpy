@@ -155,6 +155,22 @@ class Transformer(Visitor):
 
     def run(self, start: Ast, state: CompileState):
 
+        def _transform_elem(elem):
+            """Transform one non-list child, returning its replacement (or
+            itself). A node may not be split into several here."""
+            if not isinstance(elem, Ast):
+                return elem
+            _descend(elem)
+            if len(state.errors) != 0:
+                return elem
+            transformed = self._visit(elem, state)
+            if isinstance(transformed, Ast):
+                return transformed
+            if transformed is Transformer.Delete:
+                return None
+            assert transformed is None, transformed
+            return elem
+
         def _descend(node):
             if not isinstance(node, Ast):
                 return
@@ -169,6 +185,15 @@ class Transformer(Visitor):
                     idx = -1
                     for child in field_val[:]:
                         idx += 1
+                        if isinstance(child, tuple):
+                            # a list of tuples (e.g. function parameters):
+                            # transform each Ast element of the tuple in place
+                            field_val[idx] = tuple(
+                                _transform_elem(elem) for elem in child
+                            )
+                            if len(state.errors) != 0:
+                                break
+                            continue
                         if not isinstance(child, Ast):
                             continue
                         _descend(child)
@@ -207,21 +232,9 @@ class Transformer(Visitor):
                     # don't need to update the field, it was a ptr to a list so should
                     # already be updated
                 else:
-                    _descend(field_val)
+                    setattr(node, field.name, _transform_elem(field_val))
                     if len(state.errors) != 0:
                         break
-                    transformed = self._visit(field_val, state)
-                    if len(state.errors) != 0:
-                        break
-                    if isinstance(transformed, Ast):
-                        setattr(node, field.name, transformed)
-                    elif transformed is Transformer.Delete:
-                        # just delete it
-                        setattr(node, field.name, None)
-                    else:
-                        # cannot return a list if the original attr wasn't a list
-                        assert transformed is None, transformed
-                        # don't do anything, didn't return anything
 
         _descend(start)
         self._visit(start, state)

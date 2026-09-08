@@ -7,13 +7,31 @@
 
 namespace Svc {
 
-using WasmState = WasmSequencer_SequencerStateMachine_State;
+using WasmState = WasmSequencer_InterpreterStateMachine_State;
 
 WasmSequencerTester::WasmSequencerTester()
     : WasmSequencerTesterComponentBase("WasmSequencerTester"), m_sequencer("WasmSequencer") {
     this->init(0);
     this->m_sequencer.init(QUEUE_DEPTH, 0);
     this->connectPorts();
+
+    // configure() allocates the sequencer's backing pools and creates the
+    // initial store; it must run after port wiring because creating the
+    // store emits an event. Everything not set here keeps the Config
+    // default. guestMemorySize is raised so real compiled sequences (whose
+    // linear memory is at least one 64 KiB wasm page) can load; two pages
+    // fit every sequence the test suite builds. serialOutMax and the
+    // serialIn queues must be nonzero or the sequencer disables serial
+    // writes and drops inbound frames.
+    WasmSequencer::Config config;
+    config.guestMemorySize = 128 * 1024;
+    config.serialOutMax = 256;
+    for (FwIndexType i = 0; i < WasmSequencer::NUM_SERIALIN_INPUT_PORTS; i++) {
+        config.serialIn[i].size = 256;
+        config.serialIn[i].fullBehavior = WasmSequencer::SerialInQueueFullBehavior::DROP_OLDEST;
+    }
+    this->m_sequencer.configure(config, this->m_allocator);
+
     this->m_sequencer.loadParameters();
 }
 
@@ -34,8 +52,10 @@ void WasmSequencerTester::connectPorts() {
     seq.set_prmGet_OutputPort(0, this->get_prmGetIn_InputPort(1));
     seq.set_prmSet_OutputPort(0, this->get_prmSetIn_InputPort(0));
     seq.set_timeCaller_OutputPort(0, this->get_timeGetIn_InputPort(0));
+    // serialReply stays unconnected: the sequencer requires that for ports
+    // the guest writes synchronously, the only way the compiler writes them.
     for (FwIndexType i = 0; i < Fpy::SerialPortIndex::MAX_SERIAL_PORTS; i++) {
-        seq.set_serialSyncOut_OutputPort(i, this->get_serialIn_InputPort(i));
+        seq.set_serialOut_OutputPort(i, this->get_serialIn_InputPort(i));
     }
 
     // Tester outputs, into the sequencer.
@@ -56,9 +76,9 @@ harness::HarnessResult WasmSequencerTester::run(const harness::HarnessRequest& r
     }
 
     WasmSequencer& seq = this->m_sequencer;
-    this->m_result.state = static_cast<I32>(seq.sequencer_getState());
-    this->m_result.sequencesSucceeded = seq.m_tlmSequencesSucceeded;
-    this->m_result.statementsDispatched = seq.m_tlmCommandsDispatched;
+    this->m_result.state = static_cast<I32>(seq.interpreter_getState());
+    this->m_result.sequencesSucceeded = seq.m_tlm.sequencesSucceeded;
+    this->m_result.statementsDispatched = seq.m_tlm.commandsDispatched;
 
     this->m_request = nullptr;
     return this->m_result;
@@ -106,16 +126,22 @@ void WasmSequencerTester::pump() {
                 // the run is over.
                 return;
             }
-            WasmState state = seq.sequencer_getState();
-            if (state == WasmState::RUNNING_AWAITING_RESPONSE && seq.m_hasPendingTimer) {
+            WasmState state = seq.interpreter_getState();
+            if (state == WasmState::RUNNING_AWAITING_RESPONSE_SLEEPING && seq.m_hasPendingTimer) {
                 // The sequence is sleeping. Jump the clock to the wake-up
                 // time instead of waiting, then let the sequencer check its
-                // timers. On a time base mismatch the clock is left alone;
-                // the sequencer fails the sequence itself when it compares
-                // the times.
+                // timers. A wake-up time that has already come (a
+                // zero-duration sleep) resumes on the next checkTimers call,
+                // one CHECK_TIMERS_PERIOD_USEC later. On a time base mismatch
+                // the clock is left alone; the sequencer fails the sequence
+                // itself when it compares the times.
                 const Fw::Time& wakeup = seq.m_pendingTimer;
-                if (wakeup.getTimeBase() == this->m_now.getTimeBase() && this->m_now < wakeup) {
-                    this->m_now = wakeup;
+                if (wakeup.getTimeBase() == this->m_now.getTimeBase()) {
+                    if (this->m_now < wakeup) {
+                        this->m_now = wakeup;
+                    } else {
+                        this->m_now.add(0, CHECK_TIMERS_PERIOD_USEC);
+                    }
                 }
                 this->schedSend_out(0, 0);
                 continue;
@@ -126,7 +152,7 @@ void WasmSequencerTester::pump() {
         }
 
         (void)seq.doDispatch();
-        WasmState state = seq.sequencer_getState();
+        WasmState state = seq.interpreter_getState();
         this->m_result.reachedRunning = this->m_result.reachedRunning || state == WasmState::RUNNING_SPINNING;
     }
     this->m_result.error = "dispatch cap hit; the sequence appears to loop forever";
@@ -156,13 +182,68 @@ void WasmSequencerTester::comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& d
     this->m_result.cmds.emplace_back(cmd, cmd + cmdSize);
 
     Fw::CmdResponse response(static_cast<Fw::CmdResponse::T>(request.cmdResponse));
-    if (request.failOpcodes.count(opcode) > 0) {
+    if (request.seqRunOpcodes.count(opcode) > 0) {
+        const U8* args = cmd + sizeof(FwOpcodeType);
+        FwSizeType argsSize = cmdSize - sizeof(FwOpcodeType);
+        response = this->runChildSequence(args, argsSize);
+    } else if (request.failOpcodes.count(opcode) > 0) {
         response = Fw::CmdResponse::EXECUTION_ERROR;
     }
 
     // Answer right away, echoing the context back as the command sequence
     // value.
     this->cmdResponseSend_out(0, opcode, context, response);
+}
+
+Fw::CmdResponse WasmSequencerTester::runChildSequence(const U8* args, FwSizeType argsSize) {
+    const harness::HarnessRequest& request = *this->m_request;
+
+    // Parse (fileName, blockState, seqArgs) following the dictionary layout
+    // the compiler serialized: the SeqArgs buffer length comes from the
+    // request because the dictionary's length can differ from this build's.
+    Fw::ExternalSerializeBuffer buffer(const_cast<U8*>(args), argsSize);
+    Fw::SerializeStatus status = buffer.setBuffLen(argsSize);
+    FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
+
+    Fw::CmdStringArg fileName;
+    Svc::BlockState blockState;
+    FwSizeType childArgsSize = 0;
+    if (buffer.deserializeTo(fileName) != Fw::SerializeStatus::FW_SERIALIZE_OK ||
+        buffer.deserializeTo(blockState) != Fw::SerializeStatus::FW_SERIALIZE_OK ||
+        buffer.deserializeTo(childArgsSize) != Fw::SerializeStatus::FW_SERIALIZE_OK) {
+        this->m_result.error = "could not parse the arguments of a seq-run command";
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    // The size field counts only the used bytes of the fixed-capacity SeqArgs
+    // buffer, so any value up to the capacity is valid; a larger value would
+    // point past the end of the buffer.
+    if (buffer.getBuffLeft() != request.seqArgsBufferSize || childArgsSize > request.seqArgsBufferSize) {
+        this->m_result.error = "seq-run command arguments do not match the dictionary's SeqArgs layout";
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    const U8* childArgs = buffer.getBuffAddr() + (argsSize - buffer.getBuffLeft());
+
+    harness::HarnessRequest childRequest = request;
+    childRequest.seqFile = fileName.toChar();
+    childRequest.hasArgs = true;
+    childRequest.args.assign(childArgs, childArgs + childArgsSize);
+    // The child starts at the parent's current clock; the parent's clock does
+    // not move while the child runs.
+    childRequest.timeBase = static_cast<U16>(this->m_now.getTimeBase());
+    childRequest.timeContext = this->m_now.getContext();
+    childRequest.seconds = this->m_now.getSeconds();
+    childRequest.useconds = this->m_now.getUSeconds();
+
+    WasmSequencerTester child;
+    harness::HarnessResult childResult = child.run(childRequest);
+    if (!childResult.error.empty()) {
+        this->m_result.error = "child sequence " + childRequest.seqFile + ": " + childResult.error;
+        return Fw::CmdResponse::EXECUTION_ERROR;
+    }
+    if (childResult.gotCmdResponse && childResult.cmdResponse == Fw::CmdResponse::OK) {
+        return Fw::CmdResponse::OK;
+    }
+    return Fw::CmdResponse::EXECUTION_ERROR;
 }
 
 void WasmSequencerTester::cmdResponseIn_handler(FwIndexType portNum,
@@ -197,10 +278,17 @@ void WasmSequencerTester::logIn_handler(FwIndexType portNum,
                                         Fw::Time& timeTag,
                                         const Fw::LogSeverity& severity,
                                         Fw::LogBuffer& args) {
-    if (id == WasmSequencer::EVENTID_SEQUENCEEXITEDWITHERROR) {
+    if (id == WasmSequencer::EVENTID_SEQUENCEEXITED || id == WasmSequencer::EVENTID_SEQUENCEPANIC) {
+        // The code the guest passed to the exit or panic host function. Only
+        // a nonzero code raises these events (exit(0) finishes cleanly). The
+        // code follows the module index and execution phase.
         args.resetDeser();
+        WasmSequencer_ModuleIdx index = 0;
+        WasmSequencer_SequencePhase phase;
         I32 exitCode = 0;
-        if (args.deserializeTo(exitCode) == Fw::SerializeStatus::FW_SERIALIZE_OK) {
+        if (args.deserializeTo(index) == Fw::SerializeStatus::FW_SERIALIZE_OK &&
+            args.deserializeTo(phase) == Fw::SerializeStatus::FW_SERIALIZE_OK &&
+            args.deserializeTo(exitCode) == Fw::SerializeStatus::FW_SERIALIZE_OK) {
             this->m_result.exited = true;
             this->m_result.exitCode = exitCode;
         }

@@ -236,32 +236,32 @@ assert val.useconds == 500
     def test_multiline_anon_array(self, fprime_test_api):
         """Anon array split over multiple lines."""
         seq = """
-x: U32 = [
+x: Ref.DpDemo.U32Array = [
     10,
     20,
     30
-][1]
-assert x == 20
+]
+assert x[1] == 20
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_multiline_anon_array_trailing_comma(self, fprime_test_api):
         """Anon array split over multiple lines with trailing comma."""
         seq = """
-x: U32 = [
+x: Ref.DpDemo.U32Array = [
     10,
     20,
     30,
-][1]
-assert x == 20
+]
+assert x[1] == 20
 """
         assert_run_success(fprime_test_api, seq)
 
     def test_trailing_comma_anon_array_single_line(self, fprime_test_api):
         """Trailing comma on a single-line anon array."""
         seq = """
-x: U32 = [10, 20, 30,][1]
-assert x == 20
+x: Ref.DpDemo.U32Array = [10, 20, 30,]
+assert x[1] == 20
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -828,7 +828,7 @@ class TestMultilineConstructorsWithoutBackslash:
     def test_nested_multiline_constructor(self, fprime_test_api):
         seq = (
             "v: Fw.TimeIntervalValue = Fw.TimeIntervalValue(\n"
-            "    [10, 20, 30][0],\n"
+            "    Svc.ComQueueDepth(10, 20)[0],\n"
             "    500,\n"
             ")\n"
             "assert v.seconds == 10\n"

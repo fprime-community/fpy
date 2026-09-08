@@ -65,7 +65,6 @@ fprime-fpyc = "fpy.main:compile_main"
 fprime-fpy-asm = "fpy.main:assemble_main"
 fprime-fpy-disasm = "fpy.main:disassemble_main"
 fprime-fpy-cmd = "fpy.main:cmd_main"
-fprime-fpy-depend = "fpy.main:depend_main"
 
 ####
 # The test suite lives in test/fpy. The fprime submodules and the harness
@@ -109,8 +108,8 @@ dev = [
 ]
 harness = [
     "cmake==3.26.0",
-    "fprime-fpp==3.3.0a15",
-    "fprime-tools==4.3.0a5",
+    "fprime-fpp==3.3.0",
+    "fprime-tools==4.3.0",
     "ninja==1.11.1.4",
 ]
 

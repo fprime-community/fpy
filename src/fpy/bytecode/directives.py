@@ -11,7 +11,6 @@ from fpy.types import (
     TypeKind,
     FwSizeStoreType,
     U8,
-    U16,
     U32,
     U64,
     I8,
@@ -259,7 +258,7 @@ class Directive:
     def serialize(self) -> bytes:
         arg_bytes = self.serialize_args()
         output = FpyValue(U8, self.opcode.value).serialize()
-        output += FpyValue(U16, len(arg_bytes)).serialize()
+        output += FpyValue(FwSizeStoreType, len(arg_bytes)).serialize()
         output += arg_bytes
         return output
 
@@ -293,11 +292,12 @@ class Directive:
 
     @classmethod
     def deserialize(cls, data: bytes, offset: int) -> tuple[int, Directive] | None:
-        if len(data) - offset < 3:
+        header_size = U8.max_size + FwSizeStoreType.max_size
+        if len(data) - offset < header_size:
             return None
         opcode = struct.unpack_from(">B", data, offset)[0]
-        arg_size = struct.unpack_from(">H", data, offset + 1)[0]
-        offset += 3
+        arg_size = FpyValue.deserialize(FwSizeStoreType, data, offset + 1)[0].val
+        offset += header_size
         if len(data) - offset < arg_size:
             return None
         args = data[offset : (offset + arg_size)]
@@ -884,88 +884,3 @@ for cls in Directive.__subclasses__():
 for cls in StackOpDirective.__subclasses__():
     cls.__old_repr__ = cls.__repr__
     cls.__repr__ = StackOpDirective.__repr__
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Operator dispatch tables  (keys are FpyType singletons)
-# ─────────────────────────────────────────────────────────────────────────────
-
-UNARY_STACK_OPS: dict[str, dict[FpyType, type[StackOpDirective]]] = {
-    UnaryStackOp.NOT: {BOOL: NotDirective},
-    UnaryStackOp.IDENTITY: {
-        I64: NoOpDirective,
-        U64: NoOpDirective,
-        F64: NoOpDirective,
-    },
-    UnaryStackOp.NEGATE: {
-        I64: IntMultiplyDirective,
-        U64: IntMultiplyDirective,  # TODO disallow uint negation
-        F64: FloatMultiplyDirective,
-    },
-}
-
-BINARY_STACK_OPS: dict[str, dict[FpyType, type[StackOpDirective]]] = {
-    BinaryStackOp.EXPONENT: {F64: FloatExponentDirective},
-    BinaryStackOp.MODULUS: {
-        I64: SignedModuloDirective,
-        U64: UnsignedModuloDirective,
-        F64: FloatModuloDirective,
-    },
-    BinaryStackOp.ADD: {
-        I64: IntAddDirective,
-        U64: IntAddDirective,
-        F64: FloatAddDirective,
-    },
-    BinaryStackOp.SUBTRACT: {
-        I64: IntSubtractDirective,
-        U64: IntSubtractDirective,
-        F64: FloatSubtractDirective,
-    },
-    BinaryStackOp.MULTIPLY: {
-        I64: IntMultiplyDirective,
-        U64: IntMultiplyDirective,
-        F64: FloatMultiplyDirective,
-    },
-    BinaryStackOp.DIVIDE: {
-        I64: SignedIntDivideDirective,
-        U64: UnsignedIntDivideDirective,
-        F64: FloatDivideDirective,
-    },
-    BinaryStackOp.FLOOR_DIVIDE: {
-        I64: SignedIntDivideDirective,
-        U64: UnsignedIntDivideDirective,
-        # special case for float floor div
-    },
-    BinaryStackOp.GREATER_THAN: {
-        I64: SignedGreaterThanDirective,
-        U64: UnsignedGreaterThanDirective,
-        F64: FloatGreaterThanDirective,
-    },
-    BinaryStackOp.GREATER_THAN_OR_EQUAL: {
-        I64: SignedGreaterThanOrEqualDirective,
-        U64: UnsignedGreaterThanOrEqualDirective,
-        F64: FloatGreaterThanOrEqualDirective,
-    },
-    BinaryStackOp.LESS_THAN_OR_EQUAL: {
-        I64: SignedLessThanOrEqualDirective,
-        U64: UnsignedLessThanOrEqualDirective,
-        F64: FloatLessThanOrEqualDirective,
-    },
-    BinaryStackOp.LESS_THAN: {
-        I64: SignedLessThanDirective,
-        U64: UnsignedLessThanDirective,
-        F64: FloatLessThanDirective,
-    },
-    BinaryStackOp.EQUAL: {
-        I64: IntEqualDirective,
-        U64: IntEqualDirective,
-        F64: FloatEqualDirective,
-    },
-    BinaryStackOp.NOT_EQUAL: {
-        I64: IntNotEqualDirective,
-        U64: IntNotEqualDirective,
-        F64: FloatNotEqualDirective,
-    },
-    BinaryStackOp.OR: {BOOL: OrDirective},
-    BinaryStackOp.AND: {BOOL: AndDirective},
-}

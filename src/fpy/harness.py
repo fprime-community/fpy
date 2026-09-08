@@ -31,7 +31,6 @@ class HarnessError(Exception):
     a malformed reply, or crashed. Distinct from a sequence failing."""
 
 
-# FIXME this should be called build fpybc harness
 def build_harness() -> None:
     """Builds the FpySequencer harness executable from the fprime submodule.
     The build is incremental, so this is cheap when nothing changed."""
@@ -166,9 +165,9 @@ _wasm_harness: SequencerHarness | None = None
 # The first failed build, re-raised on later calls: retrying the build once
 # it has failed only repeats the same slow failure.
 _fpy_build_error: HarnessError | None = None
+_wasm_build_error: HarnessError | None = None
 
 
-# FIXME: should be fpybc
 def fpy_harness() -> SequencerHarness:
     """The shared harness for the fpy bytecode backend, building its binary
     on first use."""
@@ -186,9 +185,17 @@ def fpy_harness() -> SequencerHarness:
 
 
 def wasm_harness() -> SequencerHarness:
-    """The shared harness for the LLVM/wasm backend."""
-    global _wasm_harness
+    """The shared harness for the LLVM/wasm backend, building its binary on
+    first use."""
+    global _wasm_harness, _wasm_build_error
+    if _wasm_build_error is not None:
+        raise _wasm_build_error
     if _wasm_harness is None:
+        try:
+            build_wasm_harness()
+        except HarnessError as e:
+            _wasm_build_error = e
+            raise
         _wasm_harness = SequencerHarness(WASM_HARNESS_BINARY)
     return _wasm_harness
 

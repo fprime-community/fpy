@@ -6,7 +6,6 @@ from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
 from fpy.codegen_fpybc import (
     AssignFrameOffsets,
-    CollectUsedFunctions,
     FinalChecks,
     FpybcBackendState,
     GenerateFunctionEntryPoints,
@@ -16,6 +15,7 @@ from fpy.codegen_fpybc import (
     ResolveLabels,
 )
 from fpy.desugaring import (
+    DesugarAnonExprs,
     DesugarAugmentedAssignments,
     DesugarDefaultArgs,
     DesugarForLoops,
@@ -28,6 +28,7 @@ from fpy.semantics import (
     CreateScopes,
     CheckResolvedSymbolKinds,
     CheckAllUnqualifiedIdentifiersResolved,
+    CheckAnonStructMembers,
     CheckAssignSyntax,
     CheckSequenceMetadataDefinedAtTop,
     CalculateConstExprValues,
@@ -38,12 +39,12 @@ from fpy.semantics import (
     CheckReturnInFunc,
     CheckUseBeforeDefine,
     CollectFunctionGlobalUses,
+    CollectUsedFunctions,
     ResolveTransitiveGlobalUses,
     CheckGlobalsInitializedBeforeCall,
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
-    CollectSequenceDependencies,
     PickTypesAndResolveFields,
     ResolveQualifiedIdentifiers,
     ResolveSequenceDependencies,
@@ -175,7 +176,10 @@ def _build_root_block(program: AstBlock, state: CompileState):
     )
 
 
-def text_to_ast(text: str):
+def text_to_ast(text: str) -> AstBlock:
+    """Lex, parse and transform fpy source into an AST block.
+
+    Raises CompileError on failure."""
     from lark.exceptions import VisitError
 
     fpy.error.input_text = text
@@ -184,7 +188,6 @@ def text_to_ast(text: str):
         tree = _parse_fpy(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
-        return None
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
@@ -221,12 +224,9 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     # children. All later passes run on state.root_block.
     _build_root_block(body, state)
 
-    pre_semantic_desugaring_passes = [
+    passes: list[Visitor] = [
         DesugarCheckStatements(),
         DesugarAugmentedAssignments(),
-    ]
-
-    semantics_passes: list[Visitor] = [
         # sequence() metadata, if present, must be the first statement of
         # each sequence block
         CheckSequenceMetadataDefinedAtTop(),
@@ -236,6 +236,8 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CreateScopes(),
         # check that assignment targets are valid
         CheckAssignSyntax(),
+        # check that no anonymous struct names a member twice
+        CheckAnonStructMembers(),
         # register all user-defined functions in the global callable scope
         # (and the builtin library functions in the shared base callable scope)
         DefineFunctions(),
@@ -269,10 +271,15 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         # ...so we can check globals are initialized before any function that
         # reads them (directly or transitively) is called
         CheckGlobalsInitializedBeforeCall(),
-        # discover sequence-run dependencies (.bin files) before type checking
+        # discover sequence-run dependencies (the targets' .fpy sources)
+        # before type checking
         ResolveSequenceDependencies(),
         # this pass resolves all attributes and items, as well as determines the type of expressions
         PickTypesAndResolveFields(),
+        # now that every anonymous struct/array has been given a type, turn
+        # each into a call of that type's constructor (and reject any that
+        # were not given a type), so no later pass sees an anonymous expr
+        DesugarAnonExprs(),
         # Calculate const values for default arguments first (and check they're const).
         # This must happen before CalculateConstExprValues because call sites may
         # reference functions defined later in the source, and we need the default
@@ -285,27 +292,18 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
         CheckSequenceArgs(),
-    ]
-    desugaring_passes: list[Visitor] = [
+        # now that semantic analysis is done, we can desugar things.
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),
         # Desugar time operators before for loops (time ops may be in loop conditions)
         DesugarTimeOperators(),
-        # now that semantic analysis is done, we can desugar things. start with for loops
         DesugarForLoops(),
+        # Collect which functions are reachable through calls from the main
+        # sequence. Runs after desugaring because desugared time operators
+        # call script functions.
+        CollectUsedFunctions(),
     ]
-
-    for compile_pass in pre_semantic_desugaring_passes:
-        compile_pass.run(state.root_block, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    for compile_pass in semantics_passes:
-        compile_pass.run(state.root_block, state)
-        if len(state.errors) != 0:
-            raise state.errors[0]
-
-    for compile_pass in desugaring_passes:
+    for compile_pass in passes:
         compile_pass.run(state.root_block, state)
         if len(state.errors) != 0:
             raise state.errors[0]
@@ -324,8 +322,6 @@ def analysis_to_fpybc_directives(
         # Assign variable offsets before generating function bodies
         # so global variable offsets are known when referenced in functions
         AssignFrameOffsets(),
-        # Collect which functions are called anywhere in the code
-        CollectUsedFunctions(),
         GenerateFunctionEntryPoints(),
         # generate all function bodies
         GenerateFunctions(),
@@ -393,50 +389,3 @@ def analysis_to_wat(
 
     module, seq_arg_types = analysis_to_llvm_module(state)
     return llvm_module_to_wasm_text(module), seq_arg_types
-
-
-def ast_to_dependencies(body: AstBlock, state: CompileState) -> list[str]:
-    """Return the list of .bin paths that a sequence source file depends on.
-
-    Runs only the passes needed to resolve command symbols — does not attempt
-    to read the binary files, so this works before any binaries are compiled.
-
-    Raises CompileError on failure.
-    """
-    # Load imported sequences first so sequence-run dependencies inside them are
-    # discovered too.
-    ConstructAst().run(body, state)
-    if state.errors:
-        raise state.errors[0]
-
-    # Wrap the program in the library root block (sets state.root_block and
-    # state.main_block).
-    _build_root_block(body, state)
-
-    discovery_passes: list[Visitor] = [
-        CheckSequenceMetadataDefinedAtTop(),
-        DesugarCheckStatements(),
-        DesugarAugmentedAssignments(),
-        AssignIds(),
-        CreateScopes(),
-        DefineFunctions(),
-        DefineVariables(),
-        BindImports(),
-        AssignNameGroups(),
-        ResolveQualifiedIdentifiers(),
-    ]
-    for compile_pass in discovery_passes:
-        compile_pass.run(state.root_block, state)
-        if state.errors:
-            raise state.errors[0]
-
-    discover = CollectSequenceDependencies()
-    discover.run(state.root_block, state)
-    if state.errors:
-        raise state.errors[0]
-
-    if state.ground_binary_dir is not None:
-        return [
-            str(Path(state.ground_binary_dir) / name) for name in discover.bin_names
-        ]
-    return discover.bin_names

@@ -1,9 +1,10 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, Directive, LoopVarType
+from fpy.bytecode.directives import BinaryStackOp, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
+    AstAnonExpr,
     AstAssert,
     AstAssign,
     AstAugAssign,
@@ -23,9 +24,12 @@ from fpy.syntax import (
     AstWhile,
 )
 from fpy.types import (
+    OpCase,
+    pick_binary_op_case,
     FpyType,
     FpyValue,
     INTEGER,
+    TypeKind,
     TIME_OPS,
     TIME_COMPARISON,
     BOOL,
@@ -56,7 +60,8 @@ class DesugarForLoops(Transformer):
         contextual_type: FpyType | None,
         synthesized_type: FpyType | None,
         contextual_value: FpyValue | None,
-        op_intermediate_type: type[Directive] | None,
+        op_intermediate_type: FpyType | None,
+        op_case: OpCase | None,
         resolved_symbol: Symbol | None,
     ) -> Ast:
         node.id = state.next_node_id
@@ -65,6 +70,7 @@ class DesugarForLoops(Transformer):
         state.synthesized_types[node] = synthesized_type
         state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
+        state.op_cases[node] = op_case
         state.resolved_symbols[node] = resolved_symbol
         return node
 
@@ -81,6 +87,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=LoopVarType,
         )
 
@@ -93,6 +100,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -111,6 +119,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
 
@@ -123,6 +132,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=LoopVarType,
         )
 
@@ -137,6 +147,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -154,6 +165,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
@@ -163,6 +175,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=INTEGER,
             contextual_value=FpyValue(LoopVarType, 1),
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -173,6 +186,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
+            op_case=pick_binary_op_case(BinaryStackOp.ADD, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -189,6 +203,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
 
@@ -201,6 +216,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -216,6 +232,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.loop_var,
         )
         rhs = self.new(
@@ -225,6 +242,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=loop_info.upper_bound_var,
         )
 
@@ -235,6 +253,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
+            op_case=pick_binary_op_case(BinaryStackOp.LESS_THAN, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -259,6 +278,7 @@ class DesugarForLoops(Transformer):
             synthesized_type=None,
             contextual_value=None,
             op_intermediate_type=None,
+            op_case=None,
             resolved_symbol=None,
         )
 
@@ -384,7 +404,7 @@ class DesugarCheckStatements(Transformer):
     Default values:
         - timeout: no timeout (runs indefinitely until condition persists)
         - persist: 0 second interval (condition must be true once)
-        - period: 1 second interval (check condition every second)
+        - period: 0 second interval (check condition on every checkTimers call)
 
     Gets desugared into (roughly):
         # timeout deadline computed once, at entry, from the relative interval:
@@ -513,7 +533,7 @@ class DesugarCheckStatements(Transformer):
 
         # Handle default values:
         # - persist: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
-        # - period: default to Fw.TimeIntervalValue(1, 0) (1 second interval)
+        # - period: default to Fw.TimeIntervalValue(0, 0) (0 second interval)
         # - timeout: if not specified, use a dummy value (but we skip timeout check logic)
 
         persist_expr = (
@@ -528,7 +548,7 @@ class DesugarCheckStatements(Transformer):
             copy.deepcopy(node.period)
             if node.period is not None
             else self.call_parts(
-                ["Fw", "TimeIntervalValue"], self.number(1), self.number(0)
+                ["Fw", "TimeIntervalValue"], self.number(0), self.number(0)
             )
         )
 
@@ -747,6 +767,7 @@ class DesugarTimeOperators(Transformer):
         synthesized_type: FpyType | None,
         contextual_value: FpyValue | None,
         op_intermediate_type: FpyType | None = None,
+        op_case: OpCase | None = None,
         resolved_symbol: Symbol | None = None,
     ) -> Ast:
         """Create a new node with proper state setup."""
@@ -756,6 +777,7 @@ class DesugarTimeOperators(Transformer):
         state.synthesized_types[node] = synthesized_type
         state.const_expr_values[node] = contextual_value
         state.op_intermediate_types[node] = op_intermediate_type
+        state.op_cases[node] = op_case
         state.resolved_symbols[node] = resolved_symbol
         return node
 
@@ -866,6 +888,7 @@ class DesugarTimeOperators(Transformer):
             synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=I64,
+            op_case=pick_binary_op_case(new_op, I64),
         )
         self._update_field_access_refs(node, result_node, state)
         return result_node
@@ -883,3 +906,66 @@ class DesugarTimeOperators(Transformer):
             return self._make_cmp_expr(node, func_name, state)
         else:
             return self._make_func_call(node, func_name, result_type, state)
+
+
+class DesugarAnonExprs(Transformer):
+    """Desugar each anonymous struct/array into a call of the constructor of
+    the type it was coerced to:
+
+        {seconds: 1, useconds: 0}   becomes   Fw.TimeIntervalValue(1, 0)
+        [1, 2]                      becomes   Svc.ComQueueDepth(1, 2)
+
+    with the call's arguments being the resolved arguments PickTypes recorded
+    for the anonymous expr (in member/element order, defaults filled in). An
+    anonymous expr that was not coerced to a struct or array type has no
+    constructor to become, and is an error.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.replaced: dict[AstAnonExpr, AstFuncCall] = {}
+        """each desugared anonymous expr -> the call that replaced it"""
+
+    def run(self, start: Ast, state: CompileState):
+        super().run(start, state)
+        if len(state.errors) != 0:
+            return
+        # Replacing a node in the tree does not replace it in
+        # state.resolved_args, which lists argument nodes separately from the
+        # tree. Do that here, for every call.
+        for call, args in state.resolved_args.items():
+            state.resolved_args[call] = [
+                self.replaced.get(arg, arg) if isinstance(arg, Ast) else arg
+                for arg in args
+            ]
+
+    def visit_AstAnonStruct_AstAnonArray(
+        self, node: AstAnonExpr, state: CompileState
+    ) -> AstFuncCall:
+        # An expr's contextual type is its own (synthesized) type until
+        # something coerces it. Nothing coerced this one, so it has no type.
+        if state.contextual_types[node] == state.synthesized_types[node]:
+            state.err("Cannot infer the type of this expression from its context", node)
+            return None
+        target = state.contextual_types[node]
+        assert target.kind in (TypeKind.STRUCT, TypeKind.ARRAY), target
+
+        ctor = state.type_ctors[target]
+        func = AstIdent(node.meta, target.name)
+        func.id = state.next_node_id
+        state.next_node_id += 1
+        state.resolved_symbols[func] = ctor
+
+        # the resolved args may contain anonymous exprs that were just desugared
+        args = [
+            self.replaced.get(arg, arg) if isinstance(arg, Ast) else arg
+            for arg in state.resolved_args[node]
+        ]
+        call = AstFuncCall(node.meta, func, args)
+        call.id = state.next_node_id
+        state.next_node_id += 1
+        state.synthesized_types[call] = target
+        state.contextual_types[call] = target
+        state.resolved_args[call] = args
+        self.replaced[node] = call
+        return call

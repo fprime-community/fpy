@@ -201,7 +201,7 @@ array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 struct_var: Fw.TimeInterval = {seconds: 0, useconds: 1000}
 ```
 
-If a struct or array has a default value for a member/element, it will use that default value if you don't provide one.
+If a struct or array has a default value for a member/element, it will use that default value if you don't provide one. The default `timeBase` of an `Fw.TimeValue` is overridden to `TimeBase.TB_WORKSTATION_TIME`. You can configure this by passing the `--time-base` flag.
 
 Trailing commas are allowed in these expressions.
 
@@ -315,7 +315,7 @@ check CdhCore.cmdDisp.CommandsDispatched > 30 timeout never period {seconds: 1}:
     log("more than 30 commands!")
 ```
 
-If you don't specify a value for `period`, the default period is 1 second.
+If you don't specify a value for `period`, the default period is 0 seconds, so the condition is checked on every checkTimers call.
 
 The `timeout`, `persist` and `period` clauses can appear in any order. They can also be spread across multiple lines:
 ```py
@@ -502,9 +502,7 @@ $ fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("example.bin", Svc.BlockState.BLOCK, 123,
 ```
 To use this, you must have a running GDS. See [`fprime-fpy-cmd`](#fprime-fpy-cmd) for more info.
 
-In both cases, if `example.bin` is not found, or the argument names and types in `example.bin` are incompatible with the provided ones, the sequence will fail to compile. The compiler will search for `example.bin` by default in the same directory as the input `.fpy` file, but you can tell it to look in a different directory with the `-g/--ground-binary-dir` argument. At runtime, the `FpySequencer` component will resolve the path relative to a configurable flight binary directory.
-
-**Important:** this means that you have to compile the sequence's dependencies into binary files before compiling the sequence itself. This is not handled by the Fpy compiler, so it is up to the build system to order the builds appropriately. You can use the `fprime-fpy-depend` tool to find the dependencies of a sequence.
+The compiler checks the provided argument names and types against those declared in the sequence file you're calling. To do this, it must find a corresponding `.fpy` file for the `.bin` file you passed to the `RUN_ARGS` command. The `--seq-map BIN_PREFIX=FPY_PREFIX` argument controls how it searches for the `.fpy` file. For each `--seq-map` arg passed to the CLI, if the `.bin` path has a prefix matching `BIN_PREFIX`, it replaces that prefix with `FPY_PREFIX` and the suffix with `.fpy`, and if the file exists, it checks that file for the sequence argument types and names. An empty `BIN_PREFIX` matches every path.
 
 ## Relative and Absolute Sleep
 You can pause the execution of a sequence for a relative duration, or until an absolute time:
@@ -522,7 +520,7 @@ log("checkTimers called!")
 
 log("today")
 # sleep until 1234567890 seconds and 0 microseconds after the epoch
-sleep_until({timeBase: TimeBase.TB_NONE, timeContext: 1, seconds: 1234567890, useconds: 0})
+sleep_until({seconds: 1234567890, useconds: 0})
 log("much later")
 ```
 
@@ -535,8 +533,8 @@ sleep_until(time("2025-12-19T14:30:00Z"))
 t: Fw.Time = time("2025-12-19T14:30:00.123456Z")
 sleep_until(t)
 
-# Customize timeBase and timeContext (defaults are TimeBase.TB_NONE and 0)
-t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
+# Customize timeBase and timeContext (defaults are TimeBase.TB_WORKSTATION_TIME and 0)
+t: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_SC_TIME, timeContext=1)
 ```
 
 Make sure that the `Svc.FpySequencer.checkTimers` port is connected to a rate group. The sequencer only checks if a sleep is done when the port is called, so the more frequently you call it, the more accurate the wakeup time.
@@ -675,11 +673,24 @@ Each dot you add goes up a directory level before beginning the search:
 from ...parent.dir.helper_lib import add_two
 ```
 
+## Writing to arbitrary ports
+Fpy has a powerful feature which allows it to write arbitrary data to an array of ports on the sequencer.
+```py
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
+```
+This will come out of the sequencer's `serialOut` port on the port with index `EXAMPLE_PORT_0`. The `Svc.Fpy.SerialPortIndex` enum is configurable, so you can change the names and numbers of the ports to correspond to actual functions.
+
+Because there is no type checking on the value you pass in to the ports, it is recommended that you wrap the port in a function:
+```py
+def fdir_error_count(count: U32):
+    write_to_port(Svc.Fpy.SerialPortIndex.FDIR_0, count)
+```
+
+... and then import this function wherever you need it.
+
 ## Strings
 Fpy does not support a fully-fledged `string` type yet. You can pass a string literal as an argument to a command or builtin, but you cannot pass a string from a telemetry channel. You also cannot store a string in a variable, or perform any string manipulation, or use any types anywhere which have strings as members or elements. This is due to F Prime strings having a dynamic serialized size. These features will be added in a later Fpy update.
-
-## fprime-fpy-cmd
-
 
 # Developer's Guide
 
@@ -705,7 +716,7 @@ You can run all hooks against the whole repo at any time with `uv run pre-commit
 
 ### `fprime-fpyc`
 
-The compiler. Flags worth knowing:
+Some useful compiler flags are:
 
 * `--emit {fpybin,fpyasm,llvm-ir,wasm,wat}`: output format. Defaults to `fpybin` (binary fpy bytecode); `fpyasm` emits human-readable bytecode assembly, and `llvm-ir`/`wasm`/`wat` emit the LLVM/WebAssembly backend outputs.
 * `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
@@ -713,11 +724,7 @@ The compiler. Flags worth knowing:
 
 ### `fprime-fpy-cmd`
 
-Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead.
-
-### `fprime-fpy-depend`
-
-Prints the sequence dependencies (referenced `.bin` files) of an `.fpy` source file, one per line. Useful for build systems.
+Compiles a single line of Fpy source (one command with constant arguments) and uplinks it to a running GDS, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. Uplinks over ZMQ by default; pass `--tcp-addr host:port` to use TCP instead. A `RUN_ARGS` line that passes sequence arguments needs `--seq-map` to locate the called sequence's `.fpy` source.
 
 ### `fprime-fpy-asm`
 
@@ -734,35 +741,29 @@ Use `pytest` to run the test suite:
 pytest
 ```
 
-Tests compile sequences and run them on the real flight `Svc::FpySequencer`, through a small C++ harness program (`test/harness`) built from the `test/fprime` submodule. Requirements:
+Some tests compile and run sequences. Those tests will generate both Fpy bytecode and WASM bytecode. The resulting binaries are run on a harness wrapping the appropriate sequencer component (`Svc/FpySequencer` for Fpy bytecode, and `Svc/WasmSequencer` for WASM bytecode).
 
-* The fprime submodule must be checked out: `git submodule update --init test/fprime`
-* The harness build tools (cmake, ninja, fprime-util, fpp). `uv sync` installs them as part of the dev environment.
+To run these tests, the following steps are required:
 
-The harness is built automatically when the first test that needs it runs (tests that never run a sequence, like compiler unit tests, skip the build); the first run is slower because it builds the fprime framework.
+* The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
+* The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
+* A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-### `--wasm`
+Each harness is built automatically when the first test that needs it runs. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
 
-By default, tests compile sequences to fpy bytecode and run them on the real `Svc::FpySequencer`. Passing `--wasm` switches the whole run over to the LLVM/wasm backend instead: sequences are compiled to WebAssembly and run on the real `Svc::WasmSequencer` (which embeds the spacewasm interpreter), through a second harness built from the `test/fprime-wasm` submodule.
+### `--backend`
+
+`--backend fpybc` or `--backend wasm` restricts the run to one backend (the default is `both`):
 
 ```sh
-pytest --wasm
+pytest --backend fpybc
 ```
 
-Requirements for the wasm backend:
+A few behaviors are deliberately backend-specific; those tests carry the `fpybc_only`/`wasm_only` markers (and skip when their backend is not selected). Tests whose expected values differ by backend run once per selected backend via the `single_backend` fixture. Tests marked `@pytest.mark.wasm` exercise the LLVM/wasm toolchain itself and run except under `--backend fpybc`.
 
-* The `wasm` extra must be installed. `uv sync` installs it as part of the dev environment; with pip it's `pip install -e '.[wasm]'`.
-* The fprime-wasm submodule must be checked out: `git submodule update --init test/fprime-wasm`
-* A Rust toolchain (the sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
-
-The wasm harness is built automatically at the start of the test session, with a small local patch applied to the submodule first (see `test/harness/patches/README.md`).
-
-Tests marked with `@pytest.mark.wasm` are end-to-end LLVM/wasm tests and always run on the wasm backend (with the same requirements as above), even when `--wasm` is not passed.
-
-# FIXME I'd like to remove the use-gds feature
 ### `--use-gds`
 
-By default, tests run against a local `Svc::FpySequencer` through the harness. Passing `--use-gds` runs sequences against a live F Prime GDS deployment instead; see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
+Passing `--use-gds` runs sequences against a live F Prime GDS deployment, see [Running on a test F Prime deployment](#running-on-a-test-f-prime-deployment) for how to set one up and the full command line (a `--dictionary` argument is also required).
 
 ### Running on a test F Prime deployment
 

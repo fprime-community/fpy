@@ -251,25 +251,22 @@ class ConstructAst:
         """Lex and parse the text of the imported sequence file under its
         own diagnostic context, so that errors in it point into that file
         rather than into the importing file. Restores the caller's context
-        before returning."""
+        before returning.
+
+        Reports a compile error and returns None on failure."""
         from fpy.compiler import text_to_ast
 
-        old_file, old_text, old_lines = (
-            fpy.error.file_name,
-            fpy.error.input_text,
-            fpy.error.input_lines,
-        )
-        fpy.error.file_name = file_path
-        try:
-            parsed = text_to_ast(text)
-        finally:
-            fpy.error.file_name = old_file
-            fpy.error.input_text = old_text
-            fpy.error.input_lines = old_lines
-
-        if parsed is None:
-            state.err(f"Failed to parse imported sequence file '{file_path}'", None)
-        return parsed
+        with fpy.error.diagnostic_context(file_path):
+            try:
+                return text_to_ast(text)
+            except fpy.error.CompileError as e:
+                # str(e) must format here, under the imported file's
+                # diagnostic context
+                state.err(
+                    f"Failed to parse imported sequence file '{file_path}':\n{e}",
+                    None,
+                )
+                return None
 
     def _check_side_effects(self, block: AstBlock, state: CompileState):
         """4. "If B has top-level statements which may have side effects, an

@@ -404,7 +404,6 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, v)
             _build_global_scopes.cache_clear()
             state = get_base_compile_state(dict_path)
             body = text_to_ast(seq)
-            assert body is not None
             state = analyze_ast(body, state)
             return analysis_to_fpybc_directives(state)
 

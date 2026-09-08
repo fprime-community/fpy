@@ -195,7 +195,7 @@ _test: or_test
 anon_struct: "{" [_anon_struct_members] "}"
 _anon_struct_members: anon_struct_member ("," anon_struct_member)* ","?
 anon_struct_member: NAME ":" expr
-# -> AstAnonStruct(members)
+# -> AstAnonStruct(members), each member an AstNamedArgument(name, value)
 
 # anonymous array expression: [] or [expr, expr, ...]
 anon_array: "[" [_anon_array_elements] "]"

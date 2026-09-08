@@ -63,6 +63,10 @@ else:
 
 time_interval: Fw.TimeInterval = {seconds: 15, useconds: 1000}
 
+# README: the default timeBase of an Fw.TimeValue is TimeBase.TB_WORKSTATION_TIME
+default_tb: Fw.Time = {timeContext: 0, seconds: 100, useconds: 0}
+assert default_tb.timeBase == TimeBase.TB_WORKSTATION_TIME
+
 array_var: Ref.DpDemo.U32Array = [0, 1, 2, 3, 4]
 
 enum_var: Fw.Enabled = Fw.Enabled.ENABLED
@@ -199,7 +203,7 @@ if success == Fw.CmdResponse.OK:
     log("No-op works!")
 
 parsed_time: Fw.Time = time("2025-12-19T14:30:00.123456Z")
-parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_WORKSTATION_TIME, timeContext=1)
+parsed_time_with_base: Fw.Time = time("2025-12-19T14:30:00Z", timeBase=TimeBase.TB_SC_TIME, timeContext=1)
 
 # Logging
 log("hello world!")

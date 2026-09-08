@@ -32,7 +32,6 @@ def compile_to_fpybc(source: str) -> str:
     state = get_base_compile_state(DEFAULT_DICTIONARY)
 
     body = text_to_ast(source)
-    assert body is not None, "Parsing failed"
 
     state = analyze_ast(body, state)
     directives, _ = analysis_to_fpybc_directives(state)

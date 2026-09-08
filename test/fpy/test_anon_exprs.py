@@ -61,14 +61,14 @@ class TestAnonStructErrors:
         seq = """
 val: Fw.TimeIntervalValue = {seconds: 1, nonexistent: 2}
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="Unknown argument")
 
     def test_anon_struct_duplicate_member(self, fprime_test_api):
         """Duplicate member names should fail."""
         seq = """
 val: Fw.TimeIntervalValue = {seconds: 1, seconds: 2}
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="Duplicate member")
 
     def test_anon_struct_wrong_member_type(self, fprime_test_api):
         """Member value type incompatible with target member type."""
@@ -82,7 +82,22 @@ val: Fw.TimeIntervalValue = {seconds: True}
         seq = """
 val: U32 = {seconds: 1}
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="found struct literal")
+
+    def test_anon_struct_bare_statement(self, fprime_test_api):
+        """An anonymous struct not coerced to any type has no constructor to
+        become, so it is an error."""
+        seq = """
+{seconds: 1}
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Cannot infer the type")
+
+    def test_anon_struct_sized_arg(self, fprime_test_api):
+        """A parameter accepting any sized value gives an anon struct no type."""
+        seq = """
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, {seconds: 1})
+"""
+        assert_compile_failure(fprime_test_api, seq, match="found struct literal")
 
 
 class TestAnonStructAdvanced:
@@ -104,6 +119,37 @@ def make_interval() -> Fw.TimeIntervalValue:
 
 val: Fw.TimeIntervalValue = make_interval()
 assert val.seconds == 42
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_as_named_func_arg(self, fprime_test_api):
+        """Anonymous struct passed as a named function argument."""
+        seq = """
+def check_time(a: U8, t: Fw.TimeIntervalValue) -> bool:
+    return t.seconds == 5 and a == 1
+
+assert check_time(t={seconds: 5}, a=1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_as_default_arg(self, fprime_test_api):
+        """Anonymous struct as a parameter's default value."""
+        seq = """
+def secs(t: Fw.TimeIntervalValue = {seconds: 7}) -> U32:
+    return t.seconds
+
+assert secs() == 7
+assert secs({seconds: 8}) == 8
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_anon_struct_as_ctor_arg(self, fprime_test_api):
+        """Anonymous struct passed to a type constructor."""
+        seq = """
+val: Ref.SignalInfo = Ref.SignalInfo(Ref.SignalType.TRIANGLE, [1.0, 2.0], [{time: 3.0, value: 4.0}])
+assert val.history[1] == 2.0
+assert val.pairHistory[0].value == 4.0
+assert val.pairHistory[1].value == 0.0
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -157,7 +203,7 @@ class TestAnonArrayErrors:
         seq = """
 val: Svc.ComQueueDepth = [1, 2, 3]
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="Too many arguments")
 
     def test_anon_array_wrong_element_type(self, fprime_test_api):
         """Element type incompatible with target should fail."""
@@ -166,19 +212,43 @@ val: Svc.ComQueueDepth = [True, False]
 """
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_anon_array_wrong_element_type_as_func_arg(self, fprime_test_api):
+        """An argument's coercibility is checked by its array type alone when
+        binding arguments; the elements are checked when it is coerced."""
+        seq = """
+def first(a: Svc.ComQueueDepth) -> U32:
+    return a[0]
+x: U32 = first([True, False])
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Expected U32, found bool")
+
+    def test_anon_array_wrong_element_type_as_ctor_arg(self, fprime_test_api):
+        seq = """
+v: Ref.SignalInfo = Ref.SignalInfo(Ref.SignalType.TRIANGLE, [True], [])
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Expected F32, found bool")
+
     def test_anon_array_assigned_to_non_array(self, fprime_test_api):
         """Anonymous array cannot be coerced to a non-array type."""
         seq = """
 val: U32 = [1, 2, 3]
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="found array literal")
+
+    def test_anon_array_bare_statement(self, fprime_test_api):
+        """An anonymous array not coerced to any type has no constructor to
+        become, so it is an error."""
+        seq = """
+[1, 2]
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Cannot infer the type")
 
     def test_anon_array_incompatible_element_types(self, fprime_test_api):
-        """Anonymous array with incompatible element types should fail."""
+        """Each element is coerced to the target's element type."""
         seq = """
-[1, "hello"]
+val: Svc.ComQueueDepth = [1, "hello"]
 """
-        assert_compile_failure(fprime_test_api, seq, match="common type")
+        assert_compile_failure(fprime_test_api, seq, match="Expected U32, found String")
 
     def test_index_non_array_reports_not_an_array(self, fprime_test_api):
         """Indexing a non-array must report 'not an array', not 'contains strings'."""
@@ -243,20 +313,29 @@ assert val.history[3] == 4.0
 
 
 class TestAnonDirectAccess:
+    """Member/index access directly on an anonymous literal used to be
+    supported: the literal was typed from its own members, and the access
+    emitted just the accessed member's expression. An anonymous literal now
+    only gets a type from the context it is coerced in, so there is no type
+    to access a member or element of, and every such access is an error.
+
+    The old tests are kept, asserting failure, so that a future return to the
+    old semantics shows up here."""
+
     def test_anon_struct_member_access(self, fprime_test_api):
         """Access a specific member from an anonymous struct literal."""
         seq = """
 a: U32 = {x: 10, y: 20, z: 30}.y
 assert a == 20
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
 
     def test_anon_struct_member_access_nonexistent(self, fprime_test_api):
         """Accessing a non-existent member should fail."""
         seq = """
 x: U32 = {xyz: 123}.abc
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
 
     def test_anon_array_index_access(self, fprime_test_api):
         """Index into an anonymous array literal with a constant index."""
@@ -264,14 +343,14 @@ x: U32 = {xyz: 123}.abc
 x: U32 = [1, 2, 3][1]
 assert x == 2
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
 
     def test_anon_array_index_out_of_bounds(self, fprime_test_api):
         """Out-of-bounds index on anonymous array should fail."""
         seq = """
 x: U32 = [1, 2, 3][3]
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
 
     def test_anon_struct_member_access_with_variable(self, fprime_test_api):
         """Access member of anon struct where member value is a runtime variable."""
@@ -280,7 +359,7 @@ y: U32 = 42
 x: U32 = {a: y}.a
 assert x == 42
 """
-        assert_run_success(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="struct literal")
 
     def test_anon_array_dynamic_index_fails(self, fprime_test_api):
         """Dynamic (non-constant) indexing on anonymous array should fail."""
@@ -288,7 +367,16 @@ assert x == 42
 i: I64 = 1
 x: U32 = [10, 20, 30][i]
 """
-        assert_compile_failure(fprime_test_api, seq)
+        assert_compile_failure(fprime_test_api, seq, match="array literal")
+
+    def test_ctor_member_access(self, fprime_test_api):
+        """The constructor call an anonymous struct stands for can be accessed."""
+        seq = """
+y: U32 = 42
+x: U32 = Fw.TimeIntervalValue(seconds=y).seconds
+assert x == 42
+"""
+        assert_run_success(fprime_test_api, seq)
 
 
 # ── Anonymous expressions in check statements ───────────────────────────

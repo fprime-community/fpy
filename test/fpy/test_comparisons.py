@@ -187,3 +187,46 @@ assert not (nan > 0.0)
 assert not (nan >= 0.0)
 """
         assert_run_success(fprime_test_api, seq)
+
+
+class TestStringComparisons:
+    """Strings exist at runtime only as compile-time constants (a variable,
+    telemetry channel or parameter of string type is rejected), so a string
+    comparison always folds at compile time."""
+
+    def test_const_string_eq(self, fprime_test_api):
+        seq = """
+assert "a" == "a"
+assert not ("a" == "b")
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_string_neq(self, fprime_test_api):
+        seq = """
+assert "a" != "b"
+assert not ("a" != "a")
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_string_eq_different_lengths(self, fprime_test_api):
+        # A prefix is not equal to the longer string.
+        seq = """
+assert not ("a" == "ab")
+assert "a" != "ab"
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_string_eq_into_variable(self, fprime_test_api):
+        seq = """
+x: bool = "a" == "a"
+y: bool = "a" == "b"
+assert x
+assert not y
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_string_compared_to_number_rejected(self, fprime_test_api):
+        seq = """
+assert "a" == 1
+"""
+        assert_compile_failure(fprime_test_api, seq)

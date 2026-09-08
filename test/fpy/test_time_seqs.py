@@ -1159,6 +1159,17 @@ assert t.useconds == 123456
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_time_function_microseconds_exact(self, fprime_test_api):
+        """The microsecond field is exact, not one low from a float
+        subtraction that loses resolution at modern timestamps."""
+        seq = """
+t: Fw.Time = time("2025-12-19T14:30:00.000007Z")
+assert t.useconds == 7
+u: Fw.Time = time("2026-09-08T00:00:00.000001Z")
+assert u.useconds == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
     def test_time_function_sleep_until(self, fprime_test_api):
         """time() can be passed directly to sleep_until()."""
         seq = """
@@ -1181,11 +1192,22 @@ t: Fw.Time = time("2000-01-01T00:00:00")
         assert_compile_failure(fprime_test_api, seq)
 
     def test_time_function_default_time_base(self, fprime_test_api):
-        """time() defaults to timeBase=0 and timeContext=0."""
+        """time() defaults to timeBase=TB_WORKSTATION_TIME and timeContext=0."""
         seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z")
-assert t.timeBase == TimeBase.TB_NONE
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
 assert t.timeContext == 0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_time_ctor_default_time_base(self, fprime_test_api):
+        """Fw.TimeValue's timeBase defaults to TB_WORKSTATION_TIME, including
+        through a struct literal that omits it."""
+        seq = """
+t: Fw.Time = Fw.TimeValue()
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
+u: Fw.Time = {timeContext: 1, seconds: 5, useconds: 0}
+assert u.timeBase == TimeBase.TB_WORKSTATION_TIME
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -1202,7 +1224,7 @@ assert t.timeContext == 0
         """time() accepts custom timeContext parameter."""
         seq = """
 t: Fw.Time = time("2000-01-01T00:00:00Z", timeContext=5)
-assert t.timeBase == TimeBase.TB_NONE
+assert t.timeBase == TimeBase.TB_WORKSTATION_TIME
 assert t.timeContext == 5
 """
         assert_run_success(fprime_test_api, seq)
@@ -1239,3 +1261,25 @@ t: Fw.Time = time("1969-01-01T00:00:00Z")
 t: Fw.Time = time("2200-01-01T00:00:00Z")
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_time_function_runtime_time_base(self, fprime_test_api):
+        """time() is evaluated at compile time, so a timeBase that is only
+        known at run time is rejected."""
+        seq = """
+b: TimeBase = TimeBase.TB_NONE
+t: Fw.Time = time("2025-01-01T00:00:00Z", b)
+"""
+        assert_compile_failure(
+            fprime_test_api, seq, match="must be a compile-time constant"
+        )
+
+    def test_time_function_runtime_time_context(self, fprime_test_api):
+        """time() is evaluated at compile time, so a timeContext that is only
+        known at run time is rejected."""
+        seq = """
+x: U8 = 1
+t: Fw.Time = time("2025-01-01T00:00:00Z", TimeBase.TB_NONE, x)
+"""
+        assert_compile_failure(
+            fprime_test_api, seq, match="must be a compile-time constant"
+        )

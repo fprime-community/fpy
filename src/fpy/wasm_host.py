@@ -15,8 +15,15 @@ HOST_MODULE_NAME = "fprime_v1"
 
 HOST_EXIT_FUNC_NAME = "exit"
 HOST_PANIC_FUNC_NAME = "panic"
+HOST_ARGS_FUNC_NAME = "args"
 HOST_EVENT_FUNC_NAME = "event"
 HOST_CMD_FUNC_NAME = "cmd"
+HOST_TLM_FUNC_NAME = "tlm"
+HOST_PRM_FUNC_NAME = "prm"
+HOST_TIME_FUNC_NAME = "time"
+HOST_RSLEEP_FUNC_NAME = "rsleep"
+HOST_ASLEEP_FUNC_NAME = "asleep"
+HOST_SERIAL_SEND_FUNC_NAME = "serial_send"
 
 
 def __getattr__(name: str):
@@ -48,15 +55,31 @@ def _declare_host_func(
     return fn
 
 
+def _declare_libcalls(module: ir.Module) -> None:
+    """Claim the names of the float libcalls LLVM emits for llvm.pow, llvm.log
+    and frem, before any script symbol is named. Script functions and
+    variables are emitted under their own names, uniqued against the module
+    (``get_unique_name``), so without these declarations a script function or
+    variable named ``pow`` would be the symbol the libcall binds to."""
+    from llvmlite import ir
+
+    f64 = ir.DoubleType()
+    ir.Function(module, ir.FunctionType(f64, [f64, f64]), name="pow")
+    ir.Function(module, ir.FunctionType(f64, [f64]), name="log")
+    ir.Function(module, ir.FunctionType(f64, [f64, f64]), name="fmod")
+
+
 def declare_host_imports(module: ir.Module) -> None:
     """Declare the full expected host interface on *module*; emit sites look
-    the functions up in ``module.globals``. The float libcalls
-    (env.pow/fmod/log) are deliberately absent: LLVM materializes those itself
-    when lowering llvm.pow/llvm.log/frem, and they stay under wasm-ld's
-    default import module "env"."""
+    the functions up in ``module.globals``. Also declares the float libcalls
+    (env.pow/fmod/log) that LLVM materializes itself when lowering
+    llvm.pow/llvm.log/frem, only so that their names are taken: those stay
+    under wasm-ld's default import module "env" and no emit site calls
+    them."""
     from llvmlite import ir
 
     error_code_type = ErrorCodeType.llvm_type
+    _declare_libcalls(module)
 
     # exit(code) ends the whole sequence. It never returns to wasm (the host
     # unwinds the interpreter); noreturn lets LLVM drop the dead code after it.
@@ -70,6 +93,15 @@ def declare_host_imports(module: ir.Module) -> None:
         module, HOST_PANIC_FUNC_NAME, ir.FunctionType(ir.VoidType(), [error_code_type])
     )
     panic_fn.attributes.add("noreturn")
+
+    # args(buf_ptr, buf_len) reads the sequence's argument bytes: the host
+    # writes them into the buffer and returns how many bytes it wrote. The
+    # host fails the sequence when the argument bytes don't fit in the buffer.
+    _declare_host_func(
+        module,
+        HOST_ARGS_FUNC_NAME,
+        ir.FunctionType(ir.IntType(32), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
 
     # event(severity, msg_ptr, msg_len) emits a log message.
     _declare_host_func(
@@ -87,4 +119,72 @@ def declare_host_imports(module: ir.Module) -> None:
         module,
         HOST_CMD_FUNC_NAME,
         ir.FunctionType(ir.IntType(32), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
+
+    # tlm(chan_id, time_ptr, time_len, value_ptr, value_len) reads the latest
+    # value of a telemetry channel: the host writes the serialized Fw.Time
+    # into the time buffer (whose length must be exactly the serialized time
+    # size) and the fprime-serialized value into the value buffer, returning
+    # the read's Fw.TlmValid (the canonical TLM_VALID enum in fpy.types)
+    # widened to i32. The channel id travels as i64 whatever width
+    # FwChanIdType has.
+    _declare_host_func(
+        module,
+        HOST_TLM_FUNC_NAME,
+        ir.FunctionType(
+            ir.IntType(32),
+            [
+                ir.IntType(64),
+                ir.IntType(8).as_pointer(),
+                ir.IntType(32),
+                ir.IntType(8).as_pointer(),
+                ir.IntType(32),
+            ],
+        ),
+    )
+
+    # time(time_ptr, time_len) reads the current time: the host writes the
+    # serialized Fw.Time into the buffer, whose length must be exactly the
+    # serialized time size.
+    _declare_host_func(
+        module,
+        HOST_TIME_FUNC_NAME,
+        ir.FunctionType(ir.VoidType(), [ir.IntType(8).as_pointer(), ir.IntType(32)]),
+    )
+
+    # rsleep(useconds) suspends the sequence for the given duration, relative
+    # to the current time.
+    _declare_host_func(
+        module, HOST_RSLEEP_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ir.IntType(64)])
+    )
+
+    # asleep(useconds) suspends the sequence until the given absolute time,
+    # expressed in microseconds since the epoch of the host's time base.
+    _declare_host_func(
+        module, HOST_ASLEEP_FUNC_NAME, ir.FunctionType(ir.VoidType(), [ir.IntType(64)])
+    )
+
+    # serial_send(port, buf_ptr, buf_len) sends the buffer contents out the
+    # host's serial output port with the given index.
+    _declare_host_func(
+        module,
+        HOST_SERIAL_SEND_FUNC_NAME,
+        ir.FunctionType(
+            ir.VoidType(),
+            [ir.IntType(32), ir.IntType(8).as_pointer(), ir.IntType(32)],
+        ),
+    )
+
+    # prm(prm_id, buf_ptr, buf_len) reads a parameter: the host writes the
+    # fprime-serialized value into the buffer, returning the read's
+    # Fw.ParamValid (the canonical PARAM_VALID enum in fpy.types) widened to
+    # i32. The buffer contents are meaningful only for a VALID read. The
+    # parameter id travels as i64 whatever width FwPrmIdType has.
+    _declare_host_func(
+        module,
+        HOST_PRM_FUNC_NAME,
+        ir.FunctionType(
+            ir.IntType(32),
+            [ir.IntType(64), ir.IntType(8).as_pointer(), ir.IntType(32)],
+        ),
     )

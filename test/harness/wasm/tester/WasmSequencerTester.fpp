@@ -37,7 +37,7 @@ module Svc {
         @ serves the simulated clock (for timeCaller)
         sync input port timeGetIn: Fw.Time
 
-        @ receives data the sequence writes to serial ports (from serialSyncOut)
+        @ receives data the sequence writes to serial ports (from serialOut)
         sync input port serialIn: [Svc.Fpy.SerialPortIndex.MAX_SERIAL_PORTS] serial
 
         @ sends commands to the sequencer (to cmdIn)

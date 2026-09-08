@@ -9,13 +9,13 @@ from fpy.test_helpers import (
 )
 
 
-def _oor_float_to_int(saturated, wrapped):
-    """Expected result of an *out-of-range* float->int cast, which differs by
-    backend: the LLVM/wasm backend saturates at the target width (Rust `as`
-    semantics -- clamp to the target type's min/max), while the bytecode VM
-    saturates at 64 bits and then wrap-truncates to the target width. Reads
-    test_helpers.USE_WASM at call time (conftest sets it from the --wasm flag)."""
-    return saturated if test_helpers.USE_WASM else wrapped
+def _oor_float_to_int(backend, saturated, wrapped):
+    """Expected result of an *out-of-range* float->int cast on *backend*,
+    which differs by backend: the LLVM/wasm backend saturates at the target
+    width (Rust `as` semantics -- clamp to the target type's min/max), while
+    the bytecode VM saturates at 64 bits and then wrap-truncates to the
+    target width."""
+    return saturated if backend == test_helpers.WASM else wrapped
 
 
 class TestEnums:
@@ -383,6 +383,98 @@ assert pairs[1].time == 3.0
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_get_variable_idx_of_ctor_result(self, fprime_test_api):
+        """A runtime index into a constant expression: the parent is not a
+        variable, so it has no storage of its own and must still be
+        indexable."""
+        seq = """
+idx: I8 = 1
+x: U32 = Svc.ComQueueDepth(10, 20)[idx]
+assert x == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_get_variable_idx_of_ctor_result_in_function(self, fprime_test_api):
+        seq = """
+def pick(idx: I8) -> U32:
+    return Svc.ComQueueDepth(10, 20)[idx]
+
+assert pick(0) == 10
+assert pick(1) == 20
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_param_array_element_runtime_index(self, fprime_test_api):
+        """A store through a runtime index into an array parameter. Parameters
+        live at negative frame offsets, and the store must land on the right
+        element without touching its neighbors."""
+        seq = """
+def f(a: Ref.FpyExampleArray, i: I64) -> U32:
+    a[i] = 7
+    assert a[0] == 1
+    assert a[2] == 3
+    return a[i]
+
+arr: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
+k: I64 = 1
+assert f(arr, k) == 7
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_param_array_element_member_runtime_index(self, fprime_test_api):
+        """A store into a struct member of a runtime-indexed element of an
+        array-of-struct parameter."""
+        seq = """
+def set_value(pairs: Ref.SignalPairSet, i: I64, v: F32) -> F32:
+    pairs[i].value = v
+    assert pairs[i].time == 5.0
+    assert pairs[1].value == 4.0
+    return pairs[i].value
+
+p: Ref.SignalPairSet = Ref.SignalPairSet( \\
+    Ref.SignalPair(1.0, 2.0), \\
+    Ref.SignalPair(3.0, 4.0), \\
+    Ref.SignalPair(5.0, 6.0), \\
+    Ref.SignalPair(7.0, 8.0))
+idx: I64 = 2
+assert set_value(p, idx, 99.0) == 99.0
+"""
+        assert_run_success(fprime_test_api, seq)
+        
+    def test_assign_array_element_two_runtime_indices(self, fprime_test_api):
+        """A store whose access chain has two runtime indices: each index
+        needs its own bounds check."""
+        seq = """
+a: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+i: I64 = 1
+j: I64 = 0
+a[i][j] = Ref.Choice.TWO
+assert a[1][0] == Ref.Choice.TWO
+assert a[1][1] == Ref.Choice.ONE
+assert a[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_global_array_element_two_runtime_indices_in_function(
+        self, fprime_test_api
+    ):
+        """The same two-runtime-index store, from a function writing a global."""
+        seq = """
+g: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+
+def set_choice(i: I64, j: I64, c: Ref.Choice):
+    g[i][j] = c
+
+set_choice(0, 1, Ref.Choice.RED)
+assert g[0][1] == Ref.Choice.RED
+assert g[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 
@@ -450,6 +542,44 @@ if Svc.ComQueueDepth(100, 200) != Svc.ComQueueDepth(100, 300):
 exit(1)
 """
 
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_struct_eq_negative_zero_member(self, fprime_test_api):
+        """Folded aggregate equality compares serialized bytes like the
+        runtime does, so a 0.0 member and a -0.0 member are not equal."""
+        seq = """
+if Ref.SignalPair(1.0, 0.0) == Ref.SignalPair(1.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_struct_neq_negative_zero_member(self, fprime_test_api):
+        seq = """
+if Ref.SignalPair(1.0, 0.0) != Ref.SignalPair(1.0, -0.0):
+    exit(0)
+exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_array_eq_agrees_with_runtime(self, fprime_test_api):
+        """The folded and the runtime answers to the same comparison agree."""
+        seq = """
+a: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 0.0)
+b: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, -0.0)
+if a == b:
+    exit(2)
+if Ref.SignalSet(1.0, 2.0, 3.0, 0.0) == Ref.SignalSet(1.0, 2.0, 3.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_numeric_negative_zero_is_equal(self, fprime_test_api):
+        """Numbers, including aggregate members read out, still compare
+        numerically: 0.0 == -0.0."""
+        seq = """
+assert 0.0 == -0.0
+assert Ref.SignalPair(1.0, 0.0).value == Ref.SignalPair(1.0, -0.0).value
+"""
         assert_run_success(fprime_test_api, seq)
 
     def test_runtime_array_equality(self, fprime_test_api):
@@ -548,6 +678,31 @@ x()
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
+
+class TestNonFiniteFloatConstants:
+    """A constant float that does not fit its finite float type is a compile
+    error, never a silent infinity."""
+
+    def test_f64_literal_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f32_literal_overflow(self, fprime_test_api):
+        seq = "x: F32 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F32")
+
+    def test_f64_folded_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e308 * 10.0\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_folded_overflow_of_typed_operands(self, fprime_test_api):
+        seq = "x: F64 = F64(1e308) * F64(10.0)\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_max_is_in_range(self, fprime_test_api):
+        seq = "x: F64 = 1.7976931348623157e308\nassert x > 1e308\n"
+        assert_run_success(fprime_test_api, seq)
 
 
 class TestStringTypes:
@@ -843,48 +998,64 @@ class TestOutOfRangeFloatCasts:
 
     Both backends saturate the float->int conversion at 64 bits (NaN -> 0,
     out-of-range clamps to I64/U64 min/max). For narrower targets they then
-    deliberately differ, so each expected value switches on the active
-    backend via _oor_float_to_int:
+    deliberately differ, so each test runs once per backend (the
+    single_backend fixture) with that backend's expected value from
+    _oor_float_to_int:
       * LLVM/wasm: saturates at the *target* width (Rust `as` semantics).
       * bytecode VM: saturates at 64 bits, then wrap-truncates the bit
         pattern to the target width."""
 
-    def test_unsigned_overflow(self, fprime_test_api):
+    def test_unsigned_overflow(self, fprime_test_api, single_backend):
         # 1e20 is above U64 max: both saturate to U64 max; the VM's truncation
         # of all-ones to 8 bits coincides with the wasm clamp.
-        expected = _oor_float_to_int(saturated=255, wrapped=255)
+        expected = _oor_float_to_int(single_backend, saturated=255, wrapped=255)
         seq = f"x: F64 = 1e20\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_unsigned_negative(self, fprime_test_api):
+    def test_unsigned_negative(self, fprime_test_api, single_backend):
         # -5.0 is negative: the unsigned conversion clamps to 0 on both.
-        expected = _oor_float_to_int(saturated=0, wrapped=0)
+        expected = _oor_float_to_int(single_backend, saturated=0, wrapped=0)
         seq = f"x: F64 = -5.0\nassert U8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_overflow(self, fprime_test_api):
+    def test_signed_overflow(self, fprime_test_api, single_backend):
         # 1000.0 is above I8 max. wasm -> 127 (clamp); VM -> -24 (1000 & 0xff).
-        expected = _oor_float_to_int(saturated=127, wrapped=-24)
+        expected = _oor_float_to_int(single_backend, saturated=127, wrapped=-24)
         seq = f"x: F64 = 1000.0\nassert I8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_underflow(self, fprime_test_api):
+    def test_signed_underflow(self, fprime_test_api, single_backend):
         # -1000.0 is below I8 min. wasm -> -128 (clamp); VM -> 24 (-1000 & 0xff).
-        expected = _oor_float_to_int(saturated=-128, wrapped=24)
+        expected = _oor_float_to_int(single_backend, saturated=-128, wrapped=24)
         seq = f"x: F64 = -1000.0\nassert I8(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_32bit_overflow(self, fprime_test_api):
+    def test_signed_32bit_overflow(self, fprime_test_api, single_backend):
         # 1e20 is above I64 max. wasm -> I32 max; VM -> I64 max (0x7FFF...FFFF)
         # wrap-truncated to 32 bits: 0xFFFFFFFF == -1.
-        expected = _oor_float_to_int(saturated=2147483647, wrapped=-1)
+        expected = _oor_float_to_int(single_backend, saturated=2147483647, wrapped=-1)
         seq = f"x: F64 = 1e20\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
-    def test_signed_32bit_underflow(self, fprime_test_api):
+    def test_signed_32bit_underflow(self, fprime_test_api, single_backend):
         # -1e10 is below I32 min. wasm -> I32 min; VM -> -1e10 mod 2^32 (signed).
-        expected = _oor_float_to_int(saturated=-2147483648, wrapped=-1410065408)
+        expected = _oor_float_to_int(
+            single_backend, saturated=-2147483648, wrapped=-1410065408
+        )
         seq = f"x: F64 = -1e10\nassert I32(x) == {expected}\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_nan_to_int_is_zero(self, fprime_test_api):
+        # 0.0 / 0.0 is NaN; both backends saturate a NaN float->int
+        # conversion to 0 (at 64 bits on the VM, so no wrap can change it).
+        seq = "x: F64 = 0.0\ny: F64 = x / x\nassert I32(y) == 0\n"
+        assert_run_success(fprime_test_api, seq)
+
+    def test_infinity_to_int(self, fprime_test_api, single_backend):
+        # +inf is out of range like 1e20: wasm clamps to I32 max; the VM
+        # saturates to I64 max and wrap-truncates to -1.
+        expected = _oor_float_to_int(single_backend, saturated=2147483647, wrapped=-1)
+        seq = f"x: F64 = 1e308\nx = x * 10.0\nassert I32(x) == {expected}\n"
         assert_run_success(fprime_test_api, seq)
 
 

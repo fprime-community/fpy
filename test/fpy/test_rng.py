@@ -6,6 +6,10 @@ from fpy.test_helpers import assert_run_success
 # produces for the given seeds; they hold on the harness and on a live GDS
 # deployment alike, since both run the same flight code.
 
+# The LLVM/wasm backend does not lower the rng builtins (rand, randf,
+# set_seed) yet.
+pytestmark = pytest.mark.fpybc_only
+
 
 class TestRng:
 

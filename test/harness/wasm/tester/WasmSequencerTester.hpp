@@ -13,6 +13,7 @@
 #ifndef TEST_HARNESS_WASM_WASMSEQUENCERTESTER_HPP
 #define TEST_HARNESS_WASM_WASMSEQUENCERTESTER_HPP
 
+#include "Fw/Types/MallocAllocator.hpp"
 #include "Svc/WasmSequencer/WasmSequencer.hpp"
 #include "test/harness/Harness.hpp"
 #include "test/harness/wasm/tester/WasmSequencerTesterComponentAc.hpp"
@@ -32,6 +33,9 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // INSTRUCTION_FUEL (default 1000) wasm instructions.
     static constexpr U32 MAX_DISPATCHES = 1000 * 1000;
     static constexpr FwSizeType QUEUE_DEPTH = 32;
+    // Simulated period of the checkTimers port: how far the clock advances
+    // when the sequencer sleeps until a time that has already come.
+    static constexpr U32 CHECK_TIMERS_PERIOD_USEC = 100 * 1000;
 
     void connectPorts();
     // Sends the RUN command that loads and runs the module.
@@ -39,6 +43,9 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // Dispatches queued messages until the sequencer answers the RUN
     // command, jumping the clock forward whenever the sequencer sleeps.
     void pump();
+    // Runs the child module a dispatched seq-run command names on a fresh
+    // tester, returning the response the command completes with.
+    Fw::CmdResponse runChildSequence(const U8* args, FwSizeType argsSize);
 
     void comCmdIn_handler(FwIndexType portNum, Fw::ComBuffer& data, U32 context) override;
     void cmdResponseIn_handler(FwIndexType portNum,
@@ -67,6 +74,9 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // True when the event is one the guest program logged (its log builtin).
     static bool isGuestLogEvent(FwEventIdType id);
 
+    // Backs the sequencer's configure() pools; declared before the sequencer,
+    // whose destructor deallocates through it.
+    Fw::MallocAllocator m_allocator;
     WasmSequencer m_sequencer;
     const harness::HarnessRequest* m_request = nullptr;
     harness::HarnessResult m_result;

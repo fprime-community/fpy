@@ -1,6 +1,10 @@
 from fpy.types import U32
 
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_failure,
+    assert_run_success,
+)
 from fpy.error import WarningType
 
 
@@ -88,6 +92,21 @@ def test(arg: U8):
 val: U8 = 123
 test(val)
 assert val == 123
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_function_named_main_or_cmd(self, fprime_test_api):
+        """ "main" and "cmd" are taken in the wasm module by the entrypoint
+        and the host imports; script functions with those names must stay
+        distinct from them, and a call must reach the script function."""
+        seq = """
+def main() -> U32:
+    return 1
+
+def cmd() -> U32:
+    return 2
+
+assert main() + cmd() == 3
 """
         assert_run_success(fprime_test_api, seq)
 
@@ -293,6 +312,70 @@ def noop():
 val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_function_named_pow_does_not_replace_exponent(self, fprime_test_api):
+        """A script function may be named after a float libcall (pow, fmod)
+        without becoming the implementation of the operator that libcall
+        backs."""
+        seq = """
+def pow(a: F64, b: F64) -> F64:
+    return 77.0
+
+y: F64 = 2.0
+z: F64 = y ** 3.0
+assert z == 8.0
+assert pow(1.0, 1.0) == 77.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_function_named_fmod_does_not_replace_modulus(self, fprime_test_api):
+        seq = """
+def fmod(a: F64, b: F64) -> F64:
+    return 77.0
+
+y: F64 = 7.5
+r: F64 = y % 2.0
+assert r == 1.5
+assert fmod(1.0, 1.0) == 77.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_function_named_log_does_not_replace_ln(self, fprime_test_api):
+        seq = """
+def log(x: F64) -> F64:
+    return 77.0
+
+y: F64 = 4.0
+l: F64 = ln(y)
+assert l > 1.386 and l < 1.387
+assert log(1.0) == 77.0
+"""
+        assert_run_success(
+            fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
+        )
+
+    def test_variable_named_pow_does_not_break_exponent(self, fprime_test_api):
+        seq = """
+pow: F64 = 2.0
+z: F64 = pow ** 2.0
+assert z == 4.0
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_call_embedded_in_bare_expression(self, fprime_test_api):
+        """A bare expression statement whose top-level node isn't itself
+        side-effecting (an == comparison) still embeds a call that is; the
+        statement must be lowered rather than dropped (regression: the wasm
+        backend used to drop it). The exit inside f only reports its code if
+        the call actually runs."""
+        seq = """
+def f() -> U32:
+    exit(7)
+    return 0
+
+f() == 0
+"""
+        assert_run_failure(fprime_test_api, seq, 7)
 
 
 class TestScoping:
@@ -944,3 +1027,35 @@ assert x == 0
         assert_run_success(
             fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
         )
+
+
+class TestCalleeMustBeCallable:
+    """A call's callee must resolve to a callable. Anything else -- a value
+    or an expression -- is rejected as an unknown callable before type
+    checking, so the type pass never sees an unresolved callee."""
+
+    def test_call_of_call_result(self, fprime_test_api):
+        assert_compile_failure(fprime_test_api, "now()()\n", match="Unknown callable")
+
+    def test_call_of_literal(self, fprime_test_api):
+        assert_compile_failure(fprime_test_api, "(1)()\n", match="Unknown callable")
+
+    def test_call_of_variable(self, fprime_test_api):
+        seq = """
+x: U32 = 1
+x()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable 'x'")
+
+    def test_call_of_array_element(self, fprime_test_api):
+        seq = """
+a: Svc.ComQueueDepth = [1, 2]
+a[0]()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable")
+
+    def test_call_of_member_of_call(self, fprime_test_api):
+        seq = """
+x: U32 = Fw.TimeIntervalValue(1, 0).seconds()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="Unknown callable")
