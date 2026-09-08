@@ -2706,6 +2706,12 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value / rhs_value
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
+                if isinstance(folded_value, complex):
+                    # float ** float returns a complex number for a negative
+                    # base and a fractional exponent, where the Decimal path
+                    # raises decimal.InvalidOperation
+                    state.err("Domain error", node)
+                    return
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
                 # Floor toward -inf (Python `//`), matching the runtime backends.
                 if isinstance(lhs_value, int) and isinstance(rhs_value, int):
