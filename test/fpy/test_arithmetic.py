@@ -56,6 +56,34 @@ exit(1)
 
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_const_infinity_to_int(self, fprime_test_api):
+        """An infinite float constant cast to an integer type is a compile
+        error, not an uncaught OverflowError."""
+        seq = """
+x: I64 = I64(F64(1e308) * F64(10.0))
+exit(0)
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="infinity")
+
+    def test_const_negative_infinity_to_int(self, fprime_test_api):
+        """The same holds for a negative infinity and an unsigned target."""
+        seq = """
+x: U8 = U8(F64(-1e308) + F64(-1e308))
+exit(0)
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="infinity")
+
+    def test_const_nan_to_int(self, fprime_test_api):
+        """The NaN counterpart reports a diagnostic too."""
+        seq = """
+x: I64 = I64(F64(1e308) * F64(10.0) - F64(1e308) * F64(10.0))
+exit(0)
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="NaN")
+
     def test_very_large_const_pow(self, fprime_test_api):
         seq = """
 10.0 ** 1000

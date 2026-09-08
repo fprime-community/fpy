@@ -2421,7 +2421,8 @@ class CalculateConstExprValues(Visitor):
                 return FpyValue(to_type, raw_val)
 
             assert False, (from_val, from_type, to_type)
-        except (ValueError, struct.error) as e:
+        except (ValueError, OverflowError, struct.error) as e:
+            # OverflowError is int(inf); ValueError is int(nan)
             state.err(f"For type {from_type.display_name}: {e}", node)
             return None
 
