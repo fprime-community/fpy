@@ -1159,6 +1159,17 @@ assert t.useconds == 123456
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_time_function_microseconds_exact(self, fprime_test_api):
+        """The microsecond field is exact, not one low from a float
+        subtraction that loses resolution at modern timestamps."""
+        seq = """
+t: Fw.Time = time("2025-12-19T14:30:00.000007Z")
+assert t.useconds == 7
+u: Fw.Time = time("2026-09-08T00:00:00.000001Z")
+assert u.useconds == 1
+"""
+        assert_run_success(fprime_test_api, seq)
+
     def test_time_function_sleep_until(self, fprime_test_api):
         """time() can be passed directly to sleep_until()."""
         seq = """

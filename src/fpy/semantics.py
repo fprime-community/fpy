@@ -2271,9 +2271,11 @@ class CalculateConstExprValues(Visitor):
             dt = dt.replace(tzinfo=timezone.utc)
             timestamp = dt.timestamp()
 
-            # Split into seconds and microseconds
+            # Split into seconds and microseconds. The microseconds come
+            # from the parsed value, not from the float timestamp, whose
+            # resolution is coarser than a microsecond at modern dates.
             seconds = int(timestamp)
-            useconds = int((timestamp - seconds) * 1_000_000)
+            useconds = dt.microsecond
 
             # Validate ranges for U32
             if seconds < 0:
