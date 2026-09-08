@@ -588,6 +588,12 @@ def _build_global_scopes(
         dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON
     )
     _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
+    # Fw.LogSeverity backs log()'s severity argument. A dictionary without
+    # events never defines it, so it is optional -- but when a dictionary does
+    # define it, its representation must match the one log() pushes.
+    _validate_and_replace_type(
+        dict_type_name_dict, "Fw.LogSeverity", LOG_SEVERITY, required=False
+    )
     _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
