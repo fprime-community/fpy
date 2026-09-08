@@ -1215,13 +1215,14 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                     dirs.append(IntAddDirective())
 
             # Add the constant part: base variable's frame offset +
-            # accumulated constant field offsets.
+            # accumulated constant field offsets. Signed, because a parameter
+            # sits below the frame start at a negative offset.
             const_part = base_frame_offset + field_const_offset
-            dirs.append(PushValDirective(FpyValue(U64, const_part).serialize()))
+            dirs.append(PushValDirective(FpyValue(I64, const_part).serialize()))
             dirs.append(IntAddDirective())
 
-            # and now convert the u64 back into the SignedStackSizeType that store expects
-            dirs.extend(self.convert_numeric_type(U64, SignedStackSizeType))
+            # and now convert the i64 back into the SignedStackSizeType that store expects
+            dirs.extend(self.convert_numeric_type(I64, SignedStackSizeType))
 
             # now that the frame offset is pushed, use it to store into the frame
             if use_abs:

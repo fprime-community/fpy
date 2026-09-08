@@ -404,6 +404,43 @@ assert pick(1) == 20
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_assign_param_array_element_runtime_index(self, fprime_test_api):
+        """A store through a runtime index into an array parameter. Parameters
+        live at negative frame offsets, and the store must land on the right
+        element without touching its neighbors."""
+        seq = """
+def f(a: Ref.FpyExampleArray, i: I64) -> U32:
+    a[i] = 7
+    assert a[0] == 1
+    assert a[2] == 3
+    return a[i]
+
+arr: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
+k: I64 = 1
+assert f(arr, k) == 7
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_param_array_element_member_runtime_index(self, fprime_test_api):
+        """A store into a struct member of a runtime-indexed element of an
+        array-of-struct parameter."""
+        seq = """
+def set_value(pairs: Ref.SignalPairSet, i: I64, v: F32) -> F32:
+    pairs[i].value = v
+    assert pairs[i].time == 5.0
+    assert pairs[1].value == 4.0
+    return pairs[i].value
+
+p: Ref.SignalPairSet = Ref.SignalPairSet( \\
+    Ref.SignalPair(1.0, 2.0), \\
+    Ref.SignalPair(3.0, 4.0), \\
+    Ref.SignalPair(5.0, 6.0), \\
+    Ref.SignalPair(7.0, 8.0))
+idx: I64 = 2
+assert set_value(p, idx, 99.0) == 99.0
+"""
+        assert_run_success(fprime_test_api, seq)
+        
     def test_assign_array_element_two_runtime_indices(self, fprime_test_api):
         """A store whose access chain has two runtime indices: each index
         needs its own bounds check."""
