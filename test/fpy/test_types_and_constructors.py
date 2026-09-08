@@ -404,6 +404,40 @@ assert pick(1) == 20
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_assign_array_element_two_runtime_indices(self, fprime_test_api):
+        """A store whose access chain has two runtime indices: each index
+        needs its own bounds check."""
+        seq = """
+a: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+i: I64 = 1
+j: I64 = 0
+a[i][j] = Ref.Choice.TWO
+assert a[1][0] == Ref.Choice.TWO
+assert a[1][1] == Ref.Choice.ONE
+assert a[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_global_array_element_two_runtime_indices_in_function(
+        self, fprime_test_api
+    ):
+        """The same two-runtime-index store, from a function writing a global."""
+        seq = """
+g: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+
+def set_choice(i: I64, j: I64, c: Ref.Choice):
+    g[i][j] = c
+
+set_choice(0, 1, Ref.Choice.RED)
+assert g[0][1] == Ref.Choice.RED
+assert g[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 

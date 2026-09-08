@@ -1203,8 +1203,13 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             # Emit code to compute each dynamic offset component
             # (idx * elem_size) and sum them together on the stack.
             for i, (idx_expr, parent_type) in enumerate(dynamic_components):
+                # the bounds check's label is named after the node it is
+                # given; the index expression is unique per component, the
+                # assignment is not
                 dirs.extend(
-                    self._emit_array_element_offset(node, idx_expr, parent_type, state)
+                    self._emit_array_element_offset(
+                        idx_expr, idx_expr, parent_type, state
+                    )
                 )
                 if i > 0:
                     dirs.append(IntAddDirective())
