@@ -1250,3 +1250,25 @@ t: Fw.Time = time("1969-01-01T00:00:00Z")
 t: Fw.Time = time("2200-01-01T00:00:00Z")
 """
         assert_compile_failure(fprime_test_api, seq)
+
+    def test_time_function_runtime_time_base(self, fprime_test_api):
+        """time() is evaluated at compile time, so a timeBase that is only
+        known at run time is rejected."""
+        seq = """
+b: TimeBase = TimeBase.TB_NONE
+t: Fw.Time = time("2025-01-01T00:00:00Z", b)
+"""
+        assert_compile_failure(
+            fprime_test_api, seq, match="must be a compile-time constant"
+        )
+
+    def test_time_function_runtime_time_context(self, fprime_test_api):
+        """time() is evaluated at compile time, so a timeContext that is only
+        known at run time is rejected."""
+        seq = """
+x: U8 = 1
+t: Fw.Time = time("2025-01-01T00:00:00Z", TimeBase.TB_NONE, x)
+"""
+        assert_compile_failure(
+            fprime_test_api, seq, match="must be a compile-time constant"
+        )
