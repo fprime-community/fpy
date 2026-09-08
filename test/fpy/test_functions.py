@@ -313,6 +313,30 @@ val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_compare_void_function_results_equal(self, fprime_test_api):
+        """A void call has no value, so it cannot be an operand of ==."""
+        seq = """
+def f():
+    pass
+
+b: bool = f() == f()
+"""
+        assert_compile_failure(fprime_test_api, seq, match="undefined for Nothing")
+
+    def test_compare_void_function_results_not_equal(self, fprime_test_api):
+        """A void call has no value, so it cannot be an operand of !=."""
+        seq = """
+def f():
+    pass
+
+def g():
+    pass
+
+if f() != g():
+    exit(1)
+"""
+        assert_compile_failure(fprime_test_api, seq, match="undefined for Nothing")
+
     def test_call_embedded_in_bare_expression(self, fprime_test_api):
         """A bare expression statement whose top-level node isn't itself
         side-effecting (an == comparison) still embeds a call that is; the
