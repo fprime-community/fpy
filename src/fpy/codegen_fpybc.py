@@ -312,7 +312,7 @@ class EmitterWithNodeInfo(Emitter):
     errors raised on a directive can point at a source line."""
 
     def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
-        dirs = super().emit(node, state)
+        dirs = self._emit(node, state)
         # Nested emit calls run first, so an existing stamp is the more
         # specific node. (Ir instances are frozen and are skipped; the
         # directives they become carry no arguments worth locating.)
@@ -321,6 +321,9 @@ class EmitterWithNodeInfo(Emitter):
                 dir.source_node = node
         return dirs
 
+    def _emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
+        return super().emit(node, state)
+
 
 class GenerateFunctionBody(EmitterWithNodeInfo):
     # Flag indicating we're generating code inside a function body.
@@ -328,6 +331,25 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
     # relative to the main frame, so from inside a function they can only be
     # reached by absolute offset (LOAD_ABS/STORE_ABS).
     in_function = True
+
+    def _emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
+        """Emit expressions at their contextual type before stamping directives.
+
+        Expression handlers produce the synthesized type. Constants already
+        have their contextual type and need no runtime conversion.
+        """
+        if is_instance_compat(node, AstExpr):
+            const_dirs = self.try_emit_expr_as_const(node, state)
+            if const_dirs is not None:
+                return const_dirs
+
+        dirs = super()._emit(node, state)
+        if is_instance_compat(node, AstExpr):
+            synthesized = state.synthesized_types[node]
+            contextual = state.contextual_types[node]
+            if synthesized != contextual:
+                dirs.extend(self.convert_numeric_type(synthesized, contextual))
+        return dirs
 
     def _emit_func_arg(self, arg, state: CompileState) -> list[Directive | Ir]:
         """Emit code to push a function argument onto the stack.
@@ -867,9 +889,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         assert False, node
 
     def emit_AstIndexExpr(self, node: AstIndexExpr, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
         sym = state.resolved_symbols[node]
 
         assert is_instance_compat(sym, FieldAccess), sym
@@ -906,18 +925,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             GetFieldDirective(parent_type.max_size, parent_type.elem_type.max_size)
         )
 
-        # now convert the type if necessary
-        converted_type = state.contextual_types[node]
-        if unconverted_type != converted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
-
         return dirs
 
     def emit_AstIdent(self, node: AstIdent, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
         sym = state.resolved_symbols.get(node)
 
         assert is_instance_compat(sym, VariableSymbol), sym
@@ -932,18 +942,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         else:
             dirs = [LoadRelDirective(offset, sym.type.max_size)]
 
-        unconverted_type = state.synthesized_types[node]
-        converted_type = state.contextual_types[node]
-        if unconverted_type != converted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
-
         return dirs
 
     def emit_AstGetAttr(self, node: AstGetAttr, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
         sym = state.resolved_symbols.get(node)
 
         if is_instance_compat(sym, dict):
@@ -980,17 +981,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                 False
             ), sym  # sym should either be impossible to put on stack or should have a compile time val
 
-        converted_type = state.contextual_types[node]
-        if converted_type != unconverted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
-
         return dirs
 
     def emit_AstOp(self, node: AstOp, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
         dirs = FPYBC_OP_IMPLS[state.op_cases[node]](self, node, state)
 
         # The VM operates on 64-bit values, so after the op we have a 64-bit result.
@@ -1003,18 +996,9 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         ):
             dirs.extend(self.convert_numeric_type(intermediate_type, synthesized_type))
 
-        # and convert the result of the op into the desired result of this expr
-        converted_type = state.contextual_types[node]
-        if synthesized_type != converted_type:
-            dirs.extend(self.convert_numeric_type(synthesized_type, converted_type))
-
         return dirs
 
     def emit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        if const_dirs is not None:
-            return const_dirs
-
         node_args = node.args if node.args is not None else []
         func = state.resolved_symbols[node.func]
         dirs = []
@@ -1090,8 +1074,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             for arg_node in node_args:
                 dirs.extend(self._emit_func_arg(arg_node, state))
         elif is_instance_compat(func, CastSymbol):
-            # just putting the arg value on the stack should be good enough, the
-            # conversion will happen below
+            # Semantics coerces the argument to the explicit cast's target.
             dirs.extend(self.emit(node_args[0], state))
         elif is_instance_compat(func, FunctionSymbol):
             # script-defined function
@@ -1106,12 +1089,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             dirs.append(CallDirective())
         else:
             assert False, func
-
-        # perform type conversion if called for
-        unconverted_type = state.synthesized_types[node]
-        converted_type = state.contextual_types[node]
-        if unconverted_type != converted_type:
-            dirs.extend(self.convert_numeric_type(unconverted_type, converted_type))
 
         return dirs
 
@@ -1233,9 +1210,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         return dirs
 
     def emit_AstLiteral(self, node: AstLiteral, state: CompileState):
-        const_dirs = self.try_emit_expr_as_const(node, state)
-        assert const_dirs is not None
-        return const_dirs
+        assert False, "literals must have a compile-time constant value"
 
     def emit_AstAssert(self, node: AstAssert, state: CompileState):
         dirs = self.emit(node.condition, state)
