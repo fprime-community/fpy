@@ -747,39 +747,21 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
 
     def emit_AstIf(self, node: AstIf, state: CompileState):
         dirs = []
-
-        cases: list[tuple[AstExpr, AstBlock]] = []
-
-        cases.append((node.condition, node.body))
-
-        for case in node.elifs:
-            cases.append((case.condition, case.body))
-
+        cases = [(node.condition, node.body)]
+        cases += [(case.condition, case.body) for case in node.elifs]
         if_end_label = IrLabel(node, "end")
 
-        for case in cases:
-            case_end_label = IrLabel(case[1], "end")
-            case_dirs = []
-            # put the conditional on top of stack
-            case_dirs.extend(self.emit(case[0], state))
-            # include if stmt (update the end idx later)
-            if_dir = IrIf(case_end_label)
-
-            case_dirs.append(if_dir)
-            # include body
-            case_dirs.extend(self.emit(case[1], state))
-            # once we've finished executing the body:
-            # include a goto end of if
-            case_dirs.append(IrGoto(if_end_label))
-            case_dirs.append(case_end_label)
-
-            dirs.extend(case_dirs)
+        for condition, body in cases:
+            case_end_label = IrLabel(body, "end")
+            dirs.extend(self.emit(condition, state))
+            dirs.append(IrIf(case_end_label))
+            dirs.extend(self.emit(body, state))
+            dirs.append(IrGoto(if_end_label))
+            dirs.append(case_end_label)
 
         if node.els is not None:
             dirs.extend(self.emit(node.els, state))
-
         dirs.append(if_end_label)
-
         return dirs
 
     def emit_AstWhile(self, node: AstWhile, state: CompileState):
