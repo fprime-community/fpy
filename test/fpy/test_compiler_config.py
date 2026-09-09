@@ -857,3 +857,70 @@ def test_param_valid_absent_is_tolerated():
     finally:
         Path(dict_path).unlink()
         _clear_caches()
+
+
+# ============================================================================
+# Fw.LogSeverity validation
+# ============================================================================
+
+
+def test_log_severity_mismatch_raises_error():
+    """A dictionary whose Fw.LogSeverity disagrees with the canonical enum is
+    rejected: log() pushes a severity of the canonical representation type,
+    and the runtime pops it as Fw::LogSeverity::SerialType."""
+    _clear_caches()
+
+    def widen_rep(type_def):
+        type_def["representationType"] = {
+            "name": "U16",
+            "kind": "integer",
+            "size": 16,
+            "signed": False,
+        }
+
+    dict_path = _create_test_dict_with_modified_type("Fw.LogSeverity", widen_rep)
+
+    try:
+        from fpy.error import DictionaryError
+
+        with pytest.raises(DictionaryError, match="Fw.LogSeverity"):
+            get_base_compile_state(dict_path)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_log_severity_constant_mismatch_raises_error():
+    """Renumbering one of its constants is rejected too."""
+    _clear_caches()
+
+    def renumber(type_def):
+        for const in type_def["enumeratedConstants"]:
+            if const["name"] == "FATAL":
+                const["value"] = 9
+
+    dict_path = _create_test_dict_with_modified_type("Fw.LogSeverity", renumber)
+
+    try:
+        from fpy.error import DictionaryError
+
+        with pytest.raises(DictionaryError, match="Fw.LogSeverity"):
+            get_base_compile_state(dict_path)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_log_severity_absent_is_tolerated():
+    """A dictionary that never mentions it leaves the canonical definition
+    standing."""
+    _clear_caches()
+
+    dict_path = _create_test_dict_with_modified_type("Fw.LogSeverity", None)
+
+    try:
+        state = get_base_compile_state(dict_path)
+        assert state is not None
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
