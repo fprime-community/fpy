@@ -358,6 +358,22 @@ def generate_write_to_port_llvm(builder, args):
     return None
 
 
+WRITE_TO_PORT_MACRO = BuiltinFuncSymbol(
+    "write_to_port",
+    NOTHING,
+    [
+        ("port", SerialPortIndex, None),
+        ("value", SIZED, None),
+    ],
+    generate_write_to_port,
+    generate_write_to_port_llvm,
+    const_arg_indices=frozenset({0}),  # port must be compile-time constant
+)
+
+# The sentinel constant Svc.Fpy.SerialPortIndex declares one past its last real
+# port; the sequencer bounds-checks every port index against it.
+MAX_SERIAL_PORTS_NAME = "MAX_SERIAL_PORTS"
+
 TIME_MACRO = BuiltinFuncSymbol(
     "time",
     TIME,
@@ -430,15 +446,5 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
         const_arg_indices=frozenset({0, 1}),
     ),
     # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED
-    "write_to_port": BuiltinFuncSymbol(
-        "write_to_port",
-        NOTHING,
-        [
-            ("port", SerialPortIndex, None),
-            ("value", SIZED, None),
-        ],
-        generate_write_to_port,
-        generate_write_to_port_llvm,
-        const_arg_indices=frozenset({0}),  # port must be compile-time constant
-    ),
+    "write_to_port": WRITE_TO_PORT_MACRO,
 }
