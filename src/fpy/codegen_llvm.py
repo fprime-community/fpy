@@ -7,7 +7,7 @@ import tempfile
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from fpy.error import BackendError
 
@@ -154,6 +154,14 @@ def is_addressable(expr: AstExpr, state: CompileState) -> bool:
     member/element access."""
     sym = state.resolved_symbols.get(expr)
     return is_instance_compat(sym, (VariableSymbol, FieldAccess))
+
+
+def _aggregate_element_types(fpy_type: FpyType) -> Iterable[FpyType]:
+    """Element types in the aggregate's LLVM and wire order."""
+    if fpy_type.kind == TypeKind.STRUCT:
+        return (member.type for member in fpy_type.members)
+    assert fpy_type.kind == TypeKind.ARRAY, fpy_type
+    return (fpy_type.elem_type for _ in range(fpy_type.length))
 
 
 class EmitLlvmExpr(Emitter):
@@ -437,19 +445,11 @@ class EmitLlvmExpr(Emitter):
         b = self.builder
         i8 = ir.IntType(8)
         i32 = ir.IntType(32)
-        if fpy_type.kind == TypeKind.STRUCT:
+        if fpy_type.kind in (TypeKind.STRUCT, TypeKind.ARRAY):
             start = offset
-            for i, member in enumerate(fpy_type.members):
+            for i, elem_type in enumerate(_aggregate_element_types(fpy_type)):
                 offset += self._emit_store_big_endian(
-                    b.extract_value(value, i), member.type, base_ptr, offset
-                )
-            assert offset - start == fpy_type.max_size, fpy_type
-            return fpy_type.max_size
-        if fpy_type.kind == TypeKind.ARRAY:
-            start = offset
-            for i in range(fpy_type.length):
-                offset += self._emit_store_big_endian(
-                    b.extract_value(value, i), fpy_type.elem_type, base_ptr, offset
+                    b.extract_value(value, i), elem_type, base_ptr, offset
                 )
             assert offset - start == fpy_type.max_size, fpy_type
             return fpy_type.max_size
@@ -490,26 +490,14 @@ class EmitLlvmExpr(Emitter):
         raise an error. Returns the value at fpy_type's LLVM type."""
         b = self.builder
         i32 = ir.IntType(32)
-        if fpy_type.kind == TypeKind.STRUCT:
+        if fpy_type.kind in (TypeKind.STRUCT, TypeKind.ARRAY):
             value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
             start = offset
-            for i, member in enumerate(fpy_type.members):
+            for i, elem_type in enumerate(_aggregate_element_types(fpy_type)):
                 value = b.insert_value(
-                    value, self._emit_load_big_endian(member.type, base_ptr, offset), i
+                    value, self._emit_load_big_endian(elem_type, base_ptr, offset), i
                 )
-                offset += member.type.max_size
-            assert offset - start == fpy_type.max_size, fpy_type
-            return value
-        if fpy_type.kind == TypeKind.ARRAY:
-            value = ir.Constant(fpy_type.llvm_type, ir.Undefined)
-            start = offset
-            for i in range(fpy_type.length):
-                value = b.insert_value(
-                    value,
-                    self._emit_load_big_endian(fpy_type.elem_type, base_ptr, offset),
-                    i,
-                )
-                offset += fpy_type.elem_type.max_size
+                offset += elem_type.max_size
             assert offset - start == fpy_type.max_size, fpy_type
             return value
         assert not fpy_type.is_string, fpy_type
