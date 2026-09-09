@@ -13,6 +13,7 @@ Breslav
 calcsize
 calle
 capsys
+capsysbinary
 cbranch
 Ccsds
 Cdh
@@ -77,6 +78,7 @@ ifelifelse
 IH
 ine
 ip
+ipc
 itrunc
 kinda
 lalr
