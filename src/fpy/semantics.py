@@ -1,9 +1,8 @@
 from __future__ import annotations
-from dataclasses import fields, replace as dc_replace
+from dataclasses import replace as dc_replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
-import itertools
 import math
 from pathlib import Path
 import struct
@@ -68,6 +67,7 @@ from fpy.symbols import (
     is_symbol_an_expr,
 )
 from fpy.visitors import (
+    ast_children,
     STOP_DESCENT,
     TopDownVisitor,
     Visitor,
@@ -139,19 +139,7 @@ class AssignIds(TopDownVisitor):
         def _descend(node: Ast):
             if not isinstance(node, Ast):
                 return
-            children = []
-            for field in fields(node):
-                field_val = getattr(node, field.name)
-                if isinstance(field_val, list):
-                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
-                        field_val = itertools.chain.from_iterable(field_val)
-                    children.extend(field_val)
-                else:
-                    children.append(field_val)
-
-            for child in children:
-                if not isinstance(child, Ast):
-                    continue
+            for child in ast_children(node):
                 self._visit(child, state)
                 state.parent_map[child] = node
                 if len(state.errors) != 0:
