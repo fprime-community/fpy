@@ -230,3 +230,20 @@ assert not y
 assert "a" == 1
 """
         assert_compile_failure(fprime_test_api, seq)
+
+
+class TestUnitComparisons:
+
+    @pytest.mark.xfail(
+        reason="Unit is accepted as a comparison operand: fpybc emits a "
+        "zero-byte MEMCOMPARE that is vacuously true, and the wasm backend "
+        "asserts on the void operand"
+    )
+    def test_unit_equality_rejected(self, fprime_test_api):
+        seq = """
+def f():
+    pass
+
+assert f() == f()
+"""
+        assert_compile_failure(fprime_test_api, seq)

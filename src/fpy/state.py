@@ -160,7 +160,7 @@ class CompileState:
 
     const_expr_values: dict[AstExpr, FpyValue | None] = field(default_factory=dict)
     """expr to the fprime value it will end up being on the stack after type conversions.
-    None if unsure at compile time.  NOTHING_VALUE for void expressions."""
+    None if unsure at compile time.  UNIT_VALUE for void expressions."""
 
     type_ctors: dict[FpyType, TypeCtorSymbol] = field(default_factory=dict)
     """each struct and array type -> its type constructor"""

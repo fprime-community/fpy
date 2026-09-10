@@ -352,7 +352,7 @@ The initial value may either be from a passed [argument](todo), or a default val
 
 ## Return types
 
-The **return type** of a function is the [type](#types) of the value returned by that function. If the return type is [Nothing](#internal-types), the function does not return a value.
+The **return type** of a function is the [type](#types) of the value returned by that function.
 
 ## Returns
 
@@ -375,7 +375,7 @@ If the return statement is outside of a function body, an error is raised.
 
 The **enclosing function** of a return statement is the function whose body that return is in.
 
-If `value` is not provided and the enclosing function's return type is not Nothing, an error is raised.
+If `value` is not provided and the enclosing function's return type is not Unit, an error is raised.
 
 If `value` is provided and cannot be [coerced](#type-coercion) to the return type of the enclosing function, an error is raised.
 
@@ -436,7 +436,7 @@ If a parameter without a default value follows a parameter with a default value,
 If `return_type` is provided, and any [branch](todo) of the function does not return a value, an error is raised.
 TODO need a section on control flow?
 
-The new function with name `name` is added to the global scope. If `return_type` is not provided, the [return type](#return-types) is [Nothing](#internal-types), otherwise the return type is type `return_type`.
+The new function with name `name` is added to the global scope. If `return_type` is not provided, the [return type](#return-types) is [Unit](#internal-types), otherwise the return type is type `return_type`.
 
 > Because functions can only be defined in the global scope, you cannot declare a function in a function.
 
@@ -989,7 +989,7 @@ The precision of Float is 30 decimal places.
 
 **Range** is an internal type whose values are pairs of an lower and upper bound of loop var type.
 
-**Nothing** is an internal type which has no values.
+**Unit** is an internal type which has exactly one value.
 
 ## Dictionary types
 **Dictionary types** are types defined in the F-Prime dictionary.

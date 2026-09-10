@@ -47,7 +47,7 @@ class BuiltinFuncSymbol(CallableSymbol):
     contextual (coerced) type. Args in const_arg_indices, and args whose type
     has no machine representation (a string), are never emitted and arrive as
     (None, value, type). Returns the result ir.Value (or None for a
-    NOTHING-typed builtin). Defaults to raising 'not lowered yet'."""
+    UNIT-typed builtin). Defaults to raising 'not lowered yet'."""
     const_arg_indices: frozenset[int] = field(default_factory=frozenset)
     """indices of args that must be compile-time constants and are NOT pushed
     to the stack; instead their values are passed to generate_fpybc()"""

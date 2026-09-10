@@ -81,7 +81,7 @@ class TypeKind(str, Enum):
     FLOAT = "Float"  # arbitrary-precision float literal
     INTERNAL_STRING = "InternalString"  # arbitrary-length string
     RANGE = "Range"  # range expression
-    NOTHING = "Nothing"  # void / no-value
+    UNIT = "Unit"  # the type of an expression that produces the Unit value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
     SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
@@ -162,7 +162,7 @@ _INTERNAL_KINDS = frozenset(
         TypeKind.FLOAT,
         TypeKind.INTERNAL_STRING,
         TypeKind.RANGE,
-        TypeKind.NOTHING,
+        TypeKind.UNIT,
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
         TypeKind.SIZED,
@@ -342,7 +342,7 @@ class FpyType:
             return sum(m.type.max_size for m in self.members)
         if self.kind == TypeKind.ARRAY:
             return self.elem_type.max_size * self.length
-        if self.kind == TypeKind.NOTHING:
+        if self.kind == TypeKind.UNIT:
             return 0
         assert False, f"Cannot compute max_size for {self}"
 
@@ -376,7 +376,7 @@ class FpyType:
             return ir.LiteralStructType(
                 [ir.IntType(16), ir.ArrayType(ir.IntType(8), self.max_length)]
             )
-        if self.kind == TypeKind.NOTHING:
+        if self.kind == TypeKind.UNIT:
             return ir.VoidType()
         # INTERNAL_STRING/RANGE/ANON_* are compiler-internal: they're coerced to
         # concrete types (or desugared) before codegen, so they have no LLVM
@@ -447,7 +447,7 @@ INTEGER = FpyType(TypeKind.INTEGER, "Integer")
 FLOAT = FpyType(TypeKind.FLOAT, "Float")
 INTERNAL_STRING = FpyType(TypeKind.INTERNAL_STRING, "InternalString")
 RANGE = FpyType(TypeKind.RANGE, "Range")
-NOTHING = FpyType(TypeKind.NOTHING, "Nothing")
+UNIT = FpyType(TypeKind.UNIT, "Unit")
 
 # Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_type_constant_size).
 SIZED = FpyType(TypeKind.SIZED, "Sized")
@@ -653,8 +653,8 @@ class FpyValue:
         assert False, f"Cannot deserialize {typ}"
 
 
-# Sentinel value for void (no-value) expressions
-NOTHING_VALUE = FpyValue(NOTHING, None)
+# The sole value of UNIT
+UNIT_VALUE = FpyValue(UNIT, None)
 
 
 @dataclass

@@ -31,8 +31,8 @@ from fpy.types import (
     FLOAT,
     INTERNAL_STRING,
     TypeKind,
-    NOTHING,
-    NOTHING_VALUE,
+    UNIT,
+    UNIT_VALUE,
     BOOL,
     U64,
     I32,
@@ -300,7 +300,7 @@ class GenerateFunctions(Visitor):
 
         code.extend(GenerateFunctionBody().emit(node.body, state))
         func = state.resolved_symbols[node.name]
-        if func.return_type is NOTHING and not state.does_return[node.body]:
+        if func.return_type is UNIT and not state.does_return[node.body]:
             # implicit empty return
             arg_bytes = sum(arg[1].max_size for arg in (func.args or []))
             code.append(ReturnDirective(0, arg_bytes))
@@ -472,8 +472,8 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             FLOAT,
         ), expr_value
 
-        if expr_value is NOTHING_VALUE:
-            # nothing type has no value
+        if expr_value is UNIT_VALUE:
+            # the unit value occupies no bytes, so there is nothing to push
             return []
 
         # it has a constant value at compile time
@@ -491,7 +491,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             return []
 
         result_type = state.contextual_types[node]
-        if result_type == NOTHING:
+        if result_type == UNIT:
             return []
         if result_type.max_size > 0:
             return [DiscardDirective(result_type.max_size)]

@@ -28,7 +28,7 @@ from fpy.bytecode.directives import SerialPortIndex
 from fpy.types import (
     INTERNAL_STRING,
     LOG_SEVERITY,
-    NOTHING,
+    UNIT,
     SIZED,
     TIME,
     TIME_BASE,
@@ -139,7 +139,7 @@ def generate_sleep_until_llvm(builder, args):
 
 MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     "sleep",
-    NOTHING,
+    UNIT,
     [
         (
             "seconds",
@@ -189,7 +189,7 @@ def generate_sleep_float(
 
 
 MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
-    "sleep", NOTHING, [("seconds", F64, None)], generate_sleep_float
+    "sleep", UNIT, [("seconds", F64, None)], generate_sleep_float
 )
 
 
@@ -378,14 +378,14 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
     "sleep_until": BuiltinFuncSymbol(
         "sleep_until",
-        NOTHING,
+        UNIT,
         [("wakeup_time", TIME, None)],
         lambda n, c, t: [WaitAbsDirective()],
         generate_sleep_until_llvm,
     ),
     "exit": BuiltinFuncSymbol(
         "exit",
-        NOTHING,
+        UNIT,
         [("exit_code", ErrorCodeType, None)],
         lambda n, c, t: [ExitDirective()],
         generate_llvm=generate_exit_llvm,
@@ -403,7 +403,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     "rand": BuiltinFuncSymbol("rand", U32, [], lambda n, c, t: [PushRandDirective()]),
     "randf": BuiltinFuncSymbol("randf", F64, [], generate_randf),
     "set_seed": BuiltinFuncSymbol(
-        "set_seed", NOTHING, [("seed", U32, None)], lambda n, c, t: [SetSeedDirective()]
+        "set_seed", UNIT, [("seed", U32, None)], lambda n, c, t: [SetSeedDirective()]
     ),
     "iabs": MACRO_ABS_SIGNED_INT,
     "fabs": MACRO_ABS_FLOAT,
@@ -413,7 +413,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
     "log": BuiltinFuncSymbol(
         "log",
-        NOTHING,
+        UNIT,
         [
             ("message", INTERNAL_STRING, None),
             ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
@@ -432,7 +432,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED
     "write_to_port": BuiltinFuncSymbol(
         "write_to_port",
-        NOTHING,
+        UNIT,
         [
             ("port", SerialPortIndex, None),
             ("value", SIZED, None),

@@ -189,7 +189,7 @@ class EmitLlvmExpr(Emitter):
             )
         result = emitter(node, state)
         if result is None:
-            # NOTHING-typed expr, nothing to convert.
+            # UNIT-typed expr, no value to convert.
             return None
         synthesized = state.synthesized_types[node]
         contextual = state.contextual_types[node]

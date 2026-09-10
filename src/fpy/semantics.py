@@ -27,7 +27,7 @@ from fpy.types import (
     FLOAT,
     INTERNAL_STRING,
     RANGE,
-    NOTHING,
+    UNIT,
     SIZED,
     BOOL,
     TIME,
@@ -830,7 +830,7 @@ class UpdateStateWithTypes(Visitor):
 
         # Resolve return type
         if node.return_type is None:
-            func.return_type = NOTHING
+            func.return_type = UNIT
         else:
             return_type = state.resolved_symbols[node.return_type]
             func.return_type = return_type
@@ -2178,10 +2178,10 @@ class PickTypesAndResolveFields(Visitor):
     def visit_AstReturn(self, node: AstReturn, state: CompileState):
         func = state.enclosing_funcs[node]
         func = state.resolved_symbols[func.name]
-        if func.return_type is NOTHING and node.value is not None:
+        if func.return_type is UNIT and node.value is not None:
             state.err("Expected no return value", node.value)
             return
-        if func.return_type is not NOTHING and node.value is None:
+        if func.return_type is not UNIT and node.value is None:
             state.err(
                 f"Expected a return value of type {func.return_type.display_name}",
                 node.value,
@@ -2231,7 +2231,9 @@ class CalculateDefaultArgConstValues(Visitor):
 
 class CalculateConstExprValues(Visitor):
     """for each expr, try to calculate its constant value and store it in a map. stores None if no value could be
-    calculated at compile time, and NothingType if the expr had no value"""
+    calculated at compile time, and UNIT_VALUE if the expr produces no value"""
+
+    # TODO what does expr "producing no value" mean?
 
     @staticmethod
     def _round_float_to_type(value: float, to_type: FpyType) -> float | None:
