@@ -76,10 +76,9 @@ class TypeKind(str, Enum):
     ENUM = "enum"
     STRUCT = "struct"
     ARRAY = "array"
-    # Compiler-internal types (never serialized to bytecode as stack values)
-    INTEGER = "Integer"  # arbitrary-precision integer literal
-    FLOAT = "Float"  # arbitrary-precision float literal
-    INTERNAL_STRING = "InternalString"  # arbitrary-length string
+    LITERAL_INT = "LiteralInt"
+    LITERAL_FLOAT = "LiteralFloat"
+    LITERAL_STRING = "LiteralString"
     RANGE = "Range"  # range expression
     UNIT = "Unit"  # the type of an expression that produces the Unit value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
@@ -87,6 +86,21 @@ class TypeKind(str, Enum):
     SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
 
 
+_PRIMITIVE_KINDS = frozenset(
+    {
+        TypeKind.U8,
+        TypeKind.U16,
+        TypeKind.U32,
+        TypeKind.U64,
+        TypeKind.I8,
+        TypeKind.I16,
+        TypeKind.I32,
+        TypeKind.I64,
+        TypeKind.F32,
+        TypeKind.F64,
+        TypeKind.BOOL,
+    }
+)
 # struct format for each primitive kind
 _PRIMITIVE_FORMATS: dict[TypeKind, str] = {
     TypeKind.U8: ">B",
@@ -130,6 +144,7 @@ _PRIMITIVE_BITS: dict[TypeKind, int] = {
     TypeKind.F32: 32,
     TypeKind.F64: 64,
     TypeKind.BOOL: 8,
+    # FIXME should any of the literal types be included?
 }
 
 # Inclusive integer ranges
@@ -143,7 +158,10 @@ _INTEGER_RANGES: dict[TypeKind, tuple[int, int]] = {
     TypeKind.I32: (-(2**31), 2**31 - 1),
     TypeKind.I64: (-(2**63), 2**63 - 1),
 }
-
+_FLOAT_RANGES: dict[TypeKind, tuple[Decimal, Decimal]] = {
+    TypeKind.F32: (Decimal(-3.4028234663852886e38), Decimal(3.4028234663852886e38)),
+    TypeKind.F64: (Decimal(-1.7976931348623157e308), Decimal(1.7976931348623157e308)),
+}
 # Kind sets for fast membership tests
 _SIGNED_INTEGER_KINDS = frozenset(
     {TypeKind.I8, TypeKind.I16, TypeKind.I32, TypeKind.I64}
@@ -151,21 +169,29 @@ _SIGNED_INTEGER_KINDS = frozenset(
 _UNSIGNED_INTEGER_KINDS = frozenset(
     {TypeKind.U8, TypeKind.U16, TypeKind.U32, TypeKind.U64}
 )
-_CONCRETE_INTEGER_KINDS = _SIGNED_INTEGER_KINDS | _UNSIGNED_INTEGER_KINDS
-_ALL_INTEGER_KINDS = _CONCRETE_INTEGER_KINDS | {TypeKind.INTEGER}
-_CONCRETE_FLOAT_KINDS = frozenset({TypeKind.F32, TypeKind.F64})
-_ALL_FLOAT_KINDS = _CONCRETE_FLOAT_KINDS | {TypeKind.FLOAT}
+_ALL_INTEGER_KINDS = (
+    _SIGNED_INTEGER_KINDS | _UNSIGNED_INTEGER_KINDS | frozenset({TypeKind.LITERAL_INT})
+)
+_ALL_FLOAT_KINDS = frozenset({TypeKind.F32, TypeKind.F64, TypeKind.LITERAL_FLOAT})
 _ALL_NUMERICAL_KINDS = _ALL_INTEGER_KINDS | _ALL_FLOAT_KINDS
-_INTERNAL_KINDS = frozenset(
+_ALL_LITERAL_KINDS = frozenset(
     {
-        TypeKind.INTEGER,
-        TypeKind.FLOAT,
-        TypeKind.INTERNAL_STRING,
-        TypeKind.RANGE,
-        TypeKind.UNIT,
+        TypeKind.LITERAL_FLOAT,
+        TypeKind.LITERAL_INT,
+        TypeKind.LITERAL_STRING,
+    }
+)
+_SERIALIZABLE_KINDS = _PRIMITIVE_KINDS | frozenset(
+    {
+        TypeKind.STRING,
+        TypeKind.ENUM,
+        TypeKind.STRUCT,
+        TypeKind.ARRAY,
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
         TypeKind.SIZED,
+        TypeKind.UNIT,  # FIXME should unit be included?
+        TypeKind.LITERAL_STRING,
     }
 )
 
@@ -201,8 +227,6 @@ class StructMember:
 
 
 class FpyType:
-    """Describes an FPP type.  Singletons for primitives, constructed instances
-    for compound types (enums, structs, arrays, strings with length)."""
 
     __slots__ = (
         "kind",
@@ -216,6 +240,7 @@ class FpyType:
         "json_default",
         "member_defaults",
         "elem_defaults",
+        "literal_val",
     )
 
     def __init__(
@@ -232,25 +257,34 @@ class FpyType:
         json_default: object | None = None,
         member_defaults: dict[str, FpyValue] | None = None,
         elem_defaults: tuple[FpyValue, ...] | None = None,
+        literal_val: int | Decimal | str | bool | None = None,
     ):
         self.kind = kind
         self.name = name
         self.max_length = max_length
+        """max number of characters in a string type. inf for INTERNAL_STRING"""
         self.enum_dict = enum_dict
         self.rep_type = rep_type
         self.members = members
         self.elem_type = elem_type
         self.length = length
+        """max number of elements in an array type"""
         self.json_default = json_default
         self.member_defaults = member_defaults
         self.elem_defaults = elem_defaults
+        self.literal_val = literal_val
+        """the sole value of this literal type"""
 
     # -- identity ----------------------------------------------------------
 
     def __eq__(self, other):
+        if self is other:
+            return True
         if not isinstance(other, FpyType):
             return NotImplemented
-        return self.kind == other.kind and self.name == other.name
+        return all(
+            getattr(self, field) == getattr(other, field) for field in FpyType.__slots__
+        )
 
     def __hash__(self):
         return hash((self.kind, self.name))
@@ -264,12 +298,12 @@ class FpyType:
 
     @property
     def is_integer(self) -> bool:
-        """True for U8..I64 and the internal INTEGER type."""
+        """True for U8..I64 and the integer literal type."""
         return self.kind in _ALL_INTEGER_KINDS
 
     @property
     def is_float(self) -> bool:
-        """True for F32, F64, and the internal FLOAT type."""
+        """True for F32, F64 and the float literal type"""
         return self.kind in _ALL_FLOAT_KINDS
 
     @property
@@ -277,25 +311,16 @@ class FpyType:
         return self.kind in _ALL_NUMERICAL_KINDS
 
     @property
-    def is_signed(self) -> bool:
+    def is_signed_integer(self) -> bool:
+        # literal integer type is neither signed nor unsigned
+        assert self.kind != TypeKind.LITERAL_INT
         return self.kind in _SIGNED_INTEGER_KINDS
 
     @property
-    def is_unsigned(self) -> bool:
+    def is_unsigned_integer(self) -> bool:
+        # literal integer type is neither signed nor unsigned
+        assert self.kind != TypeKind.LITERAL_INT
         return self.kind in _UNSIGNED_INTEGER_KINDS
-
-    @property
-    def is_concrete_integer(self) -> bool:
-        return self.kind in _CONCRETE_INTEGER_KINDS
-
-    @property
-    def is_concrete_float(self) -> bool:
-        return self.kind in _CONCRETE_FLOAT_KINDS
-
-    @property
-    def is_concrete(self) -> bool:
-        """True if this type can appear at runtime (not a compiler-internal type)."""
-        return self.kind not in _INTERNAL_KINDS
 
     @property
     def is_primitive(self) -> bool:
@@ -304,18 +329,29 @@ class FpyType:
 
     @property
     def is_string(self) -> bool:
-        """True for both concrete STRING and internal INTERNAL_STRING."""
-        return self.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING)
+        return self.kind in (TypeKind.STRING, TypeKind.LITERAL_STRING)
+
+    @property
+    def is_array(self) -> bool:
+        return self.kind == TypeKind.ARRAY or self.kind == TypeKind.ANON_ARRAY
+
+    @property
+    def is_struct(self) -> bool:
+        return self.kind == TypeKind.STRUCT or self.kind == TypeKind.ANON_STRUCT
+
+    @property
+    def is_literal(self) -> bool:
+        return self.kind in _ALL_LITERAL_KINDS
 
     @property
     def display_name(self) -> str:
         """Human-readable type name for error messages."""
-        if self.kind == TypeKind.INTEGER:
-            return "Integer"
-        if self.kind == TypeKind.FLOAT:
-            return "Float"
-        if self.kind == TypeKind.INTERNAL_STRING:
-            return "String"
+        if self.kind == TypeKind.LITERAL_INT:
+            return "literal int"
+        if self.kind == TypeKind.LITERAL_FLOAT:
+            return "literal float"
+        if self.kind == TypeKind.LITERAL_STRING:
+            return "literal string"
         if self.kind == TypeKind.ANON_STRUCT:
             return "struct literal"
         if self.kind == TypeKind.ANON_ARRAY:
@@ -327,14 +363,23 @@ class FpyType:
     # -- size / range properties -------------------------------------------
 
     @property
+    def is_serializable(self) -> bool:
+        return self.kind in _SERIALIZABLE_KINDS
+
+    @property
+    def has_static_serialized_size(self) -> bool:
+        assert self.is_serializable
+        # all serializable types except non-literal strings have a static serialized size
+        return self.kind != TypeKind.STRING
+
+    @property
     def max_size(self) -> int:
         """Maximum serialized size in bytes."""
+        assert self.is_serializable
+
         if self.kind in _PRIMITIVE_SIZES:
             return _PRIMITIVE_SIZES[self.kind]
-        if self.kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
-            assert (
-                self.max_length is not None
-            ), "Cannot compute size of arbitrary-length string"
+        if self.is_string:
             return FwSizeStoreType.max_size + self.max_length
         if self.kind == TypeKind.ENUM:
             return self.rep_type.max_size
@@ -344,15 +389,14 @@ class FpyType:
             return self.elem_type.max_size * self.length
         if self.kind == TypeKind.UNIT:
             return 0
+            # TODO implement for anon struct/array
         assert False, f"Cannot compute max_size for {self}"
 
     @property
     def bits(self) -> int | float:
-        """Bit width of the type, inf for arbitrary-precision."""
+        """Bit width of the primitive type"""
         if self.kind in _PRIMITIVE_BITS:
             return _PRIMITIVE_BITS[self.kind]
-        if self.kind in (TypeKind.INTEGER, TypeKind.FLOAT):
-            return math.inf
         assert False, f"Cannot compute bits for {self}"
 
     @property
@@ -370,7 +414,7 @@ class FpyType:
             return ir.LiteralStructType([m.type.llvm_type for m in self.members])
         if self.kind == TypeKind.ARRAY:
             return ir.ArrayType(self.elem_type.llvm_type, self.length)
-        if self.kind == TypeKind.STRING:
+        if self.is_string:
             # Fprime string: 2-byte length prefix + fixed-capacity byte buffer.
             assert self.max_length is not None, "string type needs a max_length"
             return ir.LiteralStructType(
@@ -378,18 +422,165 @@ class FpyType:
             )
         if self.kind == TypeKind.UNIT:
             return ir.VoidType()
-        # INTERNAL_STRING/RANGE/ANON_* are compiler-internal: they're coerced to
-        # concrete types (or desugared) before codegen, so they have no LLVM
-        # representation of their own.
+        # TODO implement for anon struct/array, literals?
         raise NotImplementedError(f"No LLVM type mapping for {self.display_name}")
 
-    def value_range(self) -> tuple[int | float, int | float]:
-        """(min, max) inclusive range for integer types."""
+    @property
+    def value_range(self) -> tuple[int | Decimal, int | Decimal]:
+        """(min, max) inclusive range for non-literal numeric types."""
         if self.kind in _INTEGER_RANGES:
             return _INTEGER_RANGES[self.kind]
-        if self.kind == TypeKind.INTEGER:
-            return (-math.inf, math.inf)
+        if self.kind in _FLOAT_RANGES:
+            return _FLOAT_RANGES[self.kind]
+        if self.kind == TypeKind.LITERAL_FLOAT or self.kind == TypeKind.LITERAL_INT:
+            return (self.literal_val, self.literal_val)
+
         assert False, f"Cannot compute range for {self}"
+
+    def is_integer_exact_in_type(self, value: int) -> bool:
+        """return True if the integer value is representable exactly in this non-literal float type"""
+        assert self.is_float and not self.is_literal, self.kind
+        if value == 0:
+            return True
+        value = abs(value)
+        value >>= (value & -value).bit_length() - 1
+        mantissa_bits = 53 if self.kind == TypeKind.F64 else 24
+        return value.bit_length() <= mantissa_bits
+
+    def is_numeric_value_in_type(self, value: Decimal | int) -> bool:
+        assert self.is_numerical
+        assert not self.is_literal, self
+
+        # inf and nan lie outside every value range, but every float type can
+        # represent them. this must come before the range check, because
+        # ordering a nan against anything raises InvalidOperation
+        if isinstance(value, Decimal) and not value.is_finite():
+            return self.is_float
+
+        min_val, max_val = self.value_range
+        # if value is out of range of this type
+        if value < min_val or value > max_val:
+            return False
+
+        # does value have a fractional part?
+        if isinstance(value, Decimal) and value.to_integral_value() != value:
+            # must be a float type
+            return self.is_float
+
+        # otherwise, the value is either an int, or a Decimal which is an exact int.
+        if self.is_float:
+            return self.is_integer_exact_in_type(int(value))
+
+        return True
+
+    def is_subtype_of(self, super_type: FpyType) -> bool:
+        if self == super_type:
+            return True
+
+        if super_type.kind == TypeKind.SIZED:
+            # sized is a super type of any type which is serializable, and has a statically-known
+            # serialized size
+            return self.is_serializable and self.has_static_serialized_size
+
+        if super_type.is_literal:
+            # super type is a literal, so it has one value
+            # the only way this could be a subtype of it is if
+            # it is equal to it, which was already checked
+            return False
+
+        if super_type.kind == TypeKind.ENUM:
+            # only way an enum type can be a subtype of another enum type
+            # is if they are the same type. i.e. no enum constant is shared
+            # between two enum types
+            return False
+
+        if super_type.kind == TypeKind.RANGE:
+            return False
+
+        if super_type.kind == TypeKind.UNIT:
+            return False
+
+        if super_type.kind == TypeKind.BOOL:
+            # only the bool type is a subtype of the bool type
+            return self.kind == TypeKind.BOOL
+
+        if super_type.is_float:
+            if self.is_numerical and self.is_literal:
+                # a literal numeric type is a subtype of any type containing the literal type's value
+                return super_type.is_numeric_value_in_type(self.literal_val)
+
+            if self.is_float:
+                return self.bits <= super_type.bits
+
+            if self.is_integer:
+                # okay, this one is the integer, super_type is a float
+                if self.bits >= 64:
+                    # if I64, U64, cannot fit in any float
+                    return False
+
+                if self.bits == 32:
+                    # a 32 bit u/i int can only fit into an f64
+                    return super_type.kind == TypeKind.F64
+
+                return True
+
+            return False
+
+        if super_type.is_integer:
+            if self.is_numerical and self.is_literal:
+                # a literal numeric type is a subtype of any type containing the literal type's value
+                return super_type.is_numeric_value_in_type(self.literal_val)
+
+            if self.is_float:
+                # no non-literal float type is a subtype of an integer type
+                return False
+
+            if self.is_integer:
+                # an int type B is a subtype of another int type A if all B's values are contained within
+                # the value range of A
+                this_min, this_max = self.value_range
+                super_min, super_max = super_type.value_range
+
+                return this_max <= super_max and this_min >= super_min
+
+            return False
+
+        if super_type.is_array:
+            if self.kind == TypeKind.ANON_ARRAY:
+                # an anonymous array may only be a subtype of an array (anonymous or not)
+                # with the same length
+                if self.length != super_type.length:
+                    return False
+
+                # the element type of this array type must be a subtype of the super type's element type
+                return self.elem_type.is_subtype_of(super_type.elem_type)
+
+            return False
+
+        if super_type.is_struct:
+            if self.kind == TypeKind.ANON_STRUCT:
+                # if there's a member in the super type which isn't present in this
+                # type, this type cannot be a subtype
+                for super_member in super_type.members:
+                    sub_member = next(
+                        (m for m in self.members if m.name == super_member.name), None
+                    )
+                    if sub_member is None:
+                        return False
+                    # the member of this type is not a subtype of the member of the potential super type
+                    if not sub_member.type.is_subtype_of(super_member.type):
+                        return False
+                return True
+
+            return False
+
+        if super_type.is_string:
+            if self.is_string:
+                # this handles string literals too
+                return self.max_length <= super_type.max_length
+            return False
+
+        assert False, super_type.kind
 
 
 U8 = FpyType(TypeKind.U8, "U8")
@@ -443,22 +634,9 @@ TIME = FpyType(
         StructMember("useconds", U32),
     ),
 )
-INTEGER = FpyType(TypeKind.INTEGER, "Integer")
-FLOAT = FpyType(TypeKind.FLOAT, "Float")
-INTERNAL_STRING = FpyType(TypeKind.INTERNAL_STRING, "InternalString")
 RANGE = FpyType(TypeKind.RANGE, "Range")
 UNIT = FpyType(TypeKind.UNIT, "Unit")
-
-# Internal, non-user-nameable sentinel param type: accepts any serializable, statically-sized arg (see is_type_constant_size).
 SIZED = FpyType(TypeKind.SIZED, "Sized")
-
-# Tuples of concrete types for iteration / membership tests
-SPECIFIC_NUMERIC_TYPES = (U32, U16, U64, U8, I16, I32, I64, I8, F32, F64)
-SPECIFIC_INTEGER_TYPES = (U32, U16, U64, U8, I16, I32, I64, I8)
-SIGNED_INTEGER_TYPES = (I16, I32, I64, I8)
-UNSIGNED_INTEGER_TYPES = (U32, U16, U64, U8)
-SPECIFIC_FLOAT_TYPES = (F32, F64)
-ARBITRARY_PRECISION_TYPES = (FLOAT, INTEGER)
 
 # Map from canonical name to FpyType (primitives only)
 PRIMITIVE_TYPE_MAP: dict[str, FpyType] = {
@@ -511,7 +689,6 @@ class FpyValue:
         # Internal/abstract types have no LLVM representation.
         assert kind not in (
             TypeKind.INTEGER,
-            TypeKind.FLOAT,
             TypeKind.INTERNAL_STRING,
         ), self
 
@@ -548,7 +725,7 @@ class FpyValue:
                 val = FW_SERIALIZE_TRUE_VALUE if val else FW_SERIALIZE_FALSE_VALUE
             return struct.pack(_PRIMITIVE_FORMATS[kind], val)
 
-        if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+        if kind in (TypeKind.STRING, TypeKind.LITERAL_STRING):
             encoded = (
                 self.val.encode("utf-8") if isinstance(self.val, str) else self.val
             )
@@ -612,7 +789,7 @@ class FpyValue:
                     raise DeserializeError(f"Invalid bool byte 0x{raw:02x}")
             return FpyValue(typ, raw), offset + size
 
-        if kind in (TypeKind.STRING, TypeKind.INTERNAL_STRING):
+        if kind in (TypeKind.STRING, TypeKind.LITERAL_STRING):
             size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
             if typ.max_length is not None and str_len > typ.max_length:
@@ -801,8 +978,7 @@ SEQ_ARGS = FpyType(
     ),
 )
 
-# Internal type (prefixed with $) not directly accessible to users,
-# used for desugaring check statements.
+
 _TIME_INTERVAL_DEFAULT = {"seconds": 0, "useconds": 0}
 _TIME_DEFAULT = {
     "timeBase": "TimeBase.TB_NONE",
@@ -811,6 +987,8 @@ _TIME_DEFAULT = {
     "useconds": 0,
 }
 
+# Internal type not directly accessible to users,
+# used for desugaring check statements.
 CHECK_STATE = FpyType(
     TypeKind.STRUCT,
     "$CheckState",
@@ -835,6 +1013,7 @@ CHECK_STATE = FpyType(
 )
 
 
+# FIXME let's remove isinstancecompat
 def is_instance_compat(obj, cls):
     """
     A wrapper for isinstance() that correctly handles Union types in Python 3.9+.
@@ -889,6 +1068,16 @@ class OpCase(Enum):
     NOT_EQUAL_INT = auto()
     NOT_EQUAL_FLOAT = auto()
     NOT_EQUAL_BYTES = auto()
+
+
+@dataclass
+class OperatorFunc:
+    arg_types: set[FpyType]
+
+
+NOT = OperatorFunc([BOOL])
+IDENTITY = OperatorFunc([ANY])
+NEGATE_INT = OperatorFunc([INTEGER])
 
 
 # op -> its case over a (signed int, unsigned int, float) intermediate type.
@@ -984,7 +1173,7 @@ def _pick_op_case(
     signed_case, unsigned_case, float_case = numeric_op_cases[op]
     if intermediate_type.is_float:
         case = float_case
-    elif intermediate_type.is_unsigned:
+    elif intermediate_type.is_unsigned_integer:
         case = unsigned_case
     else:
         case = signed_case

@@ -28,7 +28,6 @@ from fpy.types import (
     FpyType,
     FpyValue,
     INTEGER,
-    FLOAT,
     INTERNAL_STRING,
     TypeKind,
     UNIT,
@@ -469,7 +468,6 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         assert isinstance(expr_value, FpyValue) and expr_value.type not in (
             INTEGER,
             INTERNAL_STRING,
-            FLOAT,
         ), expr_value
 
         if expr_value is UNIT_VALUE:

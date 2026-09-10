@@ -431,6 +431,11 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     )
 
     # Adopt the dictionary's buffer length onto the canonical buffer singleton.
+    # NOTE this leaves two distinct FpyType objects named Array_U8_<N>: this
+    # one, reachable only as SEQ_ARGS' buffer member, and the dictionary's own
+    # top-level entry. _populate_type_defaults only visits top-level entries,
+    # so only the dictionary's gets elem_defaults, and the two therefore
+    # compare unequal under FpyType.__eq__. Nothing compares them today.
     canonical_buffer_type.length = dict_buffer_type.length
     canonical_buffer_type.name = f"Array_U8_{dict_buffer_type.length}"
 

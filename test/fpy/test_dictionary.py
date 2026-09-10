@@ -91,7 +91,7 @@ class TestTypeDescriptorUnsignedIntegers:
         desc = {"name": name, "kind": "integer", "size": size, "signed": False}
         result = _resolve_type(desc, {})
         assert result.kind.value == name
-        assert result.is_unsigned
+        assert result.is_unsigned_integer
 
     @pytest.mark.parametrize(
         "name,expected",
@@ -113,7 +113,7 @@ class TestTypeDescriptorSignedIntegers:
         desc = {"name": name, "kind": "integer", "size": size, "signed": True}
         result = _resolve_type(desc, {})
         assert result.kind.value == name
-        assert result.is_signed
+        assert result.is_signed_integer
 
     @pytest.mark.parametrize(
         "name,expected",
@@ -2649,11 +2649,11 @@ class TestTypeClassification:
 
     def test_signed_unsigned(self):
         for t in [U8, U16, U32, U64]:
-            assert t.is_unsigned
-            assert not t.is_signed
+            assert t.is_unsigned_integer
+            assert not t.is_signed_integer
         for t in [I8, I16, I32, I64]:
-            assert t.is_signed
-            assert not t.is_unsigned
+            assert t.is_signed_integer
+            assert not t.is_unsigned_integer
 
     def test_enum_classification(self):
         e = FpyType(TypeKind.ENUM, "E", enum_dict={"A": 0}, rep_type=U8)

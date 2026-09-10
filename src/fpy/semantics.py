@@ -12,6 +12,7 @@ from typing import Union
 from fpy.error import CompileError, diagnostic_context
 from fpy.macros import TIME_MACRO
 from fpy.types import (
+    SIZED,
     pick_binary_op_case,
     pick_unary_op_case,
     ARBITRARY_PRECISION_TYPES,
@@ -24,11 +25,9 @@ from fpy.types import (
     StructMember,
     TypeKind,
     INTEGER,
-    FLOAT,
     INTERNAL_STRING,
     RANGE,
     UNIT,
-    SIZED,
     BOOL,
     TIME,
     TIME_BASE,
@@ -1287,15 +1286,9 @@ class ResolveSequenceDependencies(TopDownVisitor):
 class PickTypesAndResolveFields(Visitor):
 
     def can_coerce_type(self, source: FpyType, target: FpyType) -> bool:
-        """Returns True if source can be implicitly coerced to target.
-
-        Coercion is allowed when the common type of source and target IS target,
-        meaning target can already represent everything source can.
-        """
-        # The SIZED sentinel accepts any serializable, statically-sized argument.
-        if target.kind == TypeKind.SIZED:
-            return is_type_constant_size(source)
-        return self.find_common_type(source, target) == target
+        """Returns True if source can be implicitly coerced to target."""
+        # true if every value of source can be represented in target
+        return source.is_subtype_of(target)
 
     def coerce_expr_type(
         self, node: AstExpr, type: FpyType, state: CompileState
@@ -1381,151 +1374,12 @@ class PickTypesAndResolveFields(Visitor):
         self, first_type: FpyType, second_type: FpyType
     ) -> FpyType | None:
 
-        # important principles to reduce surprise:
-
-        # type of an operation should be decided by the types of its inputs. let's not do
-        # anything clever with trying to inspect the values of consts
-
-        # no common type between signed and unsigned int
-
-        # TODO unit test that this "works either way"
-        if first_type == second_type:
-            # no coercion necessary
+        if first_type.is_subtype_of(second_type):
             return second_type
-
-        # Anonymous struct adapts to a compatible concrete struct.
-        if (
-            first_type.kind == TypeKind.ANON_STRUCT
-            or second_type.kind == TypeKind.ANON_STRUCT
-        ):
-            return self._find_common_type_anon_struct(first_type, second_type)
-
-        # Anonymous array adapts to a compatible concrete array.
-        if (
-            first_type.kind == TypeKind.ANON_ARRAY
-            or second_type.kind == TypeKind.ANON_ARRAY
-        ):
-            return self._find_common_type_anon_array(first_type, second_type)
-
-        # literal strings adapt to specific strings
-        if first_type.is_string and second_type == INTERNAL_STRING:
-            return first_type
-        if second_type.is_string and first_type == INTERNAL_STRING:
-            return second_type
-
-        if not first_type.is_numerical or not second_type.is_numerical:
-            # there are no other non numeric types which have a common type
-            return None
-
-        second_float = second_type.is_float
-        first_float = first_type.is_float
-
-        # common type of int and float is float
-        # but arb-precision adapts to specific: if one side is a specific int
-        # and the other is an arb-precision float, the result is F64 (not arb float)
-        if second_float and not first_float:
-            if second_type == FLOAT and first_type not in ARBITRARY_PRECISION_TYPES:
-                return F64
-            return second_type
-        if not second_float and first_float:
-            if first_type == FLOAT and second_type not in ARBITRARY_PRECISION_TYPES:
-                return F64
+        if second_type.is_subtype_of(first_type):
             return first_type
 
-        # only case left is that we have both floats, or both ints
-        if second_float:
-            return self.find_common_float_type(first_type, second_type)
-
-        return self.find_common_integer_type(first_type, second_type)
-
-    def find_common_float_type(
-        self, first_type: FpyType, second_type: FpyType
-    ) -> FpyType | None:
-        # arb precision adapts to specific
-        if first_type == FLOAT:
-            return second_type
-        if second_type == FLOAT:
-            return first_type
-        # both specific: wider wins
-        if max(first_type.bits, second_type.bits) > 32:
-            return F64
-        return F32
-
-    def find_common_integer_type(
-        self, first_type: FpyType, second_type: FpyType
-    ) -> FpyType | None:
-        # arb precision adapts to specific
-        if first_type == INTEGER:
-            return second_type
-        if second_type == INTEGER:
-            return first_type
-
-        # both specific: must have matching signedness
-        first_unsigned = first_type in UNSIGNED_INTEGER_TYPES
-        second_unsigned = second_type in UNSIGNED_INTEGER_TYPES
-
-        if first_unsigned != second_unsigned:
-            return None
-
-        # same signedness: wider wins
-        bits = max(first_type.bits, second_type.bits)
-        if first_unsigned:
-            if bits <= 8:
-                return U8
-            elif bits <= 16:
-                return U16
-            elif bits <= 32:
-                return U32
-            else:
-                return U64
-        else:
-            if bits <= 8:
-                return I8
-            elif bits <= 16:
-                return I16
-            elif bits <= 32:
-                return I32
-            else:
-                return I64
-
-    def _find_common_type_anon_struct(self, a: FpyType, b: FpyType) -> FpyType | None:
-        """Return the concrete struct type if one side is an anonymous struct
-        that is structurally compatible with the other, otherwise None."""
-        if a.kind == TypeKind.ANON_STRUCT and b.kind == TypeKind.STRUCT:
-            anon, concrete = a, b
-        elif b.kind == TypeKind.ANON_STRUCT and a.kind == TypeKind.STRUCT:
-            anon, concrete = b, a
-        else:
-            return None
-
-        if not is_type_constant_size(concrete):
-            return None
-
-        # every member must exist in the concrete struct and be coercible to
-        # it.
-        target_members = {m.name: m for m in concrete.members}
-        for member in anon.members:
-            if member.name not in target_members:
-                return None
-            if not self.can_coerce_type(member.type, target_members[member.name].type):
-                return None
-        return concrete
-
-    def _find_common_type_anon_array(self, a: FpyType, b: FpyType) -> FpyType | None:
-        """Return the concrete array type if one side is an anonymous array
-        that is structurally compatible with the other, otherwise None."""
-        if a.kind == TypeKind.ANON_ARRAY and b.kind == TypeKind.ARRAY:
-            anon, concrete = a, b
-        elif b.kind == TypeKind.ANON_ARRAY and a.kind == TypeKind.ARRAY:
-            anon, concrete = b, a
-        else:
-            return None
-
-        if not is_type_constant_size(concrete):
-            return None
-        if anon.length > concrete.length:
-            return None
-        return concrete
+        return None
 
     def get_type_of_symbol(self, sym: Symbol) -> FpyType:
         """returns the fprime type of the sym, if it were to be evaluated as an expression"""
@@ -1706,24 +1560,28 @@ class PickTypesAndResolveFields(Visitor):
         # give a best guess as to the final type of this node. we don't actually know
         # its bitwidth or signedness yet
         if is_instance_compat(node.value, Decimal):
-            result_type = FLOAT
+            result_type = FpyType(
+                TypeKind.LITERAL_FLOAT,
+                f"LiteralFloat({node.value})",
+                literal_val=node.value,
+            )
         else:
-            result_type = INTEGER
+            result_type = FpyType(
+                TypeKind.LITERAL_INT,
+                f"LiteralInt({node.value})",
+                literal_val=node.value,
+            )
 
         state.synthesized_types[node] = result_type
         state.contextual_types[node] = result_type
 
     def widen_to_64(self, common_type: FpyType) -> FpyType:
-        """Widen a specific numeric type to its 64-bit counterpart for VM execution.
-        Returns the type unchanged if it's already 64-bit or arb precision.
-        """
-        if common_type in ARBITRARY_PRECISION_TYPES:
-            return common_type
+        """Widen a specific numeric type to its 64-bit counterpart for VM execution."""
         if common_type.is_float:
             return F64
-        if common_type in UNSIGNED_INTEGER_TYPES:
+        if common_type.is_unsigned_integer:
             return U64
-        if common_type in SIGNED_INTEGER_TYPES:
+        if common_type.is_signed_integer:
             return I64
         assert False, common_type
 
@@ -1734,12 +1592,14 @@ class PickTypesAndResolveFields(Visitor):
     ) -> FpyType | None:
         """Determine the intermediate type for an operator.
 
-        Uses find_common_type as the base, then applies op-specific
-        overrides and widens to 64-bit for runtime VM execution.
-
         Returns None if the operation is invalid for the given types.
         """
+
         if op in BOOLEAN_OPERATORS:
+            # boolean operators only operate on booleans
+            # all argument types must be booleans
+            if not all(arg_type.kind == TypeKind.BOOL for arg_type in arg_types):
+                return None
             return BOOL
 
         # for == and !=, non-numeric same-type comparisons are valid
@@ -1752,6 +1612,9 @@ class PickTypesAndResolveFields(Visitor):
         # from here, all args must be numeric
         if not all(t.is_numerical for t in arg_types):
             return None
+
+        # the trick is that we only have a limited set of actual ops that we can run
+        # also they're diff between the backends
 
         # division and exponentiation always operate over floats
         if op in (BinaryStackOp.DIVIDE, BinaryStackOp.EXPONENT):
