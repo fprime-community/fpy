@@ -72,18 +72,17 @@ class TypeKind(str, Enum):
     F64 = "F64"
     BOOL = "bool"
     STRING = "string"
-    # Concrete compound types
     ENUM = "enum"
     STRUCT = "struct"
     ARRAY = "array"
-    LITERAL_INT = "LiteralInt"
-    LITERAL_FLOAT = "LiteralFloat"
-    LITERAL_STRING = "LiteralString"
-    RANGE = "Range"  # range expression
-    UNIT = "Unit"  # the type of an expression that produces the Unit value
+    SINGLETON = "singleton"
+    RANGE = "range"  # range expression
+    UNIT = "unit"  # the type of an expression that produces the Unit value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
-    SIZED = "Sized"  # internal: matches any serializable, statically-sized argument
+    SIZED = "sized"  # internal: matches any serializable, statically-sized argument
+    UNION = "union"
+    ANY = "any"  # a type containing all possible values
 
 
 _PRIMITIVE_KINDS = frozenset(
@@ -169,18 +168,9 @@ _SIGNED_INTEGER_KINDS = frozenset(
 _UNSIGNED_INTEGER_KINDS = frozenset(
     {TypeKind.U8, TypeKind.U16, TypeKind.U32, TypeKind.U64}
 )
-_ALL_INTEGER_KINDS = (
-    _SIGNED_INTEGER_KINDS | _UNSIGNED_INTEGER_KINDS | frozenset({TypeKind.LITERAL_INT})
-)
-_ALL_FLOAT_KINDS = frozenset({TypeKind.F32, TypeKind.F64, TypeKind.LITERAL_FLOAT})
+_ALL_INTEGER_KINDS = _SIGNED_INTEGER_KINDS | _UNSIGNED_INTEGER_KINDS
+_ALL_FLOAT_KINDS = frozenset({TypeKind.F32, TypeKind.F64})
 _ALL_NUMERICAL_KINDS = _ALL_INTEGER_KINDS | _ALL_FLOAT_KINDS
-_ALL_LITERAL_KINDS = frozenset(
-    {
-        TypeKind.LITERAL_FLOAT,
-        TypeKind.LITERAL_INT,
-        TypeKind.LITERAL_STRING,
-    }
-)
 _SERIALIZABLE_KINDS = _PRIMITIVE_KINDS | frozenset(
     {
         TypeKind.STRING,
@@ -191,7 +181,6 @@ _SERIALIZABLE_KINDS = _PRIMITIVE_KINDS | frozenset(
         TypeKind.ANON_ARRAY,
         TypeKind.SIZED,
         TypeKind.UNIT,  # FIXME should unit be included?
-        TypeKind.LITERAL_STRING,
     }
 )
 
@@ -241,6 +230,7 @@ class FpyType:
         "member_defaults",
         "elem_defaults",
         "literal_val",
+        "union_types",
     )
 
     def __init__(
@@ -258,6 +248,7 @@ class FpyType:
         member_defaults: dict[str, FpyValue] | None = None,
         elem_defaults: tuple[FpyValue, ...] | None = None,
         literal_val: int | Decimal | str | bool | None = None,
+        union_types: frozenset[FpyType] | None = None,
     ):
         self.kind = kind
         self.name = name
@@ -274,6 +265,8 @@ class FpyType:
         self.elem_defaults = elem_defaults
         self.literal_val = literal_val
         """the sole value of this literal type"""
+        self.union_types = union_types
+        """the types which this union type contains"""
 
     # -- identity ----------------------------------------------------------
 
@@ -298,98 +291,158 @@ class FpyType:
 
     @property
     def is_integer(self) -> bool:
-        """True for U8..I64 and the integer literal type."""
+        """True if all values of this type are integers"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_integer for t in self.union_types)
         return self.kind in _ALL_INTEGER_KINDS
 
     @property
     def is_float(self) -> bool:
-        """True for F32, F64 and the float literal type"""
+        """True if all values of this type are floats"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_float for t in self.union_types)
         return self.kind in _ALL_FLOAT_KINDS
 
     @property
     def is_numerical(self) -> bool:
+        """True if all values of this type are integers or floats"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_numerical for t in self.union_types)
         return self.kind in _ALL_NUMERICAL_KINDS
 
     @property
     def is_signed_integer(self) -> bool:
-        # literal integer type is neither signed nor unsigned
-        assert self.kind != TypeKind.LITERAL_INT
+        """True if all values of this type are signed integers.
+        Literals are neither signed nor unsigned"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_signed_integer for t in self.union_types)
         return self.kind in _SIGNED_INTEGER_KINDS
 
     @property
     def is_unsigned_integer(self) -> bool:
-        # literal integer type is neither signed nor unsigned
+        """True if all values of this type are unsigned integers.
+        Literals are neither signed nor unsigned"""
         assert self.kind != TypeKind.LITERAL_INT
+        if self.kind == TypeKind.UNION:
+            return all(t.is_unsigned_integer for t in self.union_types)
         return self.kind in _UNSIGNED_INTEGER_KINDS
 
     @property
     def is_primitive(self) -> bool:
         """True for U8..F64 and BOOL."""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_primitive for t in self.union_types)
         return self.kind in _PRIMITIVE_FORMATS
 
     @property
     def is_string(self) -> bool:
+        """True if all values of this type are strings"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_string for t in self.union_types)
         return self.kind in (TypeKind.STRING, TypeKind.LITERAL_STRING)
 
     @property
     def is_array(self) -> bool:
+        """True if all values of this type are arrays"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_array for t in self.union_types)
         return self.kind == TypeKind.ARRAY or self.kind == TypeKind.ANON_ARRAY
 
     @property
     def is_struct(self) -> bool:
+        """True if all values of this type are structs"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_struct for t in self.union_types)
         return self.kind == TypeKind.STRUCT or self.kind == TypeKind.ANON_STRUCT
 
     @property
     def is_literal(self) -> bool:
+        """True if all values of this type are literals"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_literal for t in self.union_types)
         return self.kind in _ALL_LITERAL_KINDS
 
     @property
     def display_name(self) -> str:
         """Human-readable type name for error messages."""
         if self.kind == TypeKind.LITERAL_INT:
-            return "literal int"
+            return "int literal"
         if self.kind == TypeKind.LITERAL_FLOAT:
-            return "literal float"
+            return "float literal"
         if self.kind == TypeKind.LITERAL_STRING:
-            return "literal string"
+            return "string literal"
         if self.kind == TypeKind.ANON_STRUCT:
             return "struct literal"
         if self.kind == TypeKind.ANON_ARRAY:
             return "array literal"
         if self.kind == TypeKind.SIZED:
-            return "a serializable, statically-sized value"
+            return "serializable, statically-sized value"
+        if self.kind == TypeKind.UNION:
+            return " | ".join(sorted(t.name for t in self.union_types))
         return self.name
 
     # -- size / range properties -------------------------------------------
 
     @property
     def is_serializable(self) -> bool:
+        """True if all values of this type are serializable"""
+        if self.kind == TypeKind.UNION:
+            return all(t.is_serializable for t in self.union_types)
         return self.kind in _SERIALIZABLE_KINDS
 
     @property
     def has_static_serialized_size(self) -> bool:
+        """True if all values of this serializable type have the same serialized size"""
         assert self.is_serializable
-        # all serializable types except non-literal strings have a static serialized size
+        if self.kind == TypeKind.UNION:
+            if not all(t.has_static_serialized_size for t in self.union_types):
+                # at least one member type does not have a static serialized size
+                return False
+            member_sizes = set(t.actual_size for t in self.union_types)
+            # if the members take up diff sizes, the union doesn't have a static serialized size
+            return len(member_sizes) == 1
+
+        # all other serializable types except non-literal strings have a static serialized size
         return self.kind != TypeKind.STRING
 
     @property
     def max_size(self) -> int:
-        """Maximum serialized size in bytes."""
-        assert self.is_serializable
+        """Maximum serialized size in bytes. Raises an error if the type is not serializable"""
+        assert self.is_serializable, self
 
-        if self.kind in _PRIMITIVE_SIZES:
-            return _PRIMITIVE_SIZES[self.kind]
-        if self.is_string:
+        if self.kind == TypeKind.UNION:
+            # the maximum size of a union is the max of the max sizes of its member types
+            return max(t.max_size for t in self.union_types)
+
+        if self.kind == TypeKind.STRING:
             return FwSizeStoreType.max_size + self.max_length
-        if self.kind == TypeKind.ENUM:
-            return self.rep_type.max_size
-        if self.kind == TypeKind.STRUCT:
+        if self.is_struct:
             return sum(m.type.max_size for m in self.members)
-        if self.kind == TypeKind.ARRAY:
+        if self.is_array:
             return self.elem_type.max_size * self.length
+
+        # all other serializable types have a known size
+        return self.actual_size
+
+    @property
+    def actual_size(self) -> int:
+        """Actual serialized size in bytes. Raises an error if the type is not serializable, or not all values have the same serialized size"""
+        assert self.has_static_serialized_size, self
+
+        if self.kind == TypeKind.UNION:
+            # the actual size of a union of statically sized types is the size of any one of those statically sized types
+            return next(t.actual_size for t in self.union_types)
+
+        if self.is_primitive:
+            return _PRIMITIVE_SIZES[self.kind]
+        if self.kind == TypeKind.ENUM:
+            return self.rep_type.actual_size
+        if self.is_struct:
+            return sum(m.type.actual_size for m in self.members)
+        if self.is_array:
+            return self.elem_type.actual_size * self.length
         if self.kind == TypeKind.UNIT:
             return 0
-            # TODO implement for anon struct/array
         assert False, f"Cannot compute max_size for {self}"
 
     @property
@@ -410,9 +463,9 @@ class FpyType:
         if self.kind == TypeKind.ENUM:
             # An enum is represented by its underlying integer type.
             return self.rep_type.llvm_type
-        if self.kind == TypeKind.STRUCT:
+        if self.is_struct:
             return ir.LiteralStructType([m.type.llvm_type for m in self.members])
-        if self.kind == TypeKind.ARRAY:
+        if self.is_array:
             return ir.ArrayType(self.elem_type.llvm_type, self.length)
         if self.is_string:
             # Fprime string: 2-byte length prefix + fixed-capacity byte buffer.
@@ -422,7 +475,6 @@ class FpyType:
             )
         if self.kind == TypeKind.UNIT:
             return ir.VoidType()
-        # TODO implement for anon struct/array, literals?
         raise NotImplementedError(f"No LLVM type mapping for {self.display_name}")
 
     @property
@@ -474,8 +526,34 @@ class FpyType:
         return True
 
     def is_subtype_of(self, super_type: FpyType) -> bool:
+        """True if all values of self are values of super_type, with some minor exceptions. See comments"""
         if self == super_type:
             return True
+
+        if self.kind == TypeKind.UNION:
+            # all of these member types must be subtypes of the super type for
+            # the whole union type to be a subtype of the super type
+            return all(t.is_subtype_of(super_type) for t in self.union_types)
+
+        if self.kind == TypeKind.ANY:
+            # any type is only a subtype of itself
+            return False
+
+        if super_type.kind == TypeKind.ANY:
+            # any type is a supertype of all types
+            return True
+
+        if super_type.kind == TypeKind.UNION:
+            # if we are a subtype of any one of the member types of the super union type,
+            # then we are a subtype of the whole super union type
+
+            # note this misses the case in which we are a subtype of various combinations
+            # of the member types of the super union type. e.g. bool would not be considered
+            # a subtype of Literal[True] | Literal[False] even though it absolutely is.
+            # but in order to calculate that case, we'd have to work with the sets of values
+            # in each type. it gets complicated and we don't really need to worry about this
+            # as it's a relatively rare case
+            return any(self.is_subtype_of(t) for t in super_type.union_types)
 
         if super_type.kind == TypeKind.SIZED:
             # sized is a super type of any type which is serializable, and has a statically-known
@@ -583,6 +661,44 @@ class FpyType:
         assert False, super_type.kind
 
 
+def union_of(*types: FpyType, name: str | None = None) -> FpyType:
+    """The type whose values are the values of every type in *types*.
+
+    Not itself a union type when one of the given types already contains all
+    the others."""
+    members: list[FpyType] = []
+    # sorted so the result does not depend on the iteration order of a frozenset
+    for member in sorted(_flatten_unions(types), key=lambda member: member.name):
+        if any(member.is_subtype_of(kept) for kept in members):
+            # a type we already kept contains every value of this one
+            continue
+        # this type contains every value of some of the types we kept
+        members = [kept for kept in members if not kept.is_subtype_of(member)]
+        members.append(member)
+
+    if len(members) == 1:
+        return members[0]
+    if len(members) == 0:
+        return NEVER
+
+    if name is None:
+        name = " | ".join(member.name for member in members)
+    return FpyType(TypeKind.UNION, name, union_types=frozenset(members))
+
+
+def _flatten_unions(types: Iterable[FpyType]) -> list[FpyType]:
+    """Each of *types*, with the member types of any union type in its place."""
+    flat: list[FpyType] = []
+    for type in types:
+        if type.kind == TypeKind.UNION:
+            flat.extend(_flatten_unions(type.union_types))
+        else:
+            flat.append(type)
+    return flat
+
+
+NEVER = FpyType(TypeKind.UNION, "Never", union_types=frozenset())
+
 U8 = FpyType(TypeKind.U8, "U8")
 U16 = FpyType(TypeKind.U16, "U16")
 U32 = FpyType(TypeKind.U32, "U32")
@@ -594,10 +710,16 @@ I64 = FpyType(TypeKind.I64, "I64")
 F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
+ANY = FpyType(TypeKind.ANY, "Any")
 
 # distinct singleton so that the in-place update
 # is visible everywhere the object is referenced.
 FwSizeStoreType = FpyType(TypeKind.U16, "U16")
+
+# the problem is, that the integer type sounds like it should contain all integers
+# but it doesn't, it only contains those which can be represented by a u64 or i64
+INTEGER = union_of(U64, I64, name="Integer")
+NUMBER = union_of(INTEGER, F64, name="Number")
 
 # The canonical TimeBase enum type — default placeholder.
 # The full set of enum constants and representation type are loaded from the
@@ -651,6 +773,7 @@ PRIMITIVE_TYPE_MAP: dict[str, FpyType] = {
     "F32": F32,
     "F64": F64,
     "bool": BOOL,
+    # TODO do we need fwsizestoretype in here?
 }
 
 
@@ -702,13 +825,13 @@ class FpyValue:
         if kind == TypeKind.ENUM:
             # an enum const stores its member name; map it to the integer rep.
             return ir.Constant(llvm_type, self.type.enum_dict[self.val])
-        if kind == TypeKind.STRUCT:
+        if self.type.is_struct:
             return ir.Constant(
                 llvm_type, [self.val[m.name].llvm_value for m in self.type.members]
             )
-        if kind == TypeKind.ARRAY:
+        if self.type.is_array:
             return ir.Constant(llvm_type, [elem.llvm_value for elem in self.val])
-
+        # FIXME how do i do a unit type here? can i have an "i0"?
         raise NotImplementedError(
             f"No LLVM constant for a value of type {self.type.display_name}"
         )
@@ -725,7 +848,7 @@ class FpyValue:
                 val = FW_SERIALIZE_TRUE_VALUE if val else FW_SERIALIZE_FALSE_VALUE
             return struct.pack(_PRIMITIVE_FORMATS[kind], val)
 
-        if kind in (TypeKind.STRING, TypeKind.LITERAL_STRING):
+        if self.type.is_string:
             encoded = (
                 self.val.encode("utf-8") if isinstance(self.val, str) else self.val
             )
@@ -743,7 +866,7 @@ class FpyValue:
                 val = self.type.enum_dict[val]
             return FpyValue(self.type.rep_type, val).serialize()
 
-        if kind == TypeKind.STRUCT:
+        if self.type.is_struct:
             output = b""
             for m in self.type.members:
                 member_val = self.val[m.name]
@@ -752,9 +875,8 @@ class FpyValue:
                 output += member_val.serialize()
             return output
 
-        if kind == TypeKind.ARRAY:
+        if self.type.is_array:
             output = b""
-            assert isinstance(self.val, Iterable)
             for elem in self.val:
                 if isinstance(elem, FpyValue):
                     output += elem.serialize()
@@ -789,7 +911,7 @@ class FpyValue:
                     raise DeserializeError(f"Invalid bool byte 0x{raw:02x}")
             return FpyValue(typ, raw), offset + size
 
-        if kind in (TypeKind.STRING, TypeKind.LITERAL_STRING):
+        if typ.is_string:
             size_val, offset = FpyValue.deserialize(FwSizeStoreType, data, offset)
             str_len = size_val.val
             if typ.max_length is not None and str_len > typ.max_length:
@@ -813,19 +935,21 @@ class FpyValue:
                     return FpyValue(typ, name), new_offset
             return FpyValue(typ, rep_val.val), new_offset
 
-        if kind == TypeKind.STRUCT:
+        if typ.is_struct:
             members_dict: dict[str, FpyValue] = {}
             for m in typ.members:
                 member_val, offset = FpyValue.deserialize(m.type, data, offset)
                 members_dict[m.name] = member_val
             return FpyValue(typ, members_dict), offset
 
-        if kind == TypeKind.ARRAY:
+        if typ.is_array:
             elements: list[FpyValue] = []
             for _ in range(typ.length):
                 elem, offset = FpyValue.deserialize(typ.elem_type, data, offset)
                 elements.append(elem)
             return FpyValue(typ, elements), offset
+
+        # TODO deser/ser unit type?
 
         assert False, f"Cannot deserialize {typ}"
 
@@ -1078,6 +1202,10 @@ class OperatorFunc:
 NOT = OperatorFunc([BOOL])
 IDENTITY = OperatorFunc([ANY])
 NEGATE_INT = OperatorFunc([INTEGER])
+
+# challenge: what is the type of 1 + 1?
+# is it IntLiteral[2]? well, it's not a literal... so how could it be?
+# well, here's how i'm going to think about it. The IntLiteral[X] type, where X is a metavariable of an integer, represents the type whose sole value is [X]
 
 
 # op -> its case over a (signed int, unsigned int, float) intermediate type.

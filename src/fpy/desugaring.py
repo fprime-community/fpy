@@ -28,7 +28,7 @@ from fpy.types import (
     pick_binary_op_case,
     FpyType,
     FpyValue,
-    INTEGER,
+    INTEGER_64,
     TypeKind,
     TIME_OPS,
     TIME_COMPARISON,
@@ -172,7 +172,7 @@ class DesugarForLoops(Transformer):
             state,
             AstNumber(None, 1),
             contextual_type=LoopVarType,
-            synthesized_type=INTEGER,
+            synthesized_type=INTEGER_64,
             contextual_value=FpyValue(LoopVarType, 1),
             op_intermediate_type=None,
             op_case=None,
@@ -876,7 +876,7 @@ class DesugarTimeOperators(Transformer):
             state,
             AstNumber(node.meta, cmp_val),
             contextual_type=I64,
-            synthesized_type=INTEGER,
+            synthesized_type=INTEGER_64,
             contextual_value=FpyValue(I64, cmp_val),
         )
 

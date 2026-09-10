@@ -24,7 +24,7 @@ from fpy.types import (
     FpyValue,
     StructMember,
     TypeKind,
-    INTEGER,
+    INTEGER_64,
     INTERNAL_STRING,
     RANGE,
     UNIT,
@@ -2249,10 +2249,10 @@ class CalculateConstExprValues(Visitor):
                 assert from_type.is_numerical, from_type
                 raw_val = from_val.val
 
-                if to_type == INTEGER:
+                if to_type == INTEGER_64:
                     # arbitrary precision
                     # int constructor should handle all cases: int, float, or Decimal
-                    return FpyValue(INTEGER, int(raw_val))
+                    return FpyValue(INTEGER_64, int(raw_val))
 
                 # otherwise going to a finite bitwidth integer type
 
@@ -2654,7 +2654,7 @@ class CalculateConstExprValues(Visitor):
         assert folded_value is not None
 
         if type(folded_value) == int:
-            folded_value = FpyValue(INTEGER, folded_value)
+            folded_value = FpyValue(INTEGER_64, folded_value)
         elif type(folded_value) == float:
             # can happen when operands were previously const-converted to
             # specific float types (F32/F64) whose .val is a
@@ -2717,7 +2717,7 @@ class CalculateConstExprValues(Visitor):
         assert folded_value is not None
 
         if type(folded_value) == int:
-            folded_value = FpyValue(INTEGER, folded_value)
+            folded_value = FpyValue(INTEGER_64, folded_value)
         elif type(folded_value) == float:
             folded_value = FpyValue(FLOAT, Decimal(folded_value))
         elif type(folded_value) == Decimal:

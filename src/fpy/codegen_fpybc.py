@@ -27,7 +27,7 @@ from fpy.types import (
     CMD_RESPONSE,
     FpyType,
     FpyValue,
-    INTEGER,
+    INTEGER_64,
     INTERNAL_STRING,
     TypeKind,
     UNIT,
@@ -466,7 +466,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             return None
 
         assert isinstance(expr_value, FpyValue) and expr_value.type not in (
-            INTEGER,
+            INTEGER_64,
             INTERNAL_STRING,
         ), expr_value
 
