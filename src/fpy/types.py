@@ -75,9 +75,8 @@ class TypeKind(str, Enum):
     ENUM = "enum"
     STRUCT = "struct"
     ARRAY = "array"
-    SINGLETON = "singleton"
+    SINGLETON = "singleton"  # a type with only one value
     RANGE = "range"  # range expression
-    UNIT = "unit"  # the type of an expression that produces the Unit value
     ANON_STRUCT = "AnonStruct"  # anonymous struct literal
     ANON_ARRAY = "AnonArray"  # anonymous array literal
     SIZED = "sized"  # internal: matches any serializable, statically-sized argument
@@ -180,7 +179,6 @@ _SERIALIZABLE_KINDS = _PRIMITIVE_KINDS | frozenset(
         TypeKind.ANON_STRUCT,
         TypeKind.ANON_ARRAY,
         TypeKind.SIZED,
-        TypeKind.UNIT,  # FIXME should unit be included?
     }
 )
 
@@ -229,7 +227,7 @@ class FpyType:
         "json_default",
         "member_defaults",
         "elem_defaults",
-        "literal_val",
+        "singleton_val",
         "union_types",
     )
 
@@ -247,7 +245,7 @@ class FpyType:
         json_default: object | None = None,
         member_defaults: dict[str, FpyValue] | None = None,
         elem_defaults: tuple[FpyValue, ...] | None = None,
-        literal_val: int | Decimal | str | bool | None = None,
+        singleton_val: int | Decimal | str | bool | None = None,
         union_types: frozenset[FpyType] | None = None,
     ):
         self.kind = kind
@@ -263,8 +261,8 @@ class FpyType:
         self.json_default = json_default
         self.member_defaults = member_defaults
         self.elem_defaults = elem_defaults
-        self.literal_val = literal_val
-        """the sole value of this literal type"""
+        self.singleton_val = singleton_val
+        """the sole value of this singleton type"""
         self.union_types = union_types
         """the types which this union type contains"""
 
@@ -294,6 +292,8 @@ class FpyType:
         """True if all values of this type are integers"""
         if self.kind == TypeKind.UNION:
             return all(t.is_integer for t in self.union_types)
+        if self.kind == TypeKind.SINGLETON:
+            return isinstance(self.singleton_val, int)
         return self.kind in _ALL_INTEGER_KINDS
 
     @property
@@ -301,6 +301,8 @@ class FpyType:
         """True if all values of this type are floats"""
         if self.kind == TypeKind.UNION:
             return all(t.is_float for t in self.union_types)
+        if self.kind == TypeKind.SINGLETON:
+            return isinstance(self.singleton_val, Decimal)
         return self.kind in _ALL_FLOAT_KINDS
 
     @property
@@ -308,14 +310,22 @@ class FpyType:
         """True if all values of this type are integers or floats"""
         if self.kind == TypeKind.UNION:
             return all(t.is_numerical for t in self.union_types)
+        if self.kind == TypeKind.SINGLETON:
+            return isinstance(self.singleton_val, (Decimal, int))
         return self.kind in _ALL_NUMERICAL_KINDS
 
     @property
     def is_signed_integer(self) -> bool:
-        """True if all values of this type are signed integers.
-        Literals are neither signed nor unsigned"""
+        """True if all values of this type are signed integers"""
         if self.kind == TypeKind.UNION:
             return all(t.is_signed_integer for t in self.union_types)
+        if self.kind == TypeKind.SINGLETON:
+            # all integers are members of the set of signed integers
+            return isinstance(self.singleton_val, int)
+        # well, technically speaking, i wonder if we could have a type
+        # which represents all signed integers. and then if we wanted
+        # to check if a type were a signed integer type, we could just
+        # check if that type were a subtype of the signed integer type
         return self.kind in _SIGNED_INTEGER_KINDS
 
     @property
@@ -485,7 +495,7 @@ class FpyType:
         if self.kind in _FLOAT_RANGES:
             return _FLOAT_RANGES[self.kind]
         if self.kind == TypeKind.LITERAL_FLOAT or self.kind == TypeKind.LITERAL_INT:
-            return (self.literal_val, self.literal_val)
+            return (self.singleton_val, self.singleton_val)
 
         assert False, f"Cannot compute range for {self}"
 
@@ -585,7 +595,7 @@ class FpyType:
         if super_type.is_float:
             if self.is_numerical and self.is_literal:
                 # a literal numeric type is a subtype of any type containing the literal type's value
-                return super_type.is_numeric_value_in_type(self.literal_val)
+                return super_type.is_numeric_value_in_type(self.singleton_val)
 
             if self.is_float:
                 return self.bits <= super_type.bits
@@ -607,7 +617,7 @@ class FpyType:
         if super_type.is_integer:
             if self.is_numerical and self.is_literal:
                 # a literal numeric type is a subtype of any type containing the literal type's value
-                return super_type.is_numeric_value_in_type(self.literal_val)
+                return super_type.is_numeric_value_in_type(self.singleton_val)
 
             if self.is_float:
                 # no non-literal float type is a subtype of an integer type

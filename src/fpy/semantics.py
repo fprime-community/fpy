@@ -1563,13 +1563,13 @@ class PickTypesAndResolveFields(Visitor):
             result_type = FpyType(
                 TypeKind.LITERAL_FLOAT,
                 f"LiteralFloat({node.value})",
-                literal_val=node.value,
+                singleton_val=node.value,
             )
         else:
             result_type = FpyType(
                 TypeKind.LITERAL_INT,
                 f"LiteralInt({node.value})",
-                literal_val=node.value,
+                singleton_val=node.value,
             )
 
         state.synthesized_types[node] = result_type
