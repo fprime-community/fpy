@@ -23,7 +23,7 @@ Fpy has a few principles:
 
 ## Overview
 
-This repository contains the Fpy compiler, which emits Fpy bytecode. The Fpy bytecode runs on the `FpySequencer` virtual machine. If you're interested in contributing, see the [Developer's Guide](#developers-guide).
+This repository contains the Fpy compiler, which emits Fpy bytecode or WASM. The Fpy bytecode runs on the `FpySequencer` virtual machine. If you're interested in contributing, see the [Developer's Guide](#developers-guide).
 
 # User's Guide
 
