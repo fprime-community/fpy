@@ -728,8 +728,13 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         return False
 
     def emit_AstBlock(self, node: AstBlock, state: CompileState):
+        return self._emit_stmts(node.stmts, state)
+
+    def _emit_stmts(
+        self, stmts: list[Ast], state: CompileState
+    ) -> list[Directive | Ir]:
         dirs = []
-        for stmt in node.stmts:
+        for stmt in stmts:
             if is_instance_compat(stmt, AstBlock):
                 # a sub block. this is only possible if it is an imported sequence
                 # emit its statements inline in this frame
@@ -801,29 +806,17 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         dirs.extend(self.emit(node.condition, state))
         # if the cond is true, fall thru, otherwise go to end
         dirs.append(IrIf(while_end_label))
-        # run body
-
-        for stmt_idx, stmt in enumerate(node.body.stmts):
-            if not self._should_lower_stmt(stmt, state):
-                # if the stmt can't do anything on its own, ignore it
-                continue
-            # we're going to manually emit the body's stmts instead
-            # of just emitting the body, because A) it doesn't matter
-            # and B) we need the index of the last statement in the body
-            # if we're a for loop, because that's where the continue stmt
-            # needs to go
-            if (
-                stmt_idx == len(node.body.stmts) - 1
-                and for_loop_increment_label is not None
-            ):
-                # last stmt, it must be the inc stmt, add the label before it
-                dirs.append(for_loop_increment_label)
-            dirs.extend(self.emit(stmt, state))
-            if is_cmd_and_response_unhandled(stmt, state):
-                dirs.extend(self._emit_assert_cmd_response_ok(stmt, state))
-            else:
-                # discard stack value if it was an expr
-                dirs.extend(self._emit_discard_expr_result(stmt, state))
+        # A desugared for loop ends with its increment statement; continue
+        # jumps to the label immediately before that statement.
+        if for_loop_increment_label is not None:
+            assert node.body.stmts and is_instance_compat(
+                node.body.stmts[-1], AstAssign
+            ), node.body.stmts
+            dirs.extend(self._emit_stmts(node.body.stmts[:-1], state))
+            dirs.append(for_loop_increment_label)
+            dirs.extend(self._emit_stmts(node.body.stmts[-1:], state))
+        else:
+            dirs.extend(self._emit_stmts(node.body.stmts, state))
         # go back to condition check
         dirs.append(IrGoto(while_start_label))
         dirs.append(while_end_label)
