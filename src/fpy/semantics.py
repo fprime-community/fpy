@@ -2898,21 +2898,15 @@ class CheckAllBranchesReturn(Visitor):
         state.does_return[node] = any(state.does_return[n] for n in node.stmts)
 
     def visit_AstIf(self, node: AstIf, state: CompileState):
-        # an if statement returns if all of its branches return
-        branch_returns = [state.does_return[node.body]]
+        # Without an else, the implicit branch can fall through.
+        state.does_return[node] = (
+            node.els is not None
+            and state.does_return[node.body]
+            and all(state.does_return[branch] for branch in node.elifs)
+            and state.does_return[node.els]
+        )
 
-        for _elif in node.elifs:
-            branch_returns.append(state.does_return[_elif])
-
-        if node.els is not None:
-            branch_returns.append(state.does_return[node.els])
-        else:
-            # implicit else branch that falls through without returning
-            branch_returns.append(False)
-
-        state.does_return[node] = all(branch_returns)
-
-    def visit_AstElif(self, node: Union[AstElif], state: CompileState):
+    def visit_AstElif(self, node: AstElif, state: CompileState):
         state.does_return[node] = state.does_return[node.body]
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -2938,11 +2932,10 @@ class CheckAllBranchesReturn(Visitor):
             state.does_return[node] = False
             return
         func = state.resolved_symbols[node.func]
-        if not is_instance_compat(func, BuiltinFuncSymbol) or not func.name == "exit":
-            state.does_return[node] = False
-            return
-        # builtin exit "returns" (really just ends call stack entirely)
-        state.does_return[node] = True
+        # builtin exit ends the call stack, so it also prevents fallthrough.
+        state.does_return[node] = (
+            is_instance_compat(func, BuiltinFuncSymbol) and func.name == "exit"
+        )
 
     def visit_default(self, node, state):
         assert not is_instance_compat(node, AstStmt)
