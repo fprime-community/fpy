@@ -37,6 +37,7 @@ from fpy.wasm_host import (
 )
 from fpy.compiler import analyze_ast, text_to_ast
 from fpy.dictionary import load_dictionary
+from fpy.error import BackendError
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.state import get_base_compile_state
 from fpy.test_helpers import (
@@ -132,6 +133,20 @@ class TestWasmLowering:
         seq = "x: F64 = 1e20\ny: I32 = I32(x)\nassert y == 0\n"
         assert "i32.trunc_sat_f64_s" not in _emit_wasm_asm(seq, cpu=LLVM_CPU)
         assert "i32.trunc_sat_f64_s" in _emit_wasm_asm(seq, cpu="generic")
+
+    @pytest.mark.parametrize(
+        "seq",
+        [
+            "x: U32 = rand()\n",
+            "x: F64 = randf()\n",
+            "set_seed(1)\n",
+        ],
+    )
+    def test_builtin_without_lowering_is_a_backend_error(self, seq):
+        # The rng builtins have no llvm/wasm lowering. Using one must be a
+        # BackendError naming the builtin, not an exception escaping codegen.
+        with pytest.raises(BackendError, match="not supported by the wasm backend"):
+            _seq_to_llvm_module(seq)
 
 
 class TestWasmHostImports:

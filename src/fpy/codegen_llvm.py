@@ -337,7 +337,7 @@ class EmitLlvmExpr(Emitter):
             ]
             return self._emit_command_dispatch(command, values)
         elif is_instance_compat(func, BuiltinFuncSymbol):
-            return self._emit_builtin_call(node_args, func, state)
+            return self._emit_builtin_call(node, node_args, func, state)
         elif is_instance_compat(func, TypeCtorSymbol):
             # A ctor call with all-constant args folds before reaching here;
             # what remains builds the aggregate (struct or array) from its
@@ -369,8 +369,17 @@ class EmitLlvmExpr(Emitter):
             assert False, func
 
     def _emit_builtin_call(
-        self, node_args: list, func: BuiltinFuncSymbol, state: CompileState
+        self,
+        node: AstFuncCall,
+        node_args: list,
+        func: BuiltinFuncSymbol,
+        state: CompileState,
     ) -> ir.Value | None:
+        if func.generate_llvm is None:
+            raise BackendError(
+                f"the '{func.name}' builtin is not supported by the wasm backend",
+                node,
+            )
         # Pass each argument as (emitted ir.Value, its constant FpyValue or
         # None if it isn't a compile-time constant, its contextual type). The
         # builtin's generate_llvm picks whichever it needs. Args the builtin
