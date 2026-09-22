@@ -43,13 +43,9 @@ from fpy.types import (
 )
 from fpy.bytecode.directives import (
     FloatDivideDirective,
-    FloatSubtractDirective,
-    FloatToUnsignedIntDirective,
     FloatAbsDirective,
     IntAbsDirective,
-    IntegerTruncate64To32Directive,
     IntegerZeroExtend32To64Directive,
-    PeekDirective,
     PushTimeDirective,
     PushValDirective,
     FloatLogDirective,
@@ -150,46 +146,6 @@ MACRO_SLEEP_SECONDS_USECONDS = BuiltinFuncSymbol(
     ],
     lambda n, c, t: [WaitRelDirective()],
     generate_sleep_llvm,
-)
-
-
-def generate_sleep_float(
-    node: Ast, const_args: dict[int, FpyValue], arg_types: list[FpyType]
-) -> list[Directive | Ir]:
-    # convert F64 to seconds and microseconds
-    dirs = [
-        # first do seconds
-        # copy the f64
-        PushValDirective(FpyValue(StackSizeType, 8).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # convert to U64
-        FloatToUnsignedIntDirective(),
-        # and then U32
-        IntegerTruncate64To32Directive(),
-        # now we have f64, u32 (seconds) on stack
-        # now do microseconds
-        # copy the f64 and u32
-        PushValDirective(FpyValue(StackSizeType, 12).serialize()),
-        PushValDirective(FpyValue(StackSizeType, 0).serialize()),
-        PeekDirective(),
-        # turn the u32 into a float
-        IntegerZeroExtend32To64Directive(),
-        UnsignedIntToFloatDirective(),
-        # subtract, this should give us the frac
-        FloatSubtractDirective(),
-        # okay now multiply by 1000000
-        PushValDirective(FpyValue(F64, 1_000_000.0).serialize()),
-        # now convert to u32
-        FloatToUnsignedIntDirective(),
-        IntegerTruncate64To32Directive(),
-    ]
-
-    return dirs
-
-
-MACRO_SLEEP_FLOAT = BuiltinFuncSymbol(
-    "sleep", NOTHING, [("seconds", F64, None)], generate_sleep_float
 )
 
 
