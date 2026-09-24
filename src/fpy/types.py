@@ -720,6 +720,7 @@ CMD_RESPONSE = FpyType(
         "FORMAT_ERROR": 3,
         "EXECUTION_ERROR": 4,
         "BUSY": 5,
+        "CLEARED": 6,
     },
     rep_type=U8,
 )
