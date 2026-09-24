@@ -3,6 +3,14 @@
 
 
 from dataclasses import dataclass
+from decimal import Decimal
+
+type EnumConstant = tuple[str, int]
+type Struct = dict
+type Array = list
+
+# all values in the universe of Fpy are represented as values of this (non-Fpy) type:
+type LogicalValue = Decimal | int | str | EnumConstant | Struct | Array | bool | object
 
 
 @dataclass(frozen=True)
@@ -15,16 +23,18 @@ class Type:
     def is_supertype_of(self, other: "Type") -> bool:
         raise NotImplementedError
 
+    def contains_value(self, value: LogicalValue) -> bool:
+        """returns True if the given value is a member of this type"""
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class SingletonType(Type):
 
-    value: object
+    value: LogicalValue
 
     def is_subtype_of(self, other: Type) -> bool:
-        # return true if the singleton's value is in the super type
-
-        pass
+        return other.contains_value(self.value)
 
     def is_supertype_of(self, other: Type) -> bool:
         # only true if other is a singleton with the same value
@@ -33,13 +43,16 @@ class SingletonType(Type):
 
         return self.value == other.value
 
+    def contains_value(self, value):
+        return value == self.value
+
 
 Unit = SingletonType("Unit", object())
 
 
 @dataclass(frozen=True)
 class UnionType(Type):
-    members: list[Type]
+    members: frozenset[Type]
 
     def is_subtype_of(self, other: Type) -> bool:
         # all of these member types must be subtypes of the super type for
@@ -58,8 +71,15 @@ class UnionType(Type):
         # as it's a relatively rare case
         return any(other.is_subtype_of(t) for t in self.members)
 
+    def contains_value(self, value):
+        return any(t.contains_value(value) for t in self.members)
+
 
 Never = UnionType("Never", [])
+
+
+def union_of(name: str, types: set[Type]) -> Type:
+    pass  # TODO
 
 
 class AnyType(Type):
@@ -69,10 +89,45 @@ class AnyType(Type):
     def is_supertype_of(self, other):
         return True
 
+    def contains_value(self, value):
+        return True
+
 
 Any = AnyType("Any")
 
 
 @dataclass(frozen=True)
-class EnumType(Type):
-    pass
+class EnumType(UnionType):
+    rep_type: IntegerType
+
+
+def enum_of(
+    name: str, rep_type: IntegerType, constants: set[tuple[str, int]]
+) -> EnumType:
+    enum_constant_types = set()
+    for const_name, const_value in constants:
+        fq_const_name = name + "." + const_name
+        const_type = SingletonType(fq_const_name, (fq_const_name, const_value))
+        enum_constant_types.add(const_type)
+
+    return EnumType(name, enum_constant_types, rep_type)
+
+
+class NumericType(Type):
+    def is_supertype_of(self, other):
+        return super().is_supertype_of(other)
+
+
+@dataclass(frozen=True)
+class IntegerType(Type):
+    def is_subtype_of(self, other):
+        # all values of self are values of other
+        return super().is_subtype_of(other)
+
+    def is_supertype_of(self, other):
+        # all values of other are values of self
+
+        pass
+
+    def contains_value(self, value):
+        return isinstance(value, int)
