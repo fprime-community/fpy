@@ -22,8 +22,8 @@ from fpy.types import (
     BOOL,
 )
 from fpy.syntax import (
-    BinaryStackOp,
-    UnaryStackOp,
+    BinaryOp,
+    UnaryOp,
     COMPARISON_OPS,
     NUMERIC_OPERATORS,
     BOOLEAN_OPERATORS,

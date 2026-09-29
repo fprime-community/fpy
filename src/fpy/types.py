@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any, Iterable, Union, get_args, get_origin
 if TYPE_CHECKING:
     from llvmlite import ir
 from fpy.syntax import (
-    BinaryStackOp,
+    BinaryOp,
     BOOLEAN_OPERATORS,
     COMPARISON_OPS,
-    UnaryStackOp,
+    UnaryOp,
 )
 
 # In Python 3.10+, the `|` operator creates a `types.UnionType`.
@@ -720,6 +720,11 @@ I64 = FpyType(TypeKind.I64, "I64")
 F32 = FpyType(TypeKind.F32, "F32")
 F64 = FpyType(TypeKind.F64, "F64")
 BOOL = FpyType(TypeKind.BOOL, "bool")
+
+SIGNED_INTEGER_TYPES = frozenset({I8, I16, I32, I64})
+FLOAT_TYPES = frozenset({F32, F64})
+NUMERIC_TYPES = frozenset({U8, U16, U32, U64, I8, I16, I32, I64, F32, F64})
+
 ANY = FpyType(TypeKind.ANY, "Any")
 
 # distinct singleton so that the in-place update
@@ -1156,209 +1161,3 @@ def is_instance_compat(obj, cls):
     if origin in UNION_TYPES:
         return isinstance(obj, get_args(cls))
     return isinstance(obj, cls)
-
-
-class OpCase(Enum):
-    """How an operator expression is evaluated: the operator specialized to the
-    category of its intermediate type. Suffixes: INT is any integer, SINT/UINT
-    a signed/unsigned integer, FLOAT a float, BYTES a non-numeric value
-    compared by its serialized bytes."""
-
-    NOT = auto()
-    AND = auto()
-    OR = auto()
-    IDENTITY = auto()
-    NEGATE_INT = auto()
-    NEGATE_FLOAT = auto()
-    ADD_INT = auto()
-    ADD_FLOAT = auto()
-    SUBTRACT_INT = auto()
-    SUBTRACT_FLOAT = auto()
-    MULTIPLY_INT = auto()
-    MULTIPLY_FLOAT = auto()
-    DIVIDE_FLOAT = auto()
-    EXPONENT_FLOAT = auto()
-    MODULUS_SINT = auto()
-    MODULUS_UINT = auto()
-    MODULUS_FLOAT = auto()
-    FLOOR_DIVIDE_SINT = auto()
-    FLOOR_DIVIDE_UINT = auto()
-    FLOOR_DIVIDE_FLOAT = auto()
-    LESS_THAN_SINT = auto()
-    LESS_THAN_UINT = auto()
-    LESS_THAN_FLOAT = auto()
-    GREATER_THAN_SINT = auto()
-    GREATER_THAN_UINT = auto()
-    GREATER_THAN_FLOAT = auto()
-    LESS_THAN_OR_EQUAL_SINT = auto()
-    LESS_THAN_OR_EQUAL_UINT = auto()
-    LESS_THAN_OR_EQUAL_FLOAT = auto()
-    GREATER_THAN_OR_EQUAL_SINT = auto()
-    GREATER_THAN_OR_EQUAL_UINT = auto()
-    GREATER_THAN_OR_EQUAL_FLOAT = auto()
-    EQUAL_INT = auto()
-    EQUAL_FLOAT = auto()
-    EQUAL_BYTES = auto()
-    NOT_EQUAL_INT = auto()
-    NOT_EQUAL_FLOAT = auto()
-    NOT_EQUAL_BYTES = auto()
-
-
-@dataclass
-class OperatorFunc:
-    arg_types: set[FpyType]
-
-
-NOT = OperatorFunc([BOOL])
-IDENTITY = OperatorFunc([ANY])
-NEGATE_INT = OperatorFunc([INTEGER])
-
-# challenge: what is the type of 1 + 1?
-# is it IntLiteral[2]? well, it's not a literal... so how could it be?
-# well, here's how i'm going to think about it. The IntLiteral[X] type, where X is a metavariable of an integer, represents the type whose sole value is [X]
-
-
-# op -> its case over a (signed int, unsigned int, float) intermediate type.
-# Unary and binary ops are tabled apart because `+` and `-` spell one of each,
-# and as str enums those members compare (and hash) equal.
-_NumericOpCases = dict[str, tuple[OpCase | None, OpCase | None, OpCase | None]]
-_UNARY_NUMERIC_OP_CASES: _NumericOpCases = {
-    UnaryStackOp.IDENTITY: (OpCase.IDENTITY, OpCase.IDENTITY, OpCase.IDENTITY),
-    UnaryStackOp.NEGATE: (OpCase.NEGATE_INT, OpCase.NEGATE_INT, OpCase.NEGATE_FLOAT),
-}
-_BINARY_NUMERIC_OP_CASES: _NumericOpCases = {
-    BinaryStackOp.ADD: (OpCase.ADD_INT, OpCase.ADD_INT, OpCase.ADD_FLOAT),
-    BinaryStackOp.SUBTRACT: (
-        OpCase.SUBTRACT_INT,
-        OpCase.SUBTRACT_INT,
-        OpCase.SUBTRACT_FLOAT,
-    ),
-    BinaryStackOp.MULTIPLY: (
-        OpCase.MULTIPLY_INT,
-        OpCase.MULTIPLY_INT,
-        OpCase.MULTIPLY_FLOAT,
-    ),
-    BinaryStackOp.DIVIDE: (None, None, OpCase.DIVIDE_FLOAT),
-    BinaryStackOp.EXPONENT: (None, None, OpCase.EXPONENT_FLOAT),
-    BinaryStackOp.MODULUS: (
-        OpCase.MODULUS_SINT,
-        OpCase.MODULUS_UINT,
-        OpCase.MODULUS_FLOAT,
-    ),
-    BinaryStackOp.FLOOR_DIVIDE: (
-        OpCase.FLOOR_DIVIDE_SINT,
-        OpCase.FLOOR_DIVIDE_UINT,
-        OpCase.FLOOR_DIVIDE_FLOAT,
-    ),
-    BinaryStackOp.LESS_THAN: (
-        OpCase.LESS_THAN_SINT,
-        OpCase.LESS_THAN_UINT,
-        OpCase.LESS_THAN_FLOAT,
-    ),
-    BinaryStackOp.GREATER_THAN: (
-        OpCase.GREATER_THAN_SINT,
-        OpCase.GREATER_THAN_UINT,
-        OpCase.GREATER_THAN_FLOAT,
-    ),
-    BinaryStackOp.LESS_THAN_OR_EQUAL: (
-        OpCase.LESS_THAN_OR_EQUAL_SINT,
-        OpCase.LESS_THAN_OR_EQUAL_UINT,
-        OpCase.LESS_THAN_OR_EQUAL_FLOAT,
-    ),
-    BinaryStackOp.GREATER_THAN_OR_EQUAL: (
-        OpCase.GREATER_THAN_OR_EQUAL_SINT,
-        OpCase.GREATER_THAN_OR_EQUAL_UINT,
-        OpCase.GREATER_THAN_OR_EQUAL_FLOAT,
-    ),
-    BinaryStackOp.EQUAL: (OpCase.EQUAL_INT, OpCase.EQUAL_INT, OpCase.EQUAL_FLOAT),
-    BinaryStackOp.NOT_EQUAL: (
-        OpCase.NOT_EQUAL_INT,
-        OpCase.NOT_EQUAL_INT,
-        OpCase.NOT_EQUAL_FLOAT,
-    ),
-}
-_BOOLEAN_OP_CASES = {
-    UnaryStackOp.NOT: OpCase.NOT,
-    BinaryStackOp.AND: OpCase.AND,
-    BinaryStackOp.OR: OpCase.OR,
-}
-_BYTES_OP_CASES = {
-    BinaryStackOp.EQUAL: OpCase.EQUAL_BYTES,
-    BinaryStackOp.NOT_EQUAL: OpCase.NOT_EQUAL_BYTES,
-}
-
-
-def pick_unary_op_case(op: UnaryStackOp, intermediate_type: FpyType) -> OpCase:
-    """The case evaluating unary *op* over an operand coerced to
-    *intermediate_type*."""
-    return _pick_op_case(_UNARY_NUMERIC_OP_CASES, op, intermediate_type)
-
-
-def pick_binary_op_case(op: BinaryStackOp, intermediate_type: FpyType) -> OpCase:
-    """The case evaluating binary *op* over operands coerced to
-    *intermediate_type*."""
-    return _pick_op_case(_BINARY_NUMERIC_OP_CASES, op, intermediate_type)
-
-
-def _pick_op_case(
-    numeric_op_cases: _NumericOpCases, op: str, intermediate_type: FpyType
-) -> OpCase:
-    if op in BOOLEAN_OPERATORS:
-        assert intermediate_type == BOOL, intermediate_type
-        return _BOOLEAN_OP_CASES[op]
-    if not intermediate_type.is_numerical:
-        return _BYTES_OP_CASES[op]
-    signed_case, unsigned_case, float_case = numeric_op_cases[op]
-    if intermediate_type.is_float:
-        case = float_case
-    elif intermediate_type.is_unsigned_integer:
-        case = unsigned_case
-    else:
-        case = signed_case
-    assert case is not None, (op, intermediate_type)
-    return case
-
-
-# Time operator overloads:
-# maps (lhs_type, rhs_type, op) -> (intermediate_type, result_type, func_name, is_comparison)
-TIME_OPS: dict[
-    tuple[FpyType, FpyType, BinaryStackOp], tuple[FpyType, FpyType, str, bool]
-] = {
-    # Time - Time -> TimeInterval
-    (TIME, TIME, BinaryStackOp.SUBTRACT): (
-        TIME,
-        TIME_INTERVAL,
-        "time_sub",
-        False,
-    ),
-    # Time + TimeInterval -> Time
-    (TIME, TIME_INTERVAL, BinaryStackOp.ADD): (TIME, TIME, "time_add", False),
-    # TimeInterval +/- TimeInterval -> TimeInterval
-    (TIME_INTERVAL, TIME_INTERVAL, BinaryStackOp.ADD): (
-        TIME_INTERVAL,
-        TIME_INTERVAL,
-        "time_interval_add",
-        False,
-    ),
-    (TIME_INTERVAL, TIME_INTERVAL, BinaryStackOp.SUBTRACT): (
-        TIME_INTERVAL,
-        TIME_INTERVAL,
-        "time_interval_sub",
-        False,
-    ),
-    # Time comparisons -> Bool
-    **{
-        (TIME, TIME, op): (TIME, BOOL, "time_cmp_assert_comparable", True)
-        for op in COMPARISON_OPS
-    },
-    # TimeInterval comparisons -> Bool
-    **{
-        (TIME_INTERVAL, TIME_INTERVAL, op): (
-            TIME_INTERVAL,
-            BOOL,
-            "time_interval_cmp",
-            True,
-        )
-        for op in COMPARISON_OPS
-    },
-}

@@ -9,13 +9,13 @@ from lark.indenter import DedentError
 from decimal import Decimal
 
 
-class UnaryStackOp(str, Enum):
+class UnaryOp(str, Enum):
     NOT = "not"
     IDENTITY = "+"
     NEGATE = "-"
 
 
-class BinaryStackOp(str, Enum):
+class BinaryOp(str, Enum):
     EXPONENT = "**"
     MODULUS = "%"
     ADD = "+"
@@ -34,24 +34,24 @@ class BinaryStackOp(str, Enum):
 
 
 NUMERIC_OPERATORS = {
-    UnaryStackOp.IDENTITY,
-    UnaryStackOp.NEGATE,
-    BinaryStackOp.ADD,
-    BinaryStackOp.SUBTRACT,
-    BinaryStackOp.MULTIPLY,
-    BinaryStackOp.DIVIDE,
-    BinaryStackOp.MODULUS,
-    BinaryStackOp.EXPONENT,
-    BinaryStackOp.FLOOR_DIVIDE,
+    UnaryOp.IDENTITY,
+    UnaryOp.NEGATE,
+    BinaryOp.ADD,
+    BinaryOp.SUBTRACT,
+    BinaryOp.MULTIPLY,
+    BinaryOp.DIVIDE,
+    BinaryOp.MODULUS,
+    BinaryOp.EXPONENT,
+    BinaryOp.FLOOR_DIVIDE,
 }
-BOOLEAN_OPERATORS = {UnaryStackOp.NOT, BinaryStackOp.OR, BinaryStackOp.AND}
+BOOLEAN_OPERATORS = {UnaryOp.NOT, BinaryOp.OR, BinaryOp.AND}
 COMPARISON_OPS = {
-    BinaryStackOp.LESS_THAN,
-    BinaryStackOp.GREATER_THAN,
-    BinaryStackOp.LESS_THAN_OR_EQUAL,
-    BinaryStackOp.GREATER_THAN_OR_EQUAL,
-    BinaryStackOp.EQUAL,
-    BinaryStackOp.NOT_EQUAL,
+    BinaryOp.LESS_THAN,
+    BinaryOp.GREATER_THAN,
+    BinaryOp.LESS_THAN_OR_EQUAL,
+    BinaryOp.GREATER_THAN_OR_EQUAL,
+    BinaryOp.EQUAL,
+    BinaryOp.NOT_EQUAL,
 }
 
 

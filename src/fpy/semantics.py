@@ -88,8 +88,8 @@ from fpy.bytecode.directives import (
     ArrayIndexType,
     ErrorCodeType,
     LoopVarType,
-    BinaryStackOp,
-    UnaryStackOp,
+    BinaryOp,
+    UnaryOp,
 )
 from fpy.syntax import (
     AstAssert,
@@ -1588,7 +1588,7 @@ class PickTypesAndResolveFields(Visitor):
     def pick_intermediate_type(
         self,
         arg_types: list[FpyType],
-        op: BinaryStackOp | UnaryStackOp,
+        op: BinaryOp | UnaryOp,
     ) -> FpyType | None:
         """Determine the intermediate type for an operator.
 
@@ -1603,7 +1603,7 @@ class PickTypesAndResolveFields(Visitor):
             return BOOL
 
         # for == and !=, non-numeric same-type comparisons are valid
-        if op in (BinaryStackOp.EQUAL, BinaryStackOp.NOT_EQUAL):
+        if op in (BinaryOp.EQUAL, BinaryOp.NOT_EQUAL):
             if len(arg_types) == 2 and arg_types[0] == arg_types[1]:
                 if not arg_types[0].is_numerical:
                     # non-numeric equality (struct, array, enum, time)
@@ -1617,7 +1617,7 @@ class PickTypesAndResolveFields(Visitor):
         # also they're diff between the backends
 
         # division and exponentiation always operate over floats
-        if op in (BinaryStackOp.DIVIDE, BinaryStackOp.EXPONENT):
+        if op in (BinaryOp.DIVIDE, BinaryOp.EXPONENT):
             if all(t in ARBITRARY_PRECISION_TYPES for t in arg_types):
                 return FLOAT
             return F64
@@ -1634,7 +1634,7 @@ class PickTypesAndResolveFields(Visitor):
     def pick_result_type(
         self,
         intermediate_type: FpyType,
-        op: BinaryStackOp | UnaryStackOp,
+        op: BinaryOp | UnaryOp,
     ) -> FpyType:
         """Derive the result type from the intermediate type (excluding time ops).
 
@@ -1655,7 +1655,7 @@ class PickTypesAndResolveFields(Visitor):
         self,
         lhs_type: FpyType,
         rhs_type: FpyType,
-        op: BinaryStackOp,
+        op: BinaryOp,
     ) -> tuple[FpyType, FpyType, FpyType, FpyType, str, bool] | None:
         """Look up a TIME_OPS entry, resolving anonymous structs if needed.
 
@@ -2581,15 +2581,15 @@ class CalculateConstExprValues(Visitor):
         folded_value = None
         # Arithmetic operations
         try:
-            if node.op == BinaryStackOp.ADD:
+            if node.op == BinaryOp.ADD:
                 folded_value = lhs_value + rhs_value
-            elif node.op == BinaryStackOp.SUBTRACT:
+            elif node.op == BinaryOp.SUBTRACT:
                 folded_value = lhs_value - rhs_value
-            elif node.op == BinaryStackOp.MULTIPLY:
+            elif node.op == BinaryOp.MULTIPLY:
                 folded_value = lhs_value * rhs_value
-            elif node.op == BinaryStackOp.DIVIDE:
+            elif node.op == BinaryOp.DIVIDE:
                 folded_value = lhs_value / rhs_value
-            elif node.op == BinaryStackOp.EXPONENT:
+            elif node.op == BinaryOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
                 if isinstance(folded_value, complex):
                     # float ** float returns a complex number for a negative
@@ -2597,7 +2597,7 @@ class CalculateConstExprValues(Visitor):
                     # raises decimal.InvalidOperation
                     state.err("Domain error", node)
                     return
-            elif node.op == BinaryStackOp.FLOOR_DIVIDE:
+            elif node.op == BinaryOp.FLOOR_DIVIDE:
                 # Floor toward -inf (Python `//`), matching the runtime backends.
                 if isinstance(lhs_value, int) and isinstance(rhs_value, int):
                     folded_value = lhs_value // rhs_value
@@ -2609,26 +2609,26 @@ class CalculateConstExprValues(Visitor):
                     folded_value = Decimal(
                         str(lhs_value / rhs_value)
                     ).to_integral_value(rounding=decimal.ROUND_FLOOR)
-            elif node.op == BinaryStackOp.MODULUS:
+            elif node.op == BinaryOp.MODULUS:
                 folded_value = lhs_value % rhs_value
             # Boolean logic operations
-            elif node.op == BinaryStackOp.AND:
+            elif node.op == BinaryOp.AND:
                 folded_value = lhs_value and rhs_value
-            elif node.op == BinaryStackOp.OR:
+            elif node.op == BinaryOp.OR:
                 folded_value = lhs_value or rhs_value
             # Inequalities
-            elif node.op == BinaryStackOp.GREATER_THAN:
+            elif node.op == BinaryOp.GREATER_THAN:
                 folded_value = lhs_value > rhs_value
-            elif node.op == BinaryStackOp.GREATER_THAN_OR_EQUAL:
+            elif node.op == BinaryOp.GREATER_THAN_OR_EQUAL:
                 folded_value = lhs_value >= rhs_value
-            elif node.op == BinaryStackOp.LESS_THAN:
+            elif node.op == BinaryOp.LESS_THAN:
                 folded_value = lhs_value < rhs_value
-            elif node.op == BinaryStackOp.LESS_THAN_OR_EQUAL:
+            elif node.op == BinaryOp.LESS_THAN_OR_EQUAL:
                 folded_value = lhs_value <= rhs_value
             # Equality Checking
-            elif node.op == BinaryStackOp.EQUAL:
+            elif node.op == BinaryOp.EQUAL:
                 folded_value = self._const_equal(lhs_const, rhs_const)
-            elif node.op == BinaryStackOp.NOT_EQUAL:
+            elif node.op == BinaryOp.NOT_EQUAL:
                 folded_value = not self._const_equal(lhs_const, rhs_const)
             else:
                 # missing an operation
@@ -2700,15 +2700,15 @@ class CalculateConstExprValues(Visitor):
         value = value.val
         folded_value = None
 
-        if node.op == UnaryStackOp.NEGATE:
+        if node.op == UnaryOp.NEGATE:
             # Decimal.__neg__ follows the decimal spec and returns +0 for any
             # zero, which would fold the literal -0.0 to +0.0. copy_negate
             # flips the sign unconditionally, matching runtime negation
             # (llvm fneg / the VM's multiply by -1.0).
             folded_value = value.copy_negate() if type(value) == Decimal else -value
-        elif node.op == UnaryStackOp.IDENTITY:
+        elif node.op == UnaryOp.IDENTITY:
             folded_value = value
-        elif node.op == UnaryStackOp.NOT:
+        elif node.op == UnaryOp.NOT:
             folded_value = not value
         else:
             # missing an operation

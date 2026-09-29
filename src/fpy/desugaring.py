@@ -1,6 +1,6 @@
 from __future__ import annotations
 import copy
-from fpy.bytecode.directives import BinaryStackOp, LoopVarType
+from fpy.bytecode.directives import BinaryOp, LoopVarType
 from lark.tree import Meta
 from fpy.syntax import (
     Ast,
@@ -181,12 +181,12 @@ class DesugarForLoops(Transformer):
 
         return self.new(
             state,
-            AstBinaryOp(None, lhs, BinaryStackOp.ADD, rhs),
+            AstBinaryOp(None, lhs, BinaryOp.ADD, rhs),
             contextual_type=LoopVarType,
             synthesized_type=LoopVarType,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
-            op_case=pick_binary_op_case(BinaryStackOp.ADD, LoopVarType),
+            op_case=pick_binary_op_case(BinaryOp.ADD, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -248,12 +248,12 @@ class DesugarForLoops(Transformer):
 
         return self.new(
             state,
-            AstBinaryOp(None, lhs, BinaryStackOp.LESS_THAN, rhs),
+            AstBinaryOp(None, lhs, BinaryOp.LESS_THAN, rhs),
             contextual_type=BOOL,
             synthesized_type=BOOL,
             contextual_value=None,
             op_intermediate_type=LoopVarType,
-            op_case=pick_binary_op_case(BinaryStackOp.LESS_THAN, LoopVarType),
+            op_case=pick_binary_op_case(BinaryOp.LESS_THAN, LoopVarType),
             resolved_symbol=None,
         )
 
@@ -375,7 +375,7 @@ class DesugarAugmentedAssignments(Transformer):
 
     def visit_AstAugAssign(self, node: AstAugAssign, state: CompileState):
         # stripping the trailing "=" from the token yields the binary operator
-        op = BinaryStackOp(node.op[:-1])
+        op = BinaryOp(node.op[:-1])
         # the lhs appears both as the assignment target and as the left
         # operand; they must be distinct node objects so each gets its own
         # id and semantic info
@@ -850,24 +850,24 @@ class DesugarTimeOperators(Transformer):
         state.contextual_types[cmp_call] = I64
 
         op = node.op
-        if op == BinaryStackOp.LESS_THAN:
+        if op == BinaryOp.LESS_THAN:
             cmp_val = -1
-            new_op = BinaryStackOp.EQUAL
-        elif op == BinaryStackOp.GREATER_THAN:
+            new_op = BinaryOp.EQUAL
+        elif op == BinaryOp.GREATER_THAN:
             cmp_val = 1
-            new_op = BinaryStackOp.EQUAL
-        elif op == BinaryStackOp.LESS_THAN_OR_EQUAL:
+            new_op = BinaryOp.EQUAL
+        elif op == BinaryOp.LESS_THAN_OR_EQUAL:
             cmp_val = 1
-            new_op = BinaryStackOp.NOT_EQUAL
-        elif op == BinaryStackOp.GREATER_THAN_OR_EQUAL:
+            new_op = BinaryOp.NOT_EQUAL
+        elif op == BinaryOp.GREATER_THAN_OR_EQUAL:
             cmp_val = -1
-            new_op = BinaryStackOp.NOT_EQUAL
-        elif op == BinaryStackOp.EQUAL:
+            new_op = BinaryOp.NOT_EQUAL
+        elif op == BinaryOp.EQUAL:
             cmp_val = 0
-            new_op = BinaryStackOp.EQUAL
-        elif op == BinaryStackOp.NOT_EQUAL:
+            new_op = BinaryOp.EQUAL
+        elif op == BinaryOp.NOT_EQUAL:
             cmp_val = 0
-            new_op = BinaryStackOp.NOT_EQUAL
+            new_op = BinaryOp.NOT_EQUAL
         else:
             assert False, f"Unexpected comparison operator: {op}"
 
