@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from lark import Lark, LarkError
 from fpy.bytecode.directives import Directive
+from fpy.bytecode.assembler import serialize_directives
 from fpy.codegen_fpybc import (
     AssignFrameOffsets,
     FinalChecks,
@@ -75,10 +76,11 @@ from fpy.types import (
 )
 from fpy.state import (
     CompileState,
+    get_base_compile_state,
 )
 from fpy.visitors import Visitor
 
-from fpy.error import BackendError, handle_lark_error
+from fpy.error import BackendError, WarningType, handle_lark_error
 import fpy.error
 
 if TYPE_CHECKING:
@@ -346,6 +348,43 @@ def analysis_to_fpybc_directives(
 
     # all the ir is guaranteed to have been converted to directives by now by FinalChecks
     return ir, state.this_seq_arg_specs
+
+
+def compile_to_fpybin(
+    source: str,
+    dictionary: str,
+    seq_maps: list[tuple[str, str]] | None = None,
+    ignored_warnings: set[WarningType] | None = None,
+    error_warnings: set[WarningType] | None = None,
+    import_directories: list[str] | None = None,
+    main_file_dir: str | None = None,
+    main_file_path: str | None = None,
+    default_time_base: str | None = None,
+) -> tuple[bytes, int]:
+    """Compile fpy source text against a dictionary to fpybin, returning the
+    serialized bytes and their CRC.
+
+    Raises CompileError or BackendError on failure."""
+    fpy.error.file_name = main_file_path or "<string>"
+    fpy.error.input_text = source
+    fpy.error.input_lines = source.splitlines()
+    state = get_base_compile_state(
+        dictionary,
+        seq_maps,
+        ignored_warnings=ignored_warnings,
+        error_warnings=error_warnings,
+        import_directories=import_directories,
+        main_file_dir=main_file_dir,
+        main_file_path=main_file_path,
+        default_time_base=default_time_base,
+    )
+    body = text_to_ast(source)
+    state = analyze_ast(body, state)
+    directives, seq_arg_types = analysis_to_fpybc_directives(state)
+    arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
+    return serialize_directives(
+        directives, arg_specs, max_directive_size=state.max_directive_size
+    )
 
 
 def analysis_to_llvm_module(
