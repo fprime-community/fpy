@@ -20,6 +20,7 @@ chans
 cls
 codegen
 constexpr
+crc
 crt
 ctx
 cuz
