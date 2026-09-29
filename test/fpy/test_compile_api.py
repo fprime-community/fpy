@@ -32,7 +32,7 @@ def test_matches_manual_pipeline():
     assert compile_to_fpybin(source, DICT) == _manual(source)
 
 
-def test_produces_roundtrippable_bytes():
+def test_deserialize_bytes():
     source = (GOLDEN / "func_used.fpy").read_text()
     data, crc = compile_to_fpybin(source, DICT)
     assert isinstance(data, bytes) and len(data) > 0
