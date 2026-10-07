@@ -13,6 +13,7 @@ Breslav
 calcsize
 calle
 capsys
+capsysbinary
 cbranch
 Ccsds
 Cdh
@@ -20,6 +21,7 @@ chans
 cls
 codegen
 constexpr
+crc
 crt
 ctx
 cuz
@@ -77,6 +79,7 @@ ifelifelse
 IH
 ine
 ip
+ipc
 itrunc
 kinda
 lalr

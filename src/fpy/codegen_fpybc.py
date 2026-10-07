@@ -1203,20 +1203,26 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             # Emit code to compute each dynamic offset component
             # (idx * elem_size) and sum them together on the stack.
             for i, (idx_expr, parent_type) in enumerate(dynamic_components):
+                # the bounds check's label is named after the node it is
+                # given; the index expression is unique per component, the
+                # assignment is not
                 dirs.extend(
-                    self._emit_array_element_offset(node, idx_expr, parent_type, state)
+                    self._emit_array_element_offset(
+                        idx_expr, idx_expr, parent_type, state
+                    )
                 )
                 if i > 0:
                     dirs.append(IntAddDirective())
 
             # Add the constant part: base variable's frame offset +
-            # accumulated constant field offsets.
+            # accumulated constant field offsets. Signed, because a parameter
+            # sits below the frame start at a negative offset.
             const_part = base_frame_offset + field_const_offset
-            dirs.append(PushValDirective(FpyValue(U64, const_part).serialize()))
+            dirs.append(PushValDirective(FpyValue(I64, const_part).serialize()))
             dirs.append(IntAddDirective())
 
-            # and now convert the u64 back into the SignedStackSizeType that store expects
-            dirs.extend(self.convert_numeric_type(U64, SignedStackSizeType))
+            # and now convert the i64 back into the SignedStackSizeType that store expects
+            dirs.extend(self.convert_numeric_type(I64, SignedStackSizeType))
 
             # now that the frame offset is pushed, use it to store into the frame
             if use_abs:

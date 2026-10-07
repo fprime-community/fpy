@@ -56,6 +56,24 @@ exit(1)
 
         assert_compile_failure(fprime_test_api, seq)
 
+    def test_const_complex_pow_float_operands(self, fprime_test_api):
+        """A negative base with a fractional exponent is a domain error even
+        when an operand has already been folded to a Python float, where
+        ``float ** float`` returns a complex number instead of raising."""
+        seq = """
+x: F64 = F64(-8.0) ** 0.5
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="Domain error")
+
+    def test_const_complex_pow_float_exponent(self, fprime_test_api):
+        """Same when it is the exponent that carries the float type."""
+        seq = """
+y: F64 = (-2.0) ** F64(0.5)
+"""
+
+        assert_compile_failure(fprime_test_api, seq, match="Domain error")
+
     def test_very_large_const_pow(self, fprime_test_api):
         seq = """
 10.0 ** 1000

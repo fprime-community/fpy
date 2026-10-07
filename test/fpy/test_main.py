@@ -632,17 +632,158 @@ def test_cmd_main_zmq_addr(monkeypatch, capsys):
 
 
 def test_build_command_packet():
-    """Command packet has correct wire format: size(4B) + descriptor(2B) + opcode(4B) + args."""
+    """Command packet has correct wire format: descriptor(2B) + opcode(4B) + args."""
     import struct
 
     packet = fpy_main.build_command_packet(0x10006001, b"\x01\x02\x03")
 
-    # size = 2 (descriptor) + 4 (opcode) + 3 (args) = 9
-    expected_size = struct.pack(">I", 9)
     expected_descriptor = struct.pack(">H", 0)  # FW_PACKET_COMMAND = 0
     expected_opcode = struct.pack(">I", 0x10006001)
     expected_args = b"\x01\x02\x03"
 
-    assert (
-        packet == expected_size + expected_descriptor + expected_opcode + expected_args
+    assert packet == expected_descriptor + expected_opcode + expected_args
+
+
+def test_frame_packet_for_gds():
+    """The GDS transport frame prefixes the packet with its size(4B)."""
+    import struct
+
+    framed = fpy_main.frame_packet_for_gds(b"\x01\x02\x03")
+
+    assert framed == struct.pack(">I", 3) + b"\x01\x02\x03"
+
+
+def _patch_compile_chain(monkeypatch, directive):
+    """Stub cmd_main's compile chain to yield the given directive."""
+    monkeypatch.setattr(fpy_main, "text_to_ast", lambda text: "AST")
+    monkeypatch.setattr(
+        fpy_main,
+        "get_base_compile_state",
+        lambda dictionary, seq_maps=None, **kwargs: "STATE",
     )
+    monkeypatch.setattr(fpy_main, "analyze_ast", lambda body, state: state)
+    monkeypatch.setattr(
+        fpy_main, "analysis_to_fpybc_directives", lambda state: ([directive], [])
+    )
+
+
+def test_cmd_main_emit_stdout(monkeypatch, capsysbinary):
+    """--emit stdout writes the binary command packet to stdout, nothing else."""
+    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xab\xcd")
+    _patch_compile_chain(monkeypatch, directive)
+
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+            "-d",
+            "dict.json",
+            "--emit",
+            "stdout",
+        ]
+    )
+
+    assert capsysbinary.readouterr().out == fpy_main.build_command_packet(
+        0x10006001, b"\xab\xcd"
+    )
+
+
+def test_cmd_main_emit_tcp(monkeypatch, capsys):
+    """--emit tcp sends via the TCP server, defaulting the address."""
+    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"\xab")
+    _patch_compile_chain(monkeypatch, directive)
+
+    sent = {}
+
+    def fake_send(cmd_opcode, args, host, port):
+        sent.update(cmd_opcode=cmd_opcode, args=args, host=host, port=port)
+
+    monkeypatch.setattr(fpy_main, "send_command_tcp", fake_send)
+
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+            "-d",
+            "dict.json",
+            "--emit",
+            "tcp",
+        ]
+    )
+
+    assert sent == {
+        "cmd_opcode": 0x10006001,
+        "args": b"\xab",
+        "host": "127.0.0.1",
+        "port": 50050,
+    }
+    assert "Sending" in capsys.readouterr().out
+
+
+def test_cmd_main_emit_tcp_explicit_addr(monkeypatch, capsys):
+    """--tcp-addr overrides the default TCP address."""
+    directive = ConstCmdDirective(cmd_opcode=0x10006001, args=b"")
+    _patch_compile_chain(monkeypatch, directive)
+
+    sent = {}
+    monkeypatch.setattr(
+        fpy_main,
+        "send_command_tcp",
+        lambda o, a, host, port: sent.update(host=host, port=port),
+    )
+
+    fpy_main.cmd_main(
+        [
+            'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+            "-d",
+            "dict.json",
+            "--emit",
+            "tcp",
+            "--tcp-addr",
+            "192.168.1.2:60000",
+        ]
+    )
+
+    assert sent == {"host": "192.168.1.2", "port": 60000}
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--tcp-addr", "127.0.0.1:50050"],
+        ["--emit", "stdout", "--tcp-addr", "127.0.0.1:50050"],
+        ["--emit", "tcp", "--zmq-addr", "ipc:///tmp/x"],
+        ["--emit", "stdout", "--zmq-addr", "ipc:///tmp/x"],
+    ],
+)
+def test_cmd_main_addr_flag_requires_matching_emit(monkeypatch, capsys, extra_args):
+    """An address flag with a mismatched --emit is an error."""
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.cmd_main(
+            [
+                'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+                "-d",
+                "dict.json",
+                *extra_args,
+            ]
+        )
+
+    assert exc.value.code == 1
+    assert "is only valid with --emit" in capsys.readouterr().err
+
+
+def test_cmd_main_invalid_tcp_addr(monkeypatch, capsys):
+    """A --tcp-addr without a port is rejected before compiling."""
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.cmd_main(
+            [
+                'Ref.cmdSeq0.RUN_ARGS("seq.bin", NO_WAIT)',
+                "-d",
+                "dict.json",
+                "--emit",
+                "tcp",
+                "--tcp-addr",
+                "localhost",
+            ]
+        )
+
+    assert exc.value.code == 1
+    assert "Invalid --tcp-addr format" in capsys.readouterr().err

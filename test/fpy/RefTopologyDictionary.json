@@ -1899,6 +1899,11 @@
           "name" : "BUSY",
           "value" : 5,
           "annotation" : "Component busy"
+        },
+        {
+          "name" : "CLEARED",
+          "value" : 6,
+          "annotation" : "Command tracking was cleared before the command completed"
         }
       ],
       "default" : "Fw.CmdResponse.OK",

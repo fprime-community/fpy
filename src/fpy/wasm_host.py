@@ -55,15 +55,31 @@ def _declare_host_func(
     return fn
 
 
+def _declare_libcalls(module: ir.Module) -> None:
+    """Claim the names of the float libcalls LLVM emits for llvm.pow, llvm.log
+    and frem, before any script symbol is named. Script functions and
+    variables are emitted under their own names, uniqued against the module
+    (``get_unique_name``), so without these declarations a script function or
+    variable named ``pow`` would be the symbol the libcall binds to."""
+    from llvmlite import ir
+
+    f64 = ir.DoubleType()
+    ir.Function(module, ir.FunctionType(f64, [f64, f64]), name="pow")
+    ir.Function(module, ir.FunctionType(f64, [f64]), name="log")
+    ir.Function(module, ir.FunctionType(f64, [f64, f64]), name="fmod")
+
+
 def declare_host_imports(module: ir.Module) -> None:
     """Declare the full expected host interface on *module*; emit sites look
-    the functions up in ``module.globals``. The float libcalls
-    (env.pow/fmod/log) are deliberately absent: LLVM materializes those itself
-    when lowering llvm.pow/llvm.log/frem, and they stay under wasm-ld's
-    default import module "env"."""
+    the functions up in ``module.globals``. Also declares the float libcalls
+    (env.pow/fmod/log) that LLVM materializes itself when lowering
+    llvm.pow/llvm.log/frem, only so that their names are taken: those stay
+    under wasm-ld's default import module "env" and no emit site calls
+    them."""
     from llvmlite import ir
 
     error_code_type = ErrorCodeType.llvm_type
+    _declare_libcalls(module)
 
     # exit(code) ends the whole sequence. It never returns to wasm (the host
     # unwinds the interpreter); noreturn lets LLVM drop the dead code after it.

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import decimal
 import itertools
+import math
 from pathlib import Path
 import struct
 from typing import Union
@@ -2270,9 +2271,11 @@ class CalculateConstExprValues(Visitor):
             dt = dt.replace(tzinfo=timezone.utc)
             timestamp = dt.timestamp()
 
-            # Split into seconds and microseconds
+            # Split into seconds and microseconds. The microseconds come
+            # from the parsed value, not from the float timestamp, whose
+            # resolution is coarser than a microsecond at modern dates.
             seconds = int(timestamp)
-            useconds = int((timestamp - seconds) * 1_000_000)
+            useconds = dt.microsecond
 
             # Validate ranges for U32
             if seconds < 0:
@@ -2356,7 +2359,10 @@ class CalculateConstExprValues(Visitor):
                 rounded_value = CalculateConstExprValues._round_float_to_type(
                     coerced_value, to_type
                 )
-                if rounded_value is None:
+                # a value too large for the type either fails to pack or, past
+                # the double range, silently becomes infinite; there is no
+                # literal for an infinite value, so both are out of range
+                if rounded_value is None or not math.isfinite(rounded_value):
                     state.err(
                         f"{raw_val} is out of range for type {to_type.display_name}",
                         node,
@@ -2672,6 +2678,18 @@ class CalculateConstExprValues(Visitor):
 
         state.const_expr_values[node] = expr_value
 
+    @staticmethod
+    def _const_equal(lhs: FpyValue, rhs: FpyValue) -> bool:
+        """== of two constants. Numbers compare by value; a non-numeric operand
+        (struct, array, enum, time) compares by serialized bytes, which is
+        what the runtime compares (spec "Equality semantics"), so that folding
+        cannot change a comparison's answer: 0.0 and -0.0 are equal as
+        numbers but not as struct members."""
+        if lhs.type.is_numerical:
+            return lhs.val == rhs.val
+        assert lhs.type == rhs.type, (lhs.type, rhs.type)
+        return lhs.serialize() == rhs.serialize()
+
     def visit_AstBinaryOp(self, node: AstBinaryOp, state: CompileState):
         # Check if both left-hand side (lhs) and right-hand side (rhs) are constants
         lhs_value: FpyValue = state.const_expr_values.get(node.lhs)
@@ -2689,6 +2707,8 @@ class CalculateConstExprValues(Visitor):
             return
 
         # Both sides are constants, evaluate the operation if the operator is supported
+        lhs_const = lhs_value
+        rhs_const = rhs_value
         # get the actual pythonic value from the fpy type
         lhs_value = lhs_value.val
         rhs_value = rhs_value.val
@@ -2706,6 +2726,12 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value / rhs_value
             elif node.op == BinaryStackOp.EXPONENT:
                 folded_value = lhs_value**rhs_value
+                if isinstance(folded_value, complex):
+                    # float ** float returns a complex number for a negative
+                    # base and a fractional exponent, where the Decimal path
+                    # raises decimal.InvalidOperation
+                    state.err("Domain error", node)
+                    return
             elif node.op == BinaryStackOp.FLOOR_DIVIDE:
                 # Floor toward -inf (Python `//`), matching the runtime backends.
                 if isinstance(lhs_value, int) and isinstance(rhs_value, int):
@@ -2736,9 +2762,9 @@ class CalculateConstExprValues(Visitor):
                 folded_value = lhs_value <= rhs_value
             # Equality Checking
             elif node.op == BinaryStackOp.EQUAL:
-                folded_value = lhs_value == rhs_value
+                folded_value = self._const_equal(lhs_const, rhs_const)
             elif node.op == BinaryStackOp.NOT_EQUAL:
-                folded_value = lhs_value != rhs_value
+                folded_value = not self._const_equal(lhs_const, rhs_const)
             else:
                 # missing an operation
                 assert False, node.op
@@ -2872,21 +2898,15 @@ class CheckAllBranchesReturn(Visitor):
         state.does_return[node] = any(state.does_return[n] for n in node.stmts)
 
     def visit_AstIf(self, node: AstIf, state: CompileState):
-        # an if statement returns if all of its branches return
-        branch_returns = [state.does_return[node.body]]
+        # Without an else, the implicit branch can fall through.
+        state.does_return[node] = (
+            node.els is not None
+            and state.does_return[node.body]
+            and all(state.does_return[branch] for branch in node.elifs)
+            and state.does_return[node.els]
+        )
 
-        for _elif in node.elifs:
-            branch_returns.append(state.does_return[_elif])
-
-        if node.els is not None:
-            branch_returns.append(state.does_return[node.els])
-        else:
-            # implicit else branch that falls through without returning
-            branch_returns.append(False)
-
-        state.does_return[node] = all(branch_returns)
-
-    def visit_AstElif(self, node: Union[AstElif], state: CompileState):
+    def visit_AstElif(self, node: AstElif, state: CompileState):
         state.does_return[node] = state.does_return[node.body]
 
     def visit_AstDef(self, node: AstDef, state: CompileState):
@@ -2912,11 +2932,10 @@ class CheckAllBranchesReturn(Visitor):
             state.does_return[node] = False
             return
         func = state.resolved_symbols[node.func]
-        if not is_instance_compat(func, BuiltinFuncSymbol) or not func.name == "exit":
-            state.does_return[node] = False
-            return
-        # builtin exit "returns" (really just ends call stack entirely)
-        state.does_return[node] = True
+        # builtin exit ends the call stack, so it also prevents fallthrough.
+        state.does_return[node] = (
+            is_instance_compat(func, BuiltinFuncSymbol) and func.name == "exit"
+        )
 
     def visit_default(self, node, state):
         assert not is_instance_compat(node, AstStmt)

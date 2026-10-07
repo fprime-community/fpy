@@ -404,6 +404,77 @@ assert pick(1) == 20
 """
         assert_run_success(fprime_test_api, seq)
 
+    def test_assign_param_array_element_runtime_index(self, fprime_test_api):
+        """A store through a runtime index into an array parameter. Parameters
+        live at negative frame offsets, and the store must land on the right
+        element without touching its neighbors."""
+        seq = """
+def f(a: Ref.FpyExampleArray, i: I64) -> U32:
+    a[i] = 7
+    assert a[0] == 1
+    assert a[2] == 3
+    return a[i]
+
+arr: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
+k: I64 = 1
+assert f(arr, k) == 7
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_param_array_element_member_runtime_index(self, fprime_test_api):
+        """A store into a struct member of a runtime-indexed element of an
+        array-of-struct parameter."""
+        seq = """
+def set_value(pairs: Ref.SignalPairSet, i: I64, v: F32) -> F32:
+    pairs[i].value = v
+    assert pairs[i].time == 5.0
+    assert pairs[1].value == 4.0
+    return pairs[i].value
+
+p: Ref.SignalPairSet = Ref.SignalPairSet( \\
+    Ref.SignalPair(1.0, 2.0), \\
+    Ref.SignalPair(3.0, 4.0), \\
+    Ref.SignalPair(5.0, 6.0), \\
+    Ref.SignalPair(7.0, 8.0))
+idx: I64 = 2
+assert set_value(p, idx, 99.0) == 99.0
+"""
+        assert_run_success(fprime_test_api, seq)
+        
+    def test_assign_array_element_two_runtime_indices(self, fprime_test_api):
+        """A store whose access chain has two runtime indices: each index
+        needs its own bounds check."""
+        seq = """
+a: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+i: I64 = 1
+j: I64 = 0
+a[i][j] = Ref.Choice.TWO
+assert a[1][0] == Ref.Choice.TWO
+assert a[1][1] == Ref.Choice.ONE
+assert a[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_assign_global_array_element_two_runtime_indices_in_function(
+        self, fprime_test_api
+    ):
+        """The same two-runtime-index store, from a function writing a global."""
+        seq = """
+g: Ref.TooManyChoices = Ref.TooManyChoices( \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE), \\
+    Ref.ManyChoices(Ref.Choice.ONE, Ref.Choice.ONE))
+
+def set_choice(i: I64, j: I64, c: Ref.Choice):
+    g[i][j] = c
+
+set_choice(0, 1, Ref.Choice.RED)
+assert g[0][1] == Ref.Choice.RED
+assert g[0][0] == Ref.Choice.ONE
+"""
+        assert_run_success(fprime_test_api, seq)
+
 
 class TestConstFoldEquality:
 
@@ -471,6 +542,44 @@ if Svc.ComQueueDepth(100, 200) != Svc.ComQueueDepth(100, 300):
 exit(1)
 """
 
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_struct_eq_negative_zero_member(self, fprime_test_api):
+        """Folded aggregate equality compares serialized bytes like the
+        runtime does, so a 0.0 member and a -0.0 member are not equal."""
+        seq = """
+if Ref.SignalPair(1.0, 0.0) == Ref.SignalPair(1.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_struct_neq_negative_zero_member(self, fprime_test_api):
+        seq = """
+if Ref.SignalPair(1.0, 0.0) != Ref.SignalPair(1.0, -0.0):
+    exit(0)
+exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_array_eq_agrees_with_runtime(self, fprime_test_api):
+        """The folded and the runtime answers to the same comparison agree."""
+        seq = """
+a: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, 0.0)
+b: Ref.SignalSet = Ref.SignalSet(1.0, 2.0, 3.0, -0.0)
+if a == b:
+    exit(2)
+if Ref.SignalSet(1.0, 2.0, 3.0, 0.0) == Ref.SignalSet(1.0, 2.0, 3.0, -0.0):
+    exit(1)
+"""
+        assert_run_success(fprime_test_api, seq)
+
+    def test_const_fold_numeric_negative_zero_is_equal(self, fprime_test_api):
+        """Numbers, including aggregate members read out, still compare
+        numerically: 0.0 == -0.0."""
+        seq = """
+assert 0.0 == -0.0
+assert Ref.SignalPair(1.0, 0.0).value == Ref.SignalPair(1.0, -0.0).value
+"""
         assert_run_success(fprime_test_api, seq)
 
     def test_runtime_array_equality(self, fprime_test_api):
@@ -569,6 +678,31 @@ x()
 """
 
         assert_compile_failure(fprime_test_api, seq)
+
+
+class TestNonFiniteFloatConstants:
+    """A constant float that does not fit its finite float type is a compile
+    error, never a silent infinity."""
+
+    def test_f64_literal_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f32_literal_overflow(self, fprime_test_api):
+        seq = "x: F32 = 1e999\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F32")
+
+    def test_f64_folded_overflow(self, fprime_test_api):
+        seq = "x: F64 = 1e308 * 10.0\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_folded_overflow_of_typed_operands(self, fprime_test_api):
+        seq = "x: F64 = F64(1e308) * F64(10.0)\n"
+        assert_compile_failure(fprime_test_api, seq, match="out of range for type F64")
+
+    def test_f64_max_is_in_range(self, fprime_test_api):
+        seq = "x: F64 = 1.7976931348623157e308\nassert x > 1e308\n"
+        assert_run_success(fprime_test_api, seq)
 
 
 class TestStringTypes:
