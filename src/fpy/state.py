@@ -296,7 +296,7 @@ def _validate_and_replace_type(
 
     An enum must define every constant fpy pins, with the pinned value; it
     may define more, and those are adopted onto the canonical type so
-    sequences can name them.
+    sequences can name them, as is its representation type.
 
     Raises DictionaryError (with a user-facing explanation) if the dictionary
     defines the type incompatibly with the canonical version, or omits it
@@ -335,13 +335,8 @@ def _validate_and_replace_type(
                 f"    dictionary:           {dict_type.enum_dict}\n"
                 f"    missing or different: {mismatched}",
             )
-        if dict_type.rep_type != canonical.rep_type:
-            raise DictionaryError(
-                name,
-                f"Its underlying representation type is {dict_type.rep_type}, "
-                f"but Fpy expects {canonical.rep_type}.",
-            )
         canonical.enum_dict = dict(dict_type.enum_dict)
+        canonical.rep_type = dict_type.rep_type
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
             raise DictionaryError(
@@ -358,45 +353,6 @@ def _validate_and_replace_type(
     type_dict[name] = canonical
     # Preserve raw JSON defaults from the dictionary definition on the canonical type
     canonical.json_default = dict_type.json_default
-
-
-def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
-    """Update the canonical TIME_BASE singleton from the dictionary's TimeBase.
-
-    The dictionary's TimeBase enum supercedes the hardcoded placeholder.
-    We only require that TB_NONE exists with value 0.  The full set of enum
-    constants and the representation type (FwTimeBaseStoreType) come from the
-    dictionary.
-    """
-    if "TimeBase" not in dict_type_name_dict:
-        raise DictionaryError(
-            "TimeBase", "The dictionary does not define this enum type at all."
-        )
-    dict_tb = dict_type_name_dict["TimeBase"]
-    if dict_tb.kind != TypeKind.ENUM:
-        raise DictionaryError(
-            "TimeBase",
-            f"The dictionary defines it as a {dict_tb.kind.name} type, "
-            f"but Fpy expects an ENUM type.",
-        )
-    if "TB_NONE" not in dict_tb.enum_dict:
-        raise DictionaryError(
-            "TimeBase", "Its enum constants must include TB_NONE, but it is missing."
-        )
-    if dict_tb.enum_dict["TB_NONE"] != 0:
-        raise DictionaryError(
-            "TimeBase",
-            f"Its TB_NONE constant must have value 0, "
-            f"but the dictionary gives it value {dict_tb.enum_dict['TB_NONE']}.",
-        )
-
-    # Adopt the dictionary's enum constants and representation type
-    TIME_BASE.enum_dict = dict_tb.enum_dict
-    TIME_BASE.rep_type = dict_tb.rep_type
-    TIME_BASE.json_default = dict_tb.json_default
-
-    # Replace the dict entry with the canonical singleton
-    dict_type_name_dict["TimeBase"] = TIME_BASE
 
 
 def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
@@ -592,7 +548,7 @@ def _build_global_scopes(
     update_configurable_types_from_dict(dict_type_name_dict)
 
     # Validate required dictionary types
-    _update_time_base_from_dict(dict_type_name_dict)
+    _validate_and_replace_type(dict_type_name_dict, "TimeBase", TIME_BASE)
     if default_time_base not in TIME_BASE.enum_dict:
         raise DictionaryError(
             "TimeBase",

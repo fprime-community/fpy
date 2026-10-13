@@ -501,7 +501,7 @@ def test_timebase_missing_tb_none_raises_error():
         import pytest
         from fpy.error import DictionaryError
 
-        with pytest.raises(DictionaryError, match="must include TB_NONE"):
+        with pytest.raises(DictionaryError, match="TB_NONE"):
             get_base_compile_state(dict_path)
     finally:
         Path(dict_path).unlink()
@@ -523,7 +523,7 @@ def test_timebase_tb_none_wrong_value_raises_error():
         import pytest
         from fpy.error import DictionaryError
 
-        with pytest.raises(DictionaryError, match="TB_NONE constant must have value 0"):
+        with pytest.raises(DictionaryError, match="TB_NONE"):
             get_base_compile_state(dict_path)
     finally:
         Path(dict_path).unlink()
