@@ -46,6 +46,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_SEQ_ARG_COUNT,
     DEFAULT_MAX_STACK_SIZE,
+    DEFAULT_SEQ_ARGS_BUFFER_SIZE,
     DEFAULT_TIME_BASE,
     FLAGS_TYPE,
     I64,
@@ -279,6 +280,11 @@ class CompileState:
         self.warnings.append(CompileWarning(type, msg, n))
 
 
+# Each pinned enum's constants as fpy defines them, snapshotted before any
+# dictionary's extra constants are adopted onto the canonical singleton.
+_PINNED_ENUM_CONSTANTS: dict[str, dict[str, int]] = {}
+
+
 def _validate_and_replace_type(
     type_dict: dict[str, FpyType],
     name: str,
@@ -287,6 +293,10 @@ def _validate_and_replace_type(
 ) -> None:
     """Validate that a type in the dictionary matches the canonical
     definition, then replace it with the canonical version.
+
+    An enum must define every constant fpy pins, with the pinned value; it
+    may define more, and those are adopted onto the canonical type so
+    sequences can name them.
 
     Raises DictionaryError (with a user-facing explanation) if the dictionary
     defines the type incompatibly with the canonical version, or omits it
@@ -312,12 +322,18 @@ def _validate_and_replace_type(
                 f"    expected:   {canonical.members}",
             )
     elif canonical.kind == TypeKind.ENUM:
-        if dict_type.enum_dict != canonical.enum_dict:
+        pinned = _PINNED_ENUM_CONSTANTS.setdefault(name, dict(canonical.enum_dict))
+        mismatched = {
+            const: value
+            for const, value in pinned.items()
+            if dict_type.enum_dict.get(const) != value
+        }
+        if mismatched:
             raise DictionaryError(
                 name,
-                f"Its enum constants do not match what fpy expects.\n"
-                f"    dictionary: {dict_type.enum_dict}\n"
-                f"    expected:   {canonical.enum_dict}",
+                f"Its enum constants must include {pinned}.\n"
+                f"    dictionary:           {dict_type.enum_dict}\n"
+                f"    missing or different: {mismatched}",
             )
         if dict_type.rep_type != canonical.rep_type:
             raise DictionaryError(
@@ -325,6 +341,7 @@ def _validate_and_replace_type(
                 f"Its underlying representation type is {dict_type.rep_type}, "
                 f"but Fpy expects {canonical.rep_type}.",
             )
+        canonical.enum_dict = dict(dict_type.enum_dict)
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
             raise DictionaryError(
@@ -388,47 +405,62 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
     deployment.  The compiler adopts that length onto the canonical singleton's
     buffer type so codegen and semantics use the correct size.
+
+    A dictionary that omits `Svc.SeqArgs` (no sequencer in it takes arguments)
+    gets the canonical default capacity.  This fallback is temporary: sequence
+    arguments are moving to a vector-based type.
     """
-    assert (
-        "Svc.SeqArgs" in dict_type_name_dict
-    ), "Dictionary must contain Svc.SeqArgs type"
-    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
-    assert (
-        dict_seq_args.kind == TypeKind.STRUCT
-    ), f"Dictionary Svc.SeqArgs has kind {dict_seq_args.kind}, expected struct"
-    assert dict_seq_args.members is not None and len(dict_seq_args.members) == 2, (
-        f"Dictionary Svc.SeqArgs must have exactly 2 members, "
-        f"got {dict_seq_args.members}"
-    )
-    size_member, buffer_member = dict_seq_args.members
     canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
-    assert size_member.name == canonical_size_member.name, (
-        f"Dictionary Svc.SeqArgs first member is '{size_member.name}', "
-        f"expected '{canonical_size_member.name}'"
-    )
-    assert size_member.type == canonical_size_member.type, (
-        f"Dictionary Svc.SeqArgs.{size_member.name} has type {size_member.type}, "
-        f"expected {canonical_size_member.type}"
-    )
-    assert buffer_member.name == canonical_buffer_member.name, (
-        f"Dictionary Svc.SeqArgs second member is '{buffer_member.name}', "
-        f"expected '{canonical_buffer_member.name}'"
-    )
-    dict_buffer_type = buffer_member.type
     canonical_buffer_type = canonical_buffer_member.type
-    assert dict_buffer_type.kind == TypeKind.ARRAY, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has kind "
-        f"{dict_buffer_type.kind}, expected array"
+    # The member defaults are rederived from json_default on every load, as
+    # the buffer capacity may differ from the previous dictionary's.
+    SEQ_ARGS.member_defaults = None
+    if "Svc.SeqArgs" not in dict_type_name_dict:
+        canonical_buffer_type.length = DEFAULT_SEQ_ARGS_BUFFER_SIZE
+        canonical_buffer_type.name = f"Array_U8_{DEFAULT_SEQ_ARGS_BUFFER_SIZE}"
+        SEQ_ARGS.json_default = {
+            canonical_size_member.name: 0,
+            canonical_buffer_member.name: [0] * DEFAULT_SEQ_ARGS_BUFFER_SIZE,
+        }
+        dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
+        return
+    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
+    if dict_seq_args.kind != TypeKind.STRUCT:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"The dictionary defines it as a {dict_seq_args.kind.name} type, "
+            f"but Fpy expects a STRUCT type.",
+        )
+    expected = (
+        f"({canonical_size_member.name}: {canonical_size_member.type}, "
+        f"{canonical_buffer_member.name}: [N] {canonical_buffer_type.elem_type})"
     )
-    assert dict_buffer_type.elem_type == canonical_buffer_type.elem_type, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has element type "
-        f"{dict_buffer_type.elem_type}, "
-        f"expected {canonical_buffer_type.elem_type}"
+    members_match = (
+        dict_seq_args.members is not None and len(dict_seq_args.members) == 2
     )
-    assert dict_buffer_type.length is not None and dict_buffer_type.length > 0, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} must have a positive "
-        f"length, got {dict_buffer_type.length}"
-    )
+    if members_match:
+        size_member, buffer_member = dict_seq_args.members
+        members_match = (
+            size_member.name == canonical_size_member.name
+            and size_member.type == canonical_size_member.type
+            and buffer_member.name == canonical_buffer_member.name
+            and buffer_member.type.kind == TypeKind.ARRAY
+            and buffer_member.type.elem_type == canonical_buffer_type.elem_type
+        )
+    if not members_match:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"Its struct members do not match what fpy expects.\n"
+            f"    dictionary: {dict_seq_args.members}\n"
+            f"    expected:   {expected}",
+        )
+    dict_buffer_type = buffer_member.type
+    if not dict_buffer_type.length:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"Its {buffer_member.name} member must have a positive length, "
+            f"but the dictionary gives it length {dict_buffer_type.length}.",
+        )
 
     # Adopt the dictionary's buffer length onto the canonical buffer singleton.
     canonical_buffer_type.length = dict_buffer_type.length

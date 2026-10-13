@@ -798,8 +798,8 @@ def test_cmd_size_checks_skipped_without_dictionary_constants():
 
 def _create_test_dict_with_modified_type(qualified_name: str, mutate) -> str:
     """Create a test dictionary with one type definition passed through
-    *mutate* (a function of the JSON type def), or removed when *mutate* is
-    None."""
+    *mutate* (a function of the JSON type def), or removed along with the
+    commands taking it when *mutate* is None."""
     with open(DEFAULT_DICTIONARY, "r") as f:
         base_dict = json.load(f)
 
@@ -807,6 +807,14 @@ def _create_test_dict_with_modified_type(qualified_name: str, mutate) -> str:
     if mutate is None:
         base_dict["typeDefinitions"] = [
             t for t in defs if t.get("qualifiedName") != qualified_name
+        ]
+        base_dict["commands"] = [
+            c
+            for c in base_dict["commands"]
+            if all(
+                p["type"].get("name") != qualified_name
+                for p in c.get("formalParams", [])
+            )
         ]
     else:
         for type_def in defs:
@@ -854,6 +862,110 @@ def test_param_valid_absent_is_tolerated():
     try:
         state = get_base_compile_state(dict_path)
         assert state is not None
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_enum_extra_constant_is_adopted():
+    """A dictionary may define constants beyond the ones fpy pins; they are
+    adopted so sequences can name them, and a later dictionary without them
+    drops them again."""
+    _clear_caches()
+    from fpy.types import CMD_RESPONSE
+
+    def add_constant(type_def):
+        type_def["enumeratedConstants"].append(
+            {"name": "DISPATCHED_UNTRACKED", "value": 7}
+        )
+
+    dict_path = _create_test_dict_with_modified_type("Fw.CmdResponse", add_constant)
+
+    try:
+        _compile(dict_path, "r: Fw.CmdResponse = Fw.CmdResponse.DISPATCHED_UNTRACKED\n")
+        assert CMD_RESPONSE.enum_dict["DISPATCHED_UNTRACKED"] == 7
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+    get_base_compile_state(DEFAULT_DICTIONARY)
+    assert "DISPATCHED_UNTRACKED" not in CMD_RESPONSE.enum_dict
+
+
+def test_enum_missing_pinned_constant_raises_error():
+    """A dictionary that drops a constant fpy pins is rejected."""
+    _clear_caches()
+
+    def drop_cleared(type_def):
+        type_def["enumeratedConstants"] = [
+            c for c in type_def["enumeratedConstants"] if c["name"] != "CLEARED"
+        ]
+
+    dict_path = _create_test_dict_with_modified_type("Fw.CmdResponse", drop_cleared)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="CLEARED"):
+            get_base_compile_state(dict_path)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_seq_args_absent_uses_default_capacity():
+    """A dictionary without Svc.SeqArgs (none of its sequencers take
+    arguments) compiles with the canonical default buffer capacity."""
+    _clear_caches()
+    from fpy.types import DEFAULT_SEQ_ARGS_BUFFER_SIZE, SEQ_ARGS
+
+    dict_path = _create_test_dict_with_modified_type("Svc.SeqArgs", None)
+
+    try:
+        _compile(dict_path, "CdhCore.cmdDisp.CMD_NO_OP()\n")
+        _, _, _, type_defs, _ = _build_global_scopes(dict_path)
+        assert type_defs["Svc.SeqArgs"] is SEQ_ARGS
+        assert SEQ_ARGS.members[1].type.length == DEFAULT_SEQ_ARGS_BUFFER_SIZE
+        buffer_default = SEQ_ARGS.member_defaults["buffer"]
+        assert len(buffer_default.val) == DEFAULT_SEQ_ARGS_BUFFER_SIZE
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_seq_args_malformed_raises_dictionary_error():
+    """A Svc.SeqArgs whose members fpy cannot adopt is a dictionary error,
+    not a crash."""
+    _clear_caches()
+
+    def rename_buffer(type_def):
+        type_def["members"]["data"] = type_def["members"].pop("buffer")
+        type_def["default"]["data"] = type_def["default"].pop("buffer")
+
+    dict_path = _create_test_dict_with_modified_type("Svc.SeqArgs", rename_buffer)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="Svc.SeqArgs"):
+            get_base_compile_state(dict_path)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_configurable_type_not_primitive_raises_dictionary_error():
+    """A configurable Fw* alias that does not resolve to a primitive is a
+    dictionary error, not a crash."""
+    _clear_caches()
+
+    def alias_to_struct(type_def):
+        type_def["underlyingType"] = {
+            "name": "Fw.TimeValue",
+            "kind": "qualifiedIdentifier",
+        }
+
+    dict_path = _create_test_dict_with_modified_type("FwChanIdType", alias_to_struct)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="FwChanIdType"):
+            get_base_compile_state(dict_path)
     finally:
         Path(dict_path).unlink()
         _clear_caches()

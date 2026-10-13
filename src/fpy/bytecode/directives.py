@@ -5,6 +5,7 @@ from dataclasses import dataclass, fields
 from enum import Enum
 from typing import ClassVar
 
+from fpy.error import DictionaryError
 from fpy.types import (
     FpyType,
     FpyValue,
@@ -94,9 +95,12 @@ def _update_configurable_type(
     if name not in type_defs:
         return
     resolved = type_defs[name]
-    assert (
-        resolved.is_primitive
-    ), f"Configurable type {name} must resolve to a primitive, got {resolved}"
+    if not resolved.is_primitive:
+        raise DictionaryError(
+            name,
+            f"It must resolve to a primitive type, but the dictionary defines "
+            f"it as {resolved}.",
+        )
     target.kind = resolved.kind
     target.name = resolved.name
 
@@ -108,9 +112,12 @@ def _update_configurable_enum(
     if name not in type_defs:
         return
     resolved = type_defs[name]
-    assert (
-        resolved.kind == TypeKind.ENUM
-    ), f"Configurable enum {name} must resolve to an ENUM, got {resolved}"
+    if resolved.kind != TypeKind.ENUM:
+        raise DictionaryError(
+            name,
+            f"The dictionary defines it as a {resolved.kind.name} type, "
+            f"but Fpy expects an ENUM type.",
+        )
     target.kind = resolved.kind
     target.name = resolved.name
     target.enum_dict = resolved.enum_dict
