@@ -508,23 +508,22 @@ def test_timebase_missing_tb_none_raises_error():
         _clear_caches()
 
 
-def test_timebase_tb_none_wrong_value_raises_error():
-    """Test that TB_NONE with wrong value raises an error."""
+def test_timebase_tb_none_value_adopted():
+    """TB_NONE must exist, but its value is whatever the dictionary says."""
     _clear_caches()
+    from fpy.types import TIME_BASE
 
     dict_path = create_test_dict_with_timebase(
         enum_constants=[
-            {"name": "TB_NONE", "value": 42},  # wrong value
+            {"name": "TB_NONE", "value": 42},
             {"name": "TB_PROC_TIME", "value": 1},
+            {"name": "TB_WORKSTATION_TIME", "value": 2},
         ]
     )
 
     try:
-        import pytest
-        from fpy.error import DictionaryError
-
-        with pytest.raises(DictionaryError, match="TB_NONE"):
-            get_base_compile_state(dict_path)
+        get_base_compile_state(dict_path)
+        assert TIME_BASE.enum_dict["TB_NONE"] == 42
     finally:
         Path(dict_path).unlink()
         _clear_caches()
@@ -828,11 +827,11 @@ def _create_test_dict_with_modified_type(qualified_name: str, mutate) -> str:
     return temp_file.name
 
 
-def test_param_valid_mismatch_raises_error():
-    """A dictionary whose Fw.ParamValid disagrees with the canonical enum is
-    rejected: the compiled code bakes the canonical VALID value into every
-    parameter read's validity check."""
+def test_param_valid_value_adopted():
+    """The VALID value every parameter read's validity check bakes in is the
+    dictionary's, not a canonical one."""
     _clear_caches()
+    from fpy.types import PARAM_VALID
 
     def swap_valid(type_def):
         for const in type_def["enumeratedConstants"]:
@@ -842,10 +841,30 @@ def test_param_valid_mismatch_raises_error():
     dict_path = _create_test_dict_with_modified_type("Fw.ParamValid", swap_valid)
 
     try:
-        import pytest
-        from fpy.error import DictionaryError
+        get_base_compile_state(dict_path)
+        assert PARAM_VALID.enum_dict["VALID"] == 9
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
 
-        with pytest.raises(DictionaryError, match="Fw.ParamValid"):
+    get_base_compile_state(DEFAULT_DICTIONARY)
+    assert PARAM_VALID.enum_dict["VALID"] == 1
+
+
+def test_param_valid_missing_valid_raises_error():
+    """Fw.ParamValid without VALID is rejected: the validity check has
+    nothing to compare against."""
+    _clear_caches()
+
+    def drop_valid(type_def):
+        type_def["enumeratedConstants"] = [
+            c for c in type_def["enumeratedConstants"] if c["name"] != "VALID"
+        ]
+
+    dict_path = _create_test_dict_with_modified_type("Fw.ParamValid", drop_valid)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="VALID"):
             get_base_compile_state(dict_path)
     finally:
         Path(dict_path).unlink()
@@ -892,8 +911,8 @@ def test_enum_extra_constant_is_adopted():
     assert "DISPATCHED_UNTRACKED" not in CMD_RESPONSE.enum_dict
 
 
-def test_enum_missing_pinned_constant_raises_error():
-    """A dictionary that drops a constant fpy pins is rejected."""
+def test_enum_unused_constant_absent_is_tolerated():
+    """A dictionary may lack constants the compiler never names."""
     _clear_caches()
 
     def drop_cleared(type_def):
@@ -904,11 +923,122 @@ def test_enum_missing_pinned_constant_raises_error():
     dict_path = _create_test_dict_with_modified_type("Fw.CmdResponse", drop_cleared)
 
     try:
-        with pytest.raises(fpy.error.DictionaryError, match="CLEARED"):
+        _compile(dict_path, "CdhCore.cmdDisp.CMD_NO_OP()\n")
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_enum_missing_required_constant_raises_error():
+    """A dictionary that drops a constant the compiler names is rejected."""
+    _clear_caches()
+
+    def drop_ok(type_def):
+        type_def["enumeratedConstants"] = [
+            c for c in type_def["enumeratedConstants"] if c["name"] != "OK"
+        ]
+        type_def["default"] = "Fw.CmdResponse.BUSY"
+
+    dict_path = _create_test_dict_with_modified_type("Fw.CmdResponse", drop_ok)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="OK"):
             get_base_compile_state(dict_path)
     finally:
         Path(dict_path).unlink()
         _clear_caches()
+
+
+def test_log_severity_adopted_from_dictionary():
+    """log() serializes the dictionary's Fw.LogSeverity values and width,
+    since the sequencer decodes them with its own definition."""
+    _clear_caches()
+    from fpy.types import LOG_SEVERITY
+
+    def renumber_fatal(type_def):
+        for const in type_def["enumeratedConstants"]:
+            if const["name"] == "FATAL":
+                const["value"] = 9
+
+    dict_path = _create_test_dict_with_modified_type("Fw.LogSeverity", renumber_fatal)
+
+    try:
+        get_base_compile_state(dict_path)
+        assert LOG_SEVERITY.enum_dict["FATAL"] == 9
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+    get_base_compile_state(DEFAULT_DICTIONARY)
+    assert LOG_SEVERITY.enum_dict["FATAL"] == 1
+
+
+def test_log_severity_missing_activity_hi_raises_error():
+    """Fw.LogSeverity without ACTIVITY_HI, log()'s default, is rejected."""
+    _clear_caches()
+
+    def drop_activity_hi(type_def):
+        type_def["enumeratedConstants"] = [
+            c for c in type_def["enumeratedConstants"] if c["name"] != "ACTIVITY_HI"
+        ]
+
+    dict_path = _create_test_dict_with_modified_type("Fw.LogSeverity", drop_activity_hi)
+
+    try:
+        with pytest.raises(fpy.error.DictionaryError, match="ACTIVITY_HI"):
+            get_base_compile_state(dict_path)
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+def test_block_state_absent_is_tolerated():
+    """A dictionary with no sequence-run commands has no Svc.BlockState, and
+    compiles."""
+    _clear_caches()
+
+    dict_path = _create_test_dict_with_modified_type("Svc.BlockState", None)
+
+    try:
+        _compile(dict_path, "CdhCore.cmdDisp.CMD_NO_OP()\n")
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+
+@pytest.mark.parametrize("rep_type", ["U8", "U32", "U64"])
+def test_cmd_response_rep_type_width_compiles_to_llvm(rep_type):
+    """The wasm backend converts the host's i32 command response to
+    Fw.CmdResponse's representation type whatever its width."""
+    import llvmlite.binding as llvm
+    from fpy.codegen_llvm import GenerateLlvmModule
+
+    _clear_caches()
+
+    def set_rep_type(type_def):
+        type_def["representationType"] = {
+            "name": rep_type,
+            "kind": "integer",
+            "size": int(rep_type[1:]),
+            "signed": False,
+        }
+
+    dict_path = _create_test_dict_with_modified_type("Fw.CmdResponse", set_rep_type)
+    seq = (
+        "CdhCore.cmdDisp.CMD_NO_OP()\n"
+        "r: Fw.CmdResponse = CdhCore.cmdDisp.CMD_NO_OP()\n"
+    )
+
+    try:
+        state = get_base_compile_state(dict_path)
+        state = analyze_ast(text_to_ast(seq), state)
+        module = GenerateLlvmModule().emit(state.root_block, state)
+        llvm.parse_assembly(str(module)).verify()
+    finally:
+        Path(dict_path).unlink()
+        _clear_caches()
+
+    get_base_compile_state(DEFAULT_DICTIONARY)
 
 
 def test_seq_args_absent_uses_default_capacity():
