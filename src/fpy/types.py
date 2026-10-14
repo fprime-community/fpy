@@ -408,9 +408,10 @@ BOOL = FpyType(TypeKind.BOOL, "bool")
 # is visible everywhere the object is referenced.
 FwSizeStoreType = FpyType(TypeKind.U16, "U16")
 
-# The canonical TimeBase enum type — default placeholder.
-# The full set of enum constants and representation type are loaded from the
-# dictionary at compile time.  Only TB_NONE is required to exist.
+# The dictionary enums the compiler itself uses (TIME_BASE, LOG_SEVERITY,
+# CMD_RESPONSE, TLM_VALID, PARAM_VALID, TIME_COMPARISON, BLOCK_STATE). The
+# definitions here are F Prime's defaults; a loaded dictionary's definition
+# replaces each one, and _build_global_scopes states what it must define.
 TIME_BASE = FpyType(
     TypeKind.ENUM,
     "TimeBase",

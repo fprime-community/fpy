@@ -1,6 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
-from typing import Union
+from typing import Iterable, Union
 from dataclasses import dataclass, field
 
 import fpy.types
@@ -46,6 +46,7 @@ from fpy.types import (
     DEFAULT_MAX_DIRECTIVE_SIZE,
     DEFAULT_MAX_SEQ_ARG_COUNT,
     DEFAULT_MAX_STACK_SIZE,
+    DEFAULT_SEQ_ARGS_BUFFER_SIZE,
     DEFAULT_TIME_BASE,
     FLAGS_TYPE,
     I64,
@@ -284,9 +285,14 @@ def _validate_and_replace_type(
     name: str,
     canonical: FpyType,
     required: bool = True,
+    constants: Iterable[str] = (),
 ) -> None:
     """Validate that a type in the dictionary matches the canonical
     definition, then replace it with the canonical version.
+
+    An enum must define each constant named in *constants*, the ones the
+    compiler itself uses. Its constant values, any further constants and its
+    representation type are taken from the dictionary.
 
     Raises DictionaryError (with a user-facing explanation) if the dictionary
     defines the type incompatibly with the canonical version, or omits it
@@ -312,19 +318,15 @@ def _validate_and_replace_type(
                 f"    expected:   {canonical.members}",
             )
     elif canonical.kind == TypeKind.ENUM:
-        if dict_type.enum_dict != canonical.enum_dict:
+        missing = [const for const in constants if const not in dict_type.enum_dict]
+        if missing:
             raise DictionaryError(
                 name,
-                f"Its enum constants do not match what fpy expects.\n"
-                f"    dictionary: {dict_type.enum_dict}\n"
-                f"    expected:   {canonical.enum_dict}",
+                f"It must define the constant(s) {', '.join(missing)}, but the "
+                f"dictionary defines only {', '.join(dict_type.enum_dict)}.",
             )
-        if dict_type.rep_type != canonical.rep_type:
-            raise DictionaryError(
-                name,
-                f"Its underlying representation type is {dict_type.rep_type}, "
-                f"but Fpy expects {canonical.rep_type}.",
-            )
+        canonical.enum_dict = dict(dict_type.enum_dict)
+        canonical.rep_type = dict_type.rep_type
     elif canonical.kind == TypeKind.ARRAY:
         if dict_type.elem_type != canonical.elem_type:
             raise DictionaryError(
@@ -343,92 +345,68 @@ def _validate_and_replace_type(
     canonical.json_default = dict_type.json_default
 
 
-def _update_time_base_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
-    """Update the canonical TIME_BASE singleton from the dictionary's TimeBase.
-
-    The dictionary's TimeBase enum supercedes the hardcoded placeholder.
-    We only require that TB_NONE exists with value 0.  The full set of enum
-    constants and the representation type (FwTimeBaseStoreType) come from the
-    dictionary.
-    """
-    if "TimeBase" not in dict_type_name_dict:
-        raise DictionaryError(
-            "TimeBase", "The dictionary does not define this enum type at all."
-        )
-    dict_tb = dict_type_name_dict["TimeBase"]
-    if dict_tb.kind != TypeKind.ENUM:
-        raise DictionaryError(
-            "TimeBase",
-            f"The dictionary defines it as a {dict_tb.kind.name} type, "
-            f"but Fpy expects an ENUM type.",
-        )
-    if "TB_NONE" not in dict_tb.enum_dict:
-        raise DictionaryError(
-            "TimeBase", "Its enum constants must include TB_NONE, but it is missing."
-        )
-    if dict_tb.enum_dict["TB_NONE"] != 0:
-        raise DictionaryError(
-            "TimeBase",
-            f"Its TB_NONE constant must have value 0, "
-            f"but the dictionary gives it value {dict_tb.enum_dict['TB_NONE']}.",
-        )
-
-    # Adopt the dictionary's enum constants and representation type
-    TIME_BASE.enum_dict = dict_tb.enum_dict
-    TIME_BASE.rep_type = dict_tb.rep_type
-    TIME_BASE.json_default = dict_tb.json_default
-
-    # Replace the dict entry with the canonical singleton
-    dict_type_name_dict["TimeBase"] = TIME_BASE
-
-
 def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     """Update the canonical SEQ_ARGS singleton from the dictionary's Svc.SeqArgs.
 
     The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
     deployment.  The compiler adopts that length onto the canonical singleton's
     buffer type so codegen and semantics use the correct size.
+
+    A dictionary that omits `Svc.SeqArgs` (no sequencer in it takes arguments)
+    gets the canonical default capacity.  This fallback is temporary: sequence
+    arguments are moving to a vector-based type.
     """
-    assert (
-        "Svc.SeqArgs" in dict_type_name_dict
-    ), "Dictionary must contain Svc.SeqArgs type"
-    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
-    assert (
-        dict_seq_args.kind == TypeKind.STRUCT
-    ), f"Dictionary Svc.SeqArgs has kind {dict_seq_args.kind}, expected struct"
-    assert dict_seq_args.members is not None and len(dict_seq_args.members) == 2, (
-        f"Dictionary Svc.SeqArgs must have exactly 2 members, "
-        f"got {dict_seq_args.members}"
-    )
-    size_member, buffer_member = dict_seq_args.members
     canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
-    assert size_member.name == canonical_size_member.name, (
-        f"Dictionary Svc.SeqArgs first member is '{size_member.name}', "
-        f"expected '{canonical_size_member.name}'"
-    )
-    assert size_member.type == canonical_size_member.type, (
-        f"Dictionary Svc.SeqArgs.{size_member.name} has type {size_member.type}, "
-        f"expected {canonical_size_member.type}"
-    )
-    assert buffer_member.name == canonical_buffer_member.name, (
-        f"Dictionary Svc.SeqArgs second member is '{buffer_member.name}', "
-        f"expected '{canonical_buffer_member.name}'"
-    )
-    dict_buffer_type = buffer_member.type
     canonical_buffer_type = canonical_buffer_member.type
-    assert dict_buffer_type.kind == TypeKind.ARRAY, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has kind "
-        f"{dict_buffer_type.kind}, expected array"
+    # The member defaults are recomputed from json_default on every load, as
+    # the buffer capacity may differ from the previous dictionary's.
+    SEQ_ARGS.member_defaults = None
+    if "Svc.SeqArgs" not in dict_type_name_dict:
+        canonical_buffer_type.length = DEFAULT_SEQ_ARGS_BUFFER_SIZE
+        canonical_buffer_type.name = f"Array_U8_{DEFAULT_SEQ_ARGS_BUFFER_SIZE}"
+        SEQ_ARGS.json_default = {
+            canonical_size_member.name: 0,
+            canonical_buffer_member.name: [0] * DEFAULT_SEQ_ARGS_BUFFER_SIZE,
+        }
+        dict_type_name_dict["Svc.SeqArgs"] = SEQ_ARGS
+        return
+    dict_seq_args = dict_type_name_dict["Svc.SeqArgs"]
+    if dict_seq_args.kind != TypeKind.STRUCT:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"The dictionary defines it as a {dict_seq_args.kind.name} type, "
+            f"but Fpy expects a STRUCT type.",
+        )
+    expected = (
+        f"({canonical_size_member.name}: {canonical_size_member.type}, "
+        f"{canonical_buffer_member.name}: [N] {canonical_buffer_type.elem_type})"
     )
-    assert dict_buffer_type.elem_type == canonical_buffer_type.elem_type, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} has element type "
-        f"{dict_buffer_type.elem_type}, "
-        f"expected {canonical_buffer_type.elem_type}"
+    members_match = (
+        dict_seq_args.members is not None and len(dict_seq_args.members) == 2
     )
-    assert dict_buffer_type.length is not None and dict_buffer_type.length > 0, (
-        f"Dictionary Svc.SeqArgs.{buffer_member.name} must have a positive "
-        f"length, got {dict_buffer_type.length}"
-    )
+    if members_match:
+        size_member, buffer_member = dict_seq_args.members
+        members_match = (
+            size_member.name == canonical_size_member.name
+            and size_member.type == canonical_size_member.type
+            and buffer_member.name == canonical_buffer_member.name
+            and buffer_member.type.kind == TypeKind.ARRAY
+            and buffer_member.type.elem_type == canonical_buffer_type.elem_type
+        )
+    if not members_match:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"Its struct members do not match what fpy expects.\n"
+            f"    dictionary: {dict_seq_args.members}\n"
+            f"    expected:   {expected}",
+        )
+    dict_buffer_type = buffer_member.type
+    if not dict_buffer_type.length:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"Its {buffer_member.name} member must have a positive length, "
+            f"but the dictionary gives it length {dict_buffer_type.length}.",
+        )
 
     # Adopt the dictionary's buffer length onto the canonical buffer singleton.
     canonical_buffer_type.length = dict_buffer_type.length
@@ -559,8 +537,12 @@ def _build_global_scopes(
     # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
     update_configurable_types_from_dict(dict_type_name_dict)
 
-    # Validate required dictionary types
-    _update_time_base_from_dict(dict_type_name_dict)
+    # Validate the dictionary types the compiler itself uses. Each enum must
+    # define the constants named here; everything else about it comes from
+    # the dictionary.
+    _validate_and_replace_type(
+        dict_type_name_dict, "TimeBase", TIME_BASE, constants={"TB_NONE"}
+    )
     if default_time_base not in TIME_BASE.enum_dict:
         raise DictionaryError(
             "TimeBase",
@@ -572,22 +554,47 @@ def _build_global_scopes(
     _validate_and_replace_type(
         dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL
     )
-    _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
-    # The validity enums back the wasm backend's tlm/prm host reads. Most
-    # dictionaries never mention them (they are port argument types, not
-    # command or channel types), so they are optional -- but when a
-    # dictionary does define them, its values must match the canonical ones
-    # the compiled code bakes in.
+    # Every command evaluates to Fw.CmdResponse, and an unhandled response is
+    # checked against OK.
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.TlmValid", TLM_VALID, required=False
+        dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE, constants={"OK"}
+    )
+    # The wasm backend's tlm/prm host reads fault unless they report VALID.
+    # These are port argument types, so most dictionaries never define them.
+    _validate_and_replace_type(
+        dict_type_name_dict,
+        "Fw.TlmValid",
+        TLM_VALID,
+        required=False,
+        constants={"VALID"},
     )
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.ParamValid", PARAM_VALID, required=False
+        dict_type_name_dict,
+        "Fw.ParamValid",
+        PARAM_VALID,
+        required=False,
+        constants={"VALID"},
     )
+    # The time builtins return these.
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON
+        dict_type_name_dict,
+        "Fw.TimeComparison",
+        TIME_COMPARISON,
+        constants={"LT", "EQ", "GT", "INCOMPARABLE"},
     )
-    _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
+    # log() defaults its severity to ACTIVITY_HI.
+    _validate_and_replace_type(
+        dict_type_name_dict,
+        "Fw.LogSeverity",
+        LOG_SEVERITY,
+        required=False,
+        constants={"ACTIVITY_HI"},
+    )
+    # Only its identity matters: a command taking (string, Svc.BlockState,
+    # Svc.SeqArgs) runs a sequence.
+    _validate_and_replace_type(
+        dict_type_name_dict, "Svc.BlockState", BLOCK_STATE, required=False
+    )
     _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
