@@ -10,7 +10,7 @@ import struct
 from typing import Union
 
 from fpy.error import CompileError, diagnostic_context
-from fpy.macros import TIME_MACRO
+from fpy.macros import MAX_SERIAL_PORTS_NAME, TIME_MACRO, WRITE_TO_PORT_MACRO
 from fpy.types import (
     pick_binary_op_case,
     pick_unary_op_case,
@@ -2247,6 +2247,31 @@ class CalculateConstExprValues(Visitor):
         return struct.unpack(fmt, packed)[0]
 
     @staticmethod
+    def _check_serial_port_in_range(
+        port: FpyValue, node: Ast, state: CompileState
+    ) -> bool:
+        """Check that a constant serial port index names a port the sequencer
+        will accept: at or above the MAX_SERIAL_PORTS sentinel (the sentinel
+        itself included) it always fails at run time with
+        SERIAL_PORT_INVALID_INDEX. Reports an error and returns False if not.
+
+        A dictionary whose enum declares no sentinel gives nothing to check
+        against, so the index is left to the run-time check."""
+        max_ports = port.type.enum_dict.get(MAX_SERIAL_PORTS_NAME)
+        if max_ports is None:
+            return True
+        index = port.type.enum_dict[port.val]
+        if 0 <= index < max_ports:
+            return True
+        state.err(
+            f"Serial port {port.type.display_name}.{port.val} has index {index}, "
+            f"which is outside the {max_ports} ports the sequencer has "
+            f"({port.type.display_name}.{MAX_SERIAL_PORTS_NAME} is {max_ports})",
+            node,
+        )
+        return False
+
+    @staticmethod
     def _parse_time_string(
         time_str: str, time_base: str, time_context: int, node: Ast, state: CompileState
     ) -> FpyValue | None:
@@ -2618,6 +2643,10 @@ class CalculateConstExprValues(Visitor):
                         )
                     )
                     return
+            if func is WRITE_TO_PORT_MACRO and not self._check_serial_port_in_range(
+                arg_values[0], resolved_args[0], state
+            ):
+                return
 
         if unknown_value:
             # we will have to calculate this at runtime

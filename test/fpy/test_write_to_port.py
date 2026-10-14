@@ -150,6 +150,43 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, value)
         assert len(dirs) == 1
         assert dirs[0].portIndex == 4
 
+    def test_max_serial_ports_sentinel_rejected(self, fprime_test_api):
+        # MAX_SERIAL_PORTS is the sentinel one past the last real port, so the
+        # sequencer always rejects it at run time; reject it at compile time
+        seq = """
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.MAX_SERIAL_PORTS, value)
+"""
+        assert_compile_failure(fprime_test_api, seq, match="outside the 5 ports")
+
+    def test_port_at_or_above_sentinel_rejected(self, fprime_test_api, tmp_path):
+        # A port constant is out of range whenever its index reaches the
+        # sentinel, not just when it is the sentinel: here MAX_SERIAL_PORTS is
+        # lowered to 2, which puts EXAMPLE_PORT_4 out of range.
+        d = json.loads(Path(default_dictionary).read_text())
+        for t in d["typeDefinitions"]:
+            if t.get("qualifiedName") == "Svc.Fpy.SerialPortIndex":
+                for c in t["enumeratedConstants"]:
+                    if c["name"] == "MAX_SERIAL_PORTS":
+                        c["value"] = 2
+        custom_dict = tmp_path / "TwoPorts.json"
+        custom_dict.write_text(json.dumps(d))
+
+        seq = """
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, value)
+"""
+        try:
+            fpy.error.file_name = "<two-port-dict-test>"
+            fpy.error.input_text = seq
+            fpy.error.input_lines = seq.splitlines()
+            _build_global_scopes.cache_clear()
+            state = get_base_compile_state(str(custom_dict))
+            with pytest.raises(fpy.error.CompileError, match="outside the 2 ports"):
+                analyze_ast(text_to_ast(seq), state)
+        finally:
+            _build_global_scopes.cache_clear()
+
     def test_non_constant_port_rejected(self, fprime_test_api):
         # the port index must be a compile-time constant; an enum-typed variable
         # has the right type but is not const, so it is rejected
