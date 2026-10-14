@@ -205,21 +205,6 @@ If a struct or array has a default value for a member/element, it will use that 
 
 Trailing commas are allowed in these expressions.
 
-### Dictionary requirements
-
-Fpy takes every type as the dictionary defines it. For the enums below that includes their constant values, representation type and any constants beyond the ones listed; Fpy only requires the names its generated code uses:
-
-* `Fw.CmdResponse`: an enum with a constant `OK`. Every command call evaluates to this type, and an unhandled response is checked against `OK`.
-* `Fw.TlmValid` and `Fw.ParamValid` (if defined): enums with a constant `VALID`. A telemetry or parameter read that does not report `VALID` ends the sequence.
-* `Fw.TimeComparison`: an enum with constants `LT`, `EQ`, `GT` and `INCOMPARABLE`, the results of comparing times.
-* `TimeBase`: an enum with a constant `TB_NONE`.
-* `Fw.LogSeverity` (if defined): an enum with a constant `ACTIVITY_HI`, the default severity of `log`.
-* `Svc.BlockState` (if defined): an enum. A command whose arguments are `(string, Svc.BlockState, Svc.SeqArgs)` runs a sequence.
-* `Fw.TimeValue` and `Fw.TimeIntervalValue`: structs with members `(timeBase, timeContext, seconds, useconds)` and `(seconds, useconds)`.
-* `Svc.SeqArgs` (if defined): a struct with members `(size, buffer)`, where `buffer` is an array of `U8`.
-
-A dictionary that does not meet one of these is rejected with a message naming the type.
-
 ## Math
 You can do basic math and store the result in variables in Fpy:
 ```py

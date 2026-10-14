@@ -539,7 +539,7 @@ def _build_global_scopes(
 
     # Validate the dictionary types the compiler itself uses. Each enum must
     # define the constants named here; everything else about it comes from
-    # the dictionary. README.md "Dictionary requirements" states the same.
+    # the dictionary.
     _validate_and_replace_type(
         dict_type_name_dict, "TimeBase", TIME_BASE, constants={"TB_NONE"}
     )
