@@ -61,6 +61,7 @@ from fpy.types import (
     ChDef,
     FpyType,
     FpyValue,
+    I32,
     PARAM_VALID,
     PrmDef,
     SEQ_ARGS,
@@ -423,8 +424,8 @@ class EmitLlvmExpr(Emitter):
             written = self._emit_store_big_endian(value, arg_type, command.buf, offset)
             assert written == arg_type.max_size, (arg_type, written)
 
-        # The host returns the response widened to i32; narrow it back to
-        # Fw.CmdResponse's type.
+        # The host returns the response widened to i32; convert it to
+        # Fw.CmdResponse's representation type, whatever its width.
         buf_size = command.buf.type.pointee.count
         response = b.call(
             b.module.globals[HOST_CMD_FUNC_NAME],
@@ -433,8 +434,7 @@ class EmitLlvmExpr(Emitter):
                 ir.Constant(ir.IntType(32), buf_size),
             ],
         )
-        # assumption: the response is a valid cmd response code
-        return b.trunc(response, CMD_RESPONSE.llvm_type)
+        return self.convert_numeric_type(response, I32, CMD_RESPONSE.rep_type)
 
     def _emit_store_big_endian(
         self, value: ir.Value, fpy_type: FpyType, base_ptr: ir.Value, offset: int

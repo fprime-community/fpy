@@ -1,6 +1,6 @@
 from __future__ import annotations
 from functools import lru_cache
-from typing import Union
+from typing import Iterable, Union
 from dataclasses import dataclass, field
 
 import fpy.types
@@ -280,23 +280,19 @@ class CompileState:
         self.warnings.append(CompileWarning(type, msg, n))
 
 
-# Each pinned enum's constants as fpy defines them, snapshotted before any
-# dictionary's extra constants are adopted onto the canonical singleton.
-_PINNED_ENUM_CONSTANTS: dict[str, dict[str, int]] = {}
-
-
 def _validate_and_replace_type(
     type_dict: dict[str, FpyType],
     name: str,
     canonical: FpyType,
     required: bool = True,
+    constants: Iterable[str] = (),
 ) -> None:
     """Validate that a type in the dictionary matches the canonical
     definition, then replace it with the canonical version.
 
-    An enum must define every constant fpy pins, with the pinned value; it
-    may define more, and those are adopted onto the canonical type so
-    sequences can name them, as is its representation type.
+    An enum must define each constant named in *constants*, the ones the
+    compiler itself uses. Its constant values, any further constants and its
+    representation type are taken from the dictionary.
 
     Raises DictionaryError (with a user-facing explanation) if the dictionary
     defines the type incompatibly with the canonical version, or omits it
@@ -322,18 +318,12 @@ def _validate_and_replace_type(
                 f"    expected:   {canonical.members}",
             )
     elif canonical.kind == TypeKind.ENUM:
-        pinned = _PINNED_ENUM_CONSTANTS.setdefault(name, dict(canonical.enum_dict))
-        mismatched = {
-            const: value
-            for const, value in pinned.items()
-            if dict_type.enum_dict.get(const) != value
-        }
-        if mismatched:
+        missing = [const for const in constants if const not in dict_type.enum_dict]
+        if missing:
             raise DictionaryError(
                 name,
-                f"Its enum constants must include {pinned}.\n"
-                f"    dictionary:           {dict_type.enum_dict}\n"
-                f"    missing or different: {mismatched}",
+                f"It must define the constant(s) {', '.join(missing)}, but the "
+                f"dictionary defines only {', '.join(dict_type.enum_dict)}.",
             )
         canonical.enum_dict = dict(dict_type.enum_dict)
         canonical.rep_type = dict_type.rep_type
@@ -547,8 +537,12 @@ def _build_global_scopes(
     # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
     update_configurable_types_from_dict(dict_type_name_dict)
 
-    # Validate required dictionary types
-    _validate_and_replace_type(dict_type_name_dict, "TimeBase", TIME_BASE)
+    # Validate the dictionary types the compiler itself uses. Each enum must
+    # define the constants named here; everything else about it comes from
+    # the dictionary.
+    _validate_and_replace_type(
+        dict_type_name_dict, "TimeBase", TIME_BASE, constants={"TB_NONE"}
+    )
     if default_time_base not in TIME_BASE.enum_dict:
         raise DictionaryError(
             "TimeBase",
@@ -560,22 +554,47 @@ def _build_global_scopes(
     _validate_and_replace_type(
         dict_type_name_dict, "Fw.TimeIntervalValue", TIME_INTERVAL
     )
-    _validate_and_replace_type(dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE)
-    # The validity enums back the wasm backend's tlm/prm host reads. Most
-    # dictionaries never mention them (they are port argument types, not
-    # command or channel types), so they are optional -- but when a
-    # dictionary does define them, its values must match the canonical ones
-    # the compiled code bakes in.
+    # Every command evaluates to Fw.CmdResponse, and an unhandled response is
+    # checked against OK.
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.TlmValid", TLM_VALID, required=False
+        dict_type_name_dict, "Fw.CmdResponse", CMD_RESPONSE, constants={"OK"}
+    )
+    # The wasm backend's tlm/prm host reads fault unless they report VALID.
+    # These are port argument types, so most dictionaries never define them.
+    _validate_and_replace_type(
+        dict_type_name_dict,
+        "Fw.TlmValid",
+        TLM_VALID,
+        required=False,
+        constants={"VALID"},
     )
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.ParamValid", PARAM_VALID, required=False
+        dict_type_name_dict,
+        "Fw.ParamValid",
+        PARAM_VALID,
+        required=False,
+        constants={"VALID"},
     )
+    # The time builtins return these.
     _validate_and_replace_type(
-        dict_type_name_dict, "Fw.TimeComparison", TIME_COMPARISON
+        dict_type_name_dict,
+        "Fw.TimeComparison",
+        TIME_COMPARISON,
+        constants={"LT", "EQ", "GT", "INCOMPARABLE"},
     )
-    _validate_and_replace_type(dict_type_name_dict, "Svc.BlockState", BLOCK_STATE)
+    # log() defaults its severity to ACTIVITY_HI.
+    _validate_and_replace_type(
+        dict_type_name_dict,
+        "Fw.LogSeverity",
+        LOG_SEVERITY,
+        required=False,
+        constants={"ACTIVITY_HI"},
+    )
+    # Only its identity matters: a command taking (string, Svc.BlockState,
+    # Svc.SeqArgs) runs a sequence.
+    _validate_and_replace_type(
+        dict_type_name_dict, "Svc.BlockState", BLOCK_STATE, required=False
+    )
     _update_seq_args_from_dict(dict_type_name_dict)
 
     # Build the full type dict: start from (now-validated) dictionary types,
