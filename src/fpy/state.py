@@ -368,7 +368,7 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     """
     canonical_size_member, canonical_buffer_member = SEQ_ARGS.members
     canonical_buffer_type = canonical_buffer_member.type
-    # The member defaults are rederived from json_default on every load, as
+    # The member defaults are recomputed from json_default on every load, as
     # the buffer capacity may differ from the previous dictionary's.
     SEQ_ARGS.member_defaults = None
     if "Svc.SeqArgs" not in dict_type_name_dict:
