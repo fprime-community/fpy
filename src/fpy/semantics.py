@@ -33,14 +33,9 @@ from fpy.types import (
     TIME,
     TIME_BASE,
     U8,
-    U16,
     U32,
     U64,
-    I8,
-    I16,
-    I32,
     I64,
-    F32,
     F64,
     SEQ_ARGS,
     ChDef,
@@ -1447,9 +1442,7 @@ class PickTypesAndResolveFields(Visitor):
         if second_type == FLOAT:
             return first_type
         # both specific: wider wins
-        if max(first_type.bits, second_type.bits) > 32:
-            return F64
-        return F32
+        return first_type if first_type.bits >= second_type.bits else second_type
 
     def find_common_integer_type(
         self, first_type: FpyType, second_type: FpyType
@@ -1468,25 +1461,7 @@ class PickTypesAndResolveFields(Visitor):
             return None
 
         # same signedness: wider wins
-        bits = max(first_type.bits, second_type.bits)
-        if first_unsigned:
-            if bits <= 8:
-                return U8
-            elif bits <= 16:
-                return U16
-            elif bits <= 32:
-                return U32
-            else:
-                return U64
-        else:
-            if bits <= 8:
-                return I8
-            elif bits <= 16:
-                return I16
-            elif bits <= 32:
-                return I32
-            else:
-                return I64
+        return first_type if first_type.bits >= second_type.bits else second_type
 
     def _find_common_type_anon_struct(self, a: FpyType, b: FpyType) -> FpyType | None:
         """Return the concrete struct type if one side is an anonymous struct
