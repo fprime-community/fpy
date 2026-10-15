@@ -30,6 +30,21 @@ class _StopDescent:
 STOP_DESCENT = _StopDescent()
 
 
+def ast_children(node: Ast) -> list[Ast]:
+    """Snapshot a node's AST children in dataclass field order."""
+    children = []
+    for field in fields(node):
+        value = getattr(node, field.name)
+        if isinstance(value, list):
+            # Function parameters are stored as a list of tuples.
+            if value and isinstance(value[0], tuple):
+                value = itertools.chain.from_iterable(value)
+            children.extend(value)
+        else:
+            children.append(value)
+    return [child for child in children if isinstance(child, Ast)]
+
+
 class Visitor:
     """visits each class, calling a custom visit function, if one is defined, for each
     node type"""
@@ -87,20 +102,7 @@ class Visitor:
         def _descend(node: Ast):
             if not isinstance(node, Ast):
                 return
-            children = []
-            for field in fields(node):
-                field_val = getattr(node, field.name)
-                if isinstance(field_val, list):
-                    # also handle the one case where we have a list of tuples
-                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
-                        field_val = itertools.chain.from_iterable(field_val)
-                    children.extend(field_val)
-                else:
-                    children.append(field_val)
-
-            for child in children:
-                if not isinstance(child, Ast):
-                    continue
+            for child in ast_children(node):
                 _descend(child)
                 if len(state.errors) != 0:
                     break
@@ -121,20 +123,7 @@ class TopDownVisitor(Visitor):
         def _descend(node: Ast):
             if not isinstance(node, Ast):
                 return
-            children = []
-            for field in fields(node):
-                field_val = getattr(node, field.name)
-                if isinstance(field_val, list):
-                    # also handle the one case where we have a list of tuples
-                    if len(field_val) > 0 and isinstance(field_val[0], tuple):
-                        field_val = itertools.chain.from_iterable(field_val)
-                    children.extend(field_val)
-                else:
-                    children.append(field_val)
-
-            for child in children:
-                if not isinstance(child, Ast):
-                    continue
+            for child in ast_children(node):
                 result = self._visit(child, state)
                 if len(state.errors) != 0:
                     break
