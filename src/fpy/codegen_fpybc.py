@@ -160,6 +160,13 @@ from fpy.syntax import (
     AstWhile,
 )
 
+_NUMERIC_CONVERSIONS: dict[tuple[FpyType, FpyType], type[Directive]] = {
+    (U64, F64): UnsignedIntToFloatDirective,
+    (I64, F64): SignedIntToFloatDirective,
+    (F64, I64): FloatToSignedIntDirective,
+    (F64, U64): FloatToUnsignedIntDirective,
+}
+
 
 @dataclass
 class FpybcBackendState(BackendState):
@@ -566,25 +573,11 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         from_64_bit = self.get_64_bit_numeric_type(from_type)
         to_64_bit = self.get_64_bit_numeric_type(to_type)
 
-        # now convert between int and float if necessary
-        if from_64_bit == U64 and to_64_bit == F64:
-            dirs.append(UnsignedIntToFloatDirective())
-            from_64_bit = F64
-        elif from_64_bit == I64 and to_64_bit == F64:
-            dirs.append(SignedIntToFloatDirective())
-            from_64_bit = F64
-        elif from_64_bit == U64 or from_64_bit == I64:
-            assert to_64_bit == U64 or to_64_bit == I64
-            # conversion from signed to unsigned int is implicit, doesn't need code gen
-            from_64_bit = to_64_bit
-        elif from_64_bit == F64 and to_64_bit == I64:
-            dirs.append(FloatToSignedIntDirective())
-            from_64_bit = I64
-        elif from_64_bit == F64 and to_64_bit == U64:
-            dirs.append(FloatToUnsignedIntDirective())
-            from_64_bit = U64
-
-        assert from_64_bit == to_64_bit, (from_64_bit, to_64_bit)
+        # Only int/float conversions need an instruction at 64-bit width;
+        # signed/unsigned integer conversions preserve the same bits.
+        conversion = _NUMERIC_CONVERSIONS.get((from_64_bit, to_64_bit))
+        if conversion is not None:
+            dirs.append(conversion())
 
         # now truncate back down to desired size
         dirs.extend(
