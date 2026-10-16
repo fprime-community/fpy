@@ -2295,7 +2295,7 @@ class CalculateConstExprValues(Visitor):
                 TIME,
                 {
                     "timeBase": FpyValue(TIME_BASE, time_base),
-                    "timeContext": FpyValue(U8, time_context),
+                    "timeContext": FpyValue(TIME.members[1].type, time_context),
                     "seconds": FpyValue(U32, seconds),
                     "useconds": FpyValue(U32, useconds),
                 },
