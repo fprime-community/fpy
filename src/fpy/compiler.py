@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING
 from lark import Lark, LarkError
@@ -313,6 +314,21 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
     return state
 
 
+def _report_codegen_recursion(codegen):
+    @wraps(codegen)
+    def checked(*args, **kwargs):
+        try:
+            return codegen(*args, **kwargs)
+        except RecursionError:
+            raise BackendError(
+                "Maximum recursion depth exceeded during code generation "
+                "(code is too deeply nested)"
+            ) from None
+
+    return checked
+
+
+@_report_codegen_recursion
 def analysis_to_fpybc_directives(
     state: CompileState,
 ) -> tuple[list[Directive], list[FpyType]]:
@@ -387,6 +403,7 @@ def compile_to_fpybin(
     )
 
 
+@_report_codegen_recursion
 def analysis_to_llvm_module(
     state: CompileState,
 ) -> tuple[ir.Module, list[FpyType]]:
@@ -406,6 +423,7 @@ def analysis_to_llvm_module(
     return module, state.this_seq_arg_specs
 
 
+@_report_codegen_recursion
 def analysis_to_wasm(
     state: CompileState,
 ) -> tuple[bytes, list[FpyType]]:
@@ -418,6 +436,7 @@ def analysis_to_wasm(
     return llvm_module_to_wasm(module), seq_arg_types
 
 
+@_report_codegen_recursion
 def analysis_to_wat(
     state: CompileState,
 ) -> tuple[str, list[FpyType]]:
