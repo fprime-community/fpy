@@ -1377,7 +1377,7 @@ class GenerateLlvmModule:
         for var, arg in zip(params, fn.args):
             arg.name = var.name
             builder.store(arg, state.backend.variable_ptrs[var])
-        if body is state.main_block and state.this_seq_arg_specs:
+        if body is state.main_block:
             self._emit_seq_args_prologue(builder, state)
         EmitLlvmStmt(builder).emit(body, state)
         if not builder.block.is_terminated:
