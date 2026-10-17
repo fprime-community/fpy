@@ -1151,6 +1151,13 @@ Rule:
 
 String literals have type [String](#internal-types).
 
+Single-quoted and double-quoted string literals support Python-style backslash
+escapes, including escaped quotes and backslashes, control characters, octal,
+hexadecimal, and Unicode escapes. Unescaped Unicode characters are preserved.
+Malformed hexadecimal, Unicode, and named Unicode escapes are compile errors.
+Decoded string values must be representable as UTF-8. Surrogate code points,
+including escaped surrogate pairs, are compile errors.
+
 ### Boolean literals
 #### Syntax
 `BOOLEAN_LITERAL: "True" | "False"`
