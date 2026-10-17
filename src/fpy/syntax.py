@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ast import literal_eval
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator, List, Literal as TypingLiteral, Union
@@ -459,7 +460,21 @@ def no_meta(type):
 
 
 def handle_str(meta, s: str):
-    return s.strip("'").strip('"')
+    from fpy.error import SyntaxErrorDuringTransform
+
+    try:
+        value = literal_eval(s)
+        value.encode("utf-8")
+        return value
+    except SyntaxError as exc:
+        raise SyntaxErrorDuringTransform(
+            f"Invalid string literal: {exc.msg}", s
+        ) from exc
+    except UnicodeEncodeError as exc:
+        raise SyntaxErrorDuringTransform(
+            "Invalid string literal: surrogate code points cannot be encoded as UTF-8",
+            s,
+        ) from exc
 
 
 # Check statement clause handlers.
