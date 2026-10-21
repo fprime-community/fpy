@@ -711,6 +711,10 @@ The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git
 
 You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 
+## Overview of tests
+
+Fpy is primarily tested by ~2000 unit/integration tests located in the `test/fpy` directory. The tests reach 92% code coverage, and are run on every commit to every PR automatically, with failures blocking a merge. The bulk of the tests are example sequences, which are compiled and then run on a real sequencer (both `Svc.FpySequencer` and `Svc.WasmSequencer`). The sequencers are pulled from an fprime submodule and placed in a harness program, which lets the test author set up all the various input (parameters/telemetry/seq args) and assert on all the output (commands, log messages, exit status).
+
 ## Tools
 
 
