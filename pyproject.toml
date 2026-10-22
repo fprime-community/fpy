@@ -67,7 +67,7 @@ fprime-fpy-disasm = "fpy.main:disassemble_main"
 fprime-fpy-cmd = "fpy.main:cmd_main"
 
 ####
-# The test suite lives in test/fpy. The fprime submodules and the harness
+# The test suite lives in test/fpy. The fprime submodule and the harness
 # build trees carry their own (huge) test collections, so keep pytest from
 # ever recursing into them.
 ####
@@ -75,7 +75,6 @@ fprime-fpy-cmd = "fpy.main:cmd_main"
 testpaths = ["test/fpy"]
 norecursedirs = [
     "fprime",
-    "fprime-wasm",
     "harness",
     "build-*",
     ".*",
@@ -95,7 +94,7 @@ norecursedirs = [
 ####
 # The test suite covers both backends, so a development environment picks up
 # the wasm extra without having to ask for it. The harness group holds the
-# tools that build the C++ test harness from the fprime submodules; the pins
+# tools that build the C++ test harnesses from the fprime submodule; the pins
 # match test/fprime/requirements.txt.
 ####
 [dependency-groups]
@@ -107,8 +106,8 @@ dev = [
 ]
 harness = [
     "cmake==3.26.0",
-    "fprime-fpp==3.3.0",
-    "fprime-tools==4.3.0",
+    "fprime-fpp==3.4.0",
+    "fprime-tools==4.4.0",
     "ninja==1.11.1.4",
 ]
 

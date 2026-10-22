@@ -60,10 +60,10 @@ log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
 You can configure the severity of the event:
 ```py
 log("uh oh", Fw.LogSeverity.WARNING_HI)
-log("oh no!", Fw.LogSeverity.FATAL)
+log("all clear", Fw.LogSeverity.DIAGNOSTIC)
 ```
 
-All F Prime severity levels are supported.
+All F Prime severity levels are supported except `FATAL` and `COMMAND`, which are reserved for the flight software.
 
 At the moment, only constant string arguments are supported. See [Strings](#strings).
 
@@ -749,11 +749,11 @@ Some tests compile and run sequences. Those tests will generate both Fpy bytecod
 
 To run these tests, the following steps are required:
 
-* The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
+* The fprime submodule must be checked out: `git submodule update --init test/fprime`
 * The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
 * A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-Each harness is built automatically when the first test that needs it runs. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
+Each harness is built automatically when the first test that needs it runs.
 
 ### `--backend`
 

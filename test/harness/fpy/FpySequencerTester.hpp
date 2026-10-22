@@ -9,12 +9,12 @@
 // class a friend, which is what lets the harness dispatch the message queue
 // and read internal state (state machine, stack, telemetry) directly.
 
-#ifndef TEST_HARNESS_FPYSEQUENCERTESTER_HPP
-#define TEST_HARNESS_FPYSEQUENCERTESTER_HPP
+#ifndef TEST_HARNESS_FPY_FPYSEQUENCERTESTER_HPP
+#define TEST_HARNESS_FPY_FPYSEQUENCERTESTER_HPP
 
 #include "Fw/Types/MallocAllocator.hpp"
 #include "Svc/FpySequencer/FpySequencer.hpp"
-#include "test/harness/FpySequencerTesterComponentAc.hpp"
+#include "test/harness/fpy/FpySequencerTesterComponentAc.hpp"
 #include "test/harness/Harness.hpp"
 
 namespace Svc {

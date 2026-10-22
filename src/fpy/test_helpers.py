@@ -82,6 +82,13 @@ ALL_BACKENDS = (FPYBC, WASM)
 # the single_backend fixture).
 active_backends: tuple[str, ...] = ALL_BACKENDS
 
+# fpybc_only reasons for sequences the Svc::WasmSequencer cannot run.
+NO_WASM_SEQ_ARGS = "the WasmSequencer cannot pass sequence arguments"
+NO_WASM_LIBM = (
+    "the WasmSequencer does not provide the libm functions (wasm import "
+    "module env) that float %, ** and ln compile to"
+)
+
 
 def _catch_all_seq_maps(seq_dir: str | None) -> list[tuple[str, str]] | None:
     """A catch-all seq map rooting every called sequence's source in *seq_dir*."""

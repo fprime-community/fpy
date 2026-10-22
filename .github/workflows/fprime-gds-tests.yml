@@ -22,11 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The tests run sequences on the real Svc::FpySequencer and
-      # Svc::WasmSequencer, through C++ harnesses built from these two
-      # checkouts of fprime. The harnesses are built by the test session
-      # itself; see "Running tests" in the README.
-      - name: Check out the fprime submodules
-        run: git submodule update --init test/fprime test/fprime-wasm
+      # Svc::WasmSequencer, through C++ harnesses built from this checkout
+      # of fprime. The harnesses are built by the test session itself; see
+      # "Running tests" in the README.
+      - name: Check out the fprime submodule
+        run: git submodule update --init test/fprime
       - name: Set up uv and Python ${{ matrix.python-version }}
         uses: astral-sh/setup-uv@v5
         with:

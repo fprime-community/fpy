@@ -7,6 +7,7 @@ from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
+    NO_WASM_LIBM,
 )
 
 
@@ -293,6 +294,7 @@ exit(1)
 
 class TestPowerModLog:
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_pow_unsigned(self, fprime_test_api):
         seq = """
 var1: U32 = 20
@@ -303,6 +305,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_pow_signed(self, fprime_test_api):
         seq = """
 var1: I32 = -20
@@ -313,6 +316,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_pow_float(self, fprime_test_api):
         seq = """
 var1: F32 = 4.0
@@ -323,6 +327,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_pow_zero_to_negative_is_inf(self, fprime_test_api):
         """0 ** <negative> is a pole: C/IEEE pow() yields +inf, not a crash.
 
@@ -339,6 +344,7 @@ exit(0)
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_log(self, fprime_test_api):
         seq = """
 if ln(4.0) > 1.385 and ln(4.0) < 1.387:
@@ -347,6 +353,7 @@ exit(1)
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_mod_float(self, fprime_test_api):
         seq = """
 var1: F32 = 25.25
@@ -775,6 +782,7 @@ assert x != x
 
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.skip(NO_WASM_LIBM)
     @pytest.mark.wasm_only("the VM computes fmod, which yields NaN, instead")
     def test_float_mod_by_zero_faults(self, fprime_test_api):
         seq = """

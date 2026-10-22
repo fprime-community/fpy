@@ -1,4 +1,9 @@
-from fpy.test_helpers import assert_compile_failure, assert_run_success
+import pytest
+from fpy.test_helpers import (
+    assert_compile_failure,
+    assert_run_success,
+    NO_WASM_LIBM,
+)
 
 
 class TestAugmentedAssignment:
@@ -46,6 +51,7 @@ assert x == 2
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_pow_assign(self, fprime_test_api):
         seq = """
 f: F64 = 4.5

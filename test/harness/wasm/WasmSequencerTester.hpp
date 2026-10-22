@@ -16,13 +16,14 @@
 #include "Fw/Types/MallocAllocator.hpp"
 #include "Svc/WasmSequencer/WasmSequencer.hpp"
 #include "test/harness/Harness.hpp"
-#include "test/harness/wasm/tester/WasmSequencerTesterComponentAc.hpp"
+#include "test/harness/wasm/WasmSequencerTesterComponentAc.hpp"
 
 namespace Svc {
 
 class WasmSequencerTester : public WasmSequencerTesterComponentBase {
   public:
     WasmSequencerTester();
+    ~WasmSequencerTester();
 
     // Runs one wasm module on the owned sequencer and reports what happened.
     harness::HarnessResult run(const harness::HarnessRequest& request);
@@ -74,8 +75,7 @@ class WasmSequencerTester : public WasmSequencerTesterComponentBase {
     // True when the event is one the guest program logged (its log builtin).
     static bool isGuestLogEvent(FwEventIdType id);
 
-    // Backs the sequencer's configure() pools; declared before the sequencer,
-    // whose destructor deallocates through it.
+    // Backs the sequencer's configure() pools.
     Fw::MallocAllocator m_allocator;
     WasmSequencer m_sequencer;
     const harness::HarnessRequest* m_request = nullptr;

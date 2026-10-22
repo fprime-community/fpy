@@ -15,15 +15,20 @@ log("hello world")
 """
         assert_run_success(fprime_test_api, seq)
 
-    @pytest.mark.skipif(
-        "config.getoption('--use-gds')",
-        reason="FATAL severity kills the program on the GDS",
-    )
     def test_explicit_severity(self, fprime_test_api):
         seq = """
-log("oh no", Fw.LogSeverity.FATAL)
+log("oh no", Fw.LogSeverity.WARNING_HI)
 """
         assert_run_success(fprime_test_api, seq)
+
+    @pytest.mark.parametrize("severity", ["FATAL", "COMMAND"])
+    def test_reserved_severity_rejected(self, fprime_test_api, severity):
+        seq = f"""
+log("oh no", Fw.LogSeverity.{severity})
+"""
+        assert_compile_failure(
+            fprime_test_api, seq, match=f"Cannot log an event with severity {severity}"
+        )
 
     def test_default_severity_is_activity_hi(self, fprime_test_api):
         seq = """
@@ -36,16 +41,16 @@ log("test message")
         assert push_vals[-3].val == bytes([5])
         assert push_vals[-2].val == b"test message"
 
-    def test_explicit_fatal(self, fprime_test_api):
+    def test_explicit_warning_lo(self, fprime_test_api):
         seq = """
-log("critical", Fw.LogSeverity.FATAL)
+log("careful", Fw.LogSeverity.WARNING_LO)
 """
         _, directives, _ = compile_seq(seq)
         push_vals = [d for d in directives if isinstance(d, PushValDirective)]
         assert len(push_vals) >= 3
-        # FATAL = 1
-        assert push_vals[-3].val == bytes([1])
-        assert push_vals[-2].val == b"critical"
+        # WARNING_LO = 3
+        assert push_vals[-3].val == bytes([3])
+        assert push_vals[-2].val == b"careful"
 
     def test_explicit_warning_hi(self, fprime_test_api):
         seq = """
@@ -86,7 +91,6 @@ log("roundtrip test")
         seq = """
 log("test")
 log("test", Fw.LogSeverity.DIAGNOSTIC)
-log("test", Fw.LogSeverity.COMMAND)
 log("test", Fw.LogSeverity.ACTIVITY_HI)
 log("test", Fw.LogSeverity.ACTIVITY_LO)
 log("test", Fw.LogSeverity.WARNING_HI)
