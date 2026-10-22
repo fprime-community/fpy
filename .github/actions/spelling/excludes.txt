@@ -1,6 +1,7 @@
 pyproject.toml
 setup.py
 ^uv\.lock$
+^test/harness/config/
 ignore$
 /html/
 (?:^|/)(?i)COPYRIGHT

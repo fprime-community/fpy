@@ -2,7 +2,7 @@
 // fpy sequences on a real Svc::FpySequencer. See Harness.hpp for the
 // stdin/stdout protocol.
 
-#include "test/harness/FpySequencerTester.hpp"
+#include "test/harness/fpy/FpySequencerTester.hpp"
 #include "test/harness/Harness.hpp"
 
 int main() {
