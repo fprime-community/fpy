@@ -59,7 +59,6 @@ from fpy.types import (
     TIME_COMPARISON,
     TIME_INTERVAL,
     TLM_VALID,
-    U8,
     FpyType,
     FpyValue,
     TypeKind,
@@ -424,8 +423,10 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
 def _update_time_context_type_from_dict(
     dict_type_name_dict: dict[str, FpyType],
 ) -> None:
-    """Configure the time member and builtin argument, defaulting to U8."""
-    ctx_type = dict_type_name_dict.get("FwTimeContextStoreType", U8)
+    """Configure the time member and builtin argument from the dictionary."""
+    if "FwTimeContextStoreType" not in dict_type_name_dict:
+        return  # Keep the default U8
+    ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
     if not ctx_type.is_primitive:
         raise DictionaryError(
             "FwTimeContextStoreType",
@@ -433,9 +434,6 @@ def _update_time_context_type_from_dict(
             f"it as {ctx_type}.",
         )
     TIME.members[1].type = ctx_type
-    if TIME.member_defaults is not None:
-        default = TIME.member_defaults["timeContext"]
-        TIME.member_defaults["timeContext"] = FpyValue(ctx_type, default.val)
     TIME_MACRO.args[2] = ("timeContext", ctx_type, FpyValue(ctx_type, 0))
 
 
@@ -704,9 +702,6 @@ def get_base_compile_state(
     """return the initial state of the compiler, based on the given dict path"""
     if default_time_base is None:
         default_time_base = DEFAULT_TIME_BASE
-    # TIME and time() are shared by cached scopes. Restore this dictionary's
-    # context type even when _build_global_scopes returns a cached entry.
-    _update_time_context_type_from_dict(load_dictionary(dictionary)["type_defs"])
     type_scope, callable_scope, values_scope, type_defs, type_ctors = (
         _build_global_scopes(dictionary, default_time_base)
     )
