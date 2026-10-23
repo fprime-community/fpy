@@ -84,6 +84,14 @@ def diagnostic_context(new_file_name: str):
 COMPILER_ERROR_CONTEXT_LINE_COUNT = 1
 
 
+@dataclass(frozen=True)
+class DiagnosticSource:
+    """One immutable source snapshot shared by a file's syntax metadata."""
+
+    file_name: str | None
+    lines: tuple[str, ...]
+
+
 class SyntaxErrorDuringTransform(Exception):
     """Raised during AST transformation for user-facing syntax errors."""
 
@@ -107,6 +115,14 @@ def format_diagnostic(msg: str, node, stack_trace: str = "", color=Colors.red) -
         return f"{stack_trace_optional}{Colors.cyan(file_name_str)}: {Colors.bold(color(msg))}"
 
     meta = node if isinstance(node, Token) else node.meta
+    source = getattr(meta, "diagnostic_source", None)
+    if source is not None:
+        file_name_str = (
+            source.file_name if source.file_name is not None else "<unknown file>"
+        )
+        source_lines = source.lines
+    else:
+        source_lines = input_lines
 
     # line can be None for the end-of-input token: there is no source to point at
     if meta.line is None:
@@ -117,10 +133,10 @@ def format_diagnostic(msg: str, node, stack_trace: str = "", color=Colors.red) -
     # end_line can be None for $END token
     end_line = meta.end_line if meta.end_line is not None else meta.line
     source_end_line = end_line - 1 + COMPILER_ERROR_CONTEXT_LINE_COUNT
-    source_end_line = min(len(input_lines), source_end_line)
+    source_end_line = min(len(source_lines), source_end_line)
 
     # this is the list of all the src lines we will display
-    source_to_display: list[str] = input_lines[source_start_line : source_end_line + 1]
+    source_to_display = source_lines[source_start_line : source_end_line + 1]
 
     # reserve this much space for the line numbers
     # add two extra spaces for the caret to display multiline errors on lhs

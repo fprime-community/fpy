@@ -122,9 +122,13 @@ def _parse_fpy(text: str, **kwargs):
     newline is added only at the very end, so it shifts no positions and leaves
     error line/column reporting (and text.splitlines()) unchanged.
     """
+    source = fpy.error.DiagnosticSource(fpy.error.file_name, tuple(text.splitlines()))
     if not text.endswith("\n"):
         text = text + "\n"
-    return _fpy_parser.parse(text, **kwargs)
+    tree = _fpy_parser.parse(text, **kwargs)
+    for subtree in tree.iter_subtrees():
+        subtree.meta.diagnostic_source = source
+    return tree
 
 
 # Load builtin time.fpy functions at module level
