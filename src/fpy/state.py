@@ -423,7 +423,7 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
 def _update_time_context_type_from_dict(
     dict_type_name_dict: dict[str, FpyType],
 ) -> None:
-    """Update TIME's timeContext member type from FwTimeContextStoreType."""
+    """Configure the time member and builtin argument from the dictionary."""
     if "FwTimeContextStoreType" not in dict_type_name_dict:
         return  # Keep the default U8
     ctx_type = dict_type_name_dict["FwTimeContextStoreType"]
@@ -434,6 +434,7 @@ def _update_time_context_type_from_dict(
             f"it as {ctx_type}.",
         )
     TIME.members[1].type = ctx_type
+    TIME_MACRO.args[2] = ("timeContext", ctx_type, FpyValue(ctx_type, 0))
 
 
 def _get_elem_type_default(elem_type: FpyType) -> FpyValue:
