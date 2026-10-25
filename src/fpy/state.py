@@ -542,8 +542,7 @@ def _build_global_scopes(
     cmd_name_dict = d["cmd_name_dict"]
     ch_name_dict = d["ch_name_dict"]
     prm_name_dict = d["prm_name_dict"]
-    # Canonical replacements must not overwrite the cached dictionary layouts.
-    dict_type_name_dict = dict(d["type_defs"])
+    dict_type_name_dict = d["type_defs"]
 
     # Update user-configurable bytecode types (FwChanIdType, FwOpcodeType,
     # FwPrmIdType, FwSizeStoreType) from the dictionary before they are used.
@@ -716,14 +715,6 @@ def get_base_compile_state(
     type_scope, callable_scope, values_scope, type_defs, type_ctors = (
         _build_global_scopes(dictionary, default_time_base)
     )
-    # A cache hit must restore this dictionary's shared SeqArgs layout/defaults
-    # after another dictionary has configured the canonical singleton.
-    _update_seq_args_from_dict(dict(load_dictionary(dictionary)["type_defs"]))
-    _populate_type_defaults(SEQ_ARGS)
-    type_ctors[SEQ_ARGS].args = [
-        (member.name, member.type, SEQ_ARGS.member_defaults[member.name])
-        for member in SEQ_ARGS.members
-    ]
     # time() is a module-level symbol shared by every cached scope set, so its
     # timeBase default is reapplied on every call: a _build_global_scopes cache
     # hit must still reflect this compile's default time base.
