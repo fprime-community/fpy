@@ -16,6 +16,7 @@ except ImportError:
     UNION_TYPES = (Union,)
 
 from fpy.error import BackendError
+from fpy.buffer_limits import command_size_error, serialize_value
 from fpy.ir import Ir, IrGoto, IrIf, IrLabel, IrPushLabelOffset
 from fpy.bytecode.directives import DirectiveErrorCode, STACK_FRAME_HEADER_SIZE
 from fpy.semantics import is_cmd_and_response_unhandled
@@ -27,6 +28,7 @@ from fpy.types import (
     CMD_RESPONSE,
     FpyType,
     FpyValue,
+    FwSizeStoreType,
     INTEGER,
     FLOAT,
     INTERNAL_STRING,
@@ -34,6 +36,7 @@ from fpy.types import (
     NOTHING,
     NOTHING_VALUE,
     BOOL,
+    U8,
     U64,
     I32,
     I64,
@@ -74,7 +77,6 @@ from fpy.bytecode.directives import (
     FloatToUnsignedIntDirective,
     FloatTruncateDirective,
     FwOpcodeType,
-    FwPacketDescriptorType,
     GotoDirective,
     IfDirective,
     IntegerSignedExtend16To64Directive,
@@ -312,7 +314,12 @@ class EmitterWithNodeInfo(Emitter):
     errors raised on a directive can point at a source line."""
 
     def emit(self, node: Ast, state: CompileState) -> list[Directive | Ir]:
-        dirs = super().emit(node, state)
+        try:
+            dirs = super().emit(node, state)
+        except BackendError as error:
+            if error.node is None:
+                error.node = node
+            raise
         # Nested emit calls run first, so an existing stamp is the more
         # specific node. (Ir instances are frozen and are skipped; the
         # directives they become carry no arguments worth locating.)
@@ -336,7 +343,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
         type constructor), serialize it directly.  Otherwise delegate to the
         normal AST emitter."""
         if isinstance(arg, FpyValue):
-            return [PushValDirective(arg.serialize())]
+            return [PushValDirective(serialize_value(arg))]
         return self.emit(arg, state)
 
     def _emit_cmd_arg(
@@ -353,7 +360,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             arg if isinstance(arg, FpyValue) else state.const_expr_values.get(arg)
         )
         if const_val is not None:
-            serialized = const_val.serialize()
+            serialized = serialize_value(const_val)
             return [PushValDirective(serialized)], len(serialized)
         dirs = self.emit(arg, state)
         return dirs, state.contextual_types[arg].max_size
@@ -408,12 +415,12 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             # Fixed args
             for a in fixed_args:
                 val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
-                arg_bytes += val.serialize()
+                arg_bytes += serialize_value(val, node)
             # SeqArgs struct: $size + buffer (seq arg data + padding)
             arg_bytes += size_bytes
             for a in seq_args:
                 val = a if isinstance(a, FpyValue) else state.const_expr_values[a]
-                arg_bytes += val.serialize()
+                arg_bytes += serialize_value(val, node)
             arg_bytes += bytes(padding_size)
             return [ConstCmdDirective(func.cmd.opcode, arg_bytes)]
         else:
@@ -477,7 +484,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
             return []
 
         # it has a constant value at compile time
-        serialized_expr_value = expr_value.serialize()
+        serialized_expr_value = serialize_value(expr_value, node)
 
         # push it to the stack
         return [PushValDirective(serialized_expr_value)]
@@ -1035,7 +1042,7 @@ class GenerateFunctionBody(EmitterWithNodeInfo):
                         if isinstance(arg_node, FpyValue)
                         else state.const_expr_values[arg_node]
                     )
-                    arg_bytes += arg_value.serialize()
+                    arg_bytes += serialize_value(arg_value, node)
                 dirs.append(ConstCmdDirective(func.cmd.opcode, arg_bytes))
             else:
                 arg_byte_count = 0
@@ -1498,9 +1505,15 @@ class FinalChecks(IrPass):
             # double check we've got rid of all the IR
             assert is_instance_compat(dir, Directive), dir
 
-            # mirrors the sequencer's statement deserialization limit
-            # (Svc.Fpy.MAX_DIRECTIVE_SIZE)
-            dir_size = len(dir.serialize())
+            arg_size = len(dir.serialize_args())
+            maximum = FwSizeStoreType.value_range()[1]
+            if arg_size > maximum:
+                return BackendError(
+                    f"Directive {dir.opcode.name} has {arg_size} argument bytes, which "
+                    f"exceeds FwSizeStoreType ({FwSizeStoreType.name}) range ({maximum})",
+                    dir.source_node,
+                )
+            dir_size = U8.max_size + FwSizeStoreType.max_size + arg_size
             if dir_size > state.max_directive_size:
                 return BackendError(
                     f"Directive {dir.opcode.name} in sequence too large (expected at most "
@@ -1519,30 +1532,20 @@ class FinalChecks(IrPass):
                 assert dir.cmd_opcode is not None
                 cmd_args_size = dir.args_size
             else:
-                continue
-            cmd_desc = f"Command {state.cmd_names_by_opcode.get(dir.cmd_opcode, hex(dir.cmd_opcode))}"
-
-            if (
-                state.cmd_arg_buffer_max_size is not None
-                and cmd_args_size > state.cmd_arg_buffer_max_size
-            ):
-                return BackendError(
-                    f"{cmd_desc} has {cmd_args_size} bytes of arguments, which "
-                    f"exceeds FW_CMD_ARG_BUFFER_MAX_SIZE ({state.cmd_arg_buffer_max_size})",
-                    dir.source_node,
+                cmd_args_size = None
+            if cmd_args_size is not None:
+                error = command_size_error(
+                    state, dir.cmd_opcode, cmd_args_size, dir.source_node
                 )
-
-            cmd_packet_size = (
-                FwPacketDescriptorType.max_size + FwOpcodeType.max_size + cmd_args_size
-            )
+                if error is not None:
+                    return error
             if (
-                state.com_buffer_max_size is not None
-                and cmd_packet_size > state.com_buffer_max_size
+                state.statement_arg_buffer_max_size is not None
+                and arg_size > state.statement_arg_buffer_max_size
             ):
                 return BackendError(
-                    f"{cmd_desc} serializes to a {cmd_packet_size} byte packet "
-                    f"(packet descriptor + opcode + {cmd_args_size} bytes of arguments), "
-                    f"which exceeds FW_COM_BUFFER_MAX_SIZE ({state.com_buffer_max_size})",
+                    f"Directive {dir.opcode.name} has {arg_size} argument bytes, which "
+                    f"exceeds FW_STATEMENT_ARG_BUFFER_MAX_SIZE ({state.statement_arg_buffer_max_size})",
                     dir.source_node,
                 )
 
