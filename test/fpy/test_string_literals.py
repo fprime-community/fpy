@@ -50,6 +50,19 @@ def test_string_literal_value(literal, expected):
     assert node.value == expected
 
 
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_null_byte_has_source_diagnostic(quote):
+    """Report raw NUL bytes at their source location, not as internal errors."""
+    literal = f"{quote}a\0b{quote}"
+    with pytest.raises(
+        CompileError, match="Invalid string literal:.*null bytes"
+    ) as exc:
+        text_to_ast(f"# preceding line\nlog({literal})\n")
+    assert exc.value.node.line == 2
+    assert exc.value.node.column == 5
+    assert "Internal error" not in str(exc.value)
+
+
 @pytest.mark.parametrize(
     "literal",
     [r'"\x"', r'"\x0g"', r'"\u123"', r'"\U00110000"', r'"\N{NO SUCH NAME}"'],

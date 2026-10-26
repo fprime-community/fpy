@@ -475,6 +475,8 @@ def handle_str(meta, s: str):
             "Invalid string literal: surrogate code points cannot be encoded as UTF-8",
             s,
         ) from exc
+    except ValueError as exc:
+        raise SyntaxErrorDuringTransform(f"Invalid string literal: {exc}", s) from exc
 
 
 # Check statement clause handlers.
