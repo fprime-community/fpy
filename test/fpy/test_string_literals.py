@@ -57,7 +57,7 @@ def test_null_byte_has_source_diagnostic(quote):
     with pytest.raises(
         CompileError, match="Invalid string literal:.*null bytes"
     ) as exc:
-        text_to_ast(f"# preceding line\nlog({literal})\n")
+        text_to_ast("# preceding line\n" f"log({literal})\n")
     assert exc.value.node.line == 2
     assert exc.value.node.column == 5
     assert "Internal error" not in str(exc.value)
@@ -69,7 +69,7 @@ def test_null_byte_has_source_diagnostic(quote):
 )
 def test_invalid_string_escape_has_source_diagnostic(literal):
     with pytest.raises(CompileError, match="Invalid string literal") as exc:
-        text_to_ast(f"# preceding line\nlog({literal})\n")
+        text_to_ast("# preceding line\n" f"log({literal})\n")
     assert exc.value.node.line == 2
     assert exc.value.node.column == 5
     assert "Internal error" not in str(exc.value)
@@ -78,7 +78,7 @@ def test_invalid_string_escape_has_source_diagnostic(literal):
 @pytest.mark.parametrize("literal", SURROGATE_LITERALS)
 def test_surrogate_escape_has_source_diagnostic(literal):
     with pytest.raises(CompileError, match="Invalid string literal:.*UTF-8") as exc:
-        text_to_ast(f"# preceding line\nlog({literal})\n")
+        text_to_ast("# preceding line\n" f"log({literal})\n")
     assert exc.value.node.line == 2
     assert exc.value.node.column == 5
     assert "Internal error" not in str(exc.value)
@@ -90,7 +90,7 @@ def test_surrogate_escape_is_compile_error(literal, single_backend):
     with pytest.raises(
         CompilationFailed, match="Invalid string literal:.*UTF-8"
     ) as exc:
-        compile_fn(f"# preceding line\nlog({literal})\n")
+        compile_fn("# preceding line\n" f"log({literal})\n")
     assert "Internal error" not in str(exc.value)
 
 
