@@ -60,10 +60,10 @@ log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
 You can configure the severity of the event:
 ```py
 log("uh oh", Fw.LogSeverity.WARNING_HI)
-log("oh no!", Fw.LogSeverity.FATAL)
+log("all clear", Fw.LogSeverity.DIAGNOSTIC)
 ```
 
-All F Prime severity levels are supported.
+All F Prime severity levels are supported except `FATAL` and `COMMAND`, which are reserved for the flight software.
 
 At the moment, only constant string arguments are supported. See [Strings](#strings).
 
@@ -711,6 +711,10 @@ The hooks are defined in `.pre-commit-config.yaml` and run automatically on `git
 
 You can run all hooks against the whole repo at any time with `uv run pre-commit run --all-files`.
 
+## Overview of tests
+
+Fpy is primarily tested by ~2000 unit/integration tests located in the `test/fpy` directory. The tests reach 92% code coverage, and are run on every commit to every PR automatically, with failures blocking a merge. The bulk of the tests are example sequences, which are compiled and then run on a real sequencer (both `Svc.FpySequencer` and `Svc.WasmSequencer`). The sequencers are pulled from an fprime submodule and placed in a harness program, which lets the test author set up all the various input (parameters/telemetry/seq args) and assert on all the output (commands, log messages, exit status).
+
 ## Tools
 
 
@@ -745,11 +749,11 @@ Some tests compile and run sequences. Those tests will generate both Fpy bytecod
 
 To run these tests, the following steps are required:
 
-* The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
+* The fprime submodule must be checked out: `git submodule update --init test/fprime`
 * The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
 * A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-Each harness is built automatically when the first test that needs it runs. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
+Each harness is built automatically when the first test that needs it runs.
 
 ### `--backend`
 

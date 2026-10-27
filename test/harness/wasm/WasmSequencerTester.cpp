@@ -1,6 +1,4 @@
-#include "test/harness/wasm/tester/WasmSequencerTester.hpp"
-
-#include <cstring>
+#include "test/harness/wasm/WasmSequencerTester.hpp"
 
 #include "Fw/Com/ComPacket.hpp"
 #include "config/SerialPortIndexEnumAc.hpp"
@@ -33,6 +31,13 @@ WasmSequencerTester::WasmSequencerTester()
     this->m_sequencer.configure(config, this->m_allocator);
 
     this->m_sequencer.loadParameters();
+}
+
+WasmSequencerTester::~WasmSequencerTester() {
+    // Releases the pools configure() allocated and the sequencer's slot in
+    // the process-wide allocator registry, which only has room for a few
+    // sequencers at a time.
+    this->m_sequencer.deinit();
 }
 
 void WasmSequencerTester::connectPorts() {
@@ -95,22 +100,16 @@ void WasmSequencerTester::sendRunCommand() {
         return;
     }
 
-    Svc::SeqArgs seqArgs;
-    if (request.args.size() > sizeof seqArgs.get_buffer()) {
-        this->m_result.error = "sequence arguments do not fit in Svc::SeqArgs";
-        return;
-    }
-    seqArgs.set_size(request.args.size());
+    // The WasmSequencer runs sequences without arguments.
     if (!request.args.empty()) {
-        (void)std::memcpy(seqArgs.get_buffer(), request.args.data(), request.args.size());
+        this->m_result.error = "the WasmSequencer cannot pass sequence arguments";
+        return;
     }
 
     Fw::CmdArgBuffer args;
     Fw::SerializeStatus status = args.serializeFrom(Fw::CmdStringArg(request.seqFile.c_str()));
     FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
     status = args.serializeFrom(Svc::BlockState(Svc::BlockState::BLOCK));
-    FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
-    status = args.serializeFrom(seqArgs);
     FW_ASSERT(status == Fw::SerializeStatus::FW_SERIALIZE_OK, static_cast<FwAssertArgType>(status));
 
     this->cmdSend_out(0, WasmSequencer::OPCODE_RUN, 0, args);
@@ -260,10 +259,8 @@ void WasmSequencerTester::cmdRegIn_handler(FwIndexType portNum, FwOpcodeType opC
 
 bool WasmSequencerTester::isGuestLogEvent(FwEventIdType id) {
     switch (id) {
-        case WasmSequencer::EVENTID_LOGFATAL:
         case WasmSequencer::EVENTID_LOGWARNINGHI:
         case WasmSequencer::EVENTID_LOGWARNINGLO:
-        case WasmSequencer::EVENTID_LOGCOMMAND:
         case WasmSequencer::EVENTID_LOGACTIVITYHI:
         case WasmSequencer::EVENTID_LOGACTIVITYLO:
         case WasmSequencer::EVENTID_LOGDIAGNOSTIC:

@@ -1,9 +1,11 @@
+import pytest
 from fpy.types import U32
 
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_failure,
     assert_run_success,
+    NO_WASM_LIBM,
 )
 from fpy.error import WarningType
 
@@ -313,6 +315,7 @@ val: U32 = noop()
 """
         assert_compile_failure(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_function_named_pow_does_not_replace_exponent(self, fprime_test_api):
         """A script function may be named after a float libcall (pow, fmod)
         without becoming the implementation of the operator that libcall
@@ -340,6 +343,7 @@ assert fmod(1.0, 1.0) == 77.0
 """
         assert_run_success(fprime_test_api, seq)
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_function_named_log_does_not_replace_ln(self, fprime_test_api):
         seq = """
 def log(x: F64) -> F64:
@@ -354,6 +358,7 @@ assert log(1.0) == 77.0
             fprime_test_api, seq, expected_warnings={WarningType.SHADOW_CALLABLE}
         )
 
+    @pytest.mark.fpybc_only(NO_WASM_LIBM)
     def test_variable_named_pow_does_not_break_exponent(self, fprime_test_api):
         seq = """
 pow: F64 = 2.0

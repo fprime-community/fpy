@@ -10,7 +10,7 @@ import struct
 from typing import Union
 
 from fpy.error import CompileError, diagnostic_context
-from fpy.macros import TIME_MACRO
+from fpy.macros import LOG_MACRO, RESERVED_LOG_SEVERITIES, TIME_MACRO
 from fpy.types import (
     pick_binary_op_case,
     pick_unary_op_case,
@@ -2295,7 +2295,7 @@ class CalculateConstExprValues(Visitor):
                 TIME,
                 {
                     "timeBase": FpyValue(TIME_BASE, time_base),
-                    "timeContext": FpyValue(U8, time_context),
+                    "timeContext": FpyValue(TIME.members[1].type, time_context),
                     "seconds": FpyValue(U32, seconds),
                     "useconds": FpyValue(U32, useconds),
                 },
@@ -2985,6 +2985,22 @@ class WarnRangesAreNotEmpty(Visitor):
 
         if lower_value.val >= upper_value.val:
             state.warn(WarningType.EMPTY_RANGE, "Range is empty", node)
+
+
+class CheckLogSeverities(Visitor):
+    """Check that no log() call uses a reserved severity."""
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        if state.resolved_symbols[node.func] is not LOG_MACRO:
+            return
+        severity_arg = state.resolved_args[node][1]
+        if not is_instance_compat(severity_arg, Ast):
+            # the default severity, which is not reserved
+            return
+        severity = state.const_expr_values[severity_arg]
+        if severity.val in RESERVED_LOG_SEVERITIES:
+            state.err(f"Cannot log an event with severity {severity.val}", severity_arg)
+            return
 
 
 class CheckSequenceArgs(Visitor):

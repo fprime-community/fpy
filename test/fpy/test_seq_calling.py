@@ -34,6 +34,7 @@ from fpy.test_helpers import (
     compile_seq,
     default_dictionary,
     write_child_seq as _write_child,
+    NO_WASM_SEQ_ARGS,
 )
 
 
@@ -90,6 +91,7 @@ Ref.seqDisp.RUN_ARGS("{child_path}", Svc.BlockState.BLOCK)
             assert_run_success(fprime_test_api, parent_seq, seq_dir=tmpdir)
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 class TestSeqCallingWithArgs:
     """Test calling child sequences with various argument types."""
 
@@ -402,6 +404,7 @@ class TestSeqMapResolution:
             self._analyze(parent_seq, _catch_all_seq_maps(tmpdir))
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 class TestSeqCallingNested:
     """Test nested sequence execution: parent -> child -> grandchild."""
 
@@ -500,6 +503,7 @@ exit(1)
 """
             assert_run_success(fprime_test_api, parent_seq, seq_dir=tmpdir)
 
+    @pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
     def test_branch_on_success_with_args(self, fprime_test_api):
         """Parent branches on OK response from a child that receives args."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -520,6 +524,7 @@ exit(1)
 """
             assert_run_success(fprime_test_api, parent_seq, seq_dir=tmpdir)
 
+    @pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
     def test_branch_on_failure_wrong_arg(self, fprime_test_api):
         """Parent detects failure when child gets wrong arg value."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -541,6 +546,7 @@ exit(1)
             assert_run_success(fprime_test_api, parent_seq, seq_dir=tmpdir)
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 class TestSeqCallingNamedArgs:
     """Test calling child sequences with named arguments."""
 
