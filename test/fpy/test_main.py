@@ -5,6 +5,7 @@ import pytest
 from fpy import main as fpy_main
 from fpy.bytecode.directives import ConstCmdDirective
 import fpy.error as fpy_error
+from fpy.test_helpers import default_dictionary
 
 
 def fake_compile_state(**kwargs):
@@ -787,3 +788,91 @@ def test_cmd_main_invalid_tcp_addr(monkeypatch, capsys):
 
     assert exc.value.code == 1
     assert "Invalid --tcp-addr format" in capsys.readouterr().err
+
+
+def test_info_main(tmp_path, capsys):
+    """The sections cover the code the sequence can execute: its top-level
+    code and the functions it can call, wherever they are defined."""
+    (tmp_path / "lib.fpy").write_text(
+        "def used():\n"
+        "    CdhCore.cmdDisp.CMD_NO_OP()\n"
+        "\n"
+        "def unused():\n"
+        "    CdhCore.cmdDisp.CMD_CLEAR_TRACKING()\n"
+    )
+    (tmp_path / "child.fpy").write_text("sequence(foo: U32, bar: bool)\n")
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text(
+        "sequence(count: U32, mode: Ref.Choice)\n"
+        "from .lib import used\n"
+        "\n"
+        "def unused():\n"
+        "    CdhCore.cmdDisp.CMD_TEST_CMD_1(1, 2.0, 3)\n"
+        "\n"
+        "used()\n"
+        "if CdhCore.cmdDisp.CommandsDispatched > count:\n"
+        '    Ref.seqDisp.RUN_ARGS("child.bin", Svc.BlockState.BLOCK, 1, bar=True)\n'
+        'Ref.cmdSeq0.RUN("other.bin", Svc.BlockState.NO_BLOCK)\n'
+        "if Ref.sendBuffComp.parameter3 > 0:\n"
+        '    Ref.cmdSeq0.RUN("other.bin", Svc.BlockState.BLOCK)\n'
+    )
+
+    fpy_main.info_main(
+        [str(input_path), "-d", default_dictionary, "--seq-map", f"={tmp_path}/"]
+    )
+
+    assert capsys.readouterr().out == (
+        "Arguments:\n"
+        "  count: U32\n"
+        "  mode: Ref.Choice\n"
+        "Called sequences:\n"
+        "  child.bin\n"
+        "  other.bin\n"
+        "Imports:\n"
+        f"  {(tmp_path / 'lib.fpy').resolve()}\n"
+        "Commands:\n"
+        "  CdhCore.cmdDisp.CMD_NO_OP\n"
+        "  Ref.cmdSeq0.RUN\n"
+        "  Ref.seqDisp.RUN_ARGS\n"
+        "Telemetry channels:\n"
+        "  CdhCore.cmdDisp.CommandsDispatched\n"
+        "Parameters:\n"
+        "  Ref.sendBuffComp.parameter3\n"
+    )
+
+
+def test_info_main_empty_sections(tmp_path, capsys):
+    """A section with nothing to list says so."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("pass\n")
+
+    fpy_main.info_main([str(input_path), "-d", default_dictionary])
+
+    assert capsys.readouterr().out == (
+        "Arguments:\n"
+        "  (none)\n"
+        "Called sequences:\n"
+        "  (none)\n"
+        "Imports:\n"
+        "  (none)\n"
+        "Commands:\n"
+        "  (none)\n"
+        "Telemetry channels:\n"
+        "  (none)\n"
+        "Parameters:\n"
+        "  (none)\n"
+    )
+
+
+def test_info_main_compile_error(tmp_path, capsys):
+    """A sequence that does not compile is reported to stderr and exits 1."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("not_defined()\n")
+
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.info_main([str(input_path), "-d", default_dictionary])
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "not_defined" in captured.err

@@ -730,6 +730,29 @@ Some useful compiler flags are:
 
 Compiles a single line of Fpy source (one command with constant arguments) and emits it, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. The `--emit` flag selects how: `zmq` (uplink to a running GDS over ZMQ, the default; address set by `--zmq-addr`), `tcp` (uplink to the GDS TCP server; address set by `--tcp-addr host:port`), or `stdout` (write the binary command packet to stdout).
 
+### `fprime-fpy-info`
+
+Describes a sequence: its arguments, the sequences it calls, the files it imports, and the commands, telemetry channels and parameters it uses. Only code the sequence can execute counts, so a command in a function that is never called is not listed.
+
+```
+$ fprime-fpy-info example.fpy -d TopologyDictionary.json
+Arguments:
+  foo: U32
+  bar: bool
+Called sequences:
+  (none)
+Imports:
+  /home/user/seqs/helper_lib.fpy
+Commands:
+  CdhCore.cmdDisp.CMD_NO_OP
+Telemetry channels:
+  CdhCore.cmdDisp.CommandsDispatched
+Parameters:
+  (none)
+```
+
+It takes the same `--seq-map`, `--imports` and `--time-base` flags as `fprime-fpyc`.
+
 ### `fprime-fpy-asm`
 
 `fprime-fpy-asm` assembles human-readable `.fpybc` bytecode files into binary `.bin` files.
