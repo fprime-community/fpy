@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -791,7 +792,7 @@ def test_cmd_main_invalid_tcp_addr(monkeypatch, capsys):
 
 
 def test_info_main(tmp_path, capsys):
-    """The sections cover the code the sequence can execute: its top-level
+    """The output covers the code the sequence can execute: its top-level
     code and the functions it can call, wherever they are defined."""
     (tmp_path / "lib.fpy").write_text(
         "def used():\n"
@@ -821,47 +822,38 @@ def test_info_main(tmp_path, capsys):
         [str(input_path), "-d", default_dictionary, "--seq-map", f"={tmp_path}/"]
     )
 
-    assert capsys.readouterr().out == (
-        "Arguments:\n"
-        "  count: U32\n"
-        "  mode: Ref.Choice\n"
-        "Called sequences:\n"
-        "  child.bin\n"
-        "  other.bin\n"
-        "Imports:\n"
-        f"  {(tmp_path / 'lib.fpy').resolve()}\n"
-        "Commands:\n"
-        "  CdhCore.cmdDisp.CMD_NO_OP\n"
-        "  Ref.cmdSeq0.RUN\n"
-        "  Ref.seqDisp.RUN_ARGS\n"
-        "Telemetry channels:\n"
-        "  CdhCore.cmdDisp.CommandsDispatched\n"
-        "Parameters:\n"
-        "  Ref.sendBuffComp.parameter3\n"
-    )
+    assert json.loads(capsys.readouterr().out) == {
+        "arguments": [
+            {"name": "count", "type": "U32"},
+            {"name": "mode", "type": "Ref.Choice"},
+        ],
+        "calledSequences": ["child.bin", "other.bin"],
+        "imports": [str((tmp_path / "lib.fpy").resolve())],
+        "commands": [
+            "CdhCore.cmdDisp.CMD_NO_OP",
+            "Ref.cmdSeq0.RUN",
+            "Ref.seqDisp.RUN_ARGS",
+        ],
+        "telemetryChannels": ["CdhCore.cmdDisp.CommandsDispatched"],
+        "parameters": ["Ref.sendBuffComp.parameter3"],
+    }
 
 
-def test_info_main_empty_sections(tmp_path, capsys):
-    """A section with nothing to list says so."""
+def test_info_main_empty(tmp_path, capsys):
+    """A sequence that uses nothing has every member, each empty."""
     input_path = tmp_path / "seq.fpy"
     input_path.write_text("pass\n")
 
     fpy_main.info_main([str(input_path), "-d", default_dictionary])
 
-    assert capsys.readouterr().out == (
-        "Arguments:\n"
-        "  (none)\n"
-        "Called sequences:\n"
-        "  (none)\n"
-        "Imports:\n"
-        "  (none)\n"
-        "Commands:\n"
-        "  (none)\n"
-        "Telemetry channels:\n"
-        "  (none)\n"
-        "Parameters:\n"
-        "  (none)\n"
-    )
+    assert json.loads(capsys.readouterr().out) == {
+        "arguments": [],
+        "calledSequences": [],
+        "imports": [],
+        "commands": [],
+        "telemetryChannels": [],
+        "parameters": [],
+    }
 
 
 def test_info_main_compile_error(tmp_path, capsys):

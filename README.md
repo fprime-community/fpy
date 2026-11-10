@@ -732,23 +732,29 @@ Compiles a single line of Fpy source (one command with constant arguments) and e
 
 ### `fprime-fpy-info`
 
-Describes a sequence: its arguments, the sequences it calls, the files it imports, and the commands, telemetry channels and parameters it uses. Only code the sequence can execute counts, so a command in a function that is never called is not listed.
+Describes a sequence as JSON: its arguments, the sequences it calls, the files it imports, and the commands, telemetry channels and parameters it uses. Only code the sequence can execute counts, so a command in a function that is never called is not listed.
 
 ```
 $ fprime-fpy-info example.fpy -d TopologyDictionary.json
-Arguments:
-  foo: U32
-  bar: bool
-Called sequences:
-  (none)
-Imports:
-  /home/user/seqs/helper_lib.fpy
-Commands:
-  CdhCore.cmdDisp.CMD_NO_OP
-Telemetry channels:
-  CdhCore.cmdDisp.CommandsDispatched
-Parameters:
-  (none)
+{
+  "arguments": [
+    {
+      "name": "foo",
+      "type": "U32"
+    }
+  ],
+  "calledSequences": [],
+  "imports": [
+    "/home/user/seqs/helper_lib.fpy"
+  ],
+  "commands": [
+    "CdhCore.cmdDisp.CMD_NO_OP"
+  ],
+  "telemetryChannels": [
+    "CdhCore.cmdDisp.CommandsDispatched"
+  ],
+  "parameters": []
+}
 ```
 
 It takes the same `--seq-map`, `--imports` and `--time-base` flags as `fprime-fpyc`.

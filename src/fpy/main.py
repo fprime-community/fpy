@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 from importlib.metadata import version
+import json
 from pathlib import Path
 import socket
 import struct
@@ -376,9 +377,8 @@ class FindUses(TopDownVisitor):
             self.called_sequences.append(file_name.val)
 
 
-def seq_info(state: CompileState) -> dict[str, list[str]]:
-    """Describe an analyzed sequence as titled sections of lines, in display
-    order."""
+def seq_info(state: CompileState) -> dict[str, list]:
+    """Describe an analyzed sequence as a JSON object."""
     uses = FindUses()
     uses.run(state.root_block, state)
 
@@ -388,24 +388,25 @@ def seq_info(state: CompileState) -> dict[str, list[str]]:
         )
 
     return {
-        "Arguments": [
-            f"{name}: {arg_type.name}" for name, arg_type in state.this_seq_arg_specs
+        "arguments": [
+            {"name": name, "type": arg_type.name}
+            for name, arg_type in state.this_seq_arg_specs
         ],
-        "Called sequences": sorted(set(uses.called_sequences)),
-        "Imports": sorted(
+        "calledSequences": sorted(set(uses.called_sequences)),
+        "imports": sorted(
             file_path
             for file_path, sequence in state.loaded_sequences.items()
             if sequence is not state.main_sequence
         ),
-        "Commands": names(CommandSymbol),
-        "Telemetry channels": names(ChDef),
-        "Parameters": names(PrmDef),
+        "commands": names(CommandSymbol),
+        "telemetryChannels": names(ChDef),
+        "parameters": names(PrmDef),
     }
 
 
 def info_main(args: list[str] = None):
     arg_parser = argparse.ArgumentParser(
-        description=f"Describe an Fpy sequence {get_version_str()}"
+        description=f"Describe an Fpy sequence as JSON {get_version_str()}"
     )
     arg_parser.add_argument(
         "--version", action="version", version=f"%(prog)s {get_version_str()}"
@@ -426,10 +427,7 @@ def info_main(args: list[str] = None):
     else:
         parsed_args = arg_parser.parse_args()
 
-    for title, lines in seq_info(analyze_input(parsed_args)).items():
-        print(f"{title}:")
-        for line in lines or ["(none)"]:
-            print(f"  {line}")
+    print(json.dumps(seq_info(analyze_input(parsed_args)), indent=2))
 
 
 def assemble_main(args: list[str] = None):
