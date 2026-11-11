@@ -62,6 +62,7 @@ from fpy.types import (
     FpyType,
     FpyValue,
     TypeKind,
+    U64,
 )
 from fpy.bytecode.directives import update_configurable_types_from_dict
 
@@ -348,9 +349,9 @@ def _validate_and_replace_type(
 def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     """Update the canonical SEQ_ARGS singleton from the dictionary's Svc.SeqArgs.
 
-    The dictionary's `Svc.SeqArgs` defines the actual buffer capacity for this
-    deployment.  The compiler adopts that length onto the canonical singleton's
-    buffer type so codegen and semantics use the correct size.
+    The dictionary's `Svc.SeqArgs` defines the size member type and buffer
+    capacity. Adopt both onto the canonical singleton used by codegen and
+    semantics.
 
     A dictionary that omits `Svc.SeqArgs` (no sequencer in it takes arguments)
     gets the canonical default capacity.  This fallback is temporary: sequence
@@ -362,6 +363,7 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
     # the buffer capacity may differ from the previous dictionary's.
     SEQ_ARGS.member_defaults = None
     if "Svc.SeqArgs" not in dict_type_name_dict:
+        canonical_size_member.type = U64
         canonical_buffer_type.length = DEFAULT_SEQ_ARGS_BUFFER_SIZE
         canonical_buffer_type.name = f"Array_U8_{DEFAULT_SEQ_ARGS_BUFFER_SIZE}"
         SEQ_ARGS.json_default = {
@@ -378,7 +380,7 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
             f"but Fpy expects a STRUCT type.",
         )
     expected = (
-        f"({canonical_size_member.name}: {canonical_size_member.type}, "
+        f"({canonical_size_member.name}: unsigned integer, "
         f"{canonical_buffer_member.name}: [N] {canonical_buffer_type.elem_type})"
     )
     members_match = (
@@ -388,7 +390,7 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
         size_member, buffer_member = dict_seq_args.members
         members_match = (
             size_member.name == canonical_size_member.name
-            and size_member.type == canonical_size_member.type
+            and size_member.type.is_unsigned
             and buffer_member.name == canonical_buffer_member.name
             and buffer_member.type.kind == TypeKind.ARRAY
             and buffer_member.type.elem_type == canonical_buffer_type.elem_type
@@ -407,8 +409,17 @@ def _update_seq_args_from_dict(dict_type_name_dict: dict[str, FpyType]) -> None:
             f"Its {buffer_member.name} member must have a positive length, "
             f"but the dictionary gives it length {dict_buffer_type.length}.",
         )
+    maximum_size = size_member.type.value_range()[1]
+    if dict_buffer_type.length > maximum_size:
+        raise DictionaryError(
+            "Svc.SeqArgs",
+            f"Its {buffer_member.name} length {dict_buffer_type.length} exceeds "
+            f"the range of its {size_member.name} type {size_member.type.name} "
+            f"({maximum_size}).",
+        )
 
-    # Adopt the dictionary's buffer length onto the canonical buffer singleton.
+    # Adopt the dictionary's size field and buffer length onto the singletons.
+    canonical_size_member.type = size_member.type
     canonical_buffer_type.length = dict_buffer_type.length
     canonical_buffer_type.name = f"Array_U8_{dict_buffer_type.length}"
 
