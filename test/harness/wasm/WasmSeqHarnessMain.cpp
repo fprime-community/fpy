@@ -3,7 +3,7 @@
 // for the stdin/stdout protocol.
 
 #include "test/harness/Harness.hpp"
-#include "test/harness/wasm/tester/WasmSequencerTester.hpp"
+#include "test/harness/wasm/WasmSequencerTester.hpp"
 
 int main() {
     return harness::harnessMain<Svc::WasmSequencerTester>();

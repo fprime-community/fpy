@@ -1,4 +1,4 @@
-#include "test/harness/FpySequencerTester.hpp"
+#include "test/harness/fpy/FpySequencerTester.hpp"
 
 #include <cstring>
 

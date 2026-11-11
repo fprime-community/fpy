@@ -5,6 +5,7 @@ from fpy.test_helpers import (
     assert_compile_success,
     assert_run_success,
     assert_run_failure,
+    NO_WASM_SEQ_ARGS,
 )
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.error import WarningType
@@ -334,6 +335,7 @@ if value:
 # ---- End-to-end arg passing tests ----
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_run_sequence_with_u32_arg(fprime_test_api):
     """Run a sequence that takes a U32 arg and uses it."""
     seq = """
@@ -343,6 +345,7 @@ result: U32 = x
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_run_sequence_with_multiple_args(fprime_test_api):
     """Run a sequence that takes multiple args of different types."""
     seq = """
@@ -365,6 +368,7 @@ result: U32 = 1
     assert_run_success(fprime_test_api, seq)
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_run_sequence_args_wrong_size(fprime_test_api):
     """Passing wrong-size args should raise an error."""
     seq = """
@@ -386,6 +390,7 @@ sequence(x: U32)
 # ---- Value assertion tests ----
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_value_u32(fprime_test_api):
     """Assert on the value of a U32 arg."""
     seq = """
@@ -395,6 +400,7 @@ assert x == 42
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_value_bool_true(fprime_test_api):
     """Assert on a bool arg being True."""
     seq = """
@@ -404,6 +410,7 @@ assert flag
     assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, True)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_value_bool_false(fprime_test_api):
     """Assert on a bool arg being False."""
     seq = """
@@ -413,6 +420,7 @@ assert not flag
     assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, False)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_value_arithmetic(fprime_test_api):
     """Use arg in arithmetic and assert the result."""
     seq = """
@@ -424,6 +432,7 @@ assert a + b == 100
     )
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_value_in_if(fprime_test_api):
     """Use arg as a condition and verify control flow."""
     seq = """
@@ -436,6 +445,7 @@ assert result == 1
     assert_run_success(fprime_test_api, seq, args=[FpyValue(BOOL, True)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_wrong_value_fails_assert(fprime_test_api):
     """Passing a value that doesn't satisfy the assert should fail."""
     seq = """
@@ -450,6 +460,7 @@ assert x == 99
     )
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_multiple_args_correct_offsets(fprime_test_api):
     """Each arg should be at the correct frame offset and readable independently."""
     seq = """
@@ -465,6 +476,7 @@ assert c == 3
     )
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_args_and_locals_coexist(fprime_test_api):
     """Args and local variables should both be accessible."""
     seq = """
@@ -476,6 +488,7 @@ assert y == 15
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 5)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_passed_to_function(fprime_test_api):
     """Sequence arg can be passed to a user-defined function."""
     seq = """
@@ -489,6 +502,7 @@ assert double(x) == 84
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 42)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_returned_from_function(fprime_test_api):
     """Function can return a value derived from an arg, and the arg is still valid after."""
     seq = """
@@ -509,6 +523,7 @@ assert y == 20
     )
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_with_flags_modification(fprime_test_api):
     """Modifying flags should not corrupt sequence args."""
     seq = """
@@ -522,6 +537,7 @@ assert x == 7
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 7)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_with_flags_and_locals(fprime_test_api):
     """Args, flags, and locals should all coexist without stack corruption."""
     seq = """
@@ -541,6 +557,7 @@ flags.assert_cmd_success = True
     )
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_arg_survives_function_call(fprime_test_api):
     """Args should not be corrupted after a function call modifies the stack."""
     seq = """
@@ -558,6 +575,7 @@ assert result == 305
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 5)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_modify_arg(fprime_test_api):
     """Sequence args can be reassigned."""
     seq = """
@@ -569,6 +587,7 @@ assert x == 20
     assert_run_success(fprime_test_api, seq, args=[FpyValue(U32, 10)])
 
 
+@pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
 def test_modify_arg_does_not_affect_other_args(fprime_test_api):
     """Modifying one arg doesn't corrupt another."""
     seq = """

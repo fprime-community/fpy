@@ -7,6 +7,7 @@ import fpy.error
 from fpy.bytecode.directives import Directive, PopSerializableDirective
 from fpy.compiler import text_to_ast, analyze_ast, analysis_to_fpybc_directives
 from fpy.state import _build_global_scopes, get_base_compile_state
+from fpy.dictionary import load_dictionary
 from fpy.bytecode.directives import DirectiveErrorCode
 from fpy.test_helpers import (
     assert_compile_failure,
@@ -24,6 +25,23 @@ from fpy.test_helpers import (
 #   EXAMPLE_PORT_3  Ref.FpyExampleArray(1, 2, 3)
 #   EXAMPLE_PORT_4  Ref.FpyExampleMulti(Ref.FpyExampleEnum.ON, True, 2.5)
 # Tests that write anything else are compile-only.
+
+
+MULTIPLE_WRITES_SEQ = """
+value: U32 = 42
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, "hello world")
+s: Ref.FpyExampleStruct = Ref.FpyExampleStruct(flag=True, count=123, ratio=0.5)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, s)
+a: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, a)
+m: Ref.FpyExampleMulti = Ref.FpyExampleMulti(Ref.FpyExampleEnum.ON, True, 2.5)
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, m)
+"""
+
+
+def string_prefix_size():
+    return load_dictionary(default_dictionary)["type_defs"]["FwSizeStoreType"].max_size
 
 
 def pop_dirs(seq: str) -> list[PopSerializableDirective]:
@@ -69,22 +87,19 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, v)
 """
         assert_run_success(fprime_test_api, seq)
 
-    def test_multiple_writes(self, fprime_test_api):
-        seq = """
-value: U32 = 42
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, value)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_1, "hello world")
-s: Ref.FpyExampleStruct = Ref.FpyExampleStruct(flag=True, count=123, ratio=0.5)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_2, s)
-a: Ref.FpyExampleArray = Ref.FpyExampleArray(1, 2, 3)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_3, a)
-m: Ref.FpyExampleMulti = Ref.FpyExampleMulti(Ref.FpyExampleEnum.ON, True, 2.5)
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_4, m)
-"""
-        dirs = pop_dirs(seq)
+    def test_multiple_write_sizes(self):
+        dirs = pop_dirs(MULTIPLE_WRITES_SEQ)
         assert [d.portIndex for d in dirs] == [0, 1, 2, 3, 4]
-        assert [d.size for d in dirs] == [4, 13, 9, 12, 10]
-        assert_run_success(fprime_test_api, seq)
+        assert [d.size for d in dirs] == [
+            4,
+            string_prefix_size() + len(b"hello world"),
+            9,
+            12,
+            10,
+        ]
+
+    def test_multiple_writes(self, fprime_test_api):
+        assert_run_success(fprime_test_api, MULTIPLE_WRITES_SEQ)
 
     def test_emits_pop_serializable_directive(self, fprime_test_api):
         seq = """
@@ -179,16 +194,17 @@ write_to_port(0, value)
 """
         assert_compile_failure(fprime_test_api, seq)
 
-    def test_constant_string_value(self, fprime_test_api):
+    @pytest.mark.parametrize("value", ["asdf", "héllo✓"])
+    def test_constant_string_value(self, value, fprime_test_api):
         # A constant string literal has a compile-time-known length, so it is
         # serializable with a statically-known size and is accepted.
-        seq = """
-write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "asdf")
+        seq = f"""
+write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "{value}")
 """
         dirs = pop_dirs(seq)
         assert len(dirs) == 1
-        # FwSizeStoreType (U16, 2 bytes) length prefix + 4 bytes of "asdf"
-        assert dirs[0].size == 6
+        # The length prefix and the UTF-8 payload both contribute to the size.
+        assert dirs[0].size == string_prefix_size() + len(value.encode("utf-8"))
 
     def test_empty_constant_string_value(self, fprime_test_api):
         seq = """
@@ -196,7 +212,7 @@ write_to_port(Svc.Fpy.SerialPortIndex.EXAMPLE_PORT_0, "")
 """
         dirs = pop_dirs(seq)
         assert len(dirs) == 1
-        assert dirs[0].size == 2  # just the U16 length prefix
+        assert dirs[0].size == string_prefix_size()  # just the length prefix
 
     def test_non_constant_size_string_rejected(self, fprime_test_api):
         # A struct containing a runtime-variable-length string is not sized.

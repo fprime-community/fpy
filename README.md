@@ -60,10 +60,10 @@ log("hello world!") # creates an ACTIVITY_HI event with the text "hello world!"
 You can configure the severity of the event:
 ```py
 log("uh oh", Fw.LogSeverity.WARNING_HI)
-log("oh no!", Fw.LogSeverity.FATAL)
+log("all clear", Fw.LogSeverity.DIAGNOSTIC)
 ```
 
-All F Prime severity levels are supported.
+All F Prime severity levels are supported except `FATAL` and `COMMAND`, which are reserved for the flight software.
 
 At the moment, only constant string arguments are supported. See [Strings](#strings).
 
@@ -730,6 +730,35 @@ Some useful compiler flags are:
 
 Compiles a single line of Fpy source (one command with constant arguments) and emits it, e.g. `fprime-fpy-cmd 'Ref.seqDisp.RUN_ARGS("seq.bin", NO_WAIT)' -d dict.json`. The `--emit` flag selects how: `zmq` (uplink to a running GDS over ZMQ, the default; address set by `--zmq-addr`), `tcp` (uplink to the GDS TCP server; address set by `--tcp-addr host:port`), or `stdout` (write the binary command packet to stdout).
 
+### `fprime-fpy-info`
+
+Describes a sequence as JSON: its arguments, the sequences it calls, the files it imports, and the commands, telemetry channels and parameters it uses. Only code the sequence can execute counts, so a command in a function that is never called is not listed.
+
+```
+$ fprime-fpy-info example.fpy -d TopologyDictionary.json
+{
+  "arguments": [
+    {
+      "name": "foo",
+      "type": "U32"
+    }
+  ],
+  "calledSequences": [],
+  "imports": [
+    "/home/user/seqs/helper_lib.fpy"
+  ],
+  "commands": [
+    "CdhCore.cmdDisp.CMD_NO_OP"
+  ],
+  "telemetryChannels": [
+    "CdhCore.cmdDisp.CommandsDispatched"
+  ],
+  "parameters": []
+}
+```
+
+It takes the same `--seq-map`, `--imports` and `--time-base` flags as `fprime-fpyc`.
+
 ### `fprime-fpy-asm`
 
 `fprime-fpy-asm` assembles human-readable `.fpybc` bytecode files into binary `.bin` files.
@@ -749,11 +778,11 @@ Some tests compile and run sequences. Those tests will generate both Fpy bytecod
 
 To run these tests, the following steps are required:
 
-* The submodules must be checked out: `git submodule update --init test/fprime test/fprime-wasm`
+* The fprime submodule must be checked out: `git submodule update --init test/fprime`
 * The harness build tools (cmake, ninja, fprime-util, fpp) and the `wasm` extra. `uv sync` installs them as part of the dev environment; with pip the extra is `pip install -e '.[wasm]'`.
 * A Rust toolchain (the wasm sequencer builds the spacewasm interpreter with cargo). Install via [rustup](https://rustup.rs).
 
-Each harness is built automatically when the first test that needs it runs. The wasm harness build applies a small local patch to the submodule first (see `test/harness/patches/README.md`).
+Each harness is built automatically when the first test that needs it runs.
 
 ### `--backend`
 

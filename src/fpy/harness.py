@@ -1,8 +1,8 @@
-"""Client for the C++ test harness that runs sequences on the real
-Svc::FpySequencer (see test/harness). The harness program is started once and
-reused: each request is one JSON line on its stdin, each reply one JSON line
-on its stdout, and every request runs on a brand-new sequencer instance
-inside the harness."""
+"""Client for the C++ test harnesses that run sequences on the real
+Svc::FpySequencer and Svc::WasmSequencer (see test/harness). Each harness
+program is started once and reused: each request is one JSON line on its
+stdin, each reply one JSON line on its stdout, and every request runs on a
+brand-new sequencer instance inside the harness."""
 
 from __future__ import annotations
 
@@ -12,18 +12,9 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-FPY_HARNESS_BINARY = (
-    REPO_ROOT / "build-artifacts" / "Linux" / "FpyHarness" / "bin" / "FpyHarness"
-)
-_WASM_HARNESS_ROOT = REPO_ROOT / "test" / "harness" / "wasm"
-WASM_HARNESS_BINARY = (
-    _WASM_HARNESS_ROOT
-    / "build-artifacts"
-    / "Linux"
-    / "WasmSeqHarness"
-    / "bin"
-    / "WasmSeqHarness"
-)
+_BUILD_ARTIFACTS = REPO_ROOT / "build-artifacts" / "Linux"
+FPY_HARNESS_BINARY = _BUILD_ARTIFACTS / "FpySeqHarness" / "bin" / "FpySeqHarness"
+WASM_HARNESS_BINARY = _BUILD_ARTIFACTS / "WasmSeqHarness" / "bin" / "WasmSeqHarness"
 
 
 class HarnessError(Exception):
@@ -31,61 +22,36 @@ class HarnessError(Exception):
     a malformed reply, or crashed. Distinct from a sequence failing."""
 
 
-def build_harness() -> None:
+def build_fpy_harness() -> None:
     """Builds the FpySequencer harness executable from the fprime submodule.
     The build is incremental, so this is cheap when nothing changed."""
+    _build_deployment("FpySeqHarness")
+
+
+def build_wasm_harness() -> None:
+    """Builds the WasmSequencer harness executable from the fprime submodule.
+    The build is incremental, so this is cheap when nothing changed."""
+    _build_deployment("WasmSeqHarness")
+
+
+def _build_deployment(target: str) -> None:
+    """Builds and installs one of the harness deployments (see the root
+    CMakeLists.txt), generating the shared build cache first if needed."""
     if not (REPO_ROOT / "test" / "fprime" / "CMakeLists.txt").exists():
         raise HarnessError(
             "the fprime submodule is not checked out. Run:\n"
             "  git submodule update --init test/fprime"
         )
-    _fprime_util_build(REPO_ROOT)
+    if not (REPO_ROOT / "build-fprime-automatic-native").exists():
+        _run_fprime_util(["generate"])
+    _run_fprime_util(["build", "--target", target])
 
 
-def build_wasm_harness() -> None:
-    """Builds the WasmSequencer harness executable from the fprime-wasm
-    submodule, with the exit-code patch applied (test/harness/patches)."""
-    if not (REPO_ROOT / "test" / "fprime-wasm" / "CMakeLists.txt").exists():
-        raise HarnessError(
-            "the fprime-wasm submodule is not checked out. Run:\n"
-            "  git submodule update --init test/fprime-wasm"
-        )
-    _apply_wasm_patch()
-    _fprime_util_build(_WASM_HARNESS_ROOT, build_args=["--all"])
-
-
-def _apply_wasm_patch() -> None:
-    """Applies the local WasmSequencer fixes to the fprime-wasm submodule if
-    they are not applied yet (see test/harness/patches/README.md)."""
-    patch = REPO_ROOT / "test" / "harness" / "patches" / "wasm-sequencer-fixes.patch"
-    submodule = REPO_ROOT / "test" / "fprime-wasm"
-    applied = subprocess.run(
-        ["git", "apply", "--check", "--reverse", str(patch)],
-        cwd=submodule,
-        capture_output=True,
-    )
-    if applied.returncode == 0:
-        return
-    result = subprocess.run(
-        ["git", "apply", str(patch)], cwd=submodule, capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        raise HarnessError(
-            f"could not apply {patch.name} to test/fprime-wasm:\n{result.stderr}"
-        )
-
-
-def _fprime_util_build(deployment: Path, build_args: list[str] = None) -> None:
-    if not (deployment / "build-fprime-automatic-native").exists():
-        _run_fprime_util(deployment, ["generate"])
-    _run_fprime_util(deployment, ["build"] + (build_args or []))
-
-
-def _run_fprime_util(deployment: Path, args: list[str]) -> None:
+def _run_fprime_util(args: list[str]) -> None:
     try:
         result = subprocess.run(
             ["fprime-util"] + args,
-            cwd=deployment,
+            cwd=REPO_ROOT,
             capture_output=True,
             text=True,
         )
@@ -96,7 +62,7 @@ def _run_fprime_util(deployment: Path, args: list[str]) -> None:
         )
     if result.returncode != 0:
         raise HarnessError(
-            f"'fprime-util {' '.join(args)}' in {deployment} failed. Are the "
+            f"'fprime-util {' '.join(args)}' failed. Are the "
             "harness build tools installed (uv sync installs them)?\n"
             + result.stdout[-2000:]
             + result.stderr[-2000:]
@@ -134,7 +100,8 @@ class SequencerHarness:
     def _start(self) -> None:
         if not self._binary.exists():
             raise HarnessError(
-                f"harness binary {self._binary} does not exist; build it with build_harness()"
+                f"harness binary {self._binary} does not exist; build it with "
+                "build_fpy_harness() or build_wasm_harness()"
             )
         self._stderr_file = tempfile.TemporaryFile(mode="w+")
         self._process = subprocess.Popen(
@@ -176,7 +143,7 @@ def fpy_harness() -> SequencerHarness:
         raise _fpy_build_error
     if _fpy_harness is None:
         try:
-            build_harness()
+            build_fpy_harness()
         except HarnessError as e:
             _fpy_build_error = e
             raise

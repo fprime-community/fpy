@@ -184,9 +184,11 @@ class TestWasmLog:
         assert events == [(5, "hello world")]  # ACTIVITY_HI = 5
 
     def test_explicit_severity(self):
-        code, events = run_seq_wasm_with_events('log("oh no", Fw.LogSeverity.FATAL)\n')
+        code, events = run_seq_wasm_with_events(
+            'log("oh no", Fw.LogSeverity.WARNING_LO)\n'
+        )
         assert code == NO_ERROR
-        assert events == [(1, "oh no")]  # FATAL = 1
+        assert events == [(3, "oh no")]  # WARNING_LO = 3
 
     def test_multiple_events_in_call_order(self):
         code, events = run_seq_wasm_with_events(

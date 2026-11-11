@@ -84,10 +84,13 @@ Beyond the plain `import seq` form, this file also covers aliases
 
 from pathlib import Path
 
+import pytest
+
 from fpy.test_helpers import (
     assert_compile_failure,
     assert_run_success,
     compile_seq,
+    NO_WASM_SEQ_ARGS,
 )
 from fpy.error import WarningType
 from fpy.types import U32, FpyValue
@@ -405,6 +408,7 @@ class TestImporterWithArguments:
     declaring its own sequence arguments is fine: it may both take arguments and
     import another (argument-less) sequence, and use both together."""
 
+    @pytest.mark.fpybc_only(NO_WASM_SEQ_ARGS)
     def test_importer_declares_args_and_imports(self, fprime_test_api, tmp_path):
         _write_sequence(
             tmp_path,

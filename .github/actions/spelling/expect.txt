@@ -27,6 +27,7 @@ ctx
 cuz
 dedenting
 Deframer
+deinit
 Deser
 downcasted
 downcasting
@@ -84,12 +85,11 @@ itrunc
 kinda
 lalr
 libcall
+libm
 llo
 LOGACTIVITYHI
 LOGACTIVITYLO
-LOGCOMMAND
 LOGDIAGNOSTIC
-LOGFATAL
 LOGWARNINGHI
 LOGWARNINGLO
 lvar

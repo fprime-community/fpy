@@ -43,6 +43,7 @@ from fpy.semantics import (
     CollectUsedFunctions,
     ResolveTransitiveGlobalUses,
     CheckGlobalsInitializedBeforeCall,
+    CheckLogSeverities,
     CheckSequenceArgs,
     DefineFunctions,
     DefineVariables,
@@ -294,6 +295,7 @@ def analyze_ast(body: AstBlock, state: CompileState) -> CompileState:
         CheckConstArrayAccesses(),
         WarnRangesAreNotEmpty(),
         CheckSequenceArgs(),
+        CheckLogSeverities(),
         # now that semantic analysis is done, we can desugar things.
         # Fill in default arguments before desugaring for loops
         DesugarDefaultArgs(),

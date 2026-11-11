@@ -330,6 +330,29 @@ TIME_MACRO = BuiltinFuncSymbol(
     const_arg_indices=frozenset({0, 1, 2}),
 )
 
+LOG_MACRO = BuiltinFuncSymbol(
+    "log",
+    NOTHING,
+    [
+        ("message", INTERNAL_STRING, None),
+        ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
+    ],
+    lambda n, c, t: [
+        PushValDirective(c[1].serialize()),
+        PushValDirective(c[0].val.encode("utf-8")),
+        PushValDirective(
+            FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()
+        ),
+        PopEventDirective(),
+    ],
+    generate_log_event_llvm,
+    const_arg_indices=frozenset({0, 1}),
+)
+
+# The Fw.LogSeverity values a sequence may not log at: FATAL and COMMAND are
+# reserved for the flight software itself.
+RESERVED_LOG_SEVERITIES = frozenset({"FATAL", "COMMAND"})
+
 MACROS: dict[str, BuiltinFuncSymbol] = {
     "sleep": MACRO_SLEEP_SECONDS_USECONDS,
     "sleep_until": BuiltinFuncSymbol(
@@ -367,24 +390,7 @@ MACROS: dict[str, BuiltinFuncSymbol] = {
     # The generate function should never be called since this is always const-evaluated
     "time": TIME_MACRO,
     # Event logging builtin — compile-time string + severity, defaults to ACTIVITY_HI
-    "log": BuiltinFuncSymbol(
-        "log",
-        NOTHING,
-        [
-            ("message", INTERNAL_STRING, None),
-            ("severity", LOG_SEVERITY, FpyValue(LOG_SEVERITY, "ACTIVITY_HI")),
-        ],
-        lambda n, c, t: [
-            PushValDirective(c[1].serialize()),
-            PushValDirective(c[0].val.encode("utf-8")),
-            PushValDirective(
-                FpyValue(StackSizeType, len(c[0].val.encode("utf-8"))).serialize()
-            ),
-            PopEventDirective(),
-        ],
-        generate_log_event_llvm,
-        const_arg_indices=frozenset({0, 1}),
-    ),
+    "log": LOG_MACRO,
     # Serial write: port typed by the dictionary-backed Svc.Fpy.SerialPortIndex enum; value typed SIZED
     "write_to_port": BuiltinFuncSymbol(
         "write_to_port",

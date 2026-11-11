@@ -23,6 +23,7 @@ from fpy.types import (
     F64,
     FpyType,
     FpyValue,
+    FwSizeStoreType,
     I8,
     I16,
     I32,
@@ -42,6 +43,20 @@ STRING_40 = FpyType(TypeKind.STRING, "String_40", max_length=40)
 
 def _types():
     return load_dictionary(default_dictionary)["type_defs"]
+
+
+@pytest.fixture(autouse=True)
+def _dictionary_string_length_type(monkeypatch):
+    # These tests call serialization directly, without building compiler scopes.
+    # Use the dictionary's configuration, independent of prior compiler tests.
+    size_type = _types()["FwSizeStoreType"]
+    monkeypatch.setattr(FwSizeStoreType, "kind", size_type.kind)
+    monkeypatch.setattr(FwSizeStoreType, "name", size_type.name)
+
+
+def _string_length_prefix(length):
+    # Build expected bytes independently of the serializer under test.
+    return length.to_bytes(_types()["FwSizeStoreType"].max_size, "big")
 
 
 def _byte_cases():
@@ -99,12 +114,14 @@ def _byte_cases():
         ),
         pytest.param(FpyValue(choice, "RED"), struct.pack(">i", 2), id="enum-i32-rep"),
         pytest.param(
-            FpyValue(STRING_40, "hi"), struct.pack(">H", 2) + b"hi", id="string"
+            FpyValue(STRING_40, "hi"), _string_length_prefix(2) + b"hi", id="string"
         ),
-        pytest.param(FpyValue(STRING_40, ""), struct.pack(">H", 0), id="string-empty"),
+        pytest.param(
+            FpyValue(STRING_40, ""), _string_length_prefix(0), id="string-empty"
+        ),
         pytest.param(
             FpyValue(STRING_40, "héllo✓"),
-            struct.pack(">H", 9) + "héllo✓".encode("utf-8"),
+            _string_length_prefix(9) + "héllo✓".encode("utf-8"),
             id="string-utf8-byte-length",
         ),
         pytest.param(
@@ -169,12 +186,12 @@ class TestDeserialize:
     def test_truncated_string_payload_rejected(self):
         # Prefix promises 5 bytes but only 2 follow: C++ size-mismatches
         # rather than truncating.
-        data = struct.pack(">H", 5) + b"hi"
+        data = _string_length_prefix(5) + b"hi"
         with pytest.raises(DeserializeError, match="too short"):
             FpyValue.deserialize(STRING_40, data)
 
     def test_over_capacity_string_rejected(self):
-        data = struct.pack(">H", 41) + b"a" * 41
+        data = _string_length_prefix(41) + b"a" * 41
         with pytest.raises(DeserializeError, match="max length"):
             FpyValue.deserialize(STRING_40, data)
 
