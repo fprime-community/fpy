@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 from importlib.metadata import version
+import json
 from pathlib import Path
 import socket
 import struct
@@ -30,9 +31,12 @@ from fpy.compiler import (
     text_to_ast,
     analysis_to_fpybc_directives,
 )
-from fpy.state import get_base_compile_state
-from fpy.types import DEFAULT_TIME_BASE
-from fpy.error import parse_warning_set
+from fpy.state import CompileState, get_base_compile_state
+from fpy.symbols import CommandSymbol, Symbol
+from fpy.syntax import AstDef, AstFuncCall, AstReference
+from fpy.types import DEFAULT_TIME_BASE, ChDef, CmdDef, PrmDef
+from fpy.error import WarningType, parse_warning_set
+from fpy.visitors import STOP_DESCENT, TopDownVisitor
 
 
 def human_readable_size(size_bytes):
@@ -111,6 +115,87 @@ def _add_seq_map_argument(arg_parser: argparse.ArgumentParser):
     )
 
 
+def _add_imports_argument(arg_parser: argparse.ArgumentParser):
+    arg_parser.add_argument(
+        "-i",
+        "--imports",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="DIR",
+        dest="imports",
+        help=(
+            "Directory to search when resolving absolute `import` statements "
+            "(repeatable). An import that resolves in more than one --imports "
+            "directory is ambiguous and an error."
+        ),
+    )
+
+
+def analyze_input(
+    parsed_args: argparse.Namespace,
+    ignored_warnings: set[WarningType] | None = None,
+    error_warnings: set[WarningType] | None = None,
+) -> CompileState:
+    """Analyze the input .fpy file named by the parsed arguments.
+
+    Prints the error and exits if the file cannot be analyzed."""
+    try:
+        seq_maps = parse_seq_maps(parsed_args.seq_map)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    if not parsed_args.input.exists():
+        print(f"Input file {parsed_args.input} does not exist")
+        sys.exit(1)
+    fpy.error.file_name = str(parsed_args.input)
+
+    # The import directories are the -i/--imports directories, in order; the
+    # input file's own directory anchors its relative imports but is not
+    # among them. Exact duplicate directories are dropped: a repeated -i
+    # flag carries no information.
+    import_directories = list(
+        dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
+    )
+
+    # reading dictionary
+    try:
+        state = get_base_compile_state(
+            str(parsed_args.dictionary.resolve()),
+            seq_maps,
+            ignored_warnings=ignored_warnings,
+            error_warnings=error_warnings,
+            import_directories=import_directories,
+            main_file_dir=str(parsed_args.input.parent.resolve()),
+            main_file_path=str(parsed_args.input.resolve()),
+            default_time_base=parsed_args.time_base,
+        )
+    except fpy.error.DictionaryError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    # syntax
+    try:
+        body = text_to_ast(parsed_args.input.read_text(encoding="utf-8"))
+    except RecursionError:
+        print("Recursion limit exceeded in parsing", file=sys.stderr)
+        sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+    # semantics
+    try:
+        return analyze_ast(body, state)
+    except RecursionError:
+        print("Recursion limit exceeded in semantics passes", file=sys.stderr)
+        sys.exit(1)
+    except fpy.error.CompileError as e:
+        print(e, file=sys.stderr)
+        sys.exit(1)
+
+
 def compile_main(args: list[str] = None):
     backend_version = get_backend_version_str()
     compiler_version = get_version_str()
@@ -155,20 +240,7 @@ def compile_main(args: list[str] = None):
     )
     _add_seq_map_argument(arg_parser)
     _add_time_base_argument(arg_parser)
-    arg_parser.add_argument(
-        "-i",
-        "--imports",
-        type=Path,
-        action="append",
-        default=[],
-        metavar="DIR",
-        dest="imports",
-        help=(
-            "Directory to search when resolving absolute `import` statements "
-            "(repeatable). An import that resolves in more than one --imports "
-            "directory is ambiguous and an error."
-        ),
-    )
+    _add_imports_argument(arg_parser)
     arg_parser.add_argument(
         "--ignore",
         type=str,
@@ -192,7 +264,6 @@ def compile_main(args: list[str] = None):
     try:
         ignored_warnings = parse_warning_set(parsed_args.ignore)
         error_warnings = parse_warning_set(parsed_args.error)
-        seq_maps = parse_seq_maps(parsed_args.seq_map)
     except ValueError as e:
         print(e, file=sys.stderr)
         sys.exit(1)
@@ -205,54 +276,7 @@ def compile_main(args: list[str] = None):
         )
         sys.exit(1)
 
-    if not parsed_args.input.exists():
-        print(f"Input file {parsed_args.input} does not exist")
-        sys.exit(1)
-    fpy.error.file_name = str(parsed_args.input)
-
-    # The import directories are the -i/--imports directories, in order; the
-    # input file's own directory anchors its relative imports but is not
-    # among them. Exact duplicate directories are dropped: a repeated -i
-    # flag carries no information.
-    import_directories = list(
-        dict.fromkeys(str(d.resolve()) for d in parsed_args.imports)
-    )
-
-    # reading dictionary
-    try:
-        state = get_base_compile_state(
-            str(parsed_args.dictionary.resolve()),
-            seq_maps,
-            ignored_warnings=ignored_warnings,
-            error_warnings=error_warnings,
-            import_directories=import_directories,
-            main_file_dir=str(parsed_args.input.parent.resolve()),
-            main_file_path=str(parsed_args.input.resolve()),
-            default_time_base=parsed_args.time_base,
-        )
-    except fpy.error.DictionaryError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
-
-    # syntax
-    try:
-        body = text_to_ast(parsed_args.input.read_text(encoding="utf-8"))
-    except RecursionError:
-        print("Recursion limit exceeded in parsing", file=sys.stderr)
-        sys.exit(1)
-    except fpy.error.CompileError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
-
-    # semantics
-    try:
-        state = analyze_ast(body, state)
-    except RecursionError:
-        print("Recursion limit exceeded in semantics passes", file=sys.stderr)
-        sys.exit(1)
-    except fpy.error.CompileError as e:
-        print(e, file=sys.stderr)
-        sys.exit(1)
+    state = analyze_input(parsed_args, ignored_warnings, error_warnings)
 
     # codegen
     try:
@@ -313,6 +337,97 @@ def compile_main(args: list[str] = None):
         )
     else:
         assert False, parsed_args.emit
+
+
+def runs_sequence(cmd: CmdDef) -> bool:
+    """Whether the command runs a sequence file: its first two arguments are
+    a file name and a Svc.BlockState."""
+    arg_types = [arg_type for _, _, arg_type in cmd.args]
+    return (
+        len(arg_types) >= 2
+        and arg_types[0].is_string
+        and arg_types[1].name == "Svc.BlockState"
+    )
+
+
+class FindUses(TopDownVisitor):
+    """Collects what the code a sequence can execute uses: its top-level code
+    and the bodies of the functions it can call."""
+
+    def __init__(self):
+        super().__init__()
+        self.symbols: list[Symbol] = []
+        """the symbol of each reference"""
+        self.called_sequences: list[str] = []
+        """the file name of each sequence run"""
+
+    def visit_AstDef(self, node: AstDef, state: CompileState):
+        if node not in state.used_funcs:
+            return STOP_DESCENT
+
+    def visit_AstReference(self, node: AstReference, state: CompileState):
+        symbol = state.resolved_symbols.get(node)
+        if symbol is not None:
+            self.symbols.append(symbol)
+
+    def visit_AstFuncCall(self, node: AstFuncCall, state: CompileState):
+        func = state.resolved_symbols.get(node.func)
+        if isinstance(func, CommandSymbol) and runs_sequence(func.cmd):
+            file_name = state.const_expr_values[state.resolved_args[node][0]]
+            self.called_sequences.append(file_name.val)
+
+
+def seq_info(state: CompileState) -> dict[str, list]:
+    """Describe an analyzed sequence as a JSON object."""
+    uses = FindUses()
+    uses.run(state.root_block, state)
+
+    def names(symbol_type: type) -> list[str]:
+        return sorted(
+            {symbol.name for symbol in uses.symbols if isinstance(symbol, symbol_type)}
+        )
+
+    return {
+        "arguments": [
+            {"name": name, "type": arg_type.name}
+            for name, arg_type in state.this_seq_arg_specs
+        ],
+        "calledSequences": sorted(set(uses.called_sequences)),
+        "imports": sorted(
+            file_path
+            for file_path, sequence in state.loaded_sequences.items()
+            if sequence is not state.main_sequence
+        ),
+        "commands": names(CommandSymbol),
+        "telemetryChannels": names(ChDef),
+        "parameters": names(PrmDef),
+    }
+
+
+def info_main(args: list[str] = None):
+    arg_parser = argparse.ArgumentParser(
+        description=f"Describe an Fpy sequence as JSON {get_version_str()}"
+    )
+    arg_parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {get_version_str()}"
+    )
+    arg_parser.add_argument("input", type=Path, help="The input .fpy file")
+    arg_parser.add_argument(
+        "-d",
+        "--dictionary",
+        type=Path,
+        required=True,
+        help="The FPrime dictionary .json file",
+    )
+    _add_seq_map_argument(arg_parser)
+    _add_time_base_argument(arg_parser)
+    _add_imports_argument(arg_parser)
+    if args is not None:
+        parsed_args = arg_parser.parse_args(args)
+    else:
+        parsed_args = arg_parser.parse_args()
+
+    print(json.dumps(seq_info(analyze_input(parsed_args)), indent=2))
 
 
 def assemble_main(args: list[str] = None):
