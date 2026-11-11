@@ -100,6 +100,8 @@ class CompileState:
     # is not in the dictionary, in which case the corresponding check is skipped.
     com_buffer_max_size: int | None = None
     cmd_arg_buffer_max_size: int | None = None
+    # Bytecode argument capacity defaults to the command capacity in F Prime.
+    statement_arg_buffer_max_size: int | None = None
     cmd_names_by_opcode: dict[int, str] = field(default_factory=dict)
     """Map of command opcode to fully-qualified command name, for error messages."""
 
@@ -761,6 +763,10 @@ def get_base_compile_state(
         max_stack_size=_const_int("Svc.Fpy.MAX_STACK_SIZE", DEFAULT_MAX_STACK_SIZE),
         com_buffer_max_size=_const_int("FW_COM_BUFFER_MAX_SIZE", None),
         cmd_arg_buffer_max_size=_const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        statement_arg_buffer_max_size=_const_int(
+            "FW_STATEMENT_ARG_BUFFER_MAX_SIZE",
+            _const_int("FW_CMD_ARG_BUFFER_MAX_SIZE", None),
+        ),
         cmd_names_by_opcode={
             opcode: cmd.name
             for opcode, cmd in load_dictionary(dictionary)["cmd_id_dict"].items()
