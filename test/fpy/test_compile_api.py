@@ -49,7 +49,7 @@ def test_compile_error_propagates():
 def test_node_meta_records_source_file(monkeypatch):
     monkeypatch.setattr(fpy.error, "file_name", "/some/driver.fpy")
     body = text_to_ast("x: U32 = 1\n")
-    assert body.stmts[0].meta.file == "/some/driver.fpy"
+    assert body.stmts[0].meta.file_name == "/some/driver.fpy"
 
 
 def test_directives_record_originating_file(tmp_path, monkeypatch):
@@ -84,7 +84,7 @@ def test_directives_record_originating_file(tmp_path, monkeypatch):
         meta = getattr(node, "meta", node)
         if getattr(meta, "line", None) is None:
             continue
-        located.add((getattr(meta, "file", None), meta.line))
+        located.add((getattr(meta, "file_name", None), meta.line))
 
     # Every emitting statement maps to exactly its own file and line: the driver's
     # import and assert to the driver, the def body (including the desugared
