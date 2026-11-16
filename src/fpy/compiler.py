@@ -191,6 +191,9 @@ def text_to_ast(text: str) -> AstBlock:
         tree = _parse_fpy(text, on_error=handle_lark_error)
     except LarkError as e:
         handle_lark_error(e)
+    source_file = fpy.error.file_name
+    for subtree in tree.iter_subtrees():
+        subtree.meta.file = source_file
     try:
         transformed = FpyTransformer().transform(tree)
     except RecursionError:
