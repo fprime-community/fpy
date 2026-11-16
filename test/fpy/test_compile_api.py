@@ -53,18 +53,24 @@ def test_node_meta_records_source_file(monkeypatch):
 
 
 def test_directives_record_originating_file(tmp_path, monkeypatch):
-    (tmp_path / "lib.fpy").write_text(
+    """
+    Functions get compiled into their calling sites, which may be in different files.
+    Ensure that the file attribution remains correct.
+    """
+    driver = "driver.fpy"
+    lib = str(tmp_path / "lib.fpy")
+    Path(lib).write_text(
         "def bump(x: U64) -> U64:\n"
         "    y: U64 = x\n"
         "    y += 1\n"
         "    return y\n"
     )
-    monkeypatch.setattr(fpy.error, "file_name", "<driver>.fpy")
+    monkeypatch.setattr(fpy.error, "file_name", driver)
     state = get_base_compile_state(
         DICT,
-        import_directories=[str(tmp_path)],
-        main_file_dir=str(tmp_path),
-        main_file_path="<driver>.fpy",
+        import_directories=[tmp_path],
+        main_file_dir=tmp_path,
+        main_file_path=driver,
     )
     body = text_to_ast("from lib import bump\n\nassert bump(1) == 2\n")
     state = analyze_ast(body, state)
@@ -80,10 +86,14 @@ def test_directives_record_originating_file(tmp_path, monkeypatch):
             continue
         located.add((getattr(meta, "file", None), meta.line))
 
-    lib = str(tmp_path / "lib.fpy")
-    # directives originate in both files, each tagged with its own source
-    assert any(f == "<driver>.fpy" for f, _ in located)
-    assert any(f == lib for f, _ in located)
-    # the desugared `y += 1` (lib.fpy line 3) is attributed to the library it was
-    # written in, not the driver that called it
-    assert (lib, 3) in located
+    # Every emitting statement maps to exactly its own file and line: the driver's
+    # import and assert to the driver, the def body (including the desugared
+    # `y += 1`) to the library. The def signature (lib:1) and the blank driver
+    # line emit no directives.
+    assert located == {
+        (driver, 1),  # from lib import bump
+        (driver, 3),  # assert bump(1) == 2
+        (lib, 2),  # y: U64 = x
+        (lib, 3),  # y += 1  (desugared)
+        (lib, 4),  # return y
+    }
