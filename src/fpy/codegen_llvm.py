@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from fpy.error import BackendError
+from fpy.buffer_limits import command_size_error, serialize_value
 
 try:
     from llvmlite import ir
@@ -1032,7 +1033,7 @@ class AssignAddresses(TopDownVisitor):
                 else state.const_expr_values.get(arg)
             )
             if const_val is not None:
-                contents.extend(const_val.serialize())
+                contents.extend(serialize_value(const_val, node))
             else:
                 arg_type = state.contextual_types[arg]
                 runtime_args.append((len(contents), arg, arg_type))
@@ -1057,6 +1058,11 @@ class AssignAddresses(TopDownVisitor):
             for arg in node_args:
                 append_arg(arg)
 
+        error = command_size_error(
+            state, func.cmd.opcode, len(contents) - FwOpcodeType.max_size, node
+        )
+        if error is not None:
+            raise error
         buf = create_byte_buffer(state.backend.module, "cmd_buf", contents)
         buf.global_constant = not runtime_args
         state.backend.cmd_buffers[node] = CommandBuffer(buf, runtime_args)

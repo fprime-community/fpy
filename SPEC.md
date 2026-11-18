@@ -819,6 +819,17 @@ Command evaluation is performed as follows:
 3. Execution blocks until the [command response](todo) comes back from the F-Prime system.
 4. The expression evaluates to a value of `Fw.CmdResponse` corresponding to that command response.
 
+Serialized command arguments must fit `FW_CMD_ARG_BUFFER_MAX_SIZE`, and the complete
+packet, including the configured packet descriptor and opcode, must fit
+`FW_COM_BUFFER_MAX_SIZE`. A limit is checked when its constant is in the dictionary.
+For runtime argument values, the argument type's maximum serialized size is used.
+
+For bytecode, every statement's arguments must also fit both `FwSizeStoreType` and
+`FW_STATEMENT_ARG_BUFFER_MAX_SIZE`. The latter defaults to
+`FW_CMD_ARG_BUFFER_MAX_SIZE` when no separate constant is supplied. A constant
+command statement includes its opcode in this argument capacity. Serialized
+string lengths are measured in UTF-8 bytes and must fit `FwSizeStoreType`.
+
 ### Command responses
 
 A **command response** is a value of type `Fw.CmdResponse`.
