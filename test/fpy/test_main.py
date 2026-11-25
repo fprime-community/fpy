@@ -1,9 +1,12 @@
 import json
+import struct
 from types import SimpleNamespace
+import zlib
 
 import pytest
 
 from fpy import main as fpy_main
+from fpy.bytecode.assembler import FOOTER_FORMAT, deserialize_directives
 from fpy.bytecode.directives import ConstCmdDirective
 import fpy.error as fpy_error
 from fpy.test_helpers import default_dictionary
@@ -366,6 +369,50 @@ def test_compile_main_binary_output(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert "CRC 0xabcd" in captured.out
     assert "2 B" in captured.out
+
+
+def test_compile_main_source_map(tmp_path):
+    """--source-map writes the fpybin's source map as JSON: its CRC, and one
+    entry per directive."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("x: U32 = 1\nCdhCore.cmdDisp.CMD_NO_OP()\n")
+    map_path = tmp_path / "seq.map.json"
+
+    fpy_main.compile_main(
+        [str(input_path), "-d", default_dictionary, "--source-map", str(map_path)]
+    )
+
+    data = input_path.with_suffix(".bin").read_bytes()
+    directives, _ = deserialize_directives(data)
+    smap = json.loads(map_path.read_text())
+    assert smap["crc"] == zlib.crc32(data[: -struct.calcsize(FOOTER_FORMAT)])
+    assert len(smap["directives"]) == len(directives)
+    lines = {e["line"] for e in smap["directives"] if e is not None}
+    assert {1, 2} <= lines
+    assert {e["file"] for e in smap["directives"] if e is not None} == {str(input_path)}
+
+
+def test_compile_main_source_map_requires_fpybin(tmp_path, capsys):
+    """--source-map with any other --emit is an error."""
+    input_path = tmp_path / "seq.fpy"
+    input_path.write_text("pass\n")
+
+    with pytest.raises(SystemExit) as exc:
+        fpy_main.compile_main(
+            [
+                str(input_path),
+                "-d",
+                default_dictionary,
+                "--emit",
+                "fpyasm",
+                "--source-map",
+                str(tmp_path / "seq.map.json"),
+            ]
+        )
+
+    assert exc.value.code == 1
+    assert "--source-map is only valid with --emit fpybin" in capsys.readouterr().err
+    assert not (tmp_path / "seq.map.json").exists()
 
 
 def test_assemble_main_missing_input(tmp_path, capsys):

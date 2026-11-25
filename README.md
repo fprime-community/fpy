@@ -724,6 +724,7 @@ Some useful compiler flags are:
 
 * `--emit {fpybin,fpyasm,llvm-ir,wasm,wat}`: output format. Defaults to `fpybin` (binary fpy bytecode); `fpyasm` emits human-readable bytecode assembly, and `llvm-ir`/`wasm`/`wat` emit the LLVM/WebAssembly backend outputs.
 * `--ignore` / `--error`: comma-separated warning types (or `all`) to silence or promote to hard errors.
+* `--source-map PATH`: write the binary's source map to `PATH` as JSON (only with `--emit fpybin`). The map holds the binary's CRC and, for each directive in order, the `file` and `line` of the statement that produced it (`null` if none).
 * `--debug`: print a stack trace of where each compile error is generated.
 
 ### `fprime-fpy-cmd`
