@@ -30,6 +30,7 @@ from fpy.compiler import (
     analyze_ast,
     text_to_ast,
     analysis_to_fpybc_directives,
+    fpybin_source_map,
 )
 from fpy.state import CompileState, get_base_compile_state
 from fpy.symbols import CommandSymbol, Symbol
@@ -233,6 +234,19 @@ def compile_main(args: list[str] = None):
         ),
     )
     arg_parser.add_argument(
+        "--source-map",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        dest="source_map",
+        help=(
+            "Also write a JSON source map of the fpybin to PATH: the binary's "
+            "CRC, and for each directive, in order, the file and line of the "
+            "statement that produced it (null if none). Only valid with "
+            "--emit fpybin."
+        ),
+    )
+    arg_parser.add_argument(
         "--debug",
         action="store_true",
         default=False,
@@ -260,6 +274,10 @@ def compile_main(args: list[str] = None):
 
     if parsed_args.debug:
         fpy.error.debug = True
+
+    if parsed_args.source_map is not None and parsed_args.emit != "fpybin":
+        print("--source-map is only valid with --emit fpybin", file=sys.stderr)
+        sys.exit(1)
 
     try:
         ignored_warnings = parse_warning_set(parsed_args.ignore)
@@ -332,6 +350,10 @@ def compile_main(args: list[str] = None):
             print(e, file=sys.stderr)
             sys.exit(1)
         output_path.write_bytes(output_bytes)
+        if parsed_args.source_map is not None:
+            parsed_args.source_map.write_text(
+                json.dumps(fpybin_source_map(output, crc), indent=2) + "\n"
+            )
         print(
             f"{output_path}\nCRC {hex(crc)} size {human_readable_size(len(output_bytes))}"
         )

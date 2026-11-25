@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from lark import Lark, LarkError
@@ -354,6 +355,35 @@ def analysis_to_fpybc_directives(
     return ir, state.this_seq_arg_specs
 
 
+def fpybin_source_map(directives: list[Directive], crc: int) -> dict:
+    """Describe where in the source each directive of an fpybin came from, as a
+    JSON-serializable object.
+
+    `crc` is the fpybin's CRC, so a map can be matched to the binary it
+    describes. `directives` holds one entry per directive, in order: the file
+    and 1-based line of the statement that produced it, or None if it was not
+    produced by a statement in a file. File paths are as the compiler recorded
+    them; relative paths are relative to the compiler's working directory."""
+    entries = []
+    for directive in directives:
+        meta = getattr(directive.source_node, "meta", None)
+        file_name = getattr(meta, "file_name", None)
+        line = getattr(meta, "line", None)
+        if file_name is None or line is None:
+            entries.append(None)
+        else:
+            entries.append({"file": file_name, "line": line})
+    return {"crc": crc, "directives": entries}
+
+
+@dataclass(frozen=True)
+class FpybinCompile:
+    """A sequence compiled to fpybin."""
+    data: bytes
+    crc: int
+    source_map: dict
+
+
 def compile_to_fpybin(
     source: str,
     dictionary: str,
@@ -364,9 +394,8 @@ def compile_to_fpybin(
     main_file_dir: str | None = None,
     main_file_path: str | None = None,
     default_time_base: str | None = None,
-) -> tuple[bytes, int]:
-    """Compile fpy source text against a dictionary to fpybin, returning the
-    serialized bytes and their CRC.
+) -> FpybinCompile:
+    """Compile fpy source text against a dictionary to fpybin.
 
     Raises CompileError or BackendError on failure."""
     fpy.error.file_name = main_file_path or "<string>"
@@ -386,9 +415,10 @@ def compile_to_fpybin(
     state = analyze_ast(body, state)
     directives, seq_arg_types = analysis_to_fpybc_directives(state)
     arg_specs = [(name, t.name, t.max_size) for name, t in seq_arg_types]
-    return serialize_directives(
+    output_bytes, crc = serialize_directives(
         directives, arg_specs, max_directive_size=state.max_directive_size
     )
+    return FpybinCompile(output_bytes, crc, fpybin_source_map(directives, crc))
 
 
 def analysis_to_llvm_module(

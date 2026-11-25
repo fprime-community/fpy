@@ -8,6 +8,7 @@ from fpy.compiler import (
     analysis_to_fpybc_directives,
     analyze_ast,
     compile_to_fpybin,
+    fpybin_source_map,
     text_to_ast,
 )
 from fpy.state import get_base_compile_state
@@ -29,15 +30,16 @@ def _manual(source: str) -> tuple[bytes, int]:
 
 def test_matches_manual_pipeline():
     source = (GOLDEN / "func_used.fpy").read_text()
-    assert compile_to_fpybin(source, DICT) == _manual(source)
+    result = compile_to_fpybin(source, DICT)
+    assert (result.data, result.crc) == _manual(source)
 
 
 def test_deserialize_bytes():
     source = (GOLDEN / "func_used.fpy").read_text()
-    data, crc = compile_to_fpybin(source, DICT)
-    assert isinstance(data, bytes) and len(data) > 0
-    assert isinstance(crc, int)
-    directives, _arg_type_names = deserialize_directives(data)
+    result = compile_to_fpybin(source, DICT)
+    assert isinstance(result.data, bytes) and len(result.data) > 0
+    assert isinstance(result.crc, int)
+    directives, _arg_type_names = deserialize_directives(result.data)
     assert len(directives) > 0
 
 
@@ -97,3 +99,49 @@ def test_directives_record_originating_file(tmp_path, monkeypatch):
         (lib, 3),  # y += 1  (desugared)
         (lib, 4),  # return y
     }
+
+
+def test_source_map_locates_each_directive(tmp_path):
+    """The source map has one entry per directive, each naming the file and
+    line it came from, including lines in an imported file."""
+    lib = tmp_path / "lib.fpy"
+    lib.write_text(
+        "\n".join(
+            [
+                "def bump(x: U64) -> U64:",
+                "    y: U64 = x",
+                "    y += 1",
+                "    return y",
+                "",
+            ]
+        )
+    )
+    driver = str(tmp_path / "driver.fpy")
+    source = "from .lib import bump\n\nassert bump(1) == 2\n"
+
+    result = compile_to_fpybin(
+        source, DICT, main_file_dir=str(tmp_path), main_file_path=driver
+    )
+
+    smap = result.source_map
+    assert smap["crc"] == result.crc
+    directives, _ = deserialize_directives(result.data)
+    assert len(smap["directives"]) == len(directives)
+    located = {(e["file"], e["line"]) for e in smap["directives"] if e is not None}
+    # Code generated for the whole sequence is attributed to its first line.
+    assert located == {
+        (driver, 1),  # from .lib import bump
+        (driver, 3),  # assert bump(1) == 2
+        (str(lib.resolve()), 2),  # y: U64 = x
+        (str(lib.resolve()), 3),  # y += 1
+        (str(lib.resolve()), 4),  # return y
+    }
+
+
+def test_source_map_entry_without_source_is_none():
+    """A directive with no originating statement has a None entry."""
+
+    class Bare:
+        source_node = None
+
+    assert fpybin_source_map([Bare()], 7) == {"crc": 7, "directives": [None]}
