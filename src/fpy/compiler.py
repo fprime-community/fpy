@@ -362,14 +362,17 @@ def fpybin_source_map(directives: list[Directive], crc: int) -> dict:
     `crc` is the fpybin's CRC, so a map can be matched to the binary it
     describes. `directives` holds one entry per directive, in order: the file
     and 1-based line of the statement that produced it, or None if it was not
-    produced by a statement in a file. File paths are as the compiler recorded
-    them; relative paths are relative to the compiler's working directory."""
+    produced by a statement in a file (e.g. one a block generates for itself,
+    such as the main sequence's frame allocation and exit). File paths are as
+    the compiler recorded them; relative paths are relative to the compiler's
+    working directory."""
     entries = []
     for directive in directives:
-        meta = getattr(directive.source_node, "meta", None)
+        node = directive.source_node
+        meta = getattr(node, "meta", None)
         file_name = getattr(meta, "file_name", None)
         line = getattr(meta, "line", None)
-        if file_name is None or line is None:
+        if isinstance(node, AstBlock) or file_name is None or line is None:
             entries.append(None)
         else:
             entries.append({"file": file_name, "line": line})

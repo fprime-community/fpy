@@ -128,14 +128,28 @@ def test_source_map_locates_each_directive(tmp_path):
     directives, _ = deserialize_directives(result.data)
     assert len(smap["directives"]) == len(directives)
     located = {(e["file"], e["line"]) for e in smap["directives"] if e is not None}
-    # Code generated for the whole sequence is attributed to its first line.
     assert located == {
-        (driver, 1),  # from .lib import bump
         (driver, 3),  # assert bump(1) == 2
         (str(lib.resolve()), 2),  # y: U64 = x
         (str(lib.resolve()), 3),  # y += 1
         (str(lib.resolve()), 4),  # return y
     }
+
+
+def test_source_map_omits_block_directives(tmp_path):
+    """Directives a block generates for itself, such as the main sequence's
+    frame allocation and exit, have None entries rather than the block's first
+    line, here a comment."""
+    driver = str(tmp_path / "driver.fpy")
+    source = "# a comment\nx: U32 = 1\nif x == 1:\n    CdhCore.cmdDisp.CMD_NO_OP()\n"
+
+    result = compile_to_fpybin(
+        source, DICT, main_file_dir=str(tmp_path), main_file_path=driver
+    )
+
+    entries = result.source_map["directives"]
+    assert {e["line"] for e in entries if e is not None} == {2, 3, 4}
+    assert None in entries
 
 
 def test_source_map_entry_without_source_is_none():
