@@ -379,6 +379,7 @@ def fpybin_source_map(directives: list[Directive], crc: int) -> dict:
 @dataclass(frozen=True)
 class FpybinCompile:
     """A sequence compiled to fpybin."""
+
     data: bytes
     crc: int
     source_map: dict
